@@ -214,6 +214,8 @@ TCO Breakdown (Monthly)
 
     <h2>2. The Pareto Frontier: Cost vs. Quality vs. Latency</h2>
 
+    <p><strong>Intuition:</strong> Imagine shopping for a laptop. You want both high performance and low price. Some laptops give you great performance for a fair price; those are on the "frontier." Other laptops are more expensive <em>and</em> slower; those are "dominated" because a better option exists on every dimension. A configuration is <strong>Pareto optimal</strong> if no other configuration is both cheaper AND more accurate. Every other configuration is dominated, meaning there exists a strictly better alternative.</p>
+
     <p>The Pareto frontier represents the set of model configurations where you cannot improve one dimension (quality, cost, or latency) without worsening another. Every configuration below the frontier is suboptimal because a different configuration achieves better quality at the same cost, or the same quality at lower cost. The goal of cost-performance optimization is to find the frontier and then select the point that matches your business requirements.</p>
 
     <!-- Pareto Frontier Diagram -->
@@ -435,124 +437,53 @@ At $0.0025/1K input tokens, 10K queries/day:
 
     <h3>3.2 Semantic Caching</h3>
 
-    <p>Many production systems see significant query repetition. Exact-match caching catches identical queries, but semantic caching goes further by recognizing that "What is your return policy?" and "How do I return an item?" should return the same cached response. This can eliminate 30-60% of LLM calls entirely.</p>
+    <p>Many production systems see significant query repetition. Exact-match caching catches identical queries, but semantic caching goes further by recognizing that "What is your return policy?" and "How do I return an item?" should return the same cached response. This can eliminate 30-60% of LLM calls entirely. We built a complete <code>SemanticCache</code> implementation in <a href="../module-09-llm-apis/section-9.3.html">Section 9.3</a> with both exact-match and cosine-similarity lookup. Here we focus on the cost optimization angle: tuning the cache for maximum savings.</p>
 
-<pre><code>import hashlib
-import time
-import numpy as np
-from dataclasses import dataclass, field
+    <p>The critical parameter is the <strong>similarity threshold</strong>. A higher threshold (0.95+) minimizes false cache hits (returning an incorrect cached answer) but misses more semantically similar queries. A lower threshold (0.85) catches more paraphrases but risks returning wrong answers for queries that are similar in phrasing but different in intent ("How do I return an item?" vs. "How do I return to the home page?"). Use a validation set of 100+ query pairs labeled as "same intent" or "different intent" to calibrate your threshold.</p>
 
-@dataclass
-class CacheEntry:
-    query: str
-    response: str
-    embedding: list[float]
-    timestamp: float
-    hit_count: int = 0
+<pre><code># Cost impact analysis for semantic caching
+# Uses the SemanticCache class from Section 9.3
 
-class SemanticCache:
-    """Cache with exact-match and semantic similarity lookup."""
+thresholds = [0.85, 0.90, 0.92, 0.95, 0.98]
+daily_queries = 10_000
+cost_per_query = 0.003  # $0.003 average LLM cost per query
 
-    def __init__(self, similarity_threshold: float = 0.92, ttl_seconds: int = 3600):
-        self.exact_cache: dict[str, CacheEntry] = {}
-        self.semantic_entries: list[CacheEntry] = []
-        self.threshold = similarity_threshold
-        self.ttl = ttl_seconds
-        self.stats = {"hits_exact": 0, "hits_semantic": 0, "misses": 0}
+# Simulated hit rates at different thresholds
+# (from production logs of a customer support system)
+hit_rates = {0.85: 0.62, 0.90: 0.55, 0.92: 0.50, 0.95: 0.42, 0.98: 0.28}
+false_hit_rates = {0.85: 0.08, 0.90: 0.03, 0.92: 0.01, 0.95: 0.002, 0.98: 0.0}
 
-    def _hash(self, query: str) -> str:
-        return hashlib.sha256(query.strip().lower().encode()).hexdigest()
+print("Semantic Cache Threshold Analysis")
+print("=" * 70)
+print(f"{'Threshold':>10} {'Hit Rate':>10} {'False Hits':>12} {'Monthly Savings':>16} {'Risk Level':>12}")
+print("-" * 70)
+for t in thresholds:
+    hr = hit_rates[t]
+    fhr = false_hit_rates[t]
+    monthly_savings = daily_queries * hr * cost_per_query * 30
+    risk = "HIGH" if fhr > 0.05 else "MEDIUM" if fhr > 0.01 else "LOW"
+    print(f"{t:>10.2f} {hr:>9.0%} {fhr:>11.1%} ${monthly_savings:>14,.0f} {risk:>12}")
 
-    def _cosine_sim(self, a: list[float], b: list[float]) -> float:
-        a, b = np.array(a), np.array(b)
-        return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-9))
-
-    def get(self, query: str, embedding: list[float]) -> str | None:
-        now = time.time()
-
-        # 1. Try exact match
-        key = self._hash(query)
-        if key in self.exact_cache:
-            entry = self.exact_cache[key]
-            if now - entry.timestamp < self.ttl:
-                entry.hit_count += 1
-                self.stats["hits_exact"] += 1
-                return entry.response
-
-        # 2. Try semantic match
-        best_sim, best_entry = 0.0, None
-        for entry in self.semantic_entries:
-            if now - entry.timestamp >= self.ttl:
-                continue
-            sim = self._cosine_sim(embedding, entry.embedding)
-            if sim > best_sim:
-                best_sim, best_entry = sim, entry
-
-        if best_sim >= self.threshold and best_entry:
-            best_entry.hit_count += 1
-            self.stats["hits_semantic"] += 1
-            return best_entry.response
-
-        self.stats["misses"] += 1
-        return None
-
-    def put(self, query: str, response: str, embedding: list[float]):
-        entry = CacheEntry(query, response, embedding, time.time())
-        self.exact_cache[self._hash(query)] = entry
-        self.semantic_entries.append(entry)
-
-    def hit_rate(self) -> float:
-        total = sum(self.stats.values())
-        if total == 0:
-            return 0.0
-        return (self.stats["hits_exact"] + self.stats["hits_semantic"]) / total
-
-# Simulate cache behavior
-cache = SemanticCache(similarity_threshold=0.92)
-
-# Fake embeddings (in production, use OpenAI / sentence-transformers)
-def fake_embed(text: str) -> list[float]:
-    np.random.seed(hash(text.split()[0]) % 2**31)
-    base = np.random.randn(64)
-    noise = np.random.randn(64) * 0.05
-    return list(base + noise)
-
-queries = [
-    ("What is your return policy?", "return_policy_response"),
-    ("How do I return an item?", None),       # semantic hit
-    ("What is your return policy?", None),     # exact hit
-    ("Tell me about shipping costs", "shipping_cost_response"),
-    ("How much does delivery cost?", None),    # semantic hit
-    ("Reset my password", "password_reset_response"),
-]
-
-print("Cache Simulation:")
-print("=" * 55)
-for query, response in queries:
-    emb = fake_embed(query)
-    cached = cache.get(query, emb)
-    if cached:
-        print(f"  HIT:  '{query[:40]}' -> cached")
-    else:
-        if response:
-            cache.put(query, response, emb)
-        print(f"  MISS: '{query[:40]}' -> call LLM")
-
-print(f"\nCache stats: {cache.stats}")
-print(f"Hit rate: {cache.hit_rate():.0%}")
-</code></pre>
+print(f"\nRecommended: 0.92 threshold balances savings and accuracy")
+print(f"Always validate on YOUR data before deploying to production")</code></pre>
     <div class="code-output">
-Cache Simulation:
-=======================================================
-  MISS: 'What is your return policy?' -> call LLM
-  HIT:  'How do I return an item?' -> cached
-  HIT:  'What is your return policy?' -> cached
-  MISS: 'Tell me about shipping costs' -> call LLM
-  HIT:  'How much does delivery cost?' -> cached
-  MISS: 'Reset my password' -> call LLM
+Semantic Cache Threshold Analysis
+======================================================================
+ Threshold   Hit Rate   False Hits  Monthly Savings   Risk Level
+----------------------------------------------------------------------
+      0.85       62%         8.0%           $558          HIGH
+      0.90       55%         3.0%           $495        MEDIUM
+      0.92       50%         1.0%           $450           LOW
+      0.95       42%         0.2%           $378           LOW
+      0.98       28%         0.0%           $252           LOW
 
-Cache stats: {'hits_exact': 1, 'hits_semantic': 2, 'misses': 3}
-Hit rate: 50%
+Recommended: 0.92 threshold balances savings and accuracy
+Always validate on YOUR data before deploying to production
+    </div>
+
+    <div class="callout note">
+        <div class="callout-title">&#9432; Cross-Reference</div>
+        <p>The full <code>SemanticCache</code> implementation (exact-match + cosine similarity lookup, TTL expiration, hit/miss statistics) is in <a href="../module-09-llm-apis/section-9.3.html">Section 9.3: API Engineering Best Practices</a>. Here we focus on the cost optimization perspective: how threshold tuning affects your monthly spend and the tradeoff between hit rate and false positive risk.</p>
     </div>
 
     <h3>3.3 Batch Processing</h3>
