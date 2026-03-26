@@ -25,7 +25,7 @@ A comprehensive, hands-on textbook covering modern Large Language Model technolo
 ```
 LLMBook/
 ├── index.html                              # Interactive syllabus (GitHub Pages)
-├── syllabus.html                           # Source syllabus
+├── index.html                           # Source syllabus
 ├── part-1-foundations/
 │   ├── module-00-ml-pytorch-foundations/
 │   ├── module-01-foundations-nlp-text-representation/
