@@ -77,13 +77,21 @@ LLMBook/
 
 ## How This Book Is Built
 
-Each chapter is produced by a 19-agent AI team orchestrated through 5 stages:
+Each chapter is produced by a **36-agent AI team** orchestrated through **13 phases** ([meet the team](https://apartsinprojects.github.io/LLMBook/team.html)):
 
-1. **Planning**: Curriculum alignment, deep explanation design, teaching flow review
-2. **Content Building**: Examples, code, visuals, exercises
-3. **Learning Quality Review**: Student advocate, cognitive load optimizer, misconception analyst, research scientist
-4. **Integrity Check**: Fact checker, terminology keeper, cross-reference architect
-5. **Final Polish**: Narrative continuity, style/voice, engagement, senior developmental editor
+1. **Setup**: Chapter Lead defines scope, outline, and coordination plan
+2. **Planning**: Curriculum alignment, deep explanation design, teaching flow review
+3. **Content Building**: Examples and analogies, code pedagogy, visual learning, exercises
+4. **Structural Review**: Book-level organization and coherence
+5. **Self-Containment**: Prerequisite availability verification
+6. **Engagement & Memorability**: Title/hook design, first-page conversion, aha-moments, project catalysts, demos, mnemonics
+7. **Writing Clarity**: Plain-language rewriting, sentence flow, jargon gating, micro-chunking, fatigue detection
+8. **Learning Quality Review**: Student advocate, cognitive load optimizer, misconception analyst, research scientist
+9. **Integrity Check**: Fact checker, terminology keeper, cross-reference architect
+10. **Visual Identity**: Brand consistency across all figures and callouts
+11. **Final Polish**: Narrative continuity, style/voice, engagement, senior developmental editor
+12. **Frontier & Currency**: Research frontier mapping, content update scouting
+13. **Quality Challenge**: Skeptical reader challenges distinctiveness and quality
 
 ## Target Audience
 
