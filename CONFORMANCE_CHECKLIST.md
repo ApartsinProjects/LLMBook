@@ -99,6 +99,15 @@ Every `index.html` (module level):
 - [ ] Maximum 5 to 6 callout boxes per section (avoid overloading the page)
 - [ ] Every callout box is referenced or connected to surrounding prose text
 - [ ] Each callout type has a visually distinct background, icon, and border color
+- [ ] Canonical callout-title icons (HTML entities in the `.callout-title` div):
+  1. `big-picture`: `&#9733; Big Picture` (★ star)
+  2. `key-insight`: `&#128161; Key Insight` (💡 lightbulb)
+  3. `note`: `&#128221; Note` (📝 memo)
+  4. `warning`: `&#9888; Warning` (⚠ warning sign)
+  5. `practical-example`: `&#x1F3D7;&#xFE0F; Application Example` (🏗️ construction)
+  6. `fun-note`: `&#127914; Fun Fact` (🎪 circus tent)
+  7. `research-frontier`: `&#128300; Research Frontier` (🔬 microscope)
+- [ ] Icon must appear as the first character(s) in the `.callout-title` text, followed by a space and the title word(s)
 
 ## E. Code Blocks and Captions
 
@@ -431,3 +440,4 @@ All editor agents must check before adding content:
 | 2026-03-27 | Added inline style elimination rule (use CSS classes, not style=) | User observation |
 | 2026-03-27 | Comprehensive rewrite: elicited all requirements from full conversation history (12,462 lines, 133 user messages) via Meta Agent (Agent 41) | Conversation transcript analysis |
 | 2026-03-27 | Added: 7 canonical callout types (was 6, added research-frontier), epigraph attribution rules, prerequisites prose format, bibliography card format, figure/code numbering alignment, progressive depth cross-linking table, idempotency rules, element ordering, lab requirements, book-specific sections (Module 26 split, content tiers, tech stack, badge system, color palette, typography) | Extracted from user directives MSG 0 through MSG 133 |
+| 2026-03-27 | Added canonical callout-title icons: 7 specific HTML entity icons for each callout type (star, lightbulb, memo, warning, construction, circus tent, microscope) | User request for icon consistency |
