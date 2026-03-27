@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate avatar images for all 39 agents using Gemini."""
+"""Generate avatar images for all 42 agents using Gemini."""
 
 import subprocess
 import sys
@@ -52,6 +52,7 @@ AGENTS = [
     ("38-application-example", "a Nigerian female business consultant named Nadia with a blazer, holding case study folders, standing in front of industry charts"),
     ("39-fun-injector", "a charismatic mixed-race male comedian named Ziggy with wild curly hair, colorful suspenders, holding a rubber chicken in one hand and a textbook in the other, winking"),
     ("40-bibliography", "a distinguished older white female librarian named Margot with silver hair in a French twist, reading glasses on a chain, surrounded by floating hyperlinked book spines and glowing citation marks"),
+    ("41-meta-agent", "a sharp-eyed Middle Eastern female auditor named Audra with dark hair in a sleek bun, wearing a tailored charcoal suit, holding a magnifying glass over a grid of agent report cards, with green and red marks visible"),
 ]
 
 BASE_STYLE = "Digital art avatar portrait, Kurzgesagt-inspired minimal cartoon style, clean vector lines, vibrant flat colors, circular composition, gradient background, friendly and professional, no text"
