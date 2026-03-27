@@ -50,6 +50,8 @@ AGENTS = [
     ("36-illustrator", "a French female artist named Iris with paint-stained apron, wild colorful hair, surrounded by floating illustrations and paintbrushes"),
     ("37-epigraph-writer", "a British male poet named Quentin with a quill pen, sitting in a leather armchair, chuckling at his own witty writing"),
     ("38-application-example", "a Nigerian female business consultant named Nadia with a blazer, holding case study folders, standing in front of industry charts"),
+    ("39-fun-injector", "a charismatic mixed-race male comedian named Ziggy with wild curly hair, colorful suspenders, holding a rubber chicken in one hand and a textbook in the other, winking"),
+    ("40-bibliography", "a distinguished older white female librarian named Margot with silver hair in a French twist, reading glasses on a chain, surrounded by floating hyperlinked book spines and glowing citation marks"),
 ]
 
 BASE_STYLE = "Digital art avatar portrait, Kurzgesagt-inspired minimal cartoon style, clean vector lines, vibrant flat colors, circular composition, gradient background, friendly and professional, no text"
