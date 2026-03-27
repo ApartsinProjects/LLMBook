@@ -118,7 +118,7 @@ pre { background: var(--code-bg); color: var(--code-text); padding: 1.5rem; bord
     </p>
 
     <p>
-        In practice, DoRA consistently outperforms LoRA by 1-3% across benchmarks when using the same rank and target modules, with only a marginal increase in trainable parameters (the additional magnitude vectors are tiny). The training speed is nearly identical to LoRA.
+        In practice, DoRA consistently outperforms LoRA by 1-3% across benchmarks when using the same rank and target modules, with only a marginal increase in trainable parameters (the additional magnitude vectors are tiny). The training speed is nearly identical to LoRA. Figure 14.2.1 compares the LoRA and DoRA weight update mechanisms.
     </p>
 
     <div class="diagram-container">
@@ -268,7 +268,7 @@ optimizer = torch.optim.AdamW([
     </p>
 
     <p>
-        The prefix length (number of virtual tokens) controls the method's capacity. Typical values range from 10 to 100. Longer prefixes allow more expressive adaptation but increase the effective sequence length and thus the computational cost of each forward pass.
+        The prefix length (number of virtual tokens) controls the method's capacity. Typical values range from 10 to 100. Longer prefixes allow more expressive adaptation but increase the effective sequence length and thus the computational cost of each forward pass. Figure 14.2.2 shows how these learnable key-value pairs are prepended to each attention layer.
     </p>
 
     <div class="diagram-container">
@@ -482,6 +482,8 @@ model.print_trainable_parameters()
 
     <h3>7.1 Architecture Overview</h3>
 
+    <p>Figure 14.2.3 illustrates how a single base model serves multiple LoRA adapters dynamically at request time.</p>
+
     <div class="diagram-container">
         <svg viewBox="0 0 700 320" xmlns="http://www.w3.org/2000/svg" font-family="Georgia, serif">
             <text x="350" y="25" text-anchor="middle" font-size="15" font-weight="bold" fill="#333">Multi-Adapter Serving Architecture</text>
@@ -559,6 +561,114 @@ model.print_trainable_parameters()
     <div class="callout note">
         <div class="callout-title">&#9432; Note</div>
         <p>When in doubt, start with LoRA. It has the widest library support, the most documentation, and works well across virtually all tasks and model sizes. Move to specialized methods only when you have a specific constraint (memory, serving architecture, parameter count) that LoRA cannot satisfy.</p>
+    </div>
+
+    <h2>9. GaLore: Gradient Low-Rank Projection</h2>
+
+    <p>
+        While LoRA reduces the number of trainable parameters by adding low-rank adapters, GaLore (Gradient Low-Rank Projection) takes a fundamentally different approach: it reduces optimizer memory by projecting gradients into a low-rank subspace. This distinction matters because optimizer states (momentum and variance in Adam) typically consume two to three times the memory of the parameters themselves. GaLore enables full-parameter training of large models on consumer hardware, something that LoRA alone cannot achieve because LoRA still freezes the base model and only updates the adapter.
+    </p>
+
+    <h3>9.1 How GaLore Works</h3>
+
+    <p>
+        During training, GaLore periodically computes the SVD of the gradient matrix for each weight layer, retaining only the top-r singular vectors. The optimizer states (Adam's first and second moments) are maintained in this reduced r-dimensional space rather than the full parameter space. Every T steps (typically T=200), the projection matrices are recomputed from the current gradient to track the evolving optimization landscape. The key insight is that gradient matrices during LLM training tend to be approximately low-rank, so very little information is lost by this projection.
+    </p>
+
+<pre><code># GaLore conceptual implementation
+import torch
+
+class GaLoreProjector:
+    """Project gradients to low-rank subspace for memory-efficient training."""
+
+    def __init__(self, rank: int, update_freq: int = 200):
+        self.rank = rank
+        self.update_freq = update_freq
+        self.step = 0
+        self.projector = None
+
+    def project(self, grad: torch.Tensor) -> torch.Tensor:
+        """Project full gradient to low-rank subspace."""
+        if self.step % self.update_freq == 0:
+            # Recompute projection via SVD
+            U, S, Vh = torch.linalg.svd(grad, full_matrices=False)
+            self.projector = U[:, :self.rank]
+
+        self.step += 1
+        # Project gradient: (d, r) @ (r, d) is never formed explicitly
+        return self.projector.T @ grad  # shape: (rank, d_out)
+
+    def back_project(self, low_rank_update: torch.Tensor) -> torch.Tensor:
+        """Map low-rank update back to full parameter space."""
+        return self.projector @ low_rank_update</code></pre>
+
+    <p>
+        The memory savings are substantial. For a 7B parameter model, standard Adam requires roughly 42 GB of optimizer state memory (two copies of all parameters in float32). With GaLore at rank 128, the optimizer states shrink to approximately 2 to 4 GB, enabling full-parameter training of 7B models on a single 24 GB GPU. The authors demonstrated that GaLore can pre-train LLaMA models up to 7B parameters on a single GPU with no loss in quality compared to full-rank Adam.
+    </p>
+
+    <div class="callout key-insight">
+        <div class="callout-title">&#9733; Key Insight</div>
+        <p>GaLore and LoRA solve different problems. LoRA reduces the number of trainable parameters by adding small adapters. GaLore reduces optimizer memory by projecting gradients into a low-rank space while still updating all parameters. You can combine both: use GaLore for pre-training or full fine-tuning, and LoRA for lightweight adaptation where you want a modular, hot-swappable adapter.</p>
+    </div>
+
+    <h2>10. rsLoRA: Rank-Stabilized LoRA</h2>
+
+    <p>
+        Standard LoRA initializes the low-rank matrices A and B such that the adapter output is scaled by a fixed factor &alpha;/r, where &alpha; is a hyperparameter and r is the rank. This scaling creates a practical problem: when you change the rank, the effective magnitude of the adapter's contribution changes, requiring you to re-tune the learning rate and &alpha; for each rank setting. This makes rank selection tedious and error-prone.
+    </p>
+
+    <p>
+        rsLoRA (rank-stabilized LoRA) addresses this by changing the scaling factor from &alpha;/r to &alpha;/&radic;r. This seemingly small modification has a significant theoretical and practical impact. The &radic;r scaling ensures that the adapter's output magnitude remains stable as the rank changes, because the variance of the product BA scales proportionally with r under random initialization. With &alpha;/&radic;r scaling, doubling the rank does not double the adapter's contribution; it increases it by only &radic;2, which is the correct normalization for maintaining stable training dynamics.
+    </p>
+
+<pre><code># rsLoRA vs standard LoRA scaling comparison
+import torch
+import math
+
+def lora_forward(x, A, B, alpha, rank, use_rslora=False):
+    """Compare standard LoRA and rsLoRA scaling."""
+    lora_output = x @ A @ B  # shape: (batch, d_out)
+
+    if use_rslora:
+        # rsLoRA: scale by alpha / sqrt(rank)
+        scaling = alpha / math.sqrt(rank)
+    else:
+        # Standard LoRA: scale by alpha / rank
+        scaling = alpha / rank
+
+    return lora_output * scaling
+
+# Demonstrate stability across ranks
+d_in, d_out, alpha = 4096, 4096, 16.0
+x = torch.randn(1, d_in)
+
+for rank in [4, 16, 64, 256]:
+    A = torch.randn(d_in, rank) * 0.01
+    B = torch.randn(rank, d_out) * 0.01
+
+    std_out = lora_forward(x, A, B, alpha, rank, use_rslora=False)
+    rs_out = lora_forward(x, A, B, alpha, rank, use_rslora=True)
+
+    print(f"rank={rank:3d}  standard_norm={std_out.norm():.4f}"
+          f"  rslora_norm={rs_out.norm():.4f}")</code></pre>
+
+    <p>
+        The practical benefit is straightforward: with rsLoRA, you can change the rank without retuning other hyperparameters. A learning rate and &alpha; that work well at rank 16 will also work well at rank 64 or rank 256. This makes hyperparameter search much faster, because you can tune the learning rate at a low rank (which trains quickly) and then scale up the rank for higher quality without adjusting anything else. rsLoRA is available in PEFT via the <code>use_rslora=True</code> parameter in <code>LoraConfig</code>.
+    </p>
+
+    <table>
+        <tr><th>Property</th><th>Standard LoRA</th><th>rsLoRA</th><th>GaLore</th></tr>
+        <tr><td>What it optimizes</td><td>Parameter count</td><td>Parameter count</td><td>Optimizer memory</td></tr>
+        <tr><td>Scaling factor</td><td>&alpha;/r</td><td>&alpha;/&radic;r</td><td>N/A (full params)</td></tr>
+        <tr><td>Rank-stable?</td><td>No (retune per rank)</td><td>Yes</td><td>Yes</td></tr>
+        <tr><td>Updates base weights?</td><td>No (adapter only)</td><td>No (adapter only)</td><td>Yes (all params)</td></tr>
+        <tr><td>Typical use case</td><td>Fine-tuning</td><td>Fine-tuning</td><td>Pre-training, full fine-tuning</td></tr>
+        <tr><td>Library support</td><td>PEFT, Unsloth</td><td>PEFT (use_rslora=True)</td><td>galore-torch, PEFT</td></tr>
+    </table>
+
+    <div class="callout note">
+        <div class="callout-title">&#9432; Note</div>
+        <p>rsLoRA is a drop-in improvement with no computational overhead. If you are using PEFT's <code>LoraConfig</code>, simply add <code>use_rslora=True</code> and your adapter scaling will be rank-stable. There is no reason not to enable it for any new LoRA training run. GaLore requires more setup (a custom optimizer) but enables training regimes that are otherwise impossible on limited hardware.</p>
     </div>
 
     <!-- Quiz Section -->
