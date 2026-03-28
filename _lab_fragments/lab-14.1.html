@@ -1,0 +1,271 @@
+
+<section class="lab" id="lab-14-1">
+  <h2>Hands-On Lab: Fine-Tune a Model with LoRA and Compare Rank Settings</h2>
+  <div class="lab-meta">
+    <span class="lab-duration">Duration: ~60 minutes</span>
+    <span class="lab-difficulty">Intermediate</span>
+  </div>
+
+  <div class="lab-objective">
+    <h3>Objective</h3>
+    <p>Apply LoRA adapters to a language model using PEFT, train on a small dataset, and compare how different rank values (r=4, r=16, r=64) affect trainable parameter count, memory usage, and output quality.</p>
+  </div>
+
+  <div class="lab-skills">
+    <h3>What You'll Practice</h3>
+    <ul>
+      <li>Configuring LoRA with the PEFT library (target chapters, rank, alpha)</li>
+      <li>Inspecting trainable vs. frozen parameter counts</li>
+      <li>Training LoRA adapters with SFTTrainer</li>
+      <li>Saving, reloading, and merging adapters into the base model</li>
+      <li>Comparing rank settings on quality and efficiency metrics</li>
+    </ul>
+  </div>
+
+  <div class="lab-prereqs">
+    <h3>Setup</h3>
+    <pre><code class="language-bash">pip install transformers trl peft datasets accelerate torch bitsandbytes</code></pre>
+  </div>
+
+  <div class="lab-steps">
+    <h3>Steps</h3>
+
+    <div class="lab-step">
+      <h4>Step 1: Load the base model and apply LoRA</h4>
+      <p>Load a small model and wrap it with a LoRA configuration. Inspect the parameter counts to see how few parameters are actually trainable.</p>
+      <pre><code class="language-python">from transformers import AutoModelForCausalLM, AutoTokenizer
+from peft import LoraConfig, get_peft_model, TaskType
+import torch
+
+model_name = "HuggingFaceTB/SmolLM2-135M-Instruct"
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+if tokenizer.pad_token is None:
+    tokenizer.pad_token = tokenizer.eos_token
+
+base_model = AutoModelForCausalLM.from_pretrained(
+    model_name, torch_dtype=torch.float16, device_map="auto"
+)
+
+# TODO: Create a LoraConfig with rank=16, alpha=32
+lora_config = LoraConfig(
+    r=16,
+    lora_alpha=32,
+    target_modules=["q_proj", "v_proj"],
+    task_type=TaskType.CAUSAL_LM,
+    lora_dropout=0.05,
+    bias="none"
+)
+
+model = get_peft_model(base_model, lora_config)
+model.print_trainable_parameters()
+</code></pre>
+      <details>
+        <summary>Hint</summary>
+        <p>The <code>print_trainable_parameters()</code> method shows something like "trainable params: 131,072 || all params: 135,000,000 || trainable%: 0.097". Only the LoRA matrices are trainable; everything else is frozen.</p>
+      </details>
+    </div>
+
+    <div class="lab-step">
+      <h4>Step 2: Compare parameter counts across ranks</h4>
+      <p>Create LoRA configs with different ranks and compare the trainable parameter counts.</p>
+      <pre><code class="language-python">import pandas as pd
+
+ranks = [4, 8, 16, 32, 64]
+results = []
+
+for r in ranks:
+    base = AutoModelForCausalLM.from_pretrained(
+        model_name, torch_dtype=torch.float16, device_map="auto")
+    config = LoraConfig(r=r, lora_alpha=r * 2,
+        target_modules=["q_proj", "v_proj"],
+        task_type=TaskType.CAUSAL_LM, lora_dropout=0.05, bias="none")
+    pm = get_peft_model(base, config)
+
+    # TODO: Extract trainable and total parameter counts
+    trainable = sum(p.numel() for p in pm.parameters() if p.requires_grad)
+    total = sum(p.numel() for p in pm.parameters())
+    results.append({"rank": r, "trainable": trainable,
+                    "total": total, "pct": f"{trainable/total*100:.4f}%"})
+    del pm, base
+    torch.cuda.empty_cache()
+
+df = pd.DataFrame(results)
+print(df.to_string(index=False))
+</code></pre>
+      <details>
+        <summary>Hint</summary>
+        <p>Notice how trainable parameters scale linearly with rank. Doubling the rank roughly doubles the trainable parameter count. The common heuristic <code>alpha = 2 * rank</code> keeps the effective learning rate stable across rank settings.</p>
+      </details>
+    </div>
+
+    <div class="lab-step">
+      <h4>Step 3: Train a LoRA adapter</h4>
+      <p>Fine-tune the LoRA adapter (r=16) on a small dataset.</p>
+      <pre><code class="language-python">from trl import SFTTrainer, SFTConfig
+from datasets import load_dataset
+
+dataset = load_dataset("HuggingFaceH4/no_robots", split="train")
+dataset = dataset.shuffle(seed=42).select(range(300))
+
+def format_chat(example):
+    return {"text": tokenizer.apply_chat_template(
+        example["messages"], tokenize=False, add_generation_prompt=False)}
+
+formatted = dataset.map(format_chat)
+
+# TODO: Configure training (use higher LR than full fine-tuning)
+training_args = SFTConfig(
+    output_dir="./lora-smollm2-r16",
+    num_train_epochs=3,
+    per_device_train_batch_size=4,
+    gradient_accumulation_steps=2,
+    learning_rate=2e-4,  # 10x higher than full FT
+    logging_steps=10,
+    max_seq_length=512,
+    fp16=True,
+    warmup_ratio=0.1,
+    save_strategy="epoch",
+    report_to="none",
+)
+
+trainer = SFTTrainer(model=model, args=training_args,
+    train_dataset=formatted, processing_class=tokenizer)
+result = trainer.train()
+print(f"Training loss: {result.training_loss:.4f}")
+</code></pre>
+      <details>
+        <summary>Hint</summary>
+        <p>LoRA typically uses 5x to 10x higher learning rate than full fine-tuning because only the small adapter matrices receive gradients. A learning rate of 2e-4 is a good starting point.</p>
+      </details>
+    </div>
+
+    <div class="lab-step">
+      <h4>Step 4: Save and merge the LoRA adapter</h4>
+      <p>Save the adapter weights (only a few KB), then reload and merge them into the base model.</p>
+      <pre><code class="language-python">import os
+from peft import PeftModel
+
+# Save adapter only
+model.save_pretrained("./lora-adapter-r16")
+adapter_size = sum(
+    os.path.getsize(os.path.join("./lora-adapter-r16", f))
+    for f in os.listdir("./lora-adapter-r16")
+    if f.endswith(('.safetensors', '.bin')))
+print(f"Adapter size: {adapter_size / 1024:.1f} KB")
+
+# Reload base model and merge adapter
+base_fresh = AutoModelForCausalLM.from_pretrained(
+    model_name, torch_dtype=torch.float16, device_map="auto")
+peft_model = PeftModel.from_pretrained(base_fresh, "./lora-adapter-r16")
+merged_model = peft_model.merge_and_unload()
+print("Adapter merged successfully!")
+</code></pre>
+      <details>
+        <summary>Hint</summary>
+        <p>The <code>merge_and_unload()</code> method folds the LoRA weights into the base model, producing a standard model that can be used without the PEFT library at inference time.</p>
+      </details>
+    </div>
+
+    <div class="lab-step">
+      <h4>Step 5: Test the merged model</h4>
+      <p>Generate responses and compare with the base model.</p>
+      <pre><code class="language-python">test_prompts = [
+    "Explain photosynthesis to a 10-year-old.",
+    "Write a short email declining a meeting politely.",
+    "List 3 advantages of renewable energy.",
+]
+
+for prompt in test_prompts:
+    messages = [{"role": "user", "content": prompt}]
+    fmt = tokenizer.apply_chat_template(
+        messages, tokenize=False, add_generation_prompt=True)
+    inputs = tokenizer(fmt, return_tensors="pt").to(merged_model.device)
+    with torch.no_grad():
+        outputs = merged_model.generate(
+            **inputs, max_new_tokens=200, temperature=0.7, do_sample=True)
+    response = tokenizer.decode(
+        outputs[0][inputs['input_ids'].shape[1]:], skip_special_tokens=True)
+    print(f"Prompt: {prompt}\nResponse: {response[:300]}\n{'-'*50}")
+</code></pre>
+      <details>
+        <summary>Hint</summary>
+        <p>To get a fair comparison, reload the original base model and generate with the same settings. The LoRA-tuned model should show improved instruction following despite training less than 0.1% of parameters.</p>
+      </details>
+    </div>
+  </div>
+
+  <div class="lab-expected">
+    <h3>Expected Output</h3>
+    <ul>
+      <li>A parameter table showing r=4 trains ~0.02%, r=16 trains ~0.1%, r=64 trains ~0.4%</li>
+      <li>A saved adapter that is only a few hundred KB (vs. ~270MB full model)</li>
+      <li>Merged model outputs showing improved instruction following</li>
+    </ul>
+  </div>
+
+  <div class="lab-stretch">
+    <h3>Stretch Goals</h3>
+    <ul>
+      <li>Train adapters at r=4 and r=64, compare outputs, and measure which rank is best for this dataset size</li>
+      <li>Add QLoRA by loading in 4-bit (<code>BitsAndBytesConfig(load_in_4bit=True)</code>) and compare memory</li>
+      <li>Target all linear layers (<code>target_modules="all-linear"</code>) and compare results</li>
+    </ul>
+  </div>
+
+  <details class="lab-solution">
+    <summary>Complete Solution</summary>
+    <pre><code class="language-python">from transformers import AutoModelForCausalLM, AutoTokenizer
+from peft import LoraConfig, get_peft_model, PeftModel, TaskType
+from trl import SFTTrainer, SFTConfig
+from datasets import load_dataset
+import torch, pandas as pd, os
+
+model_name = "HuggingFaceTB/SmolLM2-135M-Instruct"
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+if tokenizer.pad_token is None: tokenizer.pad_token = tokenizer.eos_token
+
+# Step 1: Apply LoRA
+base_model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.float16, device_map="auto")
+lora_config = LoraConfig(r=16, lora_alpha=32, target_modules=["q_proj","v_proj"],
+    task_type=TaskType.CAUSAL_LM, lora_dropout=0.05, bias="none")
+model = get_peft_model(base_model, lora_config)
+model.print_trainable_parameters()
+
+# Step 2: Compare ranks
+for r in [4, 8, 16, 32, 64]:
+    b = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.float16, device_map="auto")
+    c = LoraConfig(r=r, lora_alpha=r*2, target_modules=["q_proj","v_proj"],
+        task_type=TaskType.CAUSAL_LM, lora_dropout=0.05, bias="none")
+    pm = get_peft_model(b, c)
+    t = sum(p.numel() for p in pm.parameters() if p.requires_grad)
+    a = sum(p.numel() for p in pm.parameters())
+    print(f"r={r}: {t:,} trainable / {a:,} total = {t/a*100:.4f}%")
+    del pm, b; torch.cuda.empty_cache()
+
+# Step 3: Train
+ds = load_dataset("HuggingFaceH4/no_robots", split="train").shuffle(seed=42).select(range(300))
+def fmt(ex): return {"text": tokenizer.apply_chat_template(ex["messages"], tokenize=False, add_generation_prompt=False)}
+formatted = ds.map(fmt)
+
+args = SFTConfig(output_dir="./lora-smollm2-r16", num_train_epochs=3, per_device_train_batch_size=4,
+    gradient_accumulation_steps=2, learning_rate=2e-4, logging_steps=10, max_seq_length=512,
+    fp16=True, warmup_ratio=0.1, save_strategy="epoch", report_to="none")
+trainer = SFTTrainer(model=model, args=args, train_dataset=formatted, processing_class=tokenizer)
+trainer.train()
+
+# Step 4: Save and merge
+model.save_pretrained("./lora-adapter-r16")
+base_fresh = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.float16, device_map="auto")
+merged = PeftModel.from_pretrained(base_fresh, "./lora-adapter-r16").merge_and_unload()
+
+# Step 5: Test
+for p in ["Explain photosynthesis to a 10-year-old.", "Write a short email declining a meeting.", "List 3 advantages of renewable energy."]:
+    msgs = [{"role":"user","content":p}]
+    f = tokenizer.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
+    i = tokenizer(f, return_tensors="pt").to(merged.device)
+    with torch.no_grad():
+        o = merged.generate(**i, max_new_tokens=200, temperature=0.7, do_sample=True)
+    print(f"Q: {p}\nA: {tokenizer.decode(o[0][i['input_ids'].shape[1]:], skip_special_tokens=True)[:300]}\n")
+</code></pre>
+  </details>
+</section>
