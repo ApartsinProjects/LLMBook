@@ -22,6 +22,7 @@ Every `section-*.html` file:
 - [ ] Module label: `<div class="module-label"><a href="index.html">Module XX: Title</a></div>`
 - [ ] Section title: `<h1>Section Title</h1>`
 - [ ] Link colors: part label `rgba(255,255,255,0.85)`, module label `rgba(255,255,255,0.7)`
+- [ ] Class name is `.part-label` (NOT the deprecated `.subtitle`). Files with `class="subtitle"` must be updated.
 - [ ] Both links present, no inline styles except color and text-decoration on the `<a>` tags
 - [ ] Canonical HTML:
 ```html
@@ -135,6 +136,9 @@ Three mandatory elements for every code block:
 - [ ] BANNED generic captions: "Making an API call to the language model provider", "Loading a pretrained model and tokenizer", "Configuration setup for the pipeline", "These libraries provide the core functionality" or any caption that could apply to any code block without modification
 - [ ] Each caption must reference specific variables, functions, outputs, or concepts visible in the code
 - [ ] Example: `<div class="code-caption"><strong>Code Fragment 3:</strong> This snippet demonstrates beam search decoding with a beam width of 5. Notice how the algorithm maintains multiple candidate sequences simultaneously, pruning lower-probability paths at each step. The temperature parameter controls how aggressively the model explores alternative completions.</div>`
+- [ ] Code caption is positioned BELOW the `<pre>` block (after `</pre>` or after `.code-output`), NEVER above it
+- [ ] Anti-pattern to scan for: `<div class="code-caption">` immediately followed (within 5 lines) by `<pre>`. This means the caption is above the code and must be moved below.
+- [ ] No two code captions in the same file have identical text. Each caption must reference at least one specific element from its code block.
 - [ ] Uses `.code-caption` CSS class (no inline styles)
 
 ### E2. Opening Comments Inside Each Code Block
@@ -512,3 +516,4 @@ All editor agents must check before adding content:
 | 2026-03-28 | SKILL.md: Added Resume Incomplete Work Protocol for auto-restart after usage limits | User directive: prevent lost work from session breaks |
 | 2026-03-28 | Header order changed: Part (top) → Module (middle) → Section title (bottom). Renamed `.subtitle` to `.part-label`. Consistent fonts. | User directive: "Part should be first" |
 | 2026-03-28 | Section J rewritten: shared stylesheet `styles/book.css` as single source of truth, replacing per-file inline `<style>` blocks. Migration path documented. Section K updated to reference shared CSS. | User directive: single CSS for all pages |
+| 2026-03-28 | Meta Agent audit: Added caption position verification (BELOW not above) and caption uniqueness rule to Section E1. Added `.subtitle` deprecation note to Section A. Updated 7 agent skill files with self-check protocol, uniqueness enforcement, and class migration rules. | Meta Agent #41 full book audit |
