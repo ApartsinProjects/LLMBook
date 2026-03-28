@@ -14,26 +14,26 @@ every sweep to know exactly what to check and fix.
 Every `section-*.html` file:
 - [ ] `.chapter-header` contains three elements in this exact order (top to bottom):
   1. `.part-label` (top): Part name, hyperlink to **part index** (`../index.html`)
-  2. `.module-label` (middle): Module number, hyperlink to **module index** (`index.html`)
+  2. `.chapter-label` (middle): Chapter number, hyperlink to **chapter index** (`index.html`)
   3. `h1` (bottom): Section title
-- [ ] Order is: Part → Module → Section title (hierarchy from broadest to most specific)
+- [ ] Order is: Part → Chapter → Section title (hierarchy from broadest to most specific)
 - [ ] All three use consistent font family (inherit from header)
 - [ ] Part label: `<div class="part-label"><a href="../index.html">Part N: Name</a></div>`
-- [ ] Module label: `<div class="module-label"><a href="index.html">Module XX: Title</a></div>`
+- [ ] Chapter label: `<div class="chapter-label"><a href="index.html">Chapter XX: Title</a></div>`
 - [ ] Section title: `<h1>Section Title</h1>`
-- [ ] Link colors: part label `rgba(255,255,255,0.85)`, module label `rgba(255,255,255,0.7)`
+- [ ] Link colors: part label `rgba(255,255,255,0.85)`, chapter label `rgba(255,255,255,0.7)`
 - [ ] Class name is `.part-label` (NOT the deprecated `.subtitle`). Files with `class="subtitle"` must be updated.
 - [ ] Both links present, no inline styles except color and text-decoration on the `<a>` tags
 - [ ] Canonical HTML:
 ```html
 <header class="chapter-header">
     <div class="part-label"><a href="../index.html" style="color: rgba(255,255,255,0.85); text-decoration: none;">Part N: Name</a></div>
-    <div class="module-label"><a href="index.html" style="color: rgba(255,255,255,0.7); text-decoration: none;">Module XX: Title</a></div>
+    <div class="chapter-label"><a href="index.html" style="color: rgba(255,255,255,0.7); text-decoration: none;">Chapter XX: Title</a></div>
     <h1>Section Title</h1>
 </header>
 ```
 
-Every `index.html` (module level):
+Every `index.html` (chapter level):
 - [ ] Header links to book ToC (`../../index.html`) and part index (`../index.html`)
 - [ ] Lists all section files that actually exist on disk (no broken links, no missing sections)
 - [ ] Section titles match the actual `<h1>` in each corresponding section file
@@ -222,7 +222,7 @@ Three mandatory elements for every code block:
 ## I. Navigation Footer
 
 - [ ] Prev/Next links present pointing to correct adjacent sections
-- [ ] "Up" link pointing to module `index.html`
+- [ ] "Up" link pointing to chapter `index.html`
 - [ ] Links are correct and bidirectional (section A's "next" matches section B's "prev")
 - [ ] No duplicate navigation bars (old `<nav class="chapter-nav">` removed)
 
@@ -235,7 +235,7 @@ All HTML files should link to the shared stylesheet `styles/book.css` instead of
 ```
 The relative path depth depends on the file's location:
 - Section files (`part-*/module-*/section-*.html`): `../../styles/book.css`
-- Module index files (`part-*/module-*/index.html`): `../../styles/book.css`
+- Chapter index files (`part-*/module-*/index.html`): `../../styles/book.css`
 - Part index files (`part-*/index.html`): `../styles/book.css`
 - Book root files (`index.html`, `team.html`): `styles/book.css`
 - Appendix files (`appendices/appendix-*/index.html`): `../../styles/book.css`
@@ -250,7 +250,7 @@ The shared stylesheet (`styles/book.css`) is the **single source of truth** for 
 - [ ] All 7 `.callout` variants (big-picture, key-insight, note, warning, practical-example, fun-note, research-frontier)
 - [ ] `.lab` (and sub-selectors)
 - [ ] `.diagram-container` and `.diagram-caption`
-- [ ] `.chapter-header` with `.part-label`, `.module-label`, `h1`
+- [ ] `.chapter-header` with `.part-label`, `.chapter-label`, `h1`
 - [ ] Responsive media queries (1024px, 768px, 480px)
 - [ ] Print styles
 
@@ -271,7 +271,7 @@ All responsive rules are defined in `styles/book.css`. Files using the shared st
 
 ## L. Cross-References
 
-- [ ] At least 3 cross-module hyperlinks per section file
+- [ ] At least 3 cross-chapter hyperlinks per section file
 - [ ] Links use correct relative paths:
   - Same part: `../module-XX/section-X.Y.html`
   - Different part: `../../part-N/module-XX/section-X.Y.html`
@@ -291,7 +291,8 @@ All responsive rules are defined in `styles/book.css`. Files using the shared st
 
 - [ ] No em dashes (the character U+2014) anywhere in text
 - [ ] No double dashes (`--`) used as punctuation in prose
-- [ ] No "syllabus" or "course" when referring to the book (use "book", "chapter", "module", "section")
+- [ ] No "syllabus" or "course" when referring to the book (use "book", "part", "chapter", "section")
+- [ ] No "module" when referring to book structure (use "chapter" instead; "module" is only for software/code modules)
 - [ ] No placeholder text ("TODO", "TBD", "Lorem ipsum", "[placeholder]")
 - [ ] No patronizing phrases ("Great job!", "Congratulations!", "Well done!")
 - [ ] All claims have intuitive or formal justification (no unjustified assertions)
@@ -313,7 +314,7 @@ All responsive rules are defined in `styles/book.css`. Files using the shared st
 ## P. Element Ordering (within each section file)
 
 Mandatory order in every section file:
-1. Chapter header (`.chapter-header` with module-label, h1, subtitle)
+1. Chapter header (`.chapter-header` with chapter-label, h1, part-label)
 2. Epigraph (immediately after header, inside `.content`)
 3. Prerequisites (immediately after epigraph)
 4. Section content (prose, callouts, code, figures, exercises, labs)
@@ -324,11 +325,11 @@ Mandatory order in every section file:
 
 ## Q. Illustrations
 
-- [ ] Chapter opener illustration in every module `index.html` (Gemini-generated PNG in `images/` subfolder)
+- [ ] Chapter opener illustration in every chapter `index.html` (Gemini-generated PNG in `images/` subfolder)
 - [ ] Illustrations wrapped in `<figure class="illustration">` with `<figcaption>`
 - [ ] Inline SVG diagrams wrapped in `<div class="diagram-container">`
 - [ ] Illustration style: Kurzgesagt-inspired flat vector art (bright, educational, slightly humorous)
-- [ ] 5 to 8 illustrations per module across all section files
+- [ ] 5 to 8 illustrations per chapter across all section files
 - [ ] No duplicate illustrations: each illustration in a section file must depict a DIFFERENT concept. Two images about the same concept (e.g., two sandbox images, two training loop images) are duplicates; remove the weaker one.
 - [ ] Illustration types include: algorithm-as-scene, architecture-as-building, concept-as-character, system-as-ecosystem, analogy, mental-model
 
@@ -375,17 +376,17 @@ Three levels of index must stay synchronized:
 
 **Book-level** (`index.html`):
 - [ ] Lists all 7 parts with links to part index pages
-- [ ] Lists all modules (currently 28+) with links to module index pages
-- [ ] Module titles match actual `<h1>` in module index files
+- [ ] Lists all chapters (currently 28+) with links to chapter index pages
+- [ ] Chapter titles match actual `<h1>` in chapter index files
 - [ ] Writing Team link reflects current agent count
 
 **Part-level** (`part-*/index.html`):
-- [ ] Lists all modules within that part with links to module index pages
-- [ ] Each module card lists all section files with hyperlinks
+- [ ] Lists all chapters within that part with links to chapter index pages
+- [ ] Each chapter card lists all section files with hyperlinks
 - [ ] Section titles match actual `<h1>` in section files
 - [ ] Links to adjacent part index pages and back to book index
 
-**Module-level** (`part-*/module-*/index.html`):
+**Chapter-level** (`part-*/module-*/index.html`):
 - [ ] Lists all section files that exist on disk
 - [ ] Section titles match actual `<h1>` in section files
 - [ ] Contains chapter opener illustration
@@ -406,7 +407,7 @@ Three levels of index must stay synchronized:
 - [ ] Labs (when present) placed after exercises, before Research Frontier
 - [ ] Uses `<div class="lab">` with CSS class
 - [ ] Structure: Objective, What You'll Practice, Setup, Guided Steps (with TODOs and hints), Expected Output, Stretch Goals, Solution
-- [ ] 1 to 2 labs per module, 30 to 90 minutes each
+- [ ] 1 to 2 labs per chapter, 30 to 90 minutes each
 - [ ] Idempotency guard: check for existing `class="lab"` before adding
 - [ ] Lab CSS definitions in `<style>` block for: `.lab`, `.lab-meta`, `.lab-step`, `.lab-expected`, `.lab-stretch`, `.lab-solution`
 
@@ -416,14 +417,14 @@ Three levels of index must stay synchronized:
 
 These items are specific to the current book ("Building Conversational AI using LLM and Agents") rather than generic formatting rules.
 
-### Module 26/27/28 Split Structure
+### Chapter 26/27/28 Split Structure
 
-Module 26 was split into three modules:
-- [ ] Module 26: Production Engineering (sections 26.1 to 26.4)
-- [ ] Module 27: Safety, Ethics, and Regulation (formerly sections 26.5 to 26.11, renumbered as 27.1 to 27.7)
-- [ ] Module 28: Strategy, Product, and ROI (formerly old Module 27, renumbered as 28.1 to 28.5)
+Chapter 26 was split into three chapters:
+- [ ] Chapter 26: Production Engineering (sections 26.1 to 26.4)
+- [ ] Chapter 27: Safety, Ethics, and Regulation (formerly sections 26.5 to 26.11, renumbered as 27.1 to 27.7)
+- [ ] Chapter 28: Strategy, Product, and ROI (formerly old Chapter 27, renumbered as 28.1 to 28.5)
 - [ ] All internal cross-references updated to reflect renumbering
-- [ ] Part 7 index page reflects the three-module structure
+- [ ] Part 7 index page reflects the three-chapter structure
 
 ### Content Update Plan Tiers
 
@@ -457,7 +458,7 @@ The Content Update Scout should verify coverage of:
 
 - [ ] Difficulty badges: Basic (green), Intermediate (yellow), Advanced (red)
 - [ ] Focus badges: Fundamentals, Engineering, Research, Lab
-- [ ] Badges synchronized across main index, part index, and module index pages
+- [ ] Badges synchronized across main index, part index, and chapter index pages
 
 ### Book Color Palette
 
@@ -515,6 +516,7 @@ All editor agents must check before adding content:
 | 2026-03-28 | Added acronym capitalization and prerequisites quality rules to Section N | User observation: "llm apis" instead of "LLM APIs" |
 | 2026-03-28 | SKILL.md: Added mandatory post-generation quality pass (all agents must run on new content) | User directive: every new chapter/section gets full workflow |
 | 2026-03-28 | SKILL.md: Added Resume Incomplete Work Protocol for auto-restart after usage limits | User directive: prevent lost work from session breaks |
-| 2026-03-28 | Header order changed: Part (top) → Module (middle) → Section title (bottom). Renamed `.subtitle` to `.part-label`. Consistent fonts. | User directive: "Part should be first" |
+| 2026-03-28 | Header order changed: Part (top) → Chapter (middle) → Section title (bottom). Renamed `.subtitle` to `.part-label`. Consistent fonts. | User directive: "Part should be first" |
+| 2026-03-28 | Renamed "Module" to "Chapter" throughout. Book hierarchy: Part → Chapter → Section. CSS class `.module-label` → `.chapter-label`. | User directive: "part->chapter->section" |
 | 2026-03-28 | Section J rewritten: shared stylesheet `styles/book.css` as single source of truth, replacing per-file inline `<style>` blocks. Migration path documented. Section K updated to reference shared CSS. | User directive: single CSS for all pages |
 | 2026-03-28 | Meta Agent audit: Added caption position verification (BELOW not above) and caption uniqueness rule to Section E1. Added `.subtitle` deprecation note to Section A. Updated 7 agent skill files with self-check protocol, uniqueness enforcement, and class migration rules. | Meta Agent #41 full book audit |
