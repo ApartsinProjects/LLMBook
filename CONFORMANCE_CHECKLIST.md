@@ -224,7 +224,19 @@ Three mandatory elements for every code block:
 
 ## J. CSS Completeness
 
-Every file's `<style>` block must contain definitions for:
+### Shared Stylesheet (Target State)
+All HTML files should link to the shared stylesheet `styles/book.css` instead of embedding inline `<style>` blocks:
+```html
+<link rel="stylesheet" href="../../styles/book.css">
+```
+The relative path depth depends on the file's location:
+- Section files (`part-*/module-*/section-*.html`): `../../styles/book.css`
+- Module index files (`part-*/module-*/index.html`): `../../styles/book.css`
+- Part index files (`part-*/index.html`): `../styles/book.css`
+- Book root files (`index.html`, `team.html`): `styles/book.css`
+- Appendix files (`appendices/appendix-*/index.html`): `../../styles/book.css`
+
+The shared stylesheet (`styles/book.css`) is the **single source of truth** for all CSS definitions. It contains:
 - [ ] CSS custom properties (`:root` block with `--primary`, `--accent`, `--highlight`, `--bg`, `--text`)
 - [ ] `.epigraph` (and sub-selectors: `cite`, `cite::before`)
 - [ ] `.prerequisites` (and sub-selectors: `h3::before`, `a`)
@@ -232,13 +244,23 @@ Every file's `<style>` block must contain definitions for:
 - [ ] `.bibliography` (and sub-selectors: `.bibliography-title`, `.bib-entry-card`, `.bib-ref`, `.bib-annotation`)
 - [ ] `.code-caption`
 - [ ] All 7 `.callout` variants (big-picture, key-insight, note, warning, practical-example, fun-note, research-frontier)
-- [ ] `.lab` (if the file contains a lab section)
-- [ ] `.diagram-container` and `.diagram-caption` (if the file contains diagrams)
+- [ ] `.lab` (and sub-selectors)
+- [ ] `.diagram-container` and `.diagram-caption`
+- [ ] `.chapter-header` with `.part-label`, `.module-label`, `h1`
+- [ ] Responsive media queries (1024px, 768px, 480px)
+- [ ] Print styles
+
+### Current State (Migration in Progress)
+Files may still contain inline `<style>` blocks. During migration:
+- [ ] Replace inline `<style>` with `<link rel="stylesheet" href="[path]/styles/book.css">`
+- [ ] Verify no visual regressions after removing inline CSS
+- [ ] Keep only page-specific CSS overrides in a minimal inline `<style>` block (rare; most pages need no overrides)
 
 No recurring element should use inline `style=` when a CSS class exists for it.
 
 ## K. Responsive CSS
 
+All responsive rules are defined in `styles/book.css`. Files using the shared stylesheet inherit these automatically:
 - [ ] Media query for 1024px (tablet): content max-width 100%, reduced padding, SVG scaling
 - [ ] Media query for 768px (iPad Mini): smaller fonts, scrollable tables/code blocks, adjusted callout boxes
 - [ ] Media query for 480px (mobile): tighter padding, full-width epigraph/prerequisites
@@ -489,3 +511,4 @@ All editor agents must check before adding content:
 | 2026-03-28 | SKILL.md: Added mandatory post-generation quality pass (all agents must run on new content) | User directive: every new chapter/section gets full workflow |
 | 2026-03-28 | SKILL.md: Added Resume Incomplete Work Protocol for auto-restart after usage limits | User directive: prevent lost work from session breaks |
 | 2026-03-28 | Header order changed: Part (top) → Module (middle) → Section title (bottom). Renamed `.subtitle` to `.part-label`. Consistent fonts. | User directive: "Part should be first" |
+| 2026-03-28 | Section J rewritten: shared stylesheet `styles/book.css` as single source of truth, replacing per-file inline `<style>` blocks. Migration path documented. Section K updated to reference shared CSS. | User directive: single CSS for all pages |
