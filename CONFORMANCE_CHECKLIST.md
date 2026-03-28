@@ -5,18 +5,32 @@ across every HTML file in the book. The Controller Agent reads this file before
 every sweep to know exactly what to check and fix.
 
 **Maintained by**: Controller Agent + Meta Agent + user directives
-**Last updated**: 2026-03-27
+**Last updated**: 2026-03-28
 
 ---
 
 ## A. Header Structure
 
 Every `section-*.html` file:
-- [ ] `.chapter-header` contains three elements: `.module-label`, `h1`, `.subtitle`
-- [ ] Module label is a hyperlink to the **module index**: `<a href="index.html" style="color: rgba(255,255,255,0.7); text-decoration: none;">Module XX</a>`
-- [ ] Part subtitle is a hyperlink to the **part index**: `<a href="../index.html" style="color: rgba(255,255,255,0.85); text-decoration: none;">Part N: Name</a>`
-- [ ] Both links present and correctly pointed (module label to module `index.html`, subtitle to part `index.html`)
-- [ ] Colors: module label `rgba(255,255,255,0.7)`, part subtitle `rgba(255,255,255,0.85)`
+- [ ] `.chapter-header` contains three elements in this exact order (top to bottom):
+  1. `.part-label` (top): Part name, hyperlink to **part index** (`../index.html`)
+  2. `.module-label` (middle): Module number, hyperlink to **module index** (`index.html`)
+  3. `h1` (bottom): Section title
+- [ ] Order is: Part → Module → Section title (hierarchy from broadest to most specific)
+- [ ] All three use consistent font family (inherit from header)
+- [ ] Part label: `<div class="part-label"><a href="../index.html">Part N: Name</a></div>`
+- [ ] Module label: `<div class="module-label"><a href="index.html">Module XX: Title</a></div>`
+- [ ] Section title: `<h1>Section Title</h1>`
+- [ ] Link colors: part label `rgba(255,255,255,0.85)`, module label `rgba(255,255,255,0.7)`
+- [ ] Both links present, no inline styles except color and text-decoration on the `<a>` tags
+- [ ] Canonical HTML:
+```html
+<header class="chapter-header">
+    <div class="part-label"><a href="../index.html" style="color: rgba(255,255,255,0.85); text-decoration: none;">Part N: Name</a></div>
+    <div class="module-label"><a href="index.html" style="color: rgba(255,255,255,0.7); text-decoration: none;">Module XX: Title</a></div>
+    <h1>Section Title</h1>
+</header>
+```
 
 Every `index.html` (module level):
 - [ ] Header links to book ToC (`../../index.html`) and part index (`../index.html`)
@@ -117,6 +131,9 @@ Three mandatory elements for every code block:
 - [ ] Every `<pre>` code block has a `<div class="code-caption">` immediately after it
 - [ ] Caption starts with bold label: `<strong>Code Fragment X:</strong>` where X is a running number (1, 2, 3...) within the section
 - [ ] After the label, 2 to 3 descriptive sentences explaining: what the code demonstrates, why it matters, and what the reader should notice
+- [ ] Captions MUST be specific to the actual code content (not generic templates)
+- [ ] BANNED generic captions: "Making an API call to the language model provider", "Loading a pretrained model and tokenizer", "Configuration setup for the pipeline", "These libraries provide the core functionality" or any caption that could apply to any code block without modification
+- [ ] Each caption must reference specific variables, functions, outputs, or concepts visible in the code
 - [ ] Example: `<div class="code-caption"><strong>Code Fragment 3:</strong> This snippet demonstrates beam search decoding with a beam width of 5. Notice how the algorithm maintains multiple candidate sequences simultaneously, pruning lower-probability paths at each step. The temperature parameter controls how aggressively the model explores alternative completions.</div>`
 - [ ] Uses `.code-caption` CSS class (no inline styles)
 
@@ -124,6 +141,7 @@ Three mandatory elements for every code block:
 - [ ] Every code block starts with 2 to 3 comment lines describing what the code does
 - [ ] Comments use the language's comment syntax (# for Python, // for JS, etc.)
 - [ ] Comments describe the purpose and key operations, not line-by-line narration
+- [ ] BANNED generic comments: "Import X and supporting dependencies", "These libraries provide the core functionality for this example" or any comment that could apply to any code block. Opening comments must state what THIS specific code does.
 - [ ] Example:
   ```python
   # Beam search decoding: maintain top-k candidate sequences
@@ -466,3 +484,8 @@ All editor agents must check before adding content:
 | 2026-03-27 | Comprehensive rewrite: elicited all requirements from full conversation history (12,462 lines, 133 user messages) via Meta Agent (Agent 41) | Conversation transcript analysis |
 | 2026-03-27 | Added: 7 canonical callout types (was 6, added research-frontier), epigraph attribution rules, prerequisites prose format, bibliography card format, figure/code numbering alignment, progressive depth cross-linking table, idempotency rules, element ordering, lab requirements, book-specific sections (Module 26 split, content tiers, tech stack, badge system, color palette, typography) | Extracted from user directives MSG 0 through MSG 133 |
 | 2026-03-27 | Added canonical callout-title icons: 7 specific HTML entity icons for each callout type (star, lightbulb, memo, warning, construction, circus tent, microscope) | User request for icon consistency |
+| 2026-03-28 | Added BANNED generic captions/comments to Section E (anti-template rules) | User observation: code fragment agents applied generic boilerplate |
+| 2026-03-28 | Added acronym capitalization and prerequisites quality rules to Section N | User observation: "llm apis" instead of "LLM APIs" |
+| 2026-03-28 | SKILL.md: Added mandatory post-generation quality pass (all agents must run on new content) | User directive: every new chapter/section gets full workflow |
+| 2026-03-28 | SKILL.md: Added Resume Incomplete Work Protocol for auto-restart after usage limits | User directive: prevent lost work from session breaks |
+| 2026-03-28 | Header order changed: Part (top) → Module (middle) → Section title (bottom). Renamed `.subtitle` to `.part-label`. Consistent fonts. | User directive: "Part should be first" |
