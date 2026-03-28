@@ -329,6 +329,7 @@ Mandatory order in every section file:
 - [ ] Inline SVG diagrams wrapped in `<div class="diagram-container">`
 - [ ] Illustration style: Kurzgesagt-inspired flat vector art (bright, educational, slightly humorous)
 - [ ] 5 to 8 illustrations per module across all section files
+- [ ] No duplicate illustrations: each illustration in a section file must depict a DIFFERENT concept. Two images about the same concept (e.g., two sandbox images, two training loop images) are duplicates; remove the weaker one.
 - [ ] Illustration types include: algorithm-as-scene, architecture-as-building, concept-as-character, system-as-ecosystem, analogy, mental-model
 
 ## R. Mental Models
