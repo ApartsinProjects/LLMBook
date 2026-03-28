@@ -111,14 +111,37 @@ Every `index.html` (module level):
 
 ## E. Code Blocks and Captions
 
-- [ ] Every `<pre>` code block has a `<p class="code-caption">` immediately after it
-- [ ] Caption format: `Code Fragment [Section].[Seq]: Description.` (e.g., "Code Fragment 9.1.2: This snippet demonstrates...")
-- [ ] Caption is 2 to 3 descriptive sentences explaining what the code demonstrates, why it matters, and what the reader should notice
-- [ ] Numbering aligned to section number (e.g., section 3.2 uses Code Fragment 3.2.1, 3.2.2, etc.)
-- [ ] Every code block is referenced in surrounding prose text before it appears
+Three mandatory elements for every code block:
+
+### E1. Caption Below Each Code Block
+- [ ] Every `<pre>` code block has a `<div class="code-caption">` immediately after it
+- [ ] Caption starts with bold label: `<strong>Code Fragment X:</strong>` where X is a running number (1, 2, 3...) within the section
+- [ ] After the label, 2 to 3 descriptive sentences explaining: what the code demonstrates, why it matters, and what the reader should notice
+- [ ] Example: `<div class="code-caption"><strong>Code Fragment 3:</strong> This snippet demonstrates beam search decoding with a beam width of 5. Notice how the algorithm maintains multiple candidate sequences simultaneously, pruning lower-probability paths at each step. The temperature parameter controls how aggressively the model explores alternative completions.</div>`
+- [ ] Uses `.code-caption` CSS class (no inline styles)
+
+### E2. Opening Comments Inside Each Code Block
+- [ ] Every code block starts with 2 to 3 comment lines describing what the code does
+- [ ] Comments use the language's comment syntax (# for Python, // for JS, etc.)
+- [ ] Comments describe the purpose and key operations, not line-by-line narration
+- [ ] Example:
+  ```python
+  # Beam search decoding: maintain top-k candidate sequences
+  # at each step, expanding and pruning by cumulative log-probability.
+  # Returns the highest-scoring complete sequence.
+  def beam_search(model, input_ids, beam_width=5, max_length=50):
+  ```
+
+### E3. Prose Reference Before Each Code Block
+- [ ] Every code block is introduced in the preceding prose paragraph
+- [ ] The reference describes what the code will show and why it is relevant
+- [ ] Use natural phrasing such as: "The following snippet demonstrates...", "Below, we implement...", "Consider the following approach to...", "Code Fragment 3 shows how..."
+- [ ] Do NOT just drop a code block without any preceding text introducing it
+
+### E4. General Code Quality
 - [ ] Code has informative inline comments (not cluttering, but pedagogically helpful)
 - [ ] Code uses current, stable libraries and tools
-- [ ] Uses `.code-caption` CSS class (no inline styles)
+- [ ] Numbering is sequential within each section file (Code Fragment 1, 2, 3... restarting per file)
 - [ ] Canonical CSS:
 
 ```css
@@ -228,6 +251,8 @@ No recurring element should use inline `style=` when a CSS class exists for it.
 - [ ] No placeholder text ("TODO", "TBD", "Lorem ipsum", "[placeholder]")
 - [ ] No patronizing phrases ("Great job!", "Congratulations!", "Well done!")
 - [ ] All claims have intuitive or formal justification (no unjustified assertions)
+- [ ] Acronyms and proper nouns in prerequisites and prose are correctly capitalized (e.g., "LLM APIs" not "llm apis", "PyTorch" not "pytorch")
+- [ ] Prerequisites text reads as natural, complete prose (no truncated sentences, garbled text, or broken HTML entities)
 - [ ] Every concept answers: what it is, why it matters, how it works, when to use it
 - [ ] Text is justified with auto-hyphens (`text-align: justify; hyphens: auto;`)
 
