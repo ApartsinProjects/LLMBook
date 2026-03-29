@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Section 8.1: The Test-Time Compute Paradigm</title>
+    <link rel="stylesheet" href="../../styles/book.css">
+    <link rel="stylesheet" href="../../vendor/katex/katex.min.css">
+    <script defer src="../../vendor/katex/katex.min.js"></script>
+    <script defer src="../../vendor/katex/contrib/auto-render.min.js"
+        onload="renderMathInElement(document.body, {
+            delimiters: [
+                {left: '$$', right: '$$', display: true},
+                {left: '$', right: '$', display: false}
+            ],
+            throwOnError: false
+        });"></script>
+    <link rel="stylesheet" href="../../vendor/prism/prism-theme.css">
+    <script defer src="../../vendor/prism/prism-bundle.min.js"></script>
+</head>
+<body>
+<header class="chapter-header">
+    <nav class="header-nav">
+        <a href="../../index.html" class="book-title-link">Building Conversational AI with LLMs and Agents</a>
+        <a href="../../toc.html" class="toc-link" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+    </nav>
+    <div class="part-label"><a href="../index.html">Part 2: Understanding LLMs</a></div>
+    <div class="chapter-label"><a href="index.html">Chapter 8: Reasoning Models &amp; Test-Time Compute</a></div>
+    <h1>The Test-Time Compute Paradigm</h1>
+</header>
+
+<main class="content">
+
+    <blockquote class="epigraph">
+        <p>A wise person does not give the same amount of thought to choosing lunch as to choosing a career. Neither should a language model.</p>
+        <cite><span class="agent-avatar-inline" style="background-color: #8e44ad;"><img src="../../front-matter/images/agents/chinchilla.png" alt="Chinchilla"></span> <a href="../../front-matter/wisdom-council.html#chinchilla">Chinchilla</a> <span class="agent-desc">AI Agent</span></cite>
+    </blockquote>
+
+    <div class="prerequisites">
+        <h3>Prerequisites</h3>
+        <p>This section assumes familiarity with <a class="cross-ref" href="../module-06-pretraining-scaling-laws/section-6.3.html">scaling laws</a> from <a class="cross-ref" href="../module-06-pretraining-scaling-laws/section-6.3.html">Section 06.3</a> (Kaplan and Chinchilla scaling) and basic decoding strategies from <a class="cross-ref" href="../../part-1-foundations/module-05-decoding-text-generation/section-5.2.html">Section 05.2</a> (sampling, <a class="cross-ref" href="../../part-1-foundations/module-05-decoding-text-generation/section-5.2.html">temperature</a>). No prior knowledge of reinforcement learning is required.</p>
+    </div>
+
+    <div class="callout big-picture">
+        <div class="callout-title">Big Picture</div>
+        <p><strong>Why does test-time compute matter?</strong> Since 2020, the primary recipe for better language models has been to scale up training: more parameters, more data, more GPU hours. The Kaplan scaling laws (2020) and the Chinchilla correction (2022) formalized this, predicting performance as a smooth function of training compute. But by 2024, the frontier labs were running into practical ceilings: training runs costing hundreds of millions of dollars, energy consumption rivaling small cities, and data supplies approaching exhaustion. Test-time compute offers a complementary scaling axis. Instead of making the model bigger, you let it think longer on each problem. This chapter explores what that means, how it works, and when it is worth the cost. For the train-time scaling baseline, see <a class="cross-ref" href="../module-06-pretraining-scaling-laws/section-6.3.html">Section 06.3</a>.</p>
+    </div>
+
+<figure class="illustration">
+ <img loading="lazy" src="images/test-time-compute-chess.png"
+ alt="Two chess players side by side, one making instant reflexive moves while the other pauses to examine a thought bubble showing branching move sequences before carefully placing a piece">
+ <figcaption><strong>Figure 8.1.1</strong>: Reasoning models allocate more thinking time to harder problems, just as skilled players deliberate longer on critical moves.</figcaption>
+</figure>
+
+    <h2>1. Two Kinds of Compute <span class="level-badge basic" title="Basic">Basic</span></h2>
+
+    <p>Every language model consumes compute in two distinct phases. Understanding the distinction is essential for grasping why reasoning models represent a paradigm shift.</p>
+
+    <p><strong>Train-time compute</strong> is the total processing power consumed during <a class="cross-ref" href="../module-06-pretraining-scaling-laws/section-6.1.html">pre-training</a> and post-training. This includes the GPU hours spent on <a class="cross-ref" href="../module-06-pretraining-scaling-laws/section-6.2.html">next-token prediction</a> over trillions of tokens, followed by supervised <a href="../../part-4-training-adapting/module-14-fine-tuning-fundamentals/index.html" class="cross-ref">fine-tuning</a> and alignment (see <a href="../../part-4-training-adapting/module-17-alignment-rlhf-dpo/index.html" class="cross-ref">Chapter 17</a>). Train-time compute is a one-time investment: once the model weights are set, the cost is amortized across every future inference request. Larger models with more parameters require proportionally more training compute, but serve every user with the same fixed set of weights.</p>
+
+    <p><strong>Test-time compute</strong> (also called inference-time compute) is the processing power consumed each time the model generates a response. In a standard LLM, this cost is approximately proportional to the number of output tokens: each token requires one forward pass through the network. In a reasoning model, the cost per query can vary enormously. A simple factual question might consume 50 tokens of thinking, while a hard mathematical proof might consume 10,000 or more.</p>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight</div>
+        <p>The fundamental innovation of reasoning models is <strong>adaptive compute allocation</strong>. A standard LLM spends roughly the same amount of computation per output token regardless of problem difficulty. A reasoning model allocates more "thinking tokens" to harder problems and fewer to easy ones. This mirrors how humans operate: you do not spend ten minutes deliberating over what to eat for breakfast, but you might spend hours reasoning through a complex legal contract.</p>
+    </div>
+
+    <h3>1.1 The Classical Scaling Regime</h3>
+
+    <p>The Kaplan scaling laws (2020) established that language model loss decreases as a power law in three variables: number of parameters <span class="math">N</span>, dataset size <span class="math">D</span>, and total training compute <span class="math">C</span>. The Chinchilla correction (Hoffmann et al., 2022) refined this by showing that models should scale parameters and data equally: a model with <span class="math">N</span> parameters should be trained on approximately <span class="math">$20N$</span> tokens for compute-optimal training.</p>
+
+    <p>These laws predict diminishing returns: doubling training compute yields a roughly 10% reduction in loss. To cut loss in half, you need to increase compute by roughly 100x. At the frontier, where training runs already cost &#36;100M+, this creates severe economic pressure. (For the full derivation and historical context, see <a href="../module-06-pretraining-scaling-laws/section-6.3.html" class="cross-ref">Section 06.3</a>.)</p>
+
+    <h3>1.2 The Test-Time Scaling Regime</h3>
+
+    <p>Test-time compute scaling offers a fundamentally different trade-off. Instead of spending more at training to improve the model for all queries equally, you spend more at inference to improve the model's response to a specific query. This has several important properties:</p>
+
+    <ul>
+        <li><strong>Per-query cost:</strong> Unlike training, which is amortized, test-time compute is a direct per-query cost. A reasoning model that generates 5,000 thinking tokens costs roughly 50x more than a standard model generating 100 tokens.</li>
+        <li><strong>Adaptive allocation:</strong> The compute can be allocated proportional to difficulty. Easy queries receive minimal thinking; hard queries receive extensive deliberation. This means the average cost per query can be much lower than the worst case.</li>
+        <li><strong>Complementary to train-time scaling:</strong> A model can be both well-trained and equipped with test-time reasoning. The two forms of scaling are additive, not substitutes. A reasoning model trained with more compute will reason better than a smaller one.</li>
+        <li><strong>Immediate deployment:</strong> Improving test-time scaling does not require retraining the model. Techniques like best-of-N sampling or tree search can be applied to any model at serving time (though purpose-trained reasoning models perform best).</li>
+    </ul>
+
+    <!-- Diagram: Train-time vs Test-time Compute -->
+    <div class="diagram-container">
+        <svg viewBox="0 0 750 400" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, system-ui, sans-serif" role="img" aria-label="Diagram">
+<defs>
+<linearGradient id="grad_a5d056_fafafa" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#ffffff"/><stop offset="100%" stop-color="#fafafa"/></linearGradient>
+<filter id="shadow_a5d056" x="-5%" y="-5%" width="115%" height="115%"><feDropShadow dx="2" dy="2" stdDeviation="3" flood-opacity="0.1"/></filter>
+</defs>
+            <rect filter="url(#shadow_a5d056)" width="750" height="400" fill="url(#grad_a5d056_fafafa)" rx="10"/>
+            <text x="375" y="30" text-anchor="middle" font-size="15" font-weight="700" fill="#1a1a2e">The Two Dimensions of Scaling</text>
+
+            <!-- Axes -->
+            <line x1="100" y1="350" x2="700" y2="350" stroke="#333" stroke-width="2" stroke-linecap="round"/>
+            <line x1="100" y1="350" x2="100" y2="60" stroke="#333" stroke-width="2" stroke-linecap="round"/>
+            <text x="400" y="390" text-anchor="middle" font-size="12" fill="#555">Total Compute (FLOPs per query)</text>
+            <text x="40" y="200" text-anchor="middle" font-size="12" fill="#555" transform="rotate(-90,40,200)">Performance (Accuracy)</text>
+
+            <!-- Train-time scaling curve -->
+            <path d="M120,320 C200,280 350,180 680,120" fill="none" stroke="#8e44ad" stroke-width="3" stroke-linecap="round"/>
+            <text x="580" y="105" font-size="11" font-weight="600" fill="#8e44ad">Train-time scaling</text>
+            <text x="580" y="120" font-size="11" fill="#8e44ad">(bigger model, single pass)</text>
+
+            <!-- Test-time scaling curve -->
+            <path d="M120,320 C180,260 280,140 500,85" fill="none" stroke="#27ae60" stroke-width="3" stroke-linecap="round"/>
+            <text x="410" y="72" font-size="11" font-weight="600" fill="#27ae60">Test-time scaling</text>
+            <text x="410" y="87" font-size="11" fill="#27ae60">(same model, more thinking)</text>
+
+            <!-- Combined curve -->
+            <path d="M120,320 C170,240 250,120 450,55" fill="none" stroke="#e94560" stroke-width="3" stroke-dasharray="8,4" stroke-linecap="round"/>
+            <text x="360" y="42" font-size="11" font-weight="600" fill="#e94560">Combined (larger model + thinking)</text>
+
+            <!-- Annotations -->
+            <circle cx="250" cy="260" r="5" fill="#8e44ad"/>
+            <text x="265" y="255" font-size="11" fill="#555">7B model</text>
+            <circle cx="450" cy="170" r="5" fill="#8e44ad"/>
+            <text x="465" y="165" font-size="11" fill="#555">70B model</text>
+            <circle cx="250" cy="180" r="5" fill="#27ae60"/>
+            <text x="265" y="195" font-size="11" fill="#555">7B + 256 samples</text>
+
+            <!-- Arrow showing equivalence -->
+            <line x1="265" y1="178" x2="435" y2="172" stroke="#333" stroke-width="1" stroke-dasharray="3,3" stroke-linecap="round"/>
+            <text x="350" y="168" text-anchor="middle" font-size="11" fill="#333">Similar compute, similar accuracy</text>
+        </svg>
+        <div class="diagram-caption"><strong>Figure 8.1.1</strong>: Performance as a function of total compute under three scaling strategies. On hard reasoning tasks, test-time scaling (green) achieves higher accuracy per FLOP than simply using a larger model (purple). The combined approach (red dashed) pushes the frontier further.</div>
+    </div>
+
+    <h2>2. The Snell et al. Framework <span class="level-badge basic" title="Basic">Basic</span></h2>
+
+    <p>The foundational paper for understanding test-time compute is Snell et al. (2024), "Scaling LLM Test-Time Compute Optimally can be More Effective than Scaling Model Parameters." This work provides the theoretical and empirical framework for answering a simple question: given a fixed compute budget for a single inference query, how should you allocate that budget between model size and test-time reasoning?</p>
+
+    <h3>2.1 The Compute-Optimal Inference Problem</h3>
+
+    <p>Consider a scenario where you have a fixed inference compute budget <span class="math">C</span> FLOPs per query. You can spend this budget in several ways:</p>
+
+    <ol>
+        <li><strong>Single pass through a large model:</strong> Use all <span class="math">C</span> FLOPs for one forward pass through the largest model that fits within the budget. This is the classical approach.</li>
+        <li><strong>Multiple passes through a smaller model:</strong> Use a model that requires <span class="math">$C/N$</span> FLOPs per pass and generate <span class="math">N</span> independent solutions, then select the best one using a <a class="cross-ref" href="../../part-4-training-adapting/module-17-alignment-rlhf-dpo/section-17.1.html">reward model</a>.</li>
+        <li><strong>Extended chain-of-thought with a medium model:</strong> Use a model that generates a long reasoning trace, spending extra tokens to "think through" the problem before committing to an answer.</li>
+        <li><strong>Tree search with a small model:</strong> Use a small model to explore a tree of partial solutions, using a reward model to guide the search toward promising branches.</li>
+    </ol>
+
+    <p>Snell et al. show that the optimal strategy depends critically on task difficulty. Their key finding can be summarized in one sentence: <strong>on hard problems where a base model achieves less than 50% accuracy, test-time compute scaling with a smaller model can match or exceed a 14x larger model using the same total FLOPs.</strong></p>
+
+    <h3>2.2 Difficulty-Dependent Optimality</h3>
+
+    <div class="comparison-table">
+        <div class="comparison-table-title">2.2 Difficulty-Dependent Optimality Comparison</div>
+        <table>
+        <thead>
+            <tr>
+                <th>Task Difficulty</th>
+                <th>Base Model Accuracy</th>
+                <th>Optimal Strategy</th>
+                <th>Rationale</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>Easy</td>
+                <td>&gt;90%</td>
+                <td>Single pass, large model</td>
+                <td>Most samples are already correct; extra compute is wasted</td>
+            </tr>
+            <tr>
+                <td>Medium</td>
+                <td>50% to 90%</td>
+                <td>Best-of-N (N=8 to 32)</td>
+                <td>Sampling diversity finds the right answer; reward model selects it</td>
+            </tr>
+            <tr>
+                <td>Hard</td>
+                <td>10% to 50%</td>
+                <td>Extended CoT or tree search</td>
+                <td>Structured reasoning explores the solution space more efficiently than independent samples</td>
+            </tr>
+            <tr>
+                <td>Beyond capability</td>
+                <td>&lt;1%</td>
+                <td>Larger model required</td>
+                <td>If the model lacks necessary knowledge, no amount of thinking helps</td>
+            </tr>
+        </tbody>
+    </table>
+    </div>
+
+    <div class="callout fun-note">
+              <div class="callout-title">Fun Fact</div>
+        <p>The "think longer vs. be bigger" trade-off has a nice real-world analogy. Imagine you are trying to solve a crossword puzzle. If you are a native English speaker, a hard crossword benefits from thinking longer: more time lets you find connections between clues. But if the crossword is in Japanese and you do not speak Japanese, no amount of extra time will help. You need a fundamentally different skill set (a bigger model, metaphorically speaking). Reasoning models face the same constraint: they can only reason about knowledge they already possess.</p>
+    </div>
+
+    <h2>3. Mechanisms of Test-Time Compute <span class="level-badge basic" title="Basic">Basic</span></h2>
+
+    <p>There are three primary mechanisms through which a model can invest additional compute at inference time. Each represents a different approach to the same goal: generating better answers by spending more processing per query.</p>
+
+    <h3>3.1 Extended Chain-of-Thought</h3>
+
+    <p>The most visible mechanism in modern reasoning models is extended chain-of-thought (CoT). The model generates a long sequence of "thinking tokens" before producing its final answer. These tokens represent the model's internal deliberation: breaking the problem into steps, considering alternatives, checking intermediate results, and sometimes backtracking when it detects an error.</p>
+
+    <p>In OpenAI's o1 and o3, these thinking tokens are hidden from the user (the API returns only a summary). In DeepSeek R1, the thinking process is visible, enclosed in <code>&lt;think&gt;...&lt;/think&gt;</code> tags. The number of thinking tokens varies adaptively: a simple arithmetic question might generate 50 thinking tokens, while a competition-level math problem might generate 10,000+.</p>
+
+    <p><strong>Why thinking tokens help, mechanically.</strong> A transformer is a fixed-depth computation graph: each input token passes through the same number of layers regardless of problem difficulty. By generating intermediate reasoning tokens, the model effectively gives itself additional "layers" of processing. Each thinking token feeds back into the context, allowing subsequent computations to build on earlier ones. This converts a fixed-depth computation into an adaptive-depth one, which is necessary for problems that require compositional reasoning (multi-step math, logical deduction, code debugging). The cost is linear in the number of thinking tokens, but the problems it unlocks are qualitatively different from what a single forward pass can solve. For deployment, this means the <a class="cross-ref" href="../module-09-inference-optimization/section-9.2.html">KV cache</a> grows proportionally with thinking tokens, making efficient memory management crucial.</p>
+
+<pre><code class="language-python"># Comparing standard vs. reasoning model outputs on the same problem
+# Problem: "What is the sum of all prime numbers less than 20?"
+
+# === Standard Model (GPT-4o) ===
+# Output: "The prime numbers less than 20 are: 2, 3, 5, 7, 11, 13, 17, 19.
+#          Their sum is 2 + 3 + 5 + 7 + 11 + 13 + 17 + 19 = 77."
+# Tokens generated: ~40
+# Time: ~0.5s
+
+# === Reasoning Model (o3-mini) ===
+# Hidden thinking tokens (~200 tokens):
+#   "I need to find all primes less than 20.
+#    Starting from 2: 2 is prime.
+#    3 is prime (not divisible by 2).
+#    4 = 2x2, not prime.
+#    5 is prime (not divisible by 2 or 3).
+#    6 = 2x3, not prime.
+#    7 is prime (not divisible by 2, 3, or 5). Actually I only need
+#      to check up to sqrt(7) ~ 2.6, so just check 2. Not divisible. Prime.
+#    ...
+#    [continues for all numbers up to 19]
+#    Now summing: 2+3=5, 5+5=10, 10+7=17, 17+11=28, 28+13=41,
+#    41+17=58, 58+19=77.
+#    Let me verify: 2,3,5,7,11,13,17,19. Count: 8 primes. Sum: 77."
+# Visible output: "The sum of all prime numbers less than 20 is 77."
+# Total tokens (thinking + output): ~250
+# Time: ~2s
+
+# The reasoning model consumed ~6x more tokens but used a more
+# systematic verification process. For this easy problem, both
+# get the right answer. The difference becomes dramatic on harder
+# problems where the standard model would make errors.</code></pre>
+    <div class="code-caption"><strong>Code Fragment 8.1.1:</strong> Pseudocode comparison of standard vs. reasoning model output on a simple math problem. The reasoning model generates extensive hidden thinking tokens before producing a concise final answer.</div>
+
+    <h3>3.2 Best-of-N Sampling</h3>
+
+    <p>A conceptually simpler approach is to generate <span class="math">N</span> independent solutions and select the best one. This requires a reward model (or verifier) that can score each candidate solution. The approach is "embarrassingly parallel" since all N candidates can be generated simultaneously on separate GPUs.</p>
+
+    <p>Performance scales logarithmically with <span class="math">N</span>: doubling the number of samples yields a roughly constant improvement in accuracy. This means that going from N=1 to N=8 provides a large boost, but going from N=64 to N=128 provides a much smaller one. Practical systems typically use N between 8 and 64, balancing cost against accuracy.</p>
+
+    <h3>3.3 Tree Search</h3>
+
+    <p>Tree search methods, including Monte Carlo Tree Search (MCTS) and <a href="../../part-1-foundations/module-05-decoding-text-generation/section-5.1.html" class="cross-ref">beam search</a> variants, structure the reasoning process as an explicit search over partial solutions. Each node in the tree represents a partial chain of thought, and edges represent possible next reasoning steps. A reward model evaluates the promise of each partial solution, allowing the search to focus compute on the most promising reasoning paths.</p>
+
+    <p>Tree search is more compute-efficient than best-of-N for hard problems because it avoids wasting compute on completely wrong solution paths. If the first reasoning step is clearly wrong, tree search can detect this early (via the reward model) and redirect compute to better branches. Best-of-N, by contrast, generates each solution independently and can repeat the same mistakes across many of its N attempts.</p>
+
+    <p>We cover tree search in detail in <a href="section-8.5.html" class="cross-ref">Section 8.5</a>, including AlphaProof's application of MCTS to formal mathematical reasoning.</p>
+
+    <h2>4. The Economics of Thinking <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>Test-time compute introduces a new dimension to the economics of LLM inference. The cost per query is no longer approximately fixed; it varies with problem difficulty and the chosen reasoning budget.</p>
+
+    <h3>4.1 Token Costs</h3>
+
+    <p>Reasoning models typically charge for both thinking tokens and output tokens, though the pricing structure varies. As of early 2025:</p>
+
+    <div class="comparison-table">
+        <div class="comparison-table-title">4.1 Token Costs Comparison</div>
+        <table>
+        <thead>
+            <tr>
+                <th>Model</th>
+                <th>Input ($/1M tokens)</th>
+                <th>Output ($/1M tokens)</th>
+                <th>Thinking Tokens</th>
+                <th>Notes</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>GPT-4o</td>
+                <td>&#36;2.50</td>
+                <td>&#36;10.00</td>
+                <td>N/A (no thinking)</td>
+                <td>Standard model baseline</td>
+            </tr>
+            <tr>
+                <td>o3-mini</td>
+                <td>&#36;1.10</td>
+                <td>&#36;4.40</td>
+                <td>Included in output</td>
+                <td>Low/medium/high reasoning effort</td>
+            </tr>
+            <tr>
+                <td>o3</td>
+                <td>&#36;10.00</td>
+                <td>&#36;40.00</td>
+                <td>Included in output</td>
+                <td>Highest capability reasoning</td>
+            </tr>
+            <tr>
+                <td>Claude 3.5 Sonnet</td>
+                <td>&#36;3.00</td>
+                <td>&#36;15.00</td>
+                <td>N/A (no extended thinking)</td>
+                <td>Standard model baseline</td>
+            </tr>
+            <tr>
+                <td>DeepSeek R1</td>
+                <td>&#36;0.55</td>
+                <td>&#36;2.19</td>
+                <td>Visible in output</td>
+                <td>Open-weight alternative</td>
+            </tr>
+        </tbody>
+    </table>
+    </div>
+
+    <p>A critical detail: reasoning models generate far more tokens per query than standard models. A query that costs &#36;0.001 with GPT-4o (100 output tokens) might cost &#36;0.05 to &#36;0.20 with o3 (1,000 to 5,000 thinking + output tokens). The per-token price of reasoning models is sometimes lower, but the total cost per query is typically 5x to 50x higher because of the additional thinking tokens.</p>
+
+    <h3>4.2 The Routing Optimization</h3>
+
+    <p>The wide variance in per-query cost creates a strong incentive for intelligent routing: sending easy questions to cheap, fast models and reserving expensive reasoning models for hard questions. This is not merely a cost optimization; it also improves latency. A simple factual query answered by GPT-4o-mini in 200ms is a better user experience than the same query sent to o3, which might take 5 to 15 seconds as it "thinks" about something that needs no thought.</p>
+
+    <p>Effective routing requires a difficulty estimator. This can be as simple as a logistic regression <a class="cross-ref" href="../../part-3-working-with-llms/module-12-hybrid-ml-llm/section-12.2.html">classifier</a> trained on labeled query difficulty, or as sophisticated as a small language model <a class="cross-ref" href="../../part-4-training-adapting/module-14-fine-tuning-fundamentals/section-14.1.html">fine-tuned</a> to predict whether a reasoning model would produce a better answer than a standard model. The difficulty estimator itself is cheap to run (typically a single forward pass through a small model) and acts as a gatekeeper that protects the reasoning model from wasting compute on trivial queries.</p>
+
+    <div class="callout warning">
+        <div class="callout-title">Warning: The Hidden Cost of Over-Thinking</div>
+        <p>Reasoning models can dramatically over-think simple questions. If you ask o3 "What is the capital of France?", it will still generate thinking tokens (perhaps 50 to 100) as it considers and verifies the answer. On a per-query basis, this waste is small. But at scale, if 80% of your traffic is simple queries, sending everything to a reasoning model means 80% of your inference budget is wasted on unnecessary deliberation. Always implement routing.</p>
+    </div>
+
+    <h2>5. Historical Context: From Chain-of-Thought to Reasoning Models <span class="level-badge basic" title="Basic">Basic</span></h2>
+
+    <p>The reasoning model paradigm did not emerge in a vacuum. It builds on a decade of research into improving language model reasoning, with each advance building on the last.</p>
+
+    <ol>
+        <li><strong>2017: Scratchpad method.</strong> Nye et al. showed that letting models write intermediate computation steps (a "scratchpad") improved performance on algorithmic tasks. This was the first evidence that visible intermediate reasoning helps.</li>
+        <li><strong>2022: Chain-of-thought prompting.</strong> Wei et al. demonstrated that simply prompting a model to "think step by step" dramatically improved reasoning accuracy. This required no model changes, just a prompt modification.</li>
+        <li><strong>2022: Self-consistency.</strong> Wang et al. showed that sampling multiple chain-of-thought solutions and taking a majority vote improved accuracy beyond a single CoT sample. This introduced the idea that more inference-time samples yield better answers.</li>
+        <li><strong>2022: STaR.</strong> Zelikman et al. proposed Self-Taught Reasoner, which iteratively fine-tunes a model on its own correct reasoning traces. This bootstrapping approach was an early precursor to training models specifically for reasoning.</li>
+        <li><strong>2023: Process reward models.</strong> Lightman et al. (PRM800K) demonstrated that rewarding individual reasoning steps outperforms rewarding only final answers, laying the groundwork for step-level supervision in reasoning models.</li>
+        <li><strong>2024: OpenAI o1.</strong> The first commercially deployed reasoning model, trained with reinforcement learning to produce extended chains of thought. Hidden reasoning tokens, RL-trained rather than prompt-elicited.</li>
+        <li><strong>2025: DeepSeek R1.</strong> Open-weight reasoning model demonstrating that reasoning behavior emerges from pure RL (R1-Zero) without supervised CoT data. Introduced GRPO training and <code>&lt;think&gt;</code> token delimiters.</li>
+        <li><strong>2025: Reasoning proliferation.</strong> Google Gemini 2.5 (thinking mode), Qwen QwQ, Kimi k1.5, o3, o4-mini. Reasoning capabilities become a standard feature rather than a niche capability.</li>
+    </ol>
+
+    <div class="callout note">
+        <div class="callout-title">Connection to Other Chapters</div>
+        <p>Chain-of-thought prompting is covered in depth in <a href="../../part-3-working-with-llms/module-11-prompt-engineering/section-11.2.html" class="cross-ref">Section 11.2</a>. The reinforcement learning methods used to train reasoning models (<a class="cross-ref" href="../../part-4-training-adapting/module-16-alignment-rlhf-dpo/section-16.1.html">PPO</a>, GRPO) connect directly to the <a class="cross-ref" href="../../part-4-training-adapting/module-16-alignment-rlhf-dpo/section-16.1.html">RLHF</a> framework in <a href="../../part-4-training-adapting/module-17-alignment-rlhf-dpo/section-17.1.html" class="cross-ref">Section 17.1</a>. The scaling laws referenced throughout this section are derived in <a href="../module-06-pretraining-scaling-laws/section-6.3.html" class="cross-ref">Section 06.3</a>.</p>
+    </div>
+
+    <h2>6. When to Use Test-Time Compute <span class="level-badge basic" title="Basic">Basic</span></h2>
+
+    <p>Not every task benefits from reasoning models. The following decision framework helps practitioners identify where test-time compute provides genuine value versus where it is wasted spend.</p>
+
+    <p><strong>Use reasoning models when:</strong></p>
+    <ul>
+        <li>The task requires multi-step logical reasoning (mathematical proofs, code debugging, legal analysis)</li>
+        <li>The problem has a verifiable answer (math, code execution, constraint satisfaction)</li>
+        <li>Accuracy is more important than latency (batch processing, offline analysis)</li>
+        <li>The base model achieves 20% to 80% accuracy (the "sweet spot" for test-time scaling)</li>
+        <li>Errors are expensive (medical reasoning, financial analysis, safety-critical systems)</li>
+    </ul>
+
+    <p><strong>Use standard models when:</strong></p>
+    <ul>
+        <li>The task is primarily retrieval or summarization (factual lookups, document summarization)</li>
+        <li>Latency matters more than marginal accuracy (real-time chat, autocomplete)</li>
+        <li>The base model already achieves &gt;90% accuracy (no room for improvement via thinking)</li>
+        <li>The task is creative or subjective (writing, brainstorming) where there is no single "right" answer</li>
+        <li>Cost per query is tightly constrained</li>
+    </ul>
+
+    <!-- Exercises -->
+    <div class="quiz">
+        <h3>Exercises</h3>
+
+        <div class="quiz-question">
+            <strong>Exercise 1 (Level 1):</strong> A company processes 100,000 customer support tickets daily. 85% are simple FAQ-type questions, 10% require moderate reasoning (e.g., interpreting return policies for edge cases), and 5% require complex multi-step reasoning (e.g., tracing order issues across multiple systems). Design a routing strategy that minimizes total cost while maintaining high accuracy on all three tiers. Estimate the relative cost compared to sending all queries to a reasoning model.
+        </div>
+        <details open>
+            <summary>Show Answer</summary>
+            <div class="answer">
+                <p>A three-tier routing strategy:</p>
+                <ul>
+                    <li><strong>Tier 1 (85K queries/day):</strong> Route to GPT-4o-mini or similar fast, cheap model. These are FAQ lookups that need no reasoning. Estimated cost: ~&#36;0.001/query = &#36;85/day.</li>
+                    <li><strong>Tier 2 (10K queries/day):</strong> Route to GPT-4o or Claude Sonnet. Moderate reasoning is handled well by standard frontier models. Estimated cost: ~&#36;0.01/query = &#36;100/day.</li>
+                    <li><strong>Tier 3 (5K queries/day):</strong> Route to o3-mini with medium reasoning effort. Complex multi-step analysis. Estimated cost: ~&#36;0.05/query = &#36;250/day.</li>
+                </ul>
+                <p>Total daily cost with routing: ~&#36;435/day. If all 100K queries were sent to o3-mini: ~&#36;5,000/day. The routing strategy saves roughly 91% of inference costs. The difficulty classifier can be trained on a labeled sample of 5,000 tickets and typically achieves 90%+ routing accuracy with a simple fine-tuned classifier.</p>
+            </div>
+        </details>
+
+        <div class="quiz-question">
+            <strong>Exercise 2 (Level 2):</strong> Explain why test-time compute scaling shows logarithmic returns for best-of-N sampling but can show super-logarithmic returns for tree search methods. What property of tree search enables this advantage?
+        </div>
+        <details open>
+            <summary>Show Answer</summary>
+            <div class="answer">
+                <p>Best-of-N sampling generates N independent solutions, each drawn from the same distribution. Because the samples are independent, the probability of at least one correct solution is 1 - (1-p)^N, where p is the per-sample success probability. This expression grows quickly at first but slows as N increases (logarithmic in effective accuracy gain per additional sample).</p>
+                <p>Tree search, by contrast, uses information from partial evaluations to guide future computation. If a reward model detects that the first reasoning step is wrong, tree search prunes that entire branch and redirects compute to more promising paths. This means tree search avoids the "repeated mistakes" problem of best-of-N, where many of the N independent samples might fail in the same way. The ability to prune early means that each additional unit of compute is spent more efficiently, particularly on hard problems where the correct solution requires finding a specific sequence of reasoning steps. This conditional information reuse is the property that enables super-logarithmic returns.</p>
+            </div>
+        </details>
+
+        <div class="quiz-question">
+            <strong>Exercise 3 (Level 3, Research):</strong> The Snell et al. framework assumes a fixed inference compute budget and optimizes the split between model size and test-time computation. Propose an extension to this framework that incorporates a <em>latency constraint</em> in addition to the compute budget. How does the latency constraint change the optimal allocation, and what new trade-offs emerge?
+        </div>
+        <details open>
+            <summary>Show Answer</summary>
+            <div class="answer">
+                <p>A latency-constrained extension would add a wall-clock time bound T_max to the optimization. The key new trade-off is between <strong>parallelism and sequential depth</strong>:</p>
+                <ul>
+                    <li>Best-of-N sampling is highly parallelizable: with sufficient GPUs, N samples can be generated in the same wall-clock time as one sample. Under a latency constraint, this makes best-of-N attractive because it can use more compute without increasing latency.</li>
+                    <li>Extended chain-of-thought is inherently sequential: each token depends on all previous tokens. A 5,000-token thinking chain cannot be parallelized and takes 50x longer than a 100-token response. Under tight latency constraints, this limits the maximum reasoning depth.</li>
+                    <li>Tree search offers a middle ground: different branches can be explored in parallel (like best-of-N), but the depth of each branch can be adapted (like extended CoT).</li>
+                </ul>
+                <p>The modified framework would have three variables: model size N, number of parallel samples K, and maximum sequential reasoning depth D, subject to both C_total = f(N, K, D) and T_wall = g(N, D). This creates a Pareto frontier in (cost, latency, accuracy) space. In practice, the latency constraint often eliminates deep sequential reasoning for interactive applications, pushing the optimal strategy toward parallel best-of-N with moderate model sizes.</p>
+            </div>
+        </details>
+    </div>
+    <div class="callout tip">
+        <div class="callout-title">Tip: Use Chain-of-Thought for Reasoning Tasks</div>
+        <p>For math, logic, and multi-step reasoning, simply adding "Let's think step by step" to your prompt can improve accuracy by 10 to 40%. For production, use structured chain-of-thought with explicit step numbering for more consistent results.</p>
+    </div>
+
+    <!-- Key Takeaways -->
+    <div class="takeaways">
+        <h2>Key Takeaways</h2>
+        <ul>
+            <li><strong>Two dimensions of scaling:</strong> Train-time compute (bigger models, more data) and test-time compute (more thinking per query) are complementary axes for improving LLM performance.</li>
+            <li><strong>Adaptive compute allocation</strong> is the core innovation: reasoning models invest more tokens on hard problems and fewer on easy ones, unlike standard models that spend roughly equal compute per token regardless of difficulty.</li>
+            <li><strong>Difficulty-dependent optimality:</strong> On hard problems (10% to 50% base accuracy), a smaller model with test-time compute can match a 14x larger model. On easy problems (&gt;90% accuracy), test-time compute is wasted.</li>
+            <li><strong>Three mechanisms:</strong> Extended chain-of-thought, best-of-N sampling with reward models, and tree search represent increasingly structured ways to invest inference compute.</li>
+            <li><strong>Economics favor routing:</strong> Because reasoning models cost 5x to 50x more per query, intelligent routing of easy queries to cheap models and hard queries to reasoning models is essential for production systems.</li>
+        </ul>
+    </div>
+
+    <div class="callout research-frontier">
+        <div class="callout-title">Research Frontier</div>
+        <p>The optimal allocation of test-time compute remains an active research problem. Snell et al. (2024) showed that compute-optimal inference requires adapting strategy to problem difficulty, but the question of <em>how</em> to estimate difficulty before solving the problem is unresolved. Recent work on "scaling test-time compute with an approximate value function" (DeepMind, 2025) explores using lightweight models to predict how much thinking a query needs. Separately, "s1: Simple Test-Time Scaling" (Muennighoff et al., 2025) demonstrated that even simple budget-forcing techniques can significantly improve reasoning, suggesting that the full complexity of MCTS may not always be necessary. The emerging consensus is that adaptive compute routing, where different queries receive different inference budgets, will become standard in production LLM deployments.</p>
+    </div>
+
+    <h2>Exercises</h2>
+
+<div class="callout exercise">
+    <div class="callout-title">Exercise 8.1.1: Chain-of-thought fundamentals <span class="level-badge basic" title="Basic">BASIC</span> <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+    <p>What is chain-of-thought (CoT) prompting, and why does asking a model to 'think step by step' improve performance on reasoning tasks? Give an example where CoT helps and one where it does not.</p>
+    <details open>
+        <summary>Answer Sketch</summary>
+        <p>CoT prompting instructs the model to generate intermediate reasoning steps before the final answer. It helps because: (1) it breaks complex problems into simpler sub-problems. (2) Each step conditions on previous steps, allowing error detection and correction. (3) It allocates more compute (tokens) to harder problems. Helps: multi-step math ('A train travels 60mph for 2.5 hours, how far?'). Does not help: simple factual recall ('What is the capital of France?') or tasks where the answer is immediate and reasoning adds no value. CoT can actually hurt on simple tasks by introducing unnecessary complexity.</p>
+    </details>
+</div>
+
+<div class="callout exercise">
+    <div class="callout-title">Exercise 8.1.2: Zero-shot vs. few-shot CoT <span class="level-badge basic" title="Basic">BASIC</span> <span class="exercise-type coding" title="Coding">Coding</span></div>
+    <p>Compare zero-shot CoT ('Let's think step by step') with few-shot CoT (providing worked examples) on 10 grade-school math problems. Which approach achieves higher accuracy, and by how much?</p>
+    <details open>
+        <summary>Answer Sketch</summary>
+        <p>Few-shot CoT typically outperforms zero-shot CoT by 5 to 15 percentage points because the worked examples demonstrate the specific reasoning format the model should follow. Zero-shot CoT still significantly outperforms direct answering (by 10 to 30 points). The quality of few-shot examples matters: examples should demonstrate the exact type of reasoning needed and use a consistent format. Poorly chosen examples can actually reduce accuracy.</p>
+    </details>
+</div>
+
+<div class="callout exercise">
+    <div class="callout-title">Exercise 8.1.3: CoT faithfulness <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span> <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+    <p>When a model generates a chain-of-thought, it might reach the correct answer through incorrect reasoning, or the visible reasoning might not reflect the model's actual computation. Explain the 'faithfulness' problem and why it matters for trust in AI systems.</p>
+    <details open>
+        <summary>Answer Sketch</summary>
+        <p>Faithfulness means the stated reasoning actually caused the final answer. Research shows models sometimes: (1) reach correct answers despite flawed reasoning steps (lucky cancellation of errors). (2) Generate post-hoc rationalizations rather than genuine reasoning (the answer was determined first, then justified). (3) Arrive at answers through internal computations not reflected in the text. This matters because: users rely on reasoning traces to verify answers; if the traces are unreliable, verification is illusory. For high-stakes applications (medical diagnosis, legal reasoning), unfaithful CoT creates a false sense of transparency.</p>
+    </details>
+</div>
+
+<div class="callout exercise">
+    <div class="callout-title">Exercise 8.1.4: Structured reasoning prompts <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span> <span class="exercise-type analysis" title="Analysis">Analysis</span></div>
+    <p>Compare three structured reasoning approaches: (1) chain-of-thought, (2) tree-of-thought (exploring multiple reasoning paths), and (3) plan-then-execute (outline the approach before solving). For a complex word problem, which approach produces the best results?</p>
+    <details open>
+        <summary>Answer Sketch</summary>
+        <p>CoT: linear reasoning, one path forward. Best for straightforward multi-step problems. Tree-of-thought: explores multiple approaches, backtracks from dead ends. Best for problems with multiple valid solution strategies (e.g., game playing, creative problem-solving). Plan-then-execute: first generates a high-level plan, then follows it step by step. Best for problems requiring strategic thinking before detailed computation (e.g., proofs, code design). For a complex word problem with potential traps, plan-then-execute often works best because identifying the right approach before computing prevents going down wrong paths.</p>
+    </details>
+</div>
+
+<div class="callout exercise">
+    <div class="callout-title">Exercise 8.1.5: Reasoning verification <span class="level-badge advanced" title="Advanced">ADVANCED</span> <span class="exercise-type coding" title="Coding">Coding</span></div>
+    <p>Implement a simple 'verify-then-revise' pipeline: (1) generate a chain-of-thought solution, (2) prompt the same model to verify each step, (3) if errors are found, regenerate from the error point. Test on 20 math problems and measure whether verification improves accuracy.</p>
+    <details open>
+        <summary>Answer Sketch</summary>
+        <p>The pipeline: generate solution, then prompt 'Check each step of the following solution for errors: [solution]'. If the verifier finds an error, regenerate from that step with the error flagged. Expected result: verification improves accuracy by 5 to 10 points, but the verifier itself is imperfect (catches ~60% of errors, sometimes flags correct steps as wrong). This is still valuable because the combined error rate (generator AND verifier both wrong) is lower than either alone. The fundamental limitation: the verifier uses the same model, so systematic biases affect both generation and verification.</p>
+    </details>
+</div>
+
+<div class="whats-next">
+        <h2>What Comes Next</h2>
+        <p>Now that we understand <em>why</em> test-time compute matters, <a href="section-8.2.html">Section 8.2</a> surveys the specific reasoning models that implement this paradigm: OpenAI's o-series, DeepSeek R1, Google Gemini 2.5 thinking mode, and others.</p>
+    </div>
+
+    <section class="bibliography">
+        <div class="bibliography-title">References &amp; Further Reading</div>
+
+        <div class="bib-category">Foundational Works</div>
+
+        <div class="bib-entry-card">
+            <p class="bib-ref">Snell, C. et al. (2024). <a href="https://arxiv.org/abs/2408.03314" target="_blank" rel="noopener">"Scaling LLM Test-Time Compute Optimally can be More Effective than Scaling Model Parameters."</a> <em>arXiv preprint arXiv:2408.03314</em>.</p>
+            <p class="bib-annotation">The central paper for this section, establishing when and how test-time compute scaling outperforms train-time scaling. Essential reading for understanding the compute-optimal inference problem.</p>
+        </div>
+
+        <div class="bib-entry-card">
+            <p class="bib-ref">Kaplan, J. et al. (2020). <a href="https://arxiv.org/abs/2001.08361" target="_blank" rel="noopener">"Scaling Laws for Neural Language Models."</a> <em>arXiv preprint arXiv:2001.08361</em>.</p>
+            <p class="bib-annotation">The original scaling laws paper that established the train-time compute paradigm. Understanding these laws provides the baseline against which test-time scaling is measured.</p>
+        </div>
+
+        <div class="bib-entry-card">
+            <p class="bib-ref">Hoffmann, J. et al. (2022). <a href="https://arxiv.org/abs/2203.15556" target="_blank" rel="noopener">"Training Compute-Optimal Large Language Models."</a> <em>NeurIPS 2022</em>.</p>
+            <p class="bib-annotation">The Chinchilla paper that corrected Kaplan's scaling laws, showing that models should be trained on 20x as many tokens as they have parameters.</p>
+        </div>
+
+        <div class="bib-entry-card">
+            <p class="bib-ref">Wei, J. et al. (2022). <a href="https://arxiv.org/abs/2201.11903" target="_blank" rel="noopener">"Chain-of-Thought Prompting Elicits Reasoning in Large Language Models."</a> <em>NeurIPS 2022</em>.</p>
+            <p class="bib-annotation">The chain-of-thought prompting paper that demonstrated the value of step-by-step reasoning, laying the conceptual foundation for reasoning models.</p>
+        </div>
+
+        <div class="bib-entry-card">
+            <p class="bib-ref">Wang, X. et al. (2023). <a href="https://arxiv.org/abs/2203.11171" target="_blank" rel="noopener">"Self-Consistency Improves Chain of Thought Reasoning in Language Models."</a> <em>ICLR 2023</em>.</p>
+            <p class="bib-annotation">Introduced self-consistency decoding (majority vote over multiple CoT samples), the conceptual precursor to best-of-N sampling with reward models.</p>
+        </div>
+
+        <div class="bib-entry-card">
+            <p class="bib-ref">Nye, M. et al. (2021). <a href="https://arxiv.org/abs/2112.00114" target="_blank" rel="noopener">"Show Your Work: Scratchpads for Intermediate Computation with Language Models."</a> <em>arXiv preprint arXiv:2112.00114</em>.</p>
+            <p class="bib-annotation">Early work showing that allowing models to write intermediate computation steps improves performance on algorithmic tasks.</p>
+        </div>
+    </section>
+
+
+
+<nav class="chapter-nav">
+    <a href="section-8.2.html" class="next">Next: Reasoning Model Architectures: o1, o3, R1, QwQ </a>
+</nav>
+    <footer><p>Fifth Edition, 2026 &middot; <a href="../../toc.html">Contents</a></p></footer>
+</main>
+</body>
+</html>

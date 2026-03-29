@@ -1,0 +1,1672 @@
+<!DOCTYPE html>
+
+<html lang="en">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Section 16.1: Knowledge Distillation for LLMs</title>
+
+    <link rel="stylesheet" href="../../styles/book.css">
+
+    <link rel="stylesheet" href="../../vendor/katex/katex.min.css">
+    <script defer src="../../vendor/katex/katex.min.js"></script>
+    <script defer src="../../vendor/katex/contrib/auto-render.min.js"
+        onload="renderMathInElement(document.body, {
+            delimiters: [
+                {left: '$$', right: '$$', display: true},
+                {left: '$', right: '$', display: false}
+            ],
+            throwOnError: false
+        });"></script>
+    <link rel="stylesheet" href="../../vendor/prism/prism-theme.css">
+    <script defer src="../../vendor/prism/prism-bundle.min.js"></script>
+</head>
+
+<body>
+<header class="chapter-header">
+    <nav class="header-nav">
+        <a href="../../index.html" class="book-title-link">Building Conversational AI with LLMs and Agents</a>
+        <a href="../../toc.html" class="toc-link" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+    </nav>
+    <div class="part-label"><a href="../index.html">Part 4: Training and Adapting</a></div>
+    <div class="chapter-label"><a href="index.html">Chapter 16: Distillation and Merging</a></div>
+    <h1>Knowledge Distillation for LLMs</h1>
+</header>
+
+<main class="content">
+
+
+
+<blockquote class="epigraph">
+
+    <p>The goal is not to build a smaller model, but to build a smaller model that remembers what the bigger one learned.</p>    <cite><span class="agent-avatar-inline" style="background-color: #1abc9c;"><img src="../../front-matter/images/agents/distill.png" alt="Distill"></span> <a href="../../front-matter/wisdom-council.html#distill">Distill</a> <span class="agent-desc">AI Agent</span></cite>
+
+</blockquote>
+
+<figure class="illustration">
+ <img src="images/distillation-chef.png" alt="A master chef (teacher model) guiding a junior chef (student model) to recreate a complex dish in a simpler way" loading="lazy">
+ <figcaption><strong>Figure 16.1.1</strong>: Knowledge distillation: the master chef teaches the apprentice not just the recipe, but the subtle intuitions behind every step. The student's version might be smaller, but it captures the essence.</figcaption>
+</figure>
+
+
+
+
+
+<div class="prerequisites">
+
+    <h3>Prerequisites</h3>
+
+    <p>This section builds on <a class="cross-ref" href="../module-14-fine-tuning-fundamentals/section-14.1.html">fine-tuning</a> from <a class="cross-ref" href="../module-14-fine-tuning-fundamentals/section-14.1.html">Section 14.1: When and Why to Fine-Tune</a> and <a class="cross-ref" href="../../part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.1.html">pre-training</a> covered in <a class="cross-ref" href="../../part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.1.html">Section 06.1: The Landmark Models</a>.</p>
+
+</div>
+
+
+
+
+    <div class="callout big-picture">
+
+        <div class="callout-title">Big Picture</div>
+
+        <p><strong>Knowledge distillation is the art of making small models behave like large ones.</strong> A 70B-parameter teacher model contains vast knowledge but is expensive to serve. By training a smaller student model to mimic the teacher's output distribution (not just its final answers), the student can inherit much of the teacher's capability at a fraction of the inference cost. This technique has produced some of the most remarkable results in the LLM space: Microsoft's Phi-3 models distilled from <a href="../../part-2-understanding-llms/module-07-modern-llm-landscape/section-7.1.html" class="cross-ref">GPT-4</a> demonstrate that a 3.8B model can match models 10x its size. DeepSeek distilled its R1 <a class="cross-ref" href="../../part-2-understanding-llms/module-08-reasoning-test-time-compute/section-8.3.html">reasoning model</a> into compact variants that retain strong <a class="cross-ref" href="../../part-2-understanding-llms/module-08-reasoning-test-time-compute/section-8.1.html">chain-of-thought</a> abilities. The pre-training objectives from <a class="cross-ref" href="../../part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.2.html">Section 06.2</a> explain how these teacher models acquired their knowledge in the first place.</p>
+
+    </div>
+
+
+
+
+    <h2>1. Classical Distillation Framework <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+
+
+    <h3>1.1 The Teacher-Student Paradigm</h3>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight</div>
+        <p>Knowledge distillation mirrors a longstanding principle in pedagogy and cognitive apprenticeship theory (Collins, Brown, and Newman, 1989): experts transfer knowledge not just through explicit facts but through the structure of their reasoning. When a teacher model produces a probability distribution that assigns 0.6 to "happy" and 0.2 to "glad," the student learns not just the correct answer but the semantic neighborhood around it. This is analogous to how a master craftsperson teaches an apprentice not by listing rules but by demonstrating the full nuance of their decision-making process. In information-theoretic terms, the soft distribution contains far more bits of information than a hard label: a one-hot label carries log(V) bits (where V is vocabulary size), while a soft distribution carries the full entropy of the teacher's uncertainty. Hinton's temperature parameter directly controls how much of this "dark knowledge" is revealed, by smoothing the distribution to expose inter-class relationships that would otherwise be hidden by the winner-take-all nature of low-temperature softmax.</p>
+    </div>
+
+    <p>
+
+        Knowledge distillation (Hinton et al., 2015) trains a smaller "student" model to match the output probability distribution of a larger "teacher" model, rather than training the student solely on hard ground-truth labels. Recall from <a class="cross-ref" href="../../part-2-understanding-llms/module-06-pretraining-scaling-laws/index.html">Chapter 06</a> that a language model produces <strong>logits</strong> (raw, unnormalized scores for each token in the vocabulary) which are then converted to probabilities via the <a class="cross-ref" href="../../part-1-foundations/module-04-transformer-architecture/section-4.1.html">softmax</a> function. The key insight of distillation is that the teacher's probability distribution over all possible tokens contains far richer information than a single correct answer. When the teacher assigns 0.6 probability to "happy," 0.2 to "glad," and 0.1 to "joyful," these "soft" probabilities encode semantic relationships that hard labels cannot convey. Figure 16.1.1 shows this teacher-student training setup.
+
+    </p>
+
+
+
+    <div class="diagram-container">
+
+        <svg viewBox="0 0 700 350" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, system-ui, sans-serif" role="img" aria-label="Diagram">
+
+            <text x="350" y="25" text-anchor="middle" font-size="15" font-weight="bold" fill="#333">Knowledge Distillation: Teacher to Student</text>
+
+
+
+            <!-- Teacher model -->
+
+            <rect filter="url(#shadow_8f6027)" x="40" y="50" width="180" height="70" fill="url(#grad_8f6027_e8eaf6)" stroke="#3949ab" stroke-width="2" rx="8"/>
+
+            <text x="130" y="80" text-anchor="middle" font-size="14" font-weight="bold" fill="#3949ab">Teacher (70B)</text>
+
+            <text x="130" y="100" text-anchor="middle" font-size="11" fill="#555">Large, expensive, accurate</text>
+
+
+
+            <!-- Student model -->
+
+            <rect x="480" y="50" width="180" height="70" fill="url(#grad_8f6027_c8e6c9)" stroke="#2e7d32" stroke-width="2" rx="8"/>
+
+            <text x="570" y="80" text-anchor="middle" font-size="14" font-weight="bold" fill="#2e7d32">Student (7B)</text>
+
+            <text x="570" y="100" text-anchor="middle" font-size="11" fill="#555">Small, fast, efficient</text>
+
+
+
+            <!-- Soft targets arrow -->
+
+            <line x1="220" y1="85" x2="478" y2="85" stroke="#8e44ad" stroke-width="2" marker-end="url(#arrow2)" stroke-linecap="round"/>
+
+            <text x="350" y="75" text-anchor="middle" font-size="12" font-weight="bold" fill="#8e44ad">Soft Targets (T > 1)</text>
+
+            <defs>
+<linearGradient id="grad_8f6027_fff3e0" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#ffffef"/><stop offset="100%" stop-color="#fff3e0"/></linearGradient>
+<linearGradient id="grad_8f6027_f5f5f5" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#ffffff"/><stop offset="100%" stop-color="#f5f5f5"/></linearGradient>
+<linearGradient id="grad_8f6027_e8eaf6" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#f7f9ff"/><stop offset="100%" stop-color="#e8eaf6"/></linearGradient>
+<linearGradient id="grad_8f6027_c8e6c9" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#d7f5d8"/><stop offset="100%" stop-color="#c8e6c9"/></linearGradient>
+<filter id="shadow_8f6027" x="-5%" y="-5%" width="115%" height="115%"><feDropShadow dx="2" dy="2" stdDeviation="3" flood-opacity="0.1"/></filter>
+<marker id="arrow2" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#8e44ad"/></marker></defs>
+
+
+
+            <!-- Input -->
+
+            <rect x="260" y="155" width="180" height="40" fill="url(#grad_8f6027_fff3e0)" stroke="#e65100" stroke-width="1.5" rx="4"/>
+
+            <text x="350" y="180" text-anchor="middle" font-size="12" fill="#e65100">Training Input</text>
+
+
+
+            <!-- Arrows to both models -->
+
+            <line x1="310" y1="155" x2="130" y2="122" stroke="#888" stroke-width="1.5" marker-end="url(#arrow3)" stroke-linecap="round"/>
+
+            <line x1="390" y1="155" x2="570" y2="122" stroke="#888" stroke-width="1.5" marker-end="url(#arrow3)" stroke-linecap="round"/>
+
+            <defs><marker id="arrow3" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#888"/></marker></defs>
+
+
+
+            <!-- Loss components -->
+
+            <rect x="50" y="225" width="600" height="100" fill="url(#grad_8f6027_f5f5f5)" stroke="#ddd" stroke-width="1" rx="6"/>
+
+            <text x="350" y="250" text-anchor="middle" font-size="13" font-weight="bold" fill="#333">Distillation Loss</text>
+
+            <text x="350" y="275" text-anchor="middle" font-size="12" fill="#555">L = &alpha; &middot; KL(teacher_soft || student_soft) + (1 - &alpha;) &middot; CE(labels, student_hard)</text>
+
+            <text x="200" y="305" text-anchor="middle" font-size="11" fill="#8e44ad">Soft target loss (T&sup2; scaled)</text>
+
+            <text x="500" y="305" text-anchor="middle" font-size="11" fill="#2e7d32">Hard label loss (standard CE)</text>
+
+        </svg>
+
+        <div class="diagram-caption"><strong>Figure 16.1.1</strong>: The student learns from both the teacher's soft probability distribution and the ground-truth hard labels.</div>
+
+    </div>
+
+
+
+    <h3>1.2 Temperature and Soft Targets</h3>
+
+
+
+    <p>
+
+        The <a class="cross-ref" href="../../part-1-foundations/module-05-decoding-text-generation/section-5.2.html">temperature</a> parameter <strong>T</strong> controls how "soft" the teacher's output distribution becomes. At T=1 (normal softmax), the teacher's distribution is peaked on the most likely token. As T increases, the distribution becomes smoother, revealing the relative probabilities of less likely tokens. This "dark knowledge" in the non-top predictions encodes the teacher's understanding of semantic similarity and uncertainty.
+
+    </p>
+
+
+
+
+
+<div class="callout key-insight">
+
+    <div class="callout-title">Key Insight: The Master Chef and the Apprentice</div>
+
+    <p>Think of knowledge distillation as a master chef teaching an apprentice. The master (teacher model) does not just tell the apprentice the correct dish; they share the probability distribution over all possible dishes ('this is 70% likely a risotto, 20% a pilaf, 10% a paella'). These soft labels carry richer information than hard labels ('this is a risotto') because they reveal the master's uncertainty and the relationships between options. The apprentice (student model) learns not just the answers but the teacher's reasoning patterns, often achieving surprisingly close performance at a fraction of the size.</p>
+
+</div>
+
+
+
+    <div class="callout fun-note">
+              <div class="callout-title">Fun Fact</div>
+
+        <p>Knowledge distillation was first proposed by Hinton, Vinyals, and Dean in 2015. The core insight (that a teacher model's soft probability distribution carries more information than hard labels) is still the foundation of every distillation method used today.</p>
+
+    </div>
+
+
+
+
+
+    <p>
+
+        The softmax with temperature is computed as:
+
+    </p>
+
+
+
+    <div class="math-block">
+$$p_{i} = exp(z_{i} / T) / \Sigma_{j} exp(z_{j} / T)$$
+</div>
+
+
+
+    <p>
+
+        where <span class="math">$z_{i}$</span> are the logits (pre-softmax values). Common temperature values range from 1.5 to 4.0. To see why temperature matters, consider logits [5.0, 2.0, 0.5] for three tokens. At T=1, softmax produces [0.92, 0.05, 0.01], a sharply peaked distribution that barely distinguishes the non-top tokens. At T=2, the distribution softens to [0.72, 0.18, 0.10], revealing that the second token is more plausible than the third. At T=4, we get [0.55, 0.26, 0.19], exposing even more of the teacher's uncertainty. Higher temperatures expose more of the teacher's knowledge but also introduce more noise. The distillation loss is scaled by T&sup2; to compensate for the gradient magnitude reduction caused by softening.
+
+     Code Fragment 16.1.1 shows this approach in practice.</p>
+<pre><code class="language-text"># Compute the KL-divergence distillation loss between teacher and student
+# Soft targets from the teacher transfer more information than hard labels
+import torch
+
+import torch.nn as nn
+
+import torch.nn.functional as F
+
+
+
+class DistillationLoss(nn.Module):
+
+    """Combined distillation and task loss for LLM training."""
+
+
+
+    def __init__(self, temperature=2.0, alpha=0.5):
+
+        super().__init__()
+
+        self.temperature = temperature
+
+        self.alpha = alpha   # Weight for distillation vs hard label loss
+
+        self.kl_loss = nn.KLDivLoss(reduction="batchmean")
+
+
+
+    def forward(self, student_logits, teacher_logits, labels):
+
+        # Soft targets: soften both distributions with temperature
+
+        T = self.temperature
+
+        student_soft = F.log_softmax(student_logits / T, dim=-1)
+
+        teacher_soft = F.softmax(teacher_logits / T, dim=-1)
+
+
+
+        # KL divergence loss (scaled by T^2)
+
+        distill_loss = self.kl_loss(student_soft, teacher_soft) * (T ** 2)
+
+
+
+        # Hard label cross-entropy loss
+
+        hard_loss = F.cross_entropy(
+
+            student_logits.view(-1, student_logits.size(-1)),
+
+            labels.view(-1),
+
+            ignore_index=-100,
+
+        )
+
+
+
+        # Combined loss
+
+        return self.alpha * distill_loss + (1 - self.alpha) * hard_loss</code></pre>
+<div class="code-caption"><strong>Code Fragment 16.1.1:</strong> The DistillationLoss module combines KL divergence on temperature-softened distributions with standard <a class="cross-ref" href="../../part-1-foundations/module-04-transformer-architecture/section-4.1.html">cross-entropy</a> on hard labels. The alpha parameter balances the two loss signals, and the T-squared scaling compensates for reduced gradient magnitude at higher temperatures.</div>
+
+
+
+    <div class="callout key-insight">
+
+        <div class="callout-title">Key Insight</div>
+
+        <p>The <a class="cross-ref" href="../../part-1-foundations/module-05-decoding-text-generation/section-5.2.html">temperature parameter</a> is critical. At T=1, the teacher's distribution is so peaked that it provides little more information than a hard label. At T=4, the distribution is smooth enough to reveal semantic relationships between tokens. However, too high a temperature washes out the signal entirely. Start with T=2.0 and tune based on validation performance. The T&sup2; scaling factor in the loss ensures consistent gradient magnitudes regardless of temperature.</p>
+
+    </div>
+
+
+
+    <div class="callout practical-example">
+
+      <div class="callout-title">Practical Example</div>
+
+      <div class="callout-title">Distilling GPT-4 into a Domain-Specific 1.5B Model</div>
+
+      <p><strong>Who:</strong> ML platform team at an e-commerce company</p>
+
+      <p><strong>Situation:</strong> Product search used GPT-4 API calls to rewrite user queries into structured filters (brand, size, color, price range), processing 2 million queries per day.</p>
+
+      <p><strong>Problem:</strong> GPT-4 API costs exceeded &#36;18,000 per month, and latency averaged 1.2 seconds per query, degrading the search experience.</p>
+
+      <p><strong>Dilemma:</strong> A smaller fine-tuned model could reduce cost and latency, but the team lacked labeled training data for the structured query format.</p>
+
+      <p><strong>Decision:</strong> They used black-box distillation: GPT-4 generated 200,000 query-to-filter pairs from production logs, then they fine-tuned Qwen 1.5B on that synthetic dataset.</p>
+
+      <p><strong>How:</strong> The student model was trained with standard cross-entropy on GPT-4 outputs (hard labels only, since logits were unavailable). Temperature-scaled soft labels were approximated by asking GPT-4 to output top-5 alternative parsings with confidence scores.</p>
+
+      <p><strong>Result:</strong> The distilled 1.5B model matched GPT-4 accuracy on 94% of queries, reduced latency to 45ms (26x faster), and cut monthly costs to &#36;400 for self-hosted inference.</p>
+
+      <p><strong>Lesson:</strong> <strong>Black-box distillation from API models is a practical path to production; generating diverse synthetic training data compensates for the lack of soft probability distributions.</strong></p>
+
+    </div>
+
+
+
+
+<p><strong>Why does distillation work so well?</strong> The core intuition is that a teacher model's soft probability distribution contains far more information than hard labels. When a teacher assigns probabilities [0.6, 0.2, 0.1, 0.05, 0.05] to five candidate tokens, it is implicitly encoding semantic relationships: "happy" and "glad" are closely related (both get high probability), while "table" is semantically distant (near-zero probability). A student trained on these soft targets learns these relationships in every training step, effectively receiving a compressed version of the teacher's knowledge about language structure. Hard labels ("the answer is happy") convey none of this relational information. This is why distilled models can be surprisingly capable despite being 10x smaller: they inherit the teacher's understanding of token relationships, not just its final predictions.</p>
+
+<div class="callout key-insight">
+    <div class="callout-title">Key Insight</div>
+    <p><strong>Distillation is fundamentally about compressing inference cost, not training cost.</strong> The distillation process itself is expensive (you must run the teacher model on your entire training set). The payoff comes at serving time, where the smaller student model delivers similar quality at a fraction of the latency and cost. This connects directly to <a class="cross-ref" href="../../part-2-understanding-llms/module-09-inference-optimization/section-9.1.html">inference optimization</a> in Chapter 8: distillation and quantization are complementary techniques, and production deployments often apply both (distill first, then quantize the student).</p>
+</div>
+
+    <h2>2. White-Box vs. Black-Box Distillation <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+
+
+    <p>
+
+        The distillation approach depends on what access you have to the teacher model. White-box distillation requires access to the teacher's internal logits; black-box distillation works only with the teacher's text outputs.
+
+    </p>
+
+
+
+    <div class="comparison-table">
+        <div class="comparison-table-title">2. White-Box vs. Black-Box Distillation Intermediate</div>
+        <table>
+
+        <tr><th>Aspect</th><th>White-Box Distillation</th><th>Black-Box Distillation</th></tr>
+
+        <tr><td><strong>Teacher access</strong></td><td>Full model weights and logits</td><td>API outputs (text only)</td></tr>
+
+        <tr><td><strong>Loss signal</strong></td><td>KL (Kullback-Leibler) divergence on full distribution</td><td>Cross-entropy on generated text</td></tr>
+
+        <tr><td><strong>Information richness</strong></td><td>Very high (full probability distribution)</td><td>Lower (only top-1 output)</td></tr>
+
+        <tr><td><strong>Typical teachers</strong></td><td><a class="cross-ref" href="../../part-2-understanding-llms/module-07-modern-llm-landscape/section-7.1.html">Open-weight models</a> (Llama, Mistral)</td><td>API models (GPT-4, Claude)</td></tr>
+
+        <tr><td><strong>Quality ceiling</strong></td><td>Higher (more teacher knowledge transferred)</td><td>Lower (limited to surface behavior)</td></tr>
+
+        <tr><td><strong>Scalability</strong></td><td>Limited by <a href="../../appendices/appendix-g-hardware-compute/index.html" class="cross-ref">GPU memory</a> for teacher</td><td>Limited by API cost and rate limits</td></tr>
+
+    </table>
+    </div>
+
+    <p>In practice, most LLM distillation today is black-box, simply because the most capable teachers (GPT-4, Claude) are only available through APIs. The remainder of this section examines both approaches in detail.</p>
+
+    <h3>2.1 White-Box Distillation</h3>
+
+    <p>When you have full access to the teacher's weights and logits, white-box distillation transfers the maximum amount of information. The following code fragment shows a complete training loop that loads both teacher and student, generates soft targets from the teacher, and trains the student on the combined loss.</p>
+
+<pre><code class="language-text"># Compute the KL-divergence distillation loss between teacher and student
+# Soft targets from the teacher transfer more information than hard labels
+import torch
+
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+from torch.utils.data import DataLoader
+
+
+
+def white_box_distillation(
+
+    teacher_model_id: str,
+
+    student_model_id: str,
+
+    train_dataset,
+
+    temperature: float = 2.0,
+
+    alpha: float = 0.5,
+
+    epochs: int = 3,
+
+    lr: float = 2e-5,
+
+):
+
+    """Train student to match teacher logit distribution."""
+
+
+
+    # Load teacher (frozen, in eval mode)
+
+    teacher = AutoModelForCausalLM.from_pretrained(
+
+        teacher_model_id, torch_dtype=torch.bfloat16, device_map="auto"
+
+    )
+
+    teacher.eval()
+
+    for param in teacher.parameters():
+
+        param.requires_grad = False
+
+
+
+    # Load student (trainable)
+
+    student = AutoModelForCausalLM.from_pretrained(
+
+        student_model_id, torch_dtype=torch.bfloat16, device_map="auto"
+
+    )
+
+
+
+    loss_fn = DistillationLoss(temperature=temperature, alpha=alpha)
+
+    optimizer = torch.optim.AdamW(student.parameters(), lr=lr)
+
+    dataloader = DataLoader(train_dataset, batch_size=4, shuffle=True)
+
+
+
+    for epoch in range(epochs):
+
+        student.train()
+
+        total_loss = 0
+
+        for batch in dataloader:
+
+            input_ids = batch["input_ids"].to(student.device)
+
+            labels = batch["labels"].to(student.device)
+
+
+
+            # Get teacher logits (no gradient)
+
+            with torch.no_grad():
+
+                teacher_out = teacher(input_ids=input_ids)
+
+                teacher_logits = teacher_out.logits
+
+
+
+            # Get student logits
+
+            student_out = student(input_ids=input_ids)
+
+            student_logits = student_out.logits
+
+
+
+            # Compute combined loss
+
+            loss = loss_fn(student_logits, teacher_logits, labels)
+
+            loss.backward()
+
+            optimizer.step()
+
+            optimizer.zero_grad()
+
+            total_loss += loss.item()
+
+
+
+        print(f"Epoch {epoch+1}: avg_loss = {total_loss/len(dataloader):.4f}")
+
+
+
+    return student</code></pre>
+<div class="code-caption"><strong>Code Fragment 16.1.2:</strong> White-box distillation pipeline that loads a frozen teacher and a trainable student, then optimizes the student to match the teacher's logit distribution. The teacher remains in eval mode throughout to provide stable soft targets for each training batch.</div>
+
+
+
+    <h3>2.2 Black-Box Distillation</h3>
+
+
+
+    <p>
+
+        When the teacher is an API model (GPT-4, Claude, Gemini), you cannot access logits. Instead, you generate a large dataset of high-quality (input, output) pairs from the teacher, then fine-tune the student on these pairs using standard supervised training. The quality of the distilled student depends heavily on the diversity and quality of the generated training data.
+
+     Code Fragment 16.1.3 shows this in practice.</p>
+
+
+
+<pre><code class="language-text"># Generate teacher labels asynchronously for large-scale distillation
+# Async batching maximizes throughput when labeling with an API-based teacher
+import asyncio
+
+from openai import AsyncOpenAI
+
+import json
+
+
+
+client = AsyncOpenAI()
+
+
+
+async def generate_distillation_data(
+
+    prompts: list[str],
+
+    teacher_model: str = "gpt-4o",
+
+    system_prompt: str = "You are a helpful assistant.",
+
+    max_concurrent: int = 10,
+
+) -> list[dict]:
+
+    """Generate training data from API teacher for black-box distillation."""
+
+
+
+    semaphore = asyncio.Semaphore(max_concurrent)
+
+    results = []
+
+
+
+    async def call_teacher(prompt):
+
+        async with semaphore:
+
+            response = await client.chat.completions.create(
+
+                model=teacher_model,
+
+                messages=[
+
+                    {"role": "system", "content": system_prompt},
+
+                    {"role": "user", "content": prompt},
+
+                ],
+
+                temperature=0.7,
+
+                max_tokens=2048,
+
+            )
+
+            return {
+
+                "instruction": prompt,
+
+                "response": response.choices[0].message.content,
+
+                "teacher": teacher_model,
+
+            }
+
+
+
+    tasks = [call_teacher(p) for p in prompts]
+
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+
+
+    # Filter out errors
+
+    valid = [r for r in results if isinstance(r, dict)]
+
+    print(f"Generated {len(valid)}/{len(prompts)} training examples")
+
+    return valid
+
+
+
+# Generate dataset
+
+# training_data = asyncio.run(generate_distillation_data(prompts))
+
+# Then fine-tune student model on this data using standard SFT</code></pre>
+<div class="code-caption"><strong>Code Fragment 16.1.3:</strong> Batch API workflow for asynchronous request processing. The JSONL format bundles multiple requests into a single submission. This approach trades latency for significant cost savings.</div>
+
+
+
+    <div class="callout warning">
+
+        <div class="callout-title">Warning</div>
+
+        <p>Black-box distillation from proprietary API models raises important licensing considerations. Most API providers (OpenAI, Anthropic, Google) have terms of service that restrict using their outputs to train competing models. Always review the provider's usage policy before conducting distillation. Open-weight models (Llama, Mistral, Qwen) generally allow distillation, but check their specific licenses. The Llama 3 license, for example, allows derivative works but has specific restrictions for very large deployments.</p>
+
+    </div>
+
+
+
+    <h2>3. Case Studies in LLM Distillation <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+
+
+    <h3>3.1 Orca: Learning from Complex Explanations</h3>
+
+
+
+    <p>
+
+        Microsoft's Orca (2023) demonstrated that small models can dramatically improve by learning not just the teacher's answers but its <em>reasoning process</em>. Orca trained a 13B student on millions of examples from GPT-4 that included detailed chain-of-thought explanations, step-by-step reasoning, and self-correction. The key innovations were: using <a class="cross-ref" href="../../part-3-working-with-llms/module-11-prompt-engineering/section-11.1.html">system prompts</a> to elicit rich explanations from the teacher, curating diverse and challenging prompts, and training the student on the full reasoning trace rather than just the final answer.
+
+    </p>
+
+
+
+    <h3>3.2 Phi Series: Textbook-Quality Data</h3>
+
+
+
+    <p>
+
+        Microsoft's Phi models (Phi-1, Phi-1.5, Phi-2, Phi-3) showed that data quality matters more than model size. Rather than distilling on conversational data, the Phi team used GPT-4 to generate "textbook-quality" synthetic training data: carefully structured explanations, worked examples, and exercises across diverse topics. Phi-3 (3.8B parameters) achieves performance competitive with much larger models on reasoning <a class="cross-ref" href="../../part-8-evaluation-production/module-29-evaluation-observability/section-29.2.html">benchmarks</a>, demonstrating that a small model trained on exceptional data can outperform a larger model trained on mediocre data.
+
+    </p>
+
+
+
+    <h3>3.3 Distilled DeepSeek-R1</h3>
+
+
+
+    <p>
+
+        DeepSeek distilled their large R1 reasoning model (671B <a class="cross-ref" href="../../part-2-understanding-llms/module-07-modern-llm-landscape/section-7.2.html">MoE</a>) into a family of smaller dense models (1.5B, 7B, 8B, 14B, 32B, 70B). The distillation process used 800K samples of the R1 teacher's chain-of-thought reasoning traces. The distilled models retain strong mathematical and coding reasoning abilities, with the 32B distilled variant outperforming many larger models on math benchmarks. This demonstrates that reasoning capabilities, which were previously thought to require enormous scale, can be effectively compressed through distillation. Figure 16.1.2 summarizes the key principles shared by successful distillation projects.
+
+    </p>
+
+
+
+    <div class="diagram-container">
+
+        <svg viewBox="0 0 700 260" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, system-ui, sans-serif" role="img" aria-label="Diagram: 3.3 Distilled DeepSeek-R1">
+<defs>
+<linearGradient id="grad_067e90_fff3e0" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#ffffef"/><stop offset="100%" stop-color="#fff3e0"/></linearGradient>
+<linearGradient id="grad_067e90_f5f5f5" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#ffffff"/><stop offset="100%" stop-color="#f5f5f5"/></linearGradient>
+<linearGradient id="grad_067e90_e8eaf6" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#f7f9ff"/><stop offset="100%" stop-color="#e8eaf6"/></linearGradient>
+<linearGradient id="grad_067e90_c8e6c9" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#d7f5d8"/><stop offset="100%" stop-color="#c8e6c9"/></linearGradient>
+<filter id="shadow_067e90" x="-5%" y="-5%" width="115%" height="115%"><feDropShadow dx="2" dy="2" stdDeviation="3" flood-opacity="0.1"/></filter>
+</defs>
+
+            <text x="350" y="25" text-anchor="middle" font-size="15" font-weight="bold" fill="#333">Distillation Case Study Results</text>
+
+
+
+            <!-- Table-like layout -->
+
+            <rect filter="url(#shadow_067e90)" x="40" y="45" width="200" height="55" fill="url(#grad_067e90_e8eaf6)" stroke="#3949ab" stroke-width="1.5" rx="6"/>
+
+            <text x="140" y="68" text-anchor="middle" font-size="12" font-weight="bold" fill="#3949ab">Orca (13B)</text>
+
+            <text x="140" y="88" text-anchor="middle" font-size="11" fill="#555">Matched ChatGPT on</text>
+
+            <text x="140" y="100" text-anchor="middle" font-size="10" fill="#555">complex reasoning benchmarks</text>
+
+
+
+            <rect x="250" y="45" width="200" height="55" fill="url(#grad_067e90_c8e6c9)" stroke="#2e7d32" stroke-width="1.5" rx="6"/>
+
+            <text x="350" y="68" text-anchor="middle" font-size="12" font-weight="bold" fill="#2e7d32">Phi-3 (3.8B)</text>
+
+            <text x="350" y="88" text-anchor="middle" font-size="11" fill="#555">Competitive with Llama-3 8B</text>
+
+            <text x="350" y="100" text-anchor="middle" font-size="10" fill="#555">on MMLU and reasoning tasks</text>
+
+
+
+            <rect x="460" y="45" width="200" height="55" fill="url(#grad_067e90_fff3e0)" stroke="#e65100" stroke-width="1.5" rx="6"/>
+
+            <text x="560" y="68" text-anchor="middle" font-size="12" font-weight="bold" fill="#e65100">DeepSeek-R1 (32B)</text>
+
+            <text x="560" y="88" text-anchor="middle" font-size="11" fill="#555">Strong math reasoning</text>
+
+            <text x="560" y="100" text-anchor="middle" font-size="10" fill="#555">from 671B MoE teacher</text>
+
+
+
+            <!-- Common principles -->
+
+            <rect x="40" y="125" width="620" height="120" fill="url(#grad_067e90_f5f5f5)" stroke="#ddd" stroke-width="1" rx="6"/>
+
+            <text x="350" y="150" text-anchor="middle" font-size="13" font-weight="bold" fill="#333">Common Design Principles</text>
+
+            <text x="70" y="175" font-size="11" fill="#555">1. Chain-of-thought: train on reasoning traces, not just final answers</text>
+
+            <text x="70" y="195" font-size="11" fill="#555">2. Data quality: curated, diverse, challenging prompts yield better students</text>
+
+            <text x="70" y="215" font-size="11" fill="#555">3. Scale of data: hundreds of thousands to millions of teacher examples</text>
+
+            <text x="70" y="235" font-size="11" fill="#555">4. System prompts: instruct teacher to explain, reason, and show work</text>
+
+        </svg>
+
+        <div class="diagram-caption"><strong>Figure 16.1.2</strong>: Successful distillation projects share common principles: rich reasoning traces, high-quality data, and diverse prompts.</div>
+
+    </div>
+
+
+
+    <div class="callout key-insight">
+
+        <div class="callout-title">Key Insight</div>
+
+        <p>The single most impactful lesson from distillation research is: <strong>distill the reasoning process, not just the answer.</strong> When a teacher model generates chain-of-thought explanations, step-by-step solutions, and self-corrections, the student learns much more effectively than from answer-only training data. This is why models like Orca and distilled DeepSeek-R1 dramatically outperform naive distillation approaches that only collect the teacher's final outputs.</p>
+
+    </div>
+
+
+
+    <h2>4. Small-but-Capable Models <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+
+
+    <p>
+
+        Distillation has enabled a new class of small models that achieve remarkable performance relative to their size. These models demonstrate that the right combination of architecture, training data, and distillation can produce efficient models for deployment on edge devices, mobile platforms, or high-throughput serving scenarios.
+
+    </p>
+
+
+
+    <div class="comparison-table">
+        <div class="comparison-table-title">4. Small-but-Capable Models Intermediate Comparison</div>
+        <table>
+
+        <tr><th>Model Family</th><th>Sizes</th><th>Key Technique</th><th>Notable Capability</th></tr>
+
+        <tr><td><strong>Phi (Microsoft)</strong></td><td>1.3B, 2.7B, 3.8B, 14B</td><td>Textbook-quality <a class="cross-ref" href="../module-13-synthetic-data/section-13.1.html">synthetic data</a></td><td>Strong reasoning for size</td></tr>
+
+        <tr><td><strong>Gemma (Google)</strong></td><td>2B, 7B, 9B, 27B</td><td>Distilled from Gemini</td><td>Multilingual, coding</td></tr>
+
+        <tr><td><strong>SmolLM (HF)</strong></td><td>135M, 360M, 1.7B</td><td>Curated web + synthetic data</td><td>Ultra-small deployment</td></tr>
+
+        <tr><td><strong>Qwen2.5 (Alibaba)</strong></td><td>0.5B, 1.5B, 3B, 7B+</td><td>Multi-stage distillation</td><td>Math, code, multilingual</td></tr>
+
+        <tr><td><strong>Llama 3.2 (Meta)</strong></td><td>1B, 3B</td><td><a class="cross-ref" href="../../part-2-understanding-llms/module-09-inference-optimization/section-9.2.html">Pruning</a> + distillation</td><td>On-device, mobile</td></tr>
+
+    </table>
+    </div>
+
+
+
+    <h3>Beyond Distillation: Training Efficient Small Models Directly <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h3>
+
+    <p>
+        Not all small, capable models are created through distillation. Several complementary approaches produce efficient models by rethinking how small models are trained from scratch or derived from larger ones.
+    </p>
+
+    <ul>
+        <li><strong>Sheared LLaMA</strong> (Xia et al., 2023) uses <em>structured pruning</em> to derive smaller models from larger pretrained ones. Rather than training a 1.3B model from scratch, the approach starts with LLaMA 2 7B and removes entire <a class="cross-ref" href="../../part-2-understanding-llms/module-18-interpretability/section-18.1.html">attention heads</a>, layers, and hidden dimensions guided by importance scores. The pruned model is then briefly retrained on a small data budget, producing a 1.3B model that outperforms one trained from scratch with equivalent compute.</li>
+        <li><strong>MiniCPM</strong> (Hu et al., 2024) demonstrates that 2B-parameter models can achieve performance comparable to 7B models through careful training recipe optimization: WSD <a class="cross-ref" href="../module-14-fine-tuning-fundamentals/section-14.3.html">learning rate</a> scheduling, high-quality data mixtures, and extended training well beyond the <a class="cross-ref" href="../../part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.3.html">Chinchilla</a>-optimal token count.</li>
+        <li><strong>The Phi family</strong> (Microsoft) makes the strongest case that <em>data quality can substitute for model size</em>. Phi-1 (1.3B) matched GPT-3.5 on <a class="cross-ref" href="../../part-7-multimodal-applications/module-28-llm-applications/section-28.1.html">code generation</a> by training on "textbook-quality" synthetic data. Phi-2 (2.7B) and Phi-3 (3.8B) extended this approach, consistently outperforming models 5x their size on reasoning benchmarks.</li>
+    </ul>
+
+    <p>
+        The common thread is the Chinchilla lesson applied at small scale (see <a href="../../part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.3.html" class="cross-ref">Section 06.3</a>): an undertrained 7B model is often worse than a well-trained 2B model. For deployment on edge devices and cost-sensitive applications, these approaches complement the distillation and <a class="cross-ref" href="../../part-2-understanding-llms/module-09-inference-optimization/section-9.1.html">quantization</a> techniques from <a href="../../part-2-understanding-llms/module-09-inference-optimization/section-9.1.html" class="cross-ref">Section 09.1</a>.
+    </p>
+
+    <h2>5. Practical Distillation Pipeline <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+
+
+    <p>
+
+        Here is a complete pipeline that combines data generation from an API teacher with student training, demonstrating the end-to-end black-box distillation workflow.
+
+     Code Fragment 16.1.4 shows this approach in practice.</p>
+<pre><code class="language-text"># Load and prepare the distillation dataset with teacher-generated labels
+# Each example pairs an input with the teacher model's soft predictions
+from datasets import Dataset
+
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+from trl import SFTTrainer, SFTConfig
+
+from peft import LoraConfig
+
+import json
+
+
+
+# Step 1: Prepare distillation dataset
+
+# (Assume we have generated data from teacher API)
+
+distillation_data = [
+
+    {
+
+        "messages": [
+
+            {"role": "user", "content": "Explain gradient descent."},
+
+            {"role": "assistant", "content": "Gradient descent is an optimization..."},
+
+        ]
+
+    },
+
+    # ... thousands more examples
+
+]
+
+
+
+dataset = Dataset.from_list(distillation_data)
+
+
+
+# Step 2: Configure student with LoRA (parameter-efficient)
+
+student_id = "meta-llama/Llama-3.2-3B-Instruct"
+
+tokenizer = AutoTokenizer.from_pretrained(student_id)
+
+
+
+lora_config = LoraConfig(
+
+    r=32,              # Higher rank for distillation
+
+    lora_alpha=64,
+
+    target_modules="all-linear",
+
+    task_type="CAUSAL_LM",
+
+)
+
+
+
+# Step 3: Train student on teacher-generated data
+
+sft_config = SFTConfig(
+
+    output_dir="./distilled-student",
+
+    num_train_epochs=3,
+
+    per_device_train_batch_size=4,
+
+    gradient_accumulation_steps=4,
+
+    learning_rate=2e-4,
+
+    bf16=True,
+
+    max_seq_length=4096,
+
+    logging_steps=10,
+
+    save_strategy="epoch",
+
+)
+
+
+
+trainer = SFTTrainer(
+
+    model=student_id,
+
+    args=sft_config,
+
+    train_dataset=dataset,
+
+    peft_config=lora_config,
+
+)
+
+
+
+trainer.train()
+
+print("Distillation complete. Evaluate student against teacher.")</code></pre>
+<div class="code-caption"><strong>Code Fragment 16.1.4:</strong> <a href="../module-15-peft/index.html" class="cross-ref">LoRA</a> (Low-Rank Adaptation) configuration for <a class="cross-ref" href="../module-15-peft/section-15.1.html">parameter-efficient</a> fine-tuning. Only the low-rank adapter matrices are trained, keeping the base model frozen. This reduces memory requirements by orders of magnitude.</div>
+
+
+
+    <div class="callout note">
+
+        <div class="callout-title">Note</div>
+
+        <p>For distillation, use a higher <a class="cross-ref" href="../module-14-peft/section-14.1.html">LoRA</a> rank (32-64) than you would for standard fine-tuning. The student needs more capacity to absorb the teacher's knowledge. Also consider training for more epochs (3-5) with a larger and more diverse dataset. Distillation benefits from data scale more than standard fine-tuning because each example conveys information about the teacher's behavior across many dimensions.</p>
+
+    </div>
+
+
+
+    <h2>6. Distillation Licensing and Usage Policies <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+
+
+    <p>
+
+        Before building a distillation pipeline, you must understand the legal constraints imposed by model providers. Most major LLM providers restrict or prohibit using their model outputs to train competing models. Violating these terms can result in service termination, legal liability, or both. The landscape varies significantly across providers.
+
+    </p>
+
+
+
+    <h3>6.1 Provider Policies (as of 2026)</h3>
+
+
+
+    <div class="comparison-table">
+        <div class="comparison-table-title">6.1 Provider Policies (as of 2026) Comparison</div>
+        <table>
+
+        <tr><th>Provider</th><th>Output Usage for Training</th><th>Key Restriction</th></tr>
+
+        <tr><td><strong>OpenAI</strong></td><td>Prohibited for competing models</td><td>You may not use outputs to "develop any artificial intelligence models that compete with our Products and Services." Fine-tuning through OpenAI's own API is permitted.</td></tr>
+
+        <tr><td><strong>Anthropic</strong></td><td>Restricted</td><td>Usage policy prohibits using outputs to train models that compete with Anthropic's services. Research and internal use cases should be reviewed against current terms.</td></tr>
+
+        <tr><td><strong>Google (Gemini)</strong></td><td>Restricted</td><td>Terms of Service prohibit using Gemini outputs to develop "competing generative AI products." Google Cloud enterprise agreements may include different terms.</td></tr>
+
+        <tr><td><strong>Meta (Llama)</strong></td><td>Permitted with conditions</td><td>The Llama open license permits distillation. However, models with over 700 million monthly active users must request a separate license.</td></tr>
+
+        <tr><td><strong>Mistral</strong></td><td>Permissive</td><td>Apache 2.0 licensed models have no output restrictions. Commercial models accessed through API may have separate terms.</td></tr>
+
+        <tr><td><strong>DeepSeek</strong></td><td>Permissive</td><td>MIT license places no restrictions on output usage for training.</td></tr>
+
+    </table>
+    </div>
+
+
+
+    <p>
+
+        The practical implication is clear: if you plan to distill knowledge from a proprietary API into your own model, verify that the provider's terms permit it. For many production use cases, starting with an open-weight teacher (Llama, Mistral, DeepSeek) avoids licensing uncertainty entirely. When using a proprietary API, the safest approach is to use the provider's own fine-tuning service rather than extracting outputs for external training.
+
+    </p>
+
+
+
+    <div class="callout warning">
+
+        <div class="callout-title">Warning</div>
+
+        <p>Licensing terms change frequently. Always check the current Terms of Service before starting a distillation project. A policy that was permissive six months ago may have been revised. Enterprise agreements sometimes override standard terms, so consult your legal team if the project involves proprietary API outputs.</p>
+
+    </div>
+
+
+
+    <h2>7. Speculative Distillation <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+
+
+    <p>
+
+        <a class="cross-ref" href="../../part-1-foundations/module-05-decoding-text-generation/section-5.4.html">Speculative decoding</a> uses a small "draft" model to propose multiple tokens at once, which a larger model then verifies in a single forward pass. Speculative distillation trains the draft model specifically to mimic the larger model's token distribution, improving the acceptance rate (how often the large model agrees with the draft) and thus the overall throughput. This technique turns distillation into a serving-time optimization rather than just a training-time technique. Figure 16.1.3 shows this propose-and-verify workflow.
+
+    </p>
+
+
+
+    <div class="diagram-container">
+
+        <svg viewBox="0 0 700 200" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, system-ui, sans-serif" role="img" aria-label="Diagram: 7. Speculative Distillation Advanced">
+
+            <text x="350" y="25" text-anchor="middle" font-size="15" font-weight="bold" fill="#333">Speculative Decoding with Distilled Draft Model</text>
+
+
+
+            <!-- Draft model -->
+
+            <rect filter="url(#shadow_11f303)" x="40" y="55" width="130" height="50" fill="url(#grad_11f303_c8e6c9)" stroke="#2e7d32" stroke-width="1.5" rx="6"/>
+
+            <text x="105" y="75" text-anchor="middle" font-size="11" font-weight="bold" fill="#2e7d32">Draft Model</text>
+
+            <text x="105" y="92" text-anchor="middle" font-size="10" fill="#555">(1B, distilled)</text>
+
+
+
+            <!-- Draft tokens -->
+
+            <rect x="195" y="50" width="35" height="25" fill="#e8f5e9" stroke="#2e7d32" stroke-width="1" rx="3"/>
+
+            <text x="212" y="67" text-anchor="middle" font-size="11" fill="#2e7d32">t1</text>
+
+            <rect x="235" y="50" width="35" height="25" fill="#e8f5e9" stroke="#2e7d32" stroke-width="1" rx="3"/>
+
+            <text x="252" y="67" text-anchor="middle" font-size="11" fill="#2e7d32">t2</text>
+
+            <rect x="275" y="50" width="35" height="25" fill="#e8f5e9" stroke="#2e7d32" stroke-width="1" rx="3"/>
+
+            <text x="292" y="67" text-anchor="middle" font-size="11" fill="#2e7d32">t3</text>
+
+            <rect x="315" y="50" width="35" height="25" fill="#e8f5e9" stroke="#2e7d32" stroke-width="1" rx="3"/>
+
+            <text x="332" y="67" text-anchor="middle" font-size="11" fill="#2e7d32">t4</text>
+
+            <text x="280" y="95" text-anchor="middle" font-size="10" fill="#555">Propose 4 tokens (fast)</text>
+
+
+
+            <!-- Arrow -->
+
+            <line x1="355" y1="62" x2="400" y2="62" stroke="#333" stroke-width="1.5" marker-end="url(#arrow4)" stroke-linecap="round"/>
+
+            <defs>
+<linearGradient id="grad_11f303_e8eaf6" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#f7f9ff"/><stop offset="100%" stop-color="#e8eaf6"/></linearGradient>
+<linearGradient id="grad_11f303_f5f5f5" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#ffffff"/><stop offset="100%" stop-color="#f5f5f5"/></linearGradient>
+<linearGradient id="grad_11f303_ffcdd2" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#ffdce1"/><stop offset="100%" stop-color="#ffcdd2"/></linearGradient>
+<linearGradient id="grad_11f303_c8e6c9" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#d7f5d8"/><stop offset="100%" stop-color="#c8e6c9"/></linearGradient>
+<filter id="shadow_11f303" x="-5%" y="-5%" width="115%" height="115%"><feDropShadow dx="2" dy="2" stdDeviation="3" flood-opacity="0.1"/></filter>
+<marker id="arrow4" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#333"/></marker></defs>
+
+
+
+            <!-- Verifier -->
+
+            <rect x="405" y="40" width="130" height="50" fill="url(#grad_11f303_e8eaf6)" stroke="#3949ab" stroke-width="1.5" rx="6"/>
+
+            <text x="470" y="60" text-anchor="middle" font-size="11" font-weight="bold" fill="#3949ab">Target Model</text>
+
+            <text x="470" y="77" text-anchor="middle" font-size="10" fill="#555">(70B, full)</text>
+
+
+
+            <!-- Verified tokens -->
+
+            <rect x="555" y="50" width="30" height="25" fill="url(#grad_11f303_c8e6c9)" stroke="#2e7d32" stroke-width="1.5" rx="3"/>
+
+            <text x="570" y="67" text-anchor="middle" font-size="11" fill="#2e7d32">&#10003;</text>
+
+            <rect x="590" y="50" width="30" height="25" fill="url(#grad_11f303_c8e6c9)" stroke="#2e7d32" stroke-width="1.5" rx="3"/>
+
+            <text x="605" y="67" text-anchor="middle" font-size="11" fill="#2e7d32">&#10003;</text>
+
+            <rect x="625" y="50" width="30" height="25" fill="url(#grad_11f303_c8e6c9)" stroke="#2e7d32" stroke-width="1.5" rx="3"/>
+
+            <text x="640" y="67" text-anchor="middle" font-size="11" fill="#2e7d32">&#10003;</text>
+
+            <rect x="660" y="50" width="30" height="25" fill="url(#grad_11f303_ffcdd2)" stroke="#c62828" stroke-width="1.5" rx="3"/>
+
+            <text x="675" y="67" text-anchor="middle" font-size="11" fill="#c62828">&#10007;</text>
+
+            <text x="622" y="95" text-anchor="middle" font-size="10" fill="#555">Verify all at once (1 pass)</text>
+
+
+
+            <!-- Result -->
+
+            <rect x="150" y="140" width="400" height="40" fill="url(#grad_11f303_f5f5f5)" stroke="#ddd" stroke-width="1" rx="4"/>
+
+            <text x="350" y="165" text-anchor="middle" font-size="11" fill="#555">Result: 3 tokens accepted in 1 forward pass = ~3x speedup</text>
+
+        </svg>
+
+        <div class="diagram-caption"><strong>Figure 16.1.3</strong>: A distilled draft model proposes tokens that the target model verifies in parallel, multiplying throughput.</div>
+
+    </div>
+
+
+
+
+    <h2>7. Distillation for Reasoning: Chain-of-Thought Preservation <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>
+        Standard distillation transfers a teacher's input-output mapping to a smaller student, but
+        this approach discards the teacher's intermediate reasoning. When a 70B model solves a math
+        problem, it internally constructs a chain of logical steps before arriving at the answer. A
+        student trained only on final answers learns <em>what</em> to output but not <em>how</em>
+        to reason, limiting its ability to generalize to novel problems. <strong>Chain-of-thought
+        (CoT) distillation</strong> addresses this by training the student to reproduce the teacher's
+        explicit reasoning traces alongside the final answers.
+    </p>
+
+    <p>
+        The procedure is straightforward. First, the teacher model generates solutions to a large set
+        of training problems using chain-of-thought prompting, producing step-by-step reasoning
+        followed by a final answer. Second, these complete reasoning traces become the training targets
+        for the student. The student learns to generate the full chain of thought, not just the
+        conclusion. This approach was central to the <strong>Distilled DeepSeek-R1</strong> models,
+        where 800K reasoning traces from the R1 teacher were used to fine-tune Qwen and Llama base
+        models. The resulting students (1.5B to 70B parameters) achieved reasoning performance
+        competitive with models several times their size.
+    </p>
+
+    <p>
+        CoT distillation introduces a design choice: should the student be trained on the teacher's
+        complete reasoning trace, or should the traces be filtered and curated? In practice, filtering
+        is essential. Teacher models sometimes produce redundant steps, circular reasoning, or
+        incorrect intermediate conclusions that happen to reach the right final answer. A robust
+        pipeline filters traces by (1) verifying the final answer against a ground truth, (2)
+        checking that intermediate steps are logically consistent, and (3) removing excessively
+        long or repetitive reasoning chains. The Orca series demonstrated that curating high-quality
+        explanations (with explicit reasoning structure: "First, ..., Therefore, ..., Finally, ...")
+        produces better students than training on raw, unfiltered teacher outputs.
+    </p>
+
+    <p>
+        A key finding from reasoning distillation research is that the student's reasoning format
+        does not need to match the teacher's. A teacher that uses verbose, natural-language reasoning
+        can be distilled into a student that produces compact, structured reasoning (numbered steps
+        or symbolic notation) as long as the training data is reformatted accordingly. This
+        flexibility allows practitioners to optimize the student's reasoning format for their
+        deployment constraints: verbose reasoning for user-facing explanations, compact reasoning
+        for latency-sensitive applications where the chain of thought is used internally but not
+        shown to the user.
+    </p>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight</div>
+        <p>The critical success factor in CoT distillation is the quality and diversity of the
+        reasoning traces, not the size of the dataset. Research consistently shows that 10K
+        high-quality, verified reasoning traces outperform 100K unfiltered traces. Invest in
+        building a pipeline that generates, verifies, and curates reasoning data from the teacher
+        before scaling up the dataset size.</p>
+    </div>
+
+    <!-- Quiz Section -->
+
+    <div class="quiz">
+
+        <h3>Section 16.1 Quiz</h3>
+
+
+
+        <p class="quiz-question">1. Why do soft targets (teacher probabilities with temperature) provide more useful training signal than hard labels?</p>
+
+        <details open>
+
+            <summary>Show Answer</summary>
+
+            <div class="answer">Soft targets encode the teacher's uncertainty and the relative similarity between possible outputs. When the teacher assigns 0.6 probability to "happy" and 0.2 to "glad," this reveals that these words are semantically related. Hard labels (one-hot vectors) provide only the correct answer and no information about the relationships between alternatives. This "dark knowledge" in the non-top predictions helps the student learn richer representations.</div>
+
+        </details>
+
+
+
+        <p class="quiz-question">2. What is the difference between white-box and black-box distillation, and which produces higher-quality students?</p>
+
+        <details open>
+
+            <summary>Show Answer</summary>
+
+            <div class="answer">White-box distillation has access to the teacher's full logit distribution and uses KL divergence loss. Black-box distillation only has access to the teacher's text outputs and uses standard cross-entropy loss. White-box generally produces higher-quality students because the full probability distribution contains far more information than a single output token. However, black-box is the only option when the teacher is an API model without logit access.</div>
+
+        </details>
+
+
+
+        <p class="quiz-question">3. What was the key insight from Microsoft's Orca model that improved distillation quality?</p>
+
+        <details open>
+
+            <summary>Show Answer</summary>
+
+            <div class="answer">Orca demonstrated that training the student on the teacher's full reasoning process (chain-of-thought explanations, step-by-step solutions, self-corrections) is far more effective than training on just the final answers. By using system prompts to elicit detailed explanations from GPT-4, Orca created training data that taught the student how to reason, not just what to answer.</div>
+
+        </details>
+
+
+
+        <p class="quiz-question">4. Why does the distillation loss include a T-squared scaling factor?</p>
+
+        <details open>
+
+            <summary>Show Answer</summary>
+
+            <div class="answer">When temperature T is applied to the softmax, it reduces the magnitude of the gradients by a factor of T&sup2;. Multiplying the KL divergence loss by T&sup2; compensates for this reduction, ensuring that the gradient magnitudes are consistent regardless of the temperature value. Without this scaling, higher temperatures would produce vanishingly small gradients and extremely slow training.</div>
+
+        </details>
+
+
+
+        <p class="quiz-question">5. How does speculative distillation differ from standard distillation in terms of its goal?</p>
+
+        <details open>
+
+            <summary>Show Answer</summary>
+
+            <div class="answer">Standard distillation aims to create a small model that replaces the large model entirely for inference. Speculative distillation creates a small "draft" model that works alongside the large model during inference, proposing token candidates that the large model verifies in parallel. The goal is not replacement but acceleration: by training the draft model to closely match the target's distribution, more proposed tokens are accepted per verification step, increasing throughput by 2-4x while maintaining the exact output quality of the large model.</div>
+
+        </details>
+
+    </div>
+    <div class="callout tip">
+        <div class="callout-title">Tip: Distill on Task-Specific Data</div>
+        <p>For knowledge distillation, use data from your target domain rather than generic pretraining data. A student model trained on 50K domain-specific examples from the teacher often outperforms one trained on 500K generic examples.</p>
+    </div>
+
+    <!-- Key Takeaways -->
+    <div class="takeaways">
+        <h2>Key Takeaways</h2>
+
+        <ul>
+
+            <li><strong>Knowledge distillation trains small students</strong> to mimic large teachers, reducing inference cost by 10x or more while retaining most of the teacher's capability.</li>
+
+            <li><strong>Soft targets with temperature scaling</strong> provide richer training signal than hard labels by encoding the teacher's uncertainty and inter-class relationships.</li>
+
+            <li><strong>White-box distillation (logit access)</strong> produces better students than black-box (text-only), but black-box is the only option for API-based teachers.</li>
+
+            <li><strong>Distill the reasoning process, not just answers.</strong> Chain-of-thought traces, explanations, and step-by-step solutions produce dramatically better students (as shown by Orca and DeepSeek-R1).</li>
+
+            <li><strong>Data quality trumps model size.</strong> The Phi series proved that small models trained on textbook-quality synthetic data can match models many times their size.</li>
+
+            <li><strong>Use higher LoRA ranks (32-64) for distillation</strong> than for standard fine-tuning, as the student needs more capacity to absorb the teacher's diverse behaviors.</li>
+
+            <li><strong>Speculative distillation</strong> optimizes serving speed by training a draft model to predict what the target model would generate, enabling parallel token verification.</li>
+
+        </ul>
+
+    </div>
+
+<div class="lab" id="lab-15-1">
+  <h2>Hands-On Lab: Distill a Teacher Model into a Student</h2>
+  <div class="lab-meta">
+    <span class="lab-duration">Duration: ~60 minutes</span>
+    <span class="lab-difficulty">Advanced</span>
+  </div>
+
+  <div class="lab-objective">
+    <h3>Objective</h3>
+    <p>Implement knowledge distillation by training a small student model (DistilGPT-2) to mimic the output distribution of a larger teacher model (GPT-2 Medium), using KL divergence on soft targets with temperature scaling.</p>
+  </div>
+
+  <div class="lab-skills">
+    <h3>What You'll Practice</h3>
+    <ul>
+      <li>Computing soft targets with temperature-scaled softmax</li>
+      <li>Implementing the KL divergence distillation loss</li>
+      <li>Balancing hard-label and soft-label loss components</li>
+      <li>Comparing student performance before and after distillation</li>
+    </ul>
+  </div>
+
+  <div class="lab-prereqs">
+    <h3>Setup</h3>
+    <pre><code class="language-bash">pip install transformers torch datasets tqdm</code></pre>
+<div class="code-caption"><strong>Code Fragment 16.1.5:</strong> This command installs transformers, torch, datasets, and tqdm for the knowledge distillation lab. These packages provide model loading, tensor operations, training data, and progress tracking.</div>
+  </div>
+
+  <div class="lab-steps">
+    <h3>Steps</h3>
+
+    <div class="lab-step">
+      <h3>Step 1: Load teacher and student models</h3>
+      <p>Load a larger teacher (frozen) and a smaller student (trainable).</p>
+      <pre><code class="language-python">from transformers import AutoModelForCausalLM, AutoTokenizer
+import torch
+
+device = "cuda" if torch.cuda.is_available() else "cpu"
+
+teacher = AutoModelForCausalLM.from_pretrained("gpt2-medium").to(device)
+teacher.eval()
+for p in teacher.parameters():
+    p.requires_grad = False
+
+student = AutoModelForCausalLM.from_pretrained("distilgpt2").to(device)
+tokenizer = AutoTokenizer.from_pretrained("gpt2")
+tokenizer.pad_token = tokenizer.eos_token
+
+t_params = sum(p.numel() for p in teacher.parameters())
+s_params = sum(p.numel() for p in student.parameters())
+print(f"Teacher: {t_params:,} params")
+print(f"Student: {s_params:,} params")
+print(f"Compression: {t_params / s_params:.1f}x")
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 16.1.6:</strong> This lab step loads gpt2-medium as the frozen teacher and distilgpt2 as the trainable student, sharing the same GPT-2 <a class="cross-ref" href="../../part-1-foundations/module-02-tokenization-subword-models/section-2.1.html">tokenizer</a>. The parameter count comparison shows the teacher-to-student compression ratio (approximately 4x), establishing the efficiency target for distillation.</div>
+      <details open>
+        <summary>Hint</summary>
+        <p>Both GPT-2 variants share the same tokenizer. The teacher must be frozen (eval mode, requires_grad=False) so only the student gets updated during training.</p>
+      </details>
+    </div>
+
+    <div class="lab-step">
+      <h3>Step 2: Implement the distillation loss</h3>
+      <p>Write the core loss that combines KL divergence on soft targets with cross-entropy on hard targets.</p>
+      <pre><code class="language-python">import torch.nn.functional as F
+
+def distillation_loss(student_logits, teacher_logits, labels,
+                      temperature=3.0, alpha=0.5):
+    """Combined distillation loss with soft and hard targets."""
+    # TODO: Compute soft targets from teacher (temperature-scaled softmax)
+    # TODO: Compute soft predictions from student (temperature-scaled log-softmax)
+    # TODO: KL divergence between student and teacher distributions
+    # TODO: Standard cross-entropy on hard labels
+    # TODO: Combine: alpha * T^2 * KL + (1-alpha) * CE
+    pass
+
+# Quick test
+b, s, v = 2, 10, 50257
+loss = distillation_loss(torch.randn(b,s,v), torch.randn(b,s,v),
+                         torch.randint(0, v, (b,s)))
+print(f"Test loss: {loss.item():.4f}")
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 16.1.7:</strong> This lab step implements distillation_loss, which combines KL divergence on temperature-scaled soft targets with cross-entropy on hard labels. The alpha parameter balances the two terms, and the T-squared factor on the KL term keeps gradient magnitudes stable across temperature settings.</div>
+      <details open>
+        <summary>Hint</summary>
+        <p>Soft targets: <code>F.softmax(teacher_logits / T, dim=-1)</code>. KL loss: <code>F.kl_div(F.log_softmax(student_logits / T, dim=-1), soft_targets, reduction='batchmean')</code>. Multiply KL by T&sup2; to keep gradients balanced across temperatures.</p>
+      </details>
+    </div>
+
+    <div class="lab-step">
+      <h3>Step 3: Run the distillation training loop</h3>
+      <p>Load text data and train the student to mimic the teacher's outputs.</p>
+      <pre><code class="language-python">from datasets import load_dataset
+from torch.utils.data import DataLoader
+from tqdm import tqdm
+
+dataset = load_dataset("wikitext", "wikitext-2-raw-v1", split="train")
+dataset = dataset.filter(lambda x: len(x['text'].strip()) &gt; 50)
+
+def tokenize(examples):
+    return tokenizer(examples['text'], truncation=True,
+                     max_length=128, padding='max_length')
+
+tokenized = dataset.select(range(2000)).map(
+    tokenize, batched=True, remove_columns=['text'])
+tokenized.set_format('torch')
+loader = DataLoader(tokenized, batch_size=8, shuffle=True)
+
+optimizer = torch.optim.AdamW(student.parameters(), lr=5e-5)
+student.train()
+
+for epoch in range(2):
+    total_loss = 0
+    for batch in tqdm(loader, desc=f"Epoch {epoch+1}"):
+        input_ids = batch['input_ids'].to(device)
+        attn = batch['attention_mask'].to(device)
+
+        student_out = student(input_ids, attention_mask=attn)
+        with torch.no_grad():
+            teacher_out = teacher(input_ids, attention_mask=attn)
+
+        loss = distillation_loss(
+            student_out.logits, teacher_out.logits, input_ids)
+        loss.backward()
+        optimizer.step()
+        optimizer.zero_grad()
+        total_loss += loss.item()
+
+    print(f"Epoch {epoch+1} avg loss: {total_loss / len(loader):.4f}")
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 16.1.8:</strong> This lab step runs the distillation training loop over 2 epochs on 2000 wikitext-2 examples. Each batch passes through both teacher (with torch.no_grad) and student, computes the combined distillation_loss, and updates only the student's parameters via AdamW at lr=5e-5.</div>
+      <details open>
+        <summary>Hint</summary>
+        <p>The teacher forward pass is wrapped in <code>torch.no_grad()</code> since we never update its weights. If you run out of memory, reduce batch size to 4.</p>
+      </details>
+    </div>
+
+    <div class="lab-step">
+      <h3>Step 4: Evaluate with perplexity</h3>
+      <p>Compare <a class="cross-ref" href="../../appendices/appendix-b-ml-essentials/section-b.4.html">perplexity</a> for the original student, distilled student, and teacher.</p>
+      <pre><code class="language-python">import math
+
+def compute_perplexity(model, eval_loader):
+    model.eval()
+    total_loss, total_tokens = 0, 0
+    with torch.no_grad():
+        for batch in eval_loader:
+            ids = batch['input_ids'].to(device)
+            attn = batch['attention_mask'].to(device)
+            out = model(ids, attention_mask=attn, labels=ids)
+            total_loss += out.loss.item() * attn.sum().item()
+            total_tokens += attn.sum().item()
+    return math.exp(total_loss / total_tokens)
+
+eval_data = load_dataset("wikitext", "wikitext-2-raw-v1", split="validation")
+eval_data = eval_data.filter(lambda x: len(x['text'].strip()) &gt; 50)
+eval_tok = eval_data.select(range(500)).map(
+    tokenize, batched=True, remove_columns=['text'])
+eval_tok.set_format('torch')
+eval_loader = DataLoader(eval_tok, batch_size=8)
+
+original = AutoModelForCausalLM.from_pretrained("distilgpt2").to(device)
+print(f"Teacher PPL:           {compute_perplexity(teacher, eval_loader):.2f}")
+print(f"Original student PPL:  {compute_perplexity(original, eval_loader):.2f}")
+print(f"Distilled student PPL: {compute_perplexity(student, eval_loader):.2f}")
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 16.1.9:</strong> This lab step defines compute_perplexity using cross-entropy loss over the validation set, then compares perplexity for the teacher, original student, and distilled student. The expected result is a 10-20% perplexity improvement in the distilled student while maintaining 4x fewer parameters than the teacher.</div>
+      <details open>
+        <summary>Hint</summary>
+        <p>Typical results: teacher ~25, original student ~45, distilled student ~35. The distilled student should show a 10 to 20% perplexity improvement while remaining 4x smaller than the teacher.</p>
+      </details>
+    </div>
+  </div>
+
+  <div class="lab-expected">
+    <h3>Expected Output</h3>
+    <ul>
+      <li>Distilled student perplexity improves 10 to 20% over the original student</li>
+      <li>The student remains ~4x smaller than the teacher</li>
+      <li>Training loss should decrease steadily over 2 epochs</li>
+    </ul>
+  </div>
+
+  <div class="lab-stretch">
+    <h3>Stretch Goals</h3>
+    <ul>
+      <li>Experiment with temperatures (T=1, 3, 5, 10) and plot how each affects the distilled student's perplexity</li>
+      <li>Try different alpha values (0.3, 0.5, 0.7) and find the optimal balance</li>
+      <li>Implement intermediate layer distillation: also match hidden states between teacher and student layers</li>
+    </ul>
+  </div>
+
+  <details class="lab-solution">
+    <summary>Complete Solution</summary>
+    <pre><code class="language-python">from transformers import AutoModelForCausalLM, AutoTokenizer
+from datasets import load_dataset
+from torch.utils.data import DataLoader
+import torch, torch.nn.functional as F, math
+from tqdm import tqdm
+
+device = "cuda" if torch.cuda.is_available() else "cpu"
+teacher = AutoModelForCausalLM.from_pretrained("gpt2-medium").to(device)
+teacher.eval()
+for p in teacher.parameters(): p.requires_grad = False
+student = AutoModelForCausalLM.from_pretrained("distilgpt2").to(device)
+tokenizer = AutoTokenizer.from_pretrained("gpt2")
+tokenizer.pad_token = tokenizer.eos_token
+
+def distillation_loss(s_logits, t_logits, labels, T=3.0, alpha=0.5):
+    soft_t = F.softmax(t_logits / T, dim=-1)
+    soft_s = F.log_softmax(s_logits / T, dim=-1)
+    kl = F.kl_div(soft_s, soft_t, reduction='batchmean')
+    ce = F.cross_entropy(s_logits.view(-1, s_logits.size(-1)), labels.view(-1))
+    return alpha * (T**2) * kl + (1 - alpha) * ce
+
+ds = load_dataset("wikitext", "wikitext-2-raw-v1", split="train")
+ds = ds.filter(lambda x: len(x['text'].strip()) > 50)
+def tok(ex): return tokenizer(ex['text'], truncation=True, max_length=128, padding='max_length')
+train_tok = ds.select(range(2000)).map(tok, batched=True, remove_columns=['text'])
+train_tok.set_format('torch')
+loader = DataLoader(train_tok, batch_size=8, shuffle=True)
+
+opt = torch.optim.AdamW(student.parameters(), lr=5e-5)
+student.train()
+for epoch in range(2):
+    total = 0
+    for batch in tqdm(loader, desc=f"Epoch {epoch+1}"):
+        ids, attn = batch['input_ids'].to(device), batch['attention_mask'].to(device)
+        s_out = student(ids, attention_mask=attn)
+        with torch.no_grad(): t_out = teacher(ids, attention_mask=attn)
+        loss = distillation_loss(s_out.logits, t_out.logits, ids)
+        loss.backward(); opt.step(); opt.zero_grad(); total += loss.item()
+    print(f"Epoch {epoch+1}: {total/len(loader):.4f}")
+
+def ppl(model, dl):
+    model.eval(); tl, tt = 0, 0
+    with torch.no_grad():
+        for b in dl:
+            i, a = b['input_ids'].to(device), b['attention_mask'].to(device)
+            o = model(i, attention_mask=a, labels=i)
+            tl += o.loss.item()*a.sum().item(); tt += a.sum().item()
+    return math.exp(tl/tt)
+
+ev = load_dataset("wikitext","wikitext-2-raw-v1",split="validation")
+ev = ev.filter(lambda x: len(x['text'].strip())>50)
+ev_t = ev.select(range(500)).map(tok, batched=True, remove_columns=['text'])
+ev_t.set_format('torch')
+el = DataLoader(ev_t, batch_size=8)
+orig = AutoModelForCausalLM.from_pretrained("distilgpt2").to(device)
+print(f"Teacher: {ppl(teacher,el):.2f}")
+print(f"Original: {ppl(orig,el):.2f}")
+print(f"Distilled: {ppl(student,el):.2f}")
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 16.1.10:</strong> This complete solution combines teacher/student loading, the distillation_loss function, the training loop, and perplexity evaluation into a single script. It reproduces the full knowledge distillation pipeline from model setup through quantitative evaluation on wikitext-2.</div>
+  </details>
+</div>
+
+
+
+
+
+    <div class="callout research-frontier">
+
+    <div class="callout-title">Research Frontier</div>
+
+    <p>The success of distillation in creating small reasoning models (like DeepSeek-R1-Distill and Phi-4-mini) has demonstrated that chain-of-thought capabilities can transfer from large to small models more effectively than previously assumed. Research on <em>progressive distillation</em> applies multiple rounds of compression, gradually shrinking models while preserving capabilities at each stage. An open frontier is distilling not just model outputs but internal representations and reasoning patterns, with techniques like feature distillation showing promise for preserving capabilities that output matching alone misses.</p>
+
+</div>
+
+<section class="exercises">
+    <h2>Exercises</h2>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 16.1.1: Distillation fundamentals <span class="level-badge basic" title="Basic">BASIC</span> <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+        <p>Explain the difference between hard labels and soft labels (logits) in knowledge distillation. Why do soft labels transfer more knowledge than hard labels?</p>
+        <details open><summary>Answer Sketch</summary>
+            <p>Hard labels are one-hot vectors (e.g., [0, 0, 1, 0] for class 3). Soft labels are the teacher model's full probability distribution (e.g., [0.05, 0.10, 0.80, 0.05]). Soft labels convey inter-class relationships: a '7' that looks like a '1' gets a higher probability for '1' than for '8'. This dark knowledge teaches the student model about similarity structures that hard labels completely discard. The temperature parameter controls how much this dark knowledge is emphasized.</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 16.1.2: Temperature in distillation <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span> <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+        <p>What is the role of the temperature parameter T in distillation? What happens at T=1, T=5, and T=20?</p>
+        <details open><summary>Answer Sketch</summary>
+            <p>Temperature T softens the teacher's probability distribution: <code>p_i = exp(z_i/T) / sum(exp(z_j/T))</code>. At T=1: standard softmax, probabilities are peaked on the correct class. At T=5: distribution is smoother, revealing the teacher's uncertainty and inter-class similarity. At T=20: very flat distribution, nearly uniform, which may lose too much signal. Typical values: T=2 to T=5. Higher T transfers more dark knowledge but may dilute the primary signal. The student's loss is a weighted sum of distillation loss (soft targets) and standard cross-entropy (hard targets).</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 16.1.3: Distillation pipeline <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span> <span class="exercise-type coding" title="Coding">Coding</span></div>
+        <p>Write the key components of a distillation training loop: forward pass through teacher (no grad), forward pass through student, combined loss computation with temperature scaling.</p>
+        <details open><summary>Answer Sketch</summary>
+            <p>Teacher: <code>with torch.no_grad(): teacher_logits = teacher(input_ids).logits</code>. Student: <code>student_logits = student(input_ids).logits</code>. Soft loss: <code>soft_loss = F.kl_div(F.log_softmax(student_logits/T, dim=-1), F.softmax(teacher_logits/T, dim=-1), reduction='batchmean') * T*T</code>. Hard loss: <code>hard_loss = F.cross_entropy(student_logits, labels)</code>. Combined: <code>loss = alpha * soft_loss + (1-alpha) * hard_loss</code>. Typical alpha=0.5, T=3.</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 16.1.4: On-policy vs. off-policy distillation <span class="level-badge advanced" title="Advanced">ADVANCED</span> <span class="exercise-type analysis" title="Analysis">Analysis</span></div>
+        <p>Compare on-policy distillation (student generates, teacher scores) with off-policy distillation (teacher generates, student learns). When does each approach produce better results?</p>
+        <details open><summary>Answer Sketch</summary>
+            <p>Off-policy: the teacher generates responses that the student learns to imitate via SFT. Simple to implement but the student only sees the teacher's distribution, not its own mistakes. On-policy: the student generates responses, the teacher provides token-level or sequence-level feedback, and the student learns from its own errors. On-policy is more compute-intensive but typically produces stronger students because the training data matches the student's own distribution. On-policy is preferred for larger distribution gaps between teacher and student.</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 16.1.5: Student architecture selection <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span> <span class="exercise-type coding" title="Coding">Coding</span></div>
+        <p>You want to distill a 70B teacher into a smaller student. Compare distilling into a 7B model (same architecture, fewer layers) versus a 3B model (different architecture). What factors determine the choice?</p>
+        <details open><summary>Answer Sketch</summary>
+            <p>Consider: (1) Target inference budget: 3B is ~2.3x faster and uses ~2.3x less memory than 7B. (2) Quality ceiling: 7B retains more of the teacher's capability (larger models are better students). (3) Task complexity: simple tasks (classification, extraction) work with 3B; complex reasoning benefits from 7B. (4) Architecture compatibility: same-architecture distillation can use layer-by-layer matching losses in addition to output-level distillation. Choose 7B for quality-critical tasks, 3B for cost/latency-critical deployment.</p>
+        </details>
+    </div>
+
+</section>
+
+
+
+
+
+
+
+<div class="whats-next">
+
+    <h2>What Comes Next</h2>
+
+    <p>In the next section, <a href="section-16.2.html">Section 16.2: Model Merging & Composition</a>, we explore model merging and composition, combining multiple fine-tuned models without additional training.</p>
+
+</div>
+
+
+
+<section class="bibliography">
+
+    <div class="bibliography-title">&#128218; References &amp; Further Reading</div>
+
+
+
+    <div class="bib-category">Foundational Papers</div>
+
+
+
+    <div class="bib-entry-card">
+
+        <p class="bib-ref"><a href="https://arxiv.org/abs/1503.02531" target="_blank" rel="noopener">Hinton, G., Vinyals, O., &amp; Dean, J. (2015). Distilling the Knowledge in a Neural Network. <em>NIPS Deep Learning Workshop</em>.</a></p>
+
+        <p class="bib-annotation">The paper that introduced knowledge distillation using soft targets from a teacher network. Essential reading for understanding how temperature scaling on softmax outputs transfers richer information than hard labels alone.</p>
+
+        <span class="bib-meta">&#128196; Paper</span>
+
+    </div>
+
+
+
+    <div class="bib-entry-card">
+
+        <p class="bib-ref"><a href="https://arxiv.org/abs/2110.07178" target="_blank" rel="noopener">West, P., Bhatt, S., Lu, X., Vieira, T., Choi, Y., &amp; Fisher, J. (2022). Symbolic Knowledge Distillation: from General Language Models to Commonsense Models. <em>NAACL 2022</em>.</a></p>
+
+        <p class="bib-annotation">Demonstrates distillation of structured commonsense knowledge from large LMs into smaller specialized models. Shows how symbolic representations can bridge teacher and student architectures.</p>
+
+        <span class="bib-meta">&#128196; Paper</span>
+
+    </div>
+
+
+
+    <div class="bib-category">LLM Distillation Methods</div>
+
+
+
+    <div class="bib-entry-card">
+
+        <p class="bib-ref"><a href="https://arxiv.org/abs/2306.08543" target="_blank" rel="noopener">Gu, Y., Dong, L., Wei, F., &amp; Huang, M. (2024). MiniLLM: Knowledge Distillation of Large Language Models. <em>ICLR 2024</em>.</a></p>
+
+        <p class="bib-annotation">Proposes reverse KL divergence for LLM distillation, avoiding the mode-covering problem of standard KL. Practitioners working on distilling autoregressive models should start here.</p>
+
+        <span class="bib-meta">&#128196; Paper</span>
+
+    </div>
+
+
+
+    <div class="bib-entry-card">
+
+        <p class="bib-ref"><a href="https://arxiv.org/abs/2306.13649" target="_blank" rel="noopener">Agarwal, R., Vieillard, N., Stanczyk, P., Ranzato, M., &amp; Geist, M. (2024). On-Policy Distillation of Language Models: Learning from Self-Generated Mistakes. <em>ICLR 2024</em>.</a></p>
+
+        <p class="bib-annotation">Introduces on-policy distillation where the student learns from its own generated outputs, corrected by the teacher. Addresses the train/inference mismatch that plagues offline distillation approaches.</p>
+
+        <span class="bib-meta">&#128196; Paper</span>
+
+    </div>
+
+
+
+    <div class="bib-entry-card">
+
+        <p class="bib-ref"><a href="https://arxiv.org/abs/2305.02301" target="_blank" rel="noopener">Hsieh, C.-Y., Li, C.-L., Yeh, C.-K., et al. (2023). Distilling Step-by-Step! Outperforming Larger Language Models with Less Training Data and Smaller Model Sizes. <em>ACL 2023</em>.</a></p>
+
+        <p class="bib-annotation">Shows that extracting rationales from a teacher and using them as additional training signals lets student models outperform teachers that are 700x larger. A key result for practical chain-of-thought distillation.</p>
+
+        <span class="bib-meta">&#128196; Paper</span>
+
+    </div>
+
+
+
+    <div class="bib-category">Quantization &amp; Compression</div>
+
+
+
+    <div class="bib-entry-card">
+
+        <p class="bib-ref"><a href="https://arxiv.org/abs/2101.01321" target="_blank" rel="noopener">Kim, S., Gholami, A., Yao, Z., Mahoney, M. W., &amp; Keutzer, K. (2021). I-BERT: Integer-only BERT Quantization. <em>ICML 2021</em>.</a></p>
+
+        <p class="bib-annotation">Presents integer-only quantization for <a href="../../part-1-foundations/module-04-transformer-architecture/section-4.1.html" class="cross-ref">transformer</a> models, enabling efficient deployment on hardware without floating-point support. Useful context for understanding how distillation and quantization complement each other.</p>
+
+        <span class="bib-meta">&#128196; Paper</span>
+
+    </div>
+
+</section>
+
+
+
+<nav class="chapter-nav">
+    <a href="section-16.2.html" class="next">Next: Model Merging &amp; Composition </a>
+</nav>
+    <footer><p>Fifth Edition, 2026 &middot; <a href="../../toc.html">Contents</a></p></footer>
+</main>
+</body>
+</html>
+

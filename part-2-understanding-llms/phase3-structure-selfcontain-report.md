@@ -20,7 +20,7 @@ Two review passes were performed on all 15 HTML section files, 3 index pages, an
 
 **Agent:** Self-Containment Verifier
 **Location:** All 15 sections
-**Details:** None of the 15 section HTML files contain textual references to prerequisite modules (e.g., "as covered in Module 04" or "see Section 6.3"). The chapter plans define upstream dependencies, and the index pages list prerequisites, but the actual section content never links back. A reader entering Section 8.2 (KV Cache) has no pointer to Module 04 (Transformer Architecture) for the attention mechanism fundamentals that KV caching depends on. Similarly, Section 7.3 (Reasoning Models) references Kaplan and Chinchilla by name but never points the reader to Section 6.3 where those scaling laws were explained in detail.
+**Details:** None of the 15 section HTML files contain textual references to prerequisite modules (e.g., "as covered in Module 04" or "see Section 6.3"). The chapter plans define upstream dependencies, and the index pages list prerequisites, but the actual section content never links back. A reader entering Section 10.2 (KV Cache) has no pointer to Module 04 (Transformer Architecture) for the attention mechanism fundamentals that KV caching depends on. Similarly, Section 7.3 (Reasoning Models) references Kaplan and Chinchilla by name but never points the reader to Section 6.3 where those scaling laws were explained in detail.
 **Fix:** Add brief parenthetical or inline references at first use of prerequisite concepts, e.g., "the key-value pairs computed during self-attention (see Module 04, Section 4.X)."
 
 ---
@@ -54,20 +54,20 @@ Section HTML files have no footer element at all.
 
 ---
 
-### 4. IMPORTANT: GQA/MLA content duplication between Section 7.2 and Section 8.2
+### 4. IMPORTANT: GQA/MLA content duplication between Section 7.2 and Section 10.2
 
 **Agent:** Structural Refactoring Architect
-**Location:** Section 7.2 (Open-Source Models) and Section 8.2 (KV Cache & Memory Optimization)
-**Details:** Both sections independently explain GQA (Grouped-Query Attention) and MLA (Multi-head Latent Attention). Section 7.2 covers them from an architecture perspective (how DeepSeek V3 works), and Section 8.2 covers them from a memory optimization perspective (how they reduce KV cache size). The overlap is conceptually justified, but neither section acknowledges or cross-references the other. Readers going through linearly will encounter near-duplicate explanations without understanding this is intentional.
-**Fix:** Add a brief cross-reference in each section. In 7.2: "We return to GQA's memory implications in Section 8.2." In 8.2: "GQA architecture details were introduced in Section 7.2; here we focus on the memory savings."
+**Location:** Section 7.2 (Open-Source Models) and Section 10.2 (KV Cache & Memory Optimization)
+**Details:** Both sections independently explain GQA (Grouped-Query Attention) and MLA (Multi-head Latent Attention). Section 7.2 covers them from an architecture perspective (how DeepSeek V3 works), and Section 10.2 covers them from a memory optimization perspective (how they reduce KV cache size). The overlap is conceptually justified, but neither section acknowledges or cross-references the other. Readers going through linearly will encounter near-duplicate explanations without understanding this is intentional.
+**Fix:** Add a brief cross-reference in each section. In 7.2: "We return to GQA's memory implications in Section 10.2." In 8.2: "GQA architecture details were introduced in Section 7.2; here we focus on the memory savings."
 
 ---
 
-### 5. IMPORTANT: Section 8.2 assumes KV cache knowledge without grounding in Module 04
+### 5. IMPORTANT: Section 10.2 assumes KV cache knowledge without grounding in Module 04
 
 **Agent:** Self-Containment Verifier
-**Location:** Section 8.2, lines 337-348
-**Details:** Section 8.2 opens by explaining the KV cache formula but assumes the reader already understands that attention computes queries, keys, and values, and that these grow linearly with sequence length. This is correct per the prerequisite chain (Module 04 covers attention), but a single sentence referencing where this was taught would help readers who jump directly to Module 08.
+**Location:** Section 10.2, lines 337-348
+**Details:** Section 10.2 opens by explaining the KV cache formula but assumes the reader already understands that attention computes queries, keys, and values, and that these grow linearly with sequence length. This is correct per the prerequisite chain (Module 04 covers attention), but a single sentence referencing where this was taught would help readers who jump directly to Module 08.
 **Fix:** Add at opening: "Recall from Module 04 that each attention layer computes query, key, and value projections for every token."
 
 ---
@@ -108,10 +108,10 @@ Section HTML files have no footer element at all.
 
 ---
 
-### 10. IMPORTANT: Section 8.3 (Speculative Decoding) lacks a from-scratch implementation
+### 10. IMPORTANT: Section 10.3 (Speculative Decoding) lacks a from-scratch implementation
 
 **Agent:** Self-Containment Verifier
-**Location:** Section 8.3, subsection 6 (Practical Implementation)
+**Location:** Section 10.3, subsection 6 (Practical Implementation)
 **Details:** The chapter plan and section index card promise a lab where students "implement speculative decoding from scratch." However, the actual section content shows only the Hugging Face `assistant_model` API approach and a Medusa simulation. The draft-verify-resample loop, which is the core pedagogical goal, is only described mathematically, not implemented in code. Students cannot reproduce the algorithm themselves.
 **Fix:** Add a minimal speculative decoding implementation using two GPT-2 models (one small draft, one larger target) with the full accept/reject/resample loop.
 
@@ -153,10 +153,10 @@ Section HTML files have no footer element at all.
 
 ---
 
-### 15. IMPORTANT: Section 8.4 has no TensorRT-LLM code example
+### 15. IMPORTANT: Section 10.4 has no TensorRT-LLM code example
 
 **Agent:** Self-Containment Verifier
-**Location:** Section 8.4, subsection 5 (TensorRT-LLM)
+**Location:** Section 10.4, subsection 5 (TensorRT-LLM)
 **Details:** vLLM, TGI, and Ollama each have runnable code examples (server launch, API calls, benchmarking). TensorRT-LLM has only a descriptive paragraph. Since TensorRT-LLM is positioned as the highest-throughput option (30-50% over vLLM), the lack of a concrete example makes it harder for students to evaluate or try it.
 **Fix:** Add a Docker-based deployment example for TensorRT-LLM, similar to the TGI docker example.
 
@@ -225,11 +225,11 @@ Section HTML files have no footer element at all.
 
 ---
 
-### 23. OPTIONAL: Section 8.1 does not cover GGUF format
+### 23. OPTIONAL: Section 10.1 does not cover GGUF format
 
 **Agent:** Self-Containment Verifier
-**Location:** Section 8.1 (Model Quantization)
-**Details:** GGUF is the dominant format for local inference with llama.cpp and Ollama (covered in Section 8.4). But Section 8.1, which covers quantization in depth, never mentions GGUF or its mixed-precision strategy (different bit widths for different layers). Students arrive at Section 8.4 encountering GGUF without understanding how it relates to the quantization methods they just learned.
+**Location:** Section 10.1 (Model Quantization)
+**Details:** GGUF is the dominant format for local inference with llama.cpp and Ollama (covered in Section 10.4). But Section 10.1, which covers quantization in depth, never mentions GGUF or its mixed-precision strategy (different bit widths for different layers). Students arrive at Section 10.4 encountering GGUF without understanding how it relates to the quantization methods they just learned.
 **Fix:** Add a brief subsection in 8.1 on GGUF format and how it applies quantization at varying granularity across layers.
 
 ---
@@ -243,10 +243,10 @@ Section HTML files have no footer element at all.
 
 ---
 
-### 25. OPTIONAL: Section 8.2 TTT (Test-Time Training) explanation is too brief
+### 25. OPTIONAL: Section 10.2 TTT (Test-Time Training) explanation is too brief
 
 **Agent:** Self-Containment Verifier
-**Location:** Section 8.2, subsection 8 (Research Frontiers)
+**Location:** Section 10.2, subsection 8 (Research Frontiers)
 **Details:** TTT is described in one paragraph. Students may confuse it with fine-tuning, since both involve weight updates. The key distinction (TTT happens during inference, compresses context into temporary weights, and is discarded after the request) is not clearly stated.
 **Fix:** Expand with a comparison: "Unlike fine-tuning, which permanently updates weights, TTT creates temporary weights for a single request, compressing long-context information. These weights are discarded after generation completes."
 
@@ -256,7 +256,7 @@ Section HTML files have no footer element at all.
 
 **Agent:** Self-Containment Verifier
 **Location:** Section 6.3 and cross-referencing chapter plan terminology table
-**Details:** The terminology table specifies "FLOPs" (floating-point operations, plural) vs. "FLOPS" (operations per second). In Section 6.3 and Section 8.3, the term "FLOPs" is used correctly. However, the chapter plan's careful distinction is not surfaced in the section text, meaning students may remain confused about the difference.
+**Details:** The terminology table specifies "FLOPs" (floating-point operations, plural) vs. "FLOPS" (operations per second). In Section 6.3 and Section 10.3, the term "FLOPs" is used correctly. However, the chapter plan's careful distinction is not surfaced in the section text, meaning students may remain confused about the difference.
 **Fix:** Add a brief inline note on first use in Section 6.3: "FLOPs (floating-point operations; not to be confused with FLOPS, which measures operations per second)."
 
 ---
@@ -274,15 +274,15 @@ Section HTML files have no footer element at all.
 
 **Agent:** Self-Containment Verifier
 **Location:** Module 08 index prerequisites
-**Details:** Module 08 lists Module 07 as a prerequisite, referencing "Llama, Mistral, DeepSeek architecture details, GQA, MoE." However, Section 8.1 (Quantization) and Section 8.3 (Speculative Decoding) can be understood without Module 07 knowledge. Only Section 8.2 (KV Cache, GQA discussion) truly requires Module 07. Listing Module 07 as a blanket prerequisite may discourage students who want to jump directly to inference optimization.
+**Details:** Module 08 lists Module 07 as a prerequisite, referencing "Llama, Mistral, DeepSeek architecture details, GQA, MoE." However, Section 10.1 (Quantization) and Section 10.3 (Speculative Decoding) can be understood without Module 07 knowledge. Only Section 10.2 (KV Cache, GQA discussion) truly requires Module 07. Listing Module 07 as a blanket prerequisite may discourage students who want to jump directly to inference optimization.
 **Fix:** Refine the prerequisite to: "Module 07 recommended for Sections 8.2 and 8.4; Sections 8.1 and 8.3 can be read with Module 04 and 05 knowledge alone."
 
 ---
 
-### 29. OPTIONAL: Section 8.3 mathematical proof of lossless speculative decoding is absent
+### 29. OPTIONAL: Section 10.3 mathematical proof of lossless speculative decoding is absent
 
 **Agent:** Self-Containment Verifier
-**Location:** Section 8.3, subsection 2 (Acceptance and Rejection Sampling)
+**Location:** Section 10.3, subsection 2 (Acceptance and Rejection Sampling)
 **Details:** The Key Insight callout states that speculative decoding preserves the target distribution, but the probability argument is not shown. The acceptance criterion formula is given (min(1, q(x)/p(x))), but why this specific formula guarantees distributional equivalence is not explained. Curious students have no way to verify the claim from the text alone.
 **Fix:** Add a brief informal proof: "For any token x, the probability of accepting and keeping x is p(x) * min(1, q(x)/p(x)). When q(x) >= p(x), this equals p(x) * 1 = p(x). When q(x) < p(x), the rejected probability mass is redistributed via resampling from max(0, q(x) - p(x)), which adds back exactly the missing probability. The net distribution is thus q(x) exactly."
 

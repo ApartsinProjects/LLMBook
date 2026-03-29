@@ -225,7 +225,7 @@ Files reviewed: index.html, section-7.1.html, section-7.2.html, section-7.3.html
 
 ### Missing Forward References
 1. Section 7.1 mentions reasoning models but the forward reference to 7.3 is present. Good.
-2. Section 7.2 links forward to Section 8.2 for KV cache optimization. Good.
+2. Section 7.2 links forward to Section 10.2 for KV cache optimization. Good.
 
 ### Broken References
 - None detected. All `href` paths appear to follow consistent patterns.

@@ -27,15 +27,15 @@ These are essential for textbook credibility. Each represents a gap that readers
 
 | # | Location | Title | Scope | Justification |
 |---|----------|-------|-------|---------------|
-| 1 | Section 9.4 | Reasoning Models and Multimodal APIs | ~3000 words | OpenAI Responses API, reasoning model parameters across providers, multimodal content blocks (images, audio, documents). Biggest single gap in the book. |
-| 2 | Section 10.5 | Prompting Reasoning and Multimodal Models | ~2000 words | How prompting changes for reasoning models (less explicit CoT needed), multimodal prompting patterns. |
-| 3 | Section 12.7 | Synthetic Reasoning Data | ~2000 words | Generating chain-of-thought traces, verification-based filtering, the R1-style data pipeline. Bridges Modules 12 and 16. |
-| 4 | Section 18.5 | Vision-Based Document Retrieval | ~2500 words | ColPali, ColQwen, visual embeddings that bypass OCR entirely. Paradigm shift in document retrieval. |
-| 5 | Section 21.5 | Reasoning Models and Agent Architecture | ~2500 words | How o1/o3/Claude extended thinking change the agent loop, when to use reasoning vs. standard models as agent backbone. |
-| 6 | Section 22.4 | Production Multi-Agent Systems | ~2500 words | Cost management, A2A in practice, testing multi-agent systems, scaling patterns. |
-| 7 | Section 23.4 | Unified Multimodal Models and Omni-Architectures | ~2500 words | GPT-4o, Gemini 2.0, native cross-modal models, early vs. late fusion. |
-| 8 | Section 25.8 | Arena-Style and Crowdsourced Evaluation | ~2000 words | Chatbot Arena / LMSYS methodology, Elo/Bradley-Terry, building your own evaluation arena. |
-| 9 | Section 8.5 | Model Pruning and Sparsity | ~2500 words | Structured/unstructured pruning, SparseGPT, Wanda. One of four compression pillars, currently absent. |
+| 1 | Section 10.4 | Reasoning Models and Multimodal APIs | ~3000 words | OpenAI Responses API, reasoning model parameters across providers, multimodal content blocks (images, audio, documents). Biggest single gap in the book. |
+| 2 | Section 11.5 | Prompting Reasoning and Multimodal Models | ~2000 words | How prompting changes for reasoning models (less explicit CoT needed), multimodal prompting patterns. |
+| 3 | Section 13.7 | Synthetic Reasoning Data | ~2000 words | Generating chain-of-thought traces, verification-based filtering, the R1-style data pipeline. Bridges Modules 12 and 16. |
+| 4 | Section 19.5 | Vision-Based Document Retrieval | ~2500 words | ColPali, ColQwen, visual embeddings that bypass OCR entirely. Paradigm shift in document retrieval. |
+| 5 | Section 22.5 | Reasoning Models and Agent Architecture | ~2500 words | How o1/o3/Claude extended thinking change the agent loop, when to use reasoning vs. standard models as agent backbone. |
+| 6 | Section 23.4 | Production Multi-Agent Systems | ~2500 words | Cost management, A2A in practice, testing multi-agent systems, scaling patterns. |
+| 7 | Section 24.4 | Unified Multimodal Models and Omni-Architectures | ~2500 words | GPT-4o, Gemini 2.0, native cross-modal models, early vs. late fusion. |
+| 8 | Section 27.8 | Arena-Style and Crowdsourced Evaluation | ~2000 words | Chatbot Arena / LMSYS methodology, Elo/Bradley-Terry, building your own evaluation arena. |
+| 9 | Section 10.5 | Model Pruning and Sparsity | ~2500 words | Structured/unstructured pruning, SparseGPT, Wanda. One of four compression pillars, currently absent. |
 
 ### Expansions to Existing Sections
 
@@ -139,14 +139,14 @@ Given field velocity, consider a dated "Recent Developments" appendix or webpage
 ## Topics Already Well Covered (Confirmed by Scout)
 
 The following topics were checked and found to have adequate or strong coverage:
-- MCP (Model Context Protocol): Section 21.2
-- RLVR (Reinforcement Learning with Verifiable Rewards): Section 16.4
-- Constitutional AI: Section 16.3
+- MCP (Model Context Protocol): Section 22.2
+- RLVR (Reinforcement Learning with Verifiable Rewards): Section 17.4
+- Constitutional AI: Section 17.3
 - Mixture of Experts architecture: Sections 4.3 and 7.2
 - Reasoning models (o1, o3, DeepSeek R1): Section 7.3
 - Data contamination: Sections 12.1, 25.1, 25.2
-- AI coding assistants: Section 24.1
-- Long context techniques: Section 13.7
+- AI coding assistants: Section 25.1
+- Long context techniques: Section 14.7
 - Open-weight model ecosystem: Section 7.2
 - Structured/grammar-constrained generation: Section 5.3
 

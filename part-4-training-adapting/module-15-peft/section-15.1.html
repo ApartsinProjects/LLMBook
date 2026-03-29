@@ -1,0 +1,855 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Section 15.1: LoRA & QLoRA</title>
+    <link rel="stylesheet" href="../../styles/book.css">
+    <link rel="stylesheet" href="../../vendor/katex/katex.min.css">
+    <script defer src="../../vendor/katex/katex.min.js"></script>
+    <script defer src="../../vendor/katex/contrib/auto-render.min.js"
+        onload="renderMathInElement(document.body, {
+            delimiters: [
+                {left: '$$', right: '$$', display: true},
+                {left: '$', right: '$', display: false}
+            ],
+            throwOnError: false
+        });"></script>
+    <link rel="stylesheet" href="../../vendor/prism/prism-theme.css">
+    <script defer src="../../vendor/prism/prism-bundle.min.js"></script>
+</head>
+<body>
+<header class="chapter-header">
+    <nav class="header-nav">
+        <a href="../../index.html" class="book-title-link">Building Conversational AI with LLMs and Agents</a>
+        <a href="../../toc.html" class="toc-link" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+    </nav>
+    <div class="part-label"><a href="../index.html">Part 4: Training and Adapting</a></div>
+    <div class="chapter-label"><a href="index.html">Chapter 15: Parameter-Efficient Fine-Tuning</a></div>
+    <h1>LoRA &amp; QLoRA</h1>
+</header>
+
+<main class="content">
+
+
+
+<blockquote class="epigraph">
+    <p>"Why update a billion parameters when a few thousand will do? Efficiency is not laziness; it is elegance under constraint."</p>    <cite><span class="agent-avatar-inline" style="background-color: #27ae60;"><img src="../../front-matter/images/agents/lora.png" alt="LoRA"></span> <a href="../../front-matter/wisdom-council.html#lora">LoRA</a> <span class="agent-desc">AI Agent</span></cite>
+</blockquote>
+
+<figure class="illustration">
+ <img src="images/lora-sticky-note.png" alt="A small sticky note attached to a large frozen neural network, representing LoRA's lightweight trainable parameters" loading="lazy">
+ <figcaption><strong>Figure 15.1.1</strong>: LoRA in a nutshell: instead of rewriting the whole textbook, just slap a sticky note on the relevant pages. Same knowledge, fraction of the effort.</figcaption>
+</figure>
+<div class="prerequisites">
+    <h3>Prerequisites</h3>
+    <p>This section builds on <a class="cross-ref" href="../module-14-fine-tuning-fundamentals/section-14.1.html">fine-tuning</a> fundamentals from <a class="cross-ref" href="../module-14-fine-tuning-fundamentals/section-14.1.html">Section 14.1: When and Why to Fine-Tune</a> and <a href="../../part-1-foundations/module-04-transformer-architecture/section-4.1.html" class="cross-ref">transformer</a> architecture covered in <a class="cross-ref" href="../../part-1-foundations/module-04-transformer-architecture/section-4.1.html">Section 04.1: Transformer Architecture Deep Dive</a>. You should also be comfortable with the <a class="cross-ref" href="../../part-2-understanding-llms/module-09-inference-optimization/section-9.1.html">quantization</a> concepts from <a class="cross-ref" href="../../part-2-understanding-llms/module-09-inference-optimization/section-9.1.html">Section 09.1: Quantization Fundamentals</a>, as QLoRA builds directly on 4-bit quantization techniques. An understanding of <a class="cross-ref" href="../module-14-fine-tuning-fundamentals/section-14.3.html">catastrophic forgetting</a> from <a class="cross-ref" href="../module-14-fine-tuning-fundamentals/section-14.2.html">Section 14.2</a> will help you appreciate why parameter-efficient methods preserve base model capabilities.</p>
+</div><div class="callout big-picture">
+        <div class="callout-title">Big Picture</div>
+        <p><strong>LoRA is the single most important technique for practical LLM fine-tuning.</strong> Instead of updating all model weights, LoRA freezes the pretrained model and injects small trainable low-rank matrices into each layer. This reduces trainable parameters by 100x or more, cuts <a href="../../appendices/appendix-g-hardware-compute/index.html" class="cross-ref">GPU memory</a> by 60-70%, and produces adapters that can be swapped at serving time without reloading the base model. QLoRA extends this further by quantizing the frozen weights to 4-bit (building on the quantization techniques from <a class="cross-ref" href="../../part-2-understanding-llms/module-09-inference-optimization/section-9.1.html">Section 09.1</a>), enabling fine-tuning of 70B models on a single 48GB GPU.</p>    </div>
+
+
+<figure class="illustration">
+ <img src="images/qlora-truck-decals.png" alt="A delivery truck with custom decals representing QLoRA's quantized base model with low-rank adapters" loading="lazy">
+ <figcaption><strong>Figure 15.1.2</strong>: QLoRA: take your already-compact quantized model and add custom decals. You get personalization without needing a bigger garage.</figcaption>
+</figure>
+
+    <h2>1. The Full Fine-Tuning Problem <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        When you fine-tune a model with full parameter updates, every weight in the model gets a gradient, an optimizer state (momentum and variance for Adam), and a copy of the updated weight. For a 7B parameter model in FP16, that means 14 GB just for the weights, plus roughly 42 GB for optimizer states, totaling over 56 GB of GPU memory. Scaling to 13B or 70B models makes this prohibitively expensive.
+    </p>
+
+    <p>
+        The key insight behind parameter-efficient methods is that the weight changes during fine-tuning are <em>low-rank</em>. Research (Aghajanyan et al., 2021) has shown that when you compute the difference between a fine-tuned model and its pretrained base (the "task-specific delta"), this delta matrix has a very low intrinsic dimensionality, meaning it can be well-approximated by a matrix of much lower rank. Most of the information in the update can be captured by a much smaller matrix. Think of it like image compression: a JPEG discards high-frequency details that humans barely notice, keeping the image recognizable at a fraction of the file size. Similarly, LoRA discards the high-rank components of the weight update, keeping only the most important directions of change.
+    </p>
+
+
+<div class="callout key-insight">
+    <div class="callout-title">Mental Model: The Sticky Note on a Textbook</div>
+    <p>Think of LoRA as adding sticky notes to a textbook rather than rewriting the pages. The original textbook (pretrained weights) stays untouched. Each sticky note (low-rank adapter) captures a small correction or addition that adjusts the meaning for your specific task. At inference time, you can peel off one set of sticky notes and apply a different set for a new task, all without ever altering the original textbook pages.</p>
+</div>
+
+    <div class="callout fun-note">
+              <div class="callout-title">Fun Fact</div>
+        <p>LoRA achieves 90%+ of full fine-tuning performance while training less than 1% of the parameters. It is the deep learning equivalent of altering a suit instead of buying a new one: same great fit, fraction of the cost.</p>
+    </div>
+
+
+    <div class="comparison-table">
+        <div class="comparison-table-title">Model Size Comparison</div>
+        <table>
+        <tr><th>Model Size</th><th>Full FT Memory (FP16 + Adam)</th><th>LoRA Memory (r=16)</th><th>QLoRA Memory (NF4, r=16)</th></tr>
+        <tr><td>7B</td><td>~56 GB</td><td>~16 GB</td><td>~6 GB</td></tr>
+        <tr><td>13B</td><td>~104 GB</td><td>~28 GB</td><td>~10 GB</td></tr>
+        <tr><td>70B</td><td>~560 GB</td><td>~160 GB</td><td>~36 GB</td></tr>
+    </table>
+    </div>
+
+
+<p><strong>Why does LoRA work with so few parameters?</strong> The deep intuition is that fine-tuning does not need to change the model's fundamental capabilities; it only needs to steer existing capabilities toward a specific task. The pretrained weight matrices encode rich, general-purpose representations built from trillions of tokens. The task-specific adaptation (learning to follow instructions, adopting a particular output format, specializing in a domain) requires only small directional adjustments to these representations. Mathematically, these adjustments occupy a low-dimensional subspace of the full weight space, which is precisely what low-rank matrices capture. This is why rank-4 or rank-8 LoRA frequently matches full fine-tuning: the effective dimensionality of the task adaptation is genuinely small, regardless of the model's total parameter count.</p>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight</div>
+        <p>The effectiveness of LoRA is grounded in the mathematical phenomenon of low intrinsic dimensionality, a concept with roots in topology and the manifold hypothesis. The manifold hypothesis, widely discussed in machine learning theory, posits that high-dimensional data (such as model weight matrices with millions of entries) actually lies on or near a low-dimensional manifold. In linear algebra terms, the task-specific weight update occupies a tiny subspace of the full parameter space. This is not unique to neural networks: the same principle appears in signal processing (signals are sparse in the Fourier or wavelet basis), in physics (many-body systems have low effective degrees of freedom near equilibrium), and in statistics (principal component analysis exploits the same low-rank structure to compress data). LoRA's rank decomposition W = BA is, mathematically, a constrained version of the singular value decomposition (SVD) applied to the weight update, keeping only the most significant singular vectors. The remarkable finding that ranks as low as 4 or 8 suffice tells us that fine-tuning operates in a surprisingly low-dimensional subspace of the full parameter manifold.</p>
+    </div>
+
+    <h2>2. LoRA Mathematics <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <h3>2.1 The Core Decomposition</h3>
+
+    <p>
+        LoRA (Low-Rank Adaptation) works by expressing the weight update as a product of two small matrices. For a pretrained weight matrix <strong>W</strong> of dimension <em>d &times; k</em>, instead of computing a full update &Delta;W (also <em>d &times; k</em>), LoRA decomposes it as:
+    </p>
+
+    <p style="text-align: center; font-size: 1.2rem; margin: 1.5rem 0;">
+        <strong>W' = W + &Delta;W = W + BA</strong>
+    </p>
+
+    <p>
+        where <strong>B</strong> is <em>d &times; r</em> and <strong>A</strong> is <em>r &times; k</em>, with the rank <em>r</em> being much smaller than both <em>d</em> and <em>k</em>. Typical values of <em>r</em> range from 4 to 64, while <em>d</em> and <em>k</em> are typically 4096 or larger. This means the number of trainable parameters drops from <em>d &times; k</em> (e.g., 16.7 million for a 4096 &times; 4096 matrix) to <em>r &times; (d + k)</em> (e.g., 131,072 for r=16). Figure 15.1.1 visualizes this decomposition.
+    </p>
+
+    <div class="diagram-container">
+        <svg viewBox="0 0 700 320" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, system-ui, sans-serif" role="img" aria-label="Diagram">
+<defs>
+<linearGradient id="grad_431e48_fff3e0" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#ffffef"/><stop offset="100%" stop-color="#fff3e0"/></linearGradient>
+<linearGradient id="grad_431e48_f5f5f5" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#ffffff"/><stop offset="100%" stop-color="#f5f5f5"/></linearGradient>
+<linearGradient id="grad_431e48_e8eaf6" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#f7f9ff"/><stop offset="100%" stop-color="#e8eaf6"/></linearGradient>
+<linearGradient id="grad_431e48_c8e6c9" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#d7f5d8"/><stop offset="100%" stop-color="#c8e6c9"/></linearGradient>
+<filter id="shadow_431e48" x="-5%" y="-5%" width="115%" height="115%"><feDropShadow dx="2" dy="2" stdDeviation="3" flood-opacity="0.1"/></filter>
+</defs>
+            <!-- Original weight matrix W -->
+            <rect filter="url(#shadow_431e48)" x="30" y="40" width="120" height="120" fill="url(#grad_431e48_e8eaf6)" stroke="#3949ab" stroke-width="2" rx="4"/>
+            <text x="90" y="105" text-anchor="middle" font-size="16" font-weight="bold" fill="#3949ab">W</text>
+            <text x="90" y="125" text-anchor="middle" font-size="11" fill="#555">d &times; k</text>
+            <text x="90" y="25" text-anchor="middle" font-size="13" font-weight="bold" fill="#333">Frozen</text>
+
+            <!-- Plus sign -->
+            <text x="180" y="105" text-anchor="middle" font-size="28" fill="#333">+</text>
+
+            <!-- B matrix -->
+            <rect x="220" y="30" width="40" height="140" fill="url(#grad_431e48_c8e6c9)" stroke="#2e7d32" stroke-width="2" rx="4"/>
+            <text x="240" y="105" text-anchor="middle" font-size="14" font-weight="bold" fill="#2e7d32">B</text>
+            <text x="240" y="125" text-anchor="middle" font-size="10" fill="#555">d&times;r</text>
+
+            <!-- Times sign -->
+            <text x="280" y="105" text-anchor="middle" font-size="22" fill="#333">&times;</text>
+
+            <!-- A matrix -->
+            <rect x="300" y="65" width="140" height="40" fill="url(#grad_431e48_c8e6c9)" stroke="#2e7d32" stroke-width="2" rx="4"/>
+            <text x="370" y="90" text-anchor="middle" font-size="14" font-weight="bold" fill="#2e7d32">A</text>
+            <text x="370" y="78" text-anchor="middle" font-size="10" fill="#555">r &times; k</text>
+
+            <!-- Trainable label -->
+            <text x="310" y="25" text-anchor="middle" font-size="13" font-weight="bold" fill="#2e7d32">Trainable</text>
+
+            <!-- Equals sign -->
+            <text x="475" y="105" text-anchor="middle" font-size="28" fill="#333">=</text>
+
+            <!-- Result matrix W' -->
+            <rect x="510" y="40" width="120" height="120" fill="url(#grad_431e48_fff3e0)" stroke="#e65100" stroke-width="2" rx="4"/>
+            <text x="570" y="105" text-anchor="middle" font-size="16" font-weight="bold" fill="#e65100">W'</text>
+            <text x="570" y="125" text-anchor="middle" font-size="11" fill="#555">d &times; k</text>
+            <text x="570" y="25" text-anchor="middle" font-size="13" font-weight="bold" fill="#e65100">Adapted</text>
+
+            <!-- Parameter count comparison -->
+            <rect x="30" y="200" width="640" height="90" fill="url(#grad_431e48_f5f5f5)" stroke="#ddd" stroke-width="1" rx="6"/>
+            <text x="50" y="225" font-size="13" font-weight="bold" fill="#333">Parameter Count Example (d=4096, k=4096, r=16):</text>
+            <text x="50" y="250" font-size="12" fill="#555">Full fine-tuning: d &times; k = 16,777,216 parameters</text>
+            <text x="50" y="275" font-size="12" fill="#2e7d32">LoRA: r &times; (d + k) = 16 &times; 8,192 = 131,072 parameters (0.78%)</text>
+        </svg>
+        <div class="diagram-caption"><strong>Figure 15.1.1</strong>: LoRA decomposes the weight update into two small trainable matrices B and A, reducing parameters by ~128x.</div>
+    </div>
+
+    <h3>2.2 Initialization and Scaling</h3>
+
+    <p>
+        LoRA uses a specific initialization strategy: matrix <strong>A</strong> is initialized with a random Gaussian distribution, and matrix <strong>B</strong> is initialized to all zeros. This means that at the start of training, <strong>BA = 0</strong>, and the model behaves exactly like the pretrained base. Training gradually moves the model away from this starting point.
+    </p>
+
+    <p>
+        The scaling factor <strong>&alpha;</strong> (alpha) controls the magnitude of the LoRA update. The actual update applied is:
+    </p>
+
+    <p style="text-align: center; font-size: 1.1rem; margin: 1rem 0;">
+        <strong>W' = W + (&alpha; / r) &middot; BA</strong>
+    </p>
+
+    <p>
+        The ratio &alpha;/r acts as a learning rate multiplier for the LoRA weights. A common convention is to set &alpha; = 2r (so the effective multiplier is 2), but the optimal value depends on the task. Increasing &alpha; relative to r makes the adaptation more aggressive; decreasing it keeps the model closer to the pretrained weights.
+    </p>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight</div>
+        <p>When you double the rank <em>r</em>, you should also consider doubling <em>&alpha;</em> to maintain the same effective learning rate. Many practitioners set <code>&alpha; = 2 &times; r</code> as a starting point, then adjust based on validation performance. If training diverges, reduce &alpha;; if the model barely moves from the base, increase it.</p>
+    </div>
+
+    <div class="callout practical-example">
+      <div class="callout-title">LoRA for Customer Support Classification</div>
+      <p><strong>Who:</strong> ML engineer at a mid-size SaaS company</p>
+      <p><strong>Situation:</strong> The team needed to fine-tune Llama 2 7B for routing customer support tickets into 48 categories, but their GPU budget was a single A100 40GB.</p>
+      <p><strong>Problem:</strong> Full fine-tuning of 7B parameters required over 100GB of GPU memory (parameters, gradients, optimizer states), far exceeding available hardware.</p>
+      <p><strong>Dilemma:</strong> They could either pay for multi-GPU cloud instances (4x the monthly cost) or accept a smaller base model with lower accuracy.</p>
+      <p><strong>Decision:</strong> They chose LoRA with rank 16 and alpha 32, targeting only the query and value projection matrices. This reduced trainable parameters from 7B to 4.2M (0.06%), fitting comfortably in 24GB with QLoRA 4-bit quantization.</p>
+      <p><strong>How:</strong> Using the PEFT library with <code>BitsAndBytesConfig</code> for 4-bit loading, they trained for 3 epochs on 15,000 labeled tickets. Training took 2.5 hours on their single A100.</p>
+      <p><strong>Result:</strong> The QLoRA model achieved 91.3% classification accuracy, only 1.2% below a full fine-tune baseline (92.5%). Memory usage peaked at 18GB, and the adapter checkpoint was just 33MB.</p>
+      <p><strong>Lesson:</strong> <strong>LoRA makes fine-tuning accessible on constrained hardware with minimal accuracy trade-off; start with rank 16 and adjust only if validation loss plateaus.</strong></p>
+    </div>
+
+    <h3>2.3 Why Low-Rank Works</h3>
+
+    <p>
+        The effectiveness of low-rank adaptation rests on a remarkable empirical finding: the "intrinsic dimensionality" of fine-tuning updates is far lower than the full parameter count would suggest. When researchers analyzed the singular value decomposition of &Delta;W matrices from full fine-tuning runs, they found that a small number of singular values capture the vast majority of the update's information content. In many cases, ranks as low as 4 or 8 capture over 90% of the useful signal.
+    </p>
+
+    <p>
+        This makes intuitive sense. Fine-tuning typically adapts a model to a specific domain or task format. The knowledge required for this adaptation (new terminology, output format preferences, domain-specific reasoning patterns) is a small modification relative to the vast general knowledge encoded in the pretrained weights.
+    </p>
+
+    <h2>3. LoRA Hyperparameters in Practice <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <h3>3.1 Rank (r) Selection</h3>
+
+    <div class="comparison-table">
+        <div class="comparison-table-title">3.1 Rank (r) Selection Comparison</div>
+        <table>
+        <tr><th>Rank</th><th>Trainable Params (7B model)</th><th>Best For</th><th>Risk</th></tr>
+        <tr><td>4</td><td>~2M</td><td>Simple format adaptation, chat templates</td><td>May underfit complex tasks</td></tr>
+        <tr><td>8</td><td>~4M</td><td>Classification, simple instruction following</td><td>Good default for most tasks</td></tr>
+        <tr><td>16</td><td>~8M</td><td>Domain adaptation, moderate complexity</td><td>Slight increase in memory</td></tr>
+        <tr><td>32</td><td>~16M</td><td>Complex reasoning, <a class="cross-ref" href="../../part-7-multimodal-applications/module-28-llm-applications/section-28.1.html">code generation</a></td><td>Diminishing returns begin</td></tr>
+        <tr><td>64</td><td>~33M</td><td>Very complex tasks, near full FT quality</td><td>Memory approaches full FT</td></tr>
+    </table>
+    </div>
+
+    <h3>3.2 Target Module Selection</h3>
+
+    <p>
+        Not all weight matrices benefit equally from LoRA adaptation. The standard practice is to apply LoRA to the attention projection matrices: <code>q_proj</code>, <code>k_proj</code>, <code>v_proj</code>, and <code>o_proj</code>. Research and practice have converged on the recommendation to also include the MLP layers (<code>gate_proj</code>, <code>up_proj</code>, <code>down_proj</code>) for best results, though this increases trainable parameters.
+     Code Fragment 15.1.1 shows this approach in practice.</p>
+<pre><code class="language-text"># Configure LoRA adapter parameters: rank, alpha, target modules
+# Lower rank reduces trainable parameters; alpha scales the adapter contribution
+from peft import LoraConfig, get_peft_model, TaskType
+
+# Standard configuration: attention layers only
+lora_config_basic = LoraConfig(
+    task_type=TaskType.CAUSAL_LM,
+    r=16,
+    lora_alpha=32,           # alpha = 2r
+    lora_dropout=0.05,
+    target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
+    bias="none",
+)
+
+# Recommended: attention + MLP layers for best quality
+lora_config_full = LoraConfig(
+    task_type=TaskType.CAUSAL_LM,
+    r=16,
+    lora_alpha=32,
+    lora_dropout=0.05,
+    target_modules=[
+        "q_proj", "k_proj", "v_proj", "o_proj",
+        "gate_proj", "up_proj", "down_proj",
+    ],
+    bias="none",
+)
+
+# Apply LoRA to a model
+model = get_peft_model(model, lora_config_full)
+model.print_trainable_parameters()</code></pre>
+<div class="code-caption"><strong>Code Fragment 15.1.1:</strong> This snippet configures a LoRA adapter with LoraConfig specifying r=16 rank, lora_alpha=32 scaling factor, and target_modules for query and value projection layers. The get_peft_model call wraps the base model and prints the fraction of trainable versus frozen parameters.</div>
+    <div class="code-output">
+trainable params: 13,631,488 || all params: 6,751,219,712 || trainable%: 0.2019
+    </div>
+
+<div class="code-caption"><strong>Code Fragment 15.1.2:</strong> LoRA configuration showing target module selection. The basic config targets only attention projections, while the recommended config adds MLP layers for better quality at the cost of more trainable parameters (roughly 0.2% of a 7B model).</div>
+
+
+    <p>Code Fragment 15.1.2 configures LoRA adapters.</p>
+
+<pre><code class="language-text"># Set up parameter-efficient fine-tuning with LoRA adapters
+# Freeze the base model and train only the low-rank decomposition matrices
+from peft import PeftModel, AutoPeftModelForCausalLM
+from transformers import AutoModelForCausalLM, AutoTokenizer
+import torch
+
+# === Option A: Load adapter separately ===
+base_model = AutoModelForCausalLM.from_pretrained(
+    "meta-llama/Meta-Llama-3-8B",
+    torch_dtype=torch.bfloat16,
+    device_map="auto",
+)
+# Load different adapters dynamically
+model = PeftModel.from_pretrained(base_model, "./lora-medical")
+# Switch to another adapter
+model.load_adapter("./lora-legal", adapter_name="legal")
+model.set_adapter("legal")
+
+# === Option B: Merge and save ===
+model = AutoPeftModelForCausalLM.from_pretrained(
+    "./lora-medical",
+    torch_dtype=torch.bfloat16,
+    device_map="auto",
+)
+merged_model = model.merge_and_unload()
+merged_model.save_pretrained("./llama3-medical-merged")
+tokenizer.save_pretrained("./llama3-medical-merged")
+
+# === Option C: Merge QLoRA (requires dequantization) ===
+# Load the QLoRA model in full precision for merging
+model = AutoPeftModelForCausalLM.from_pretrained(
+    "./qlora-output",
+    torch_dtype=torch.float16,
+    device_map="auto",
+    low_cpu_mem_usage=True,
+)
+merged = model.merge_and_unload()
+merged.save_pretrained("./merged-model")
+
+print("Merged model saved. Upload to HF Hub or serve with vLLM.")</code></pre>
+
+<div class="code-caption"><strong>Code Fragment 15.1.3:</strong> Three approaches for deploying LoRA adapters: (A) dynamically loading and switching adapters at runtime, (B) merging the adapter into the base model for permanent integration, and (C) merging a QLoRA adapter by first loading in higher precision to avoid quantization noise.</div>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight</div>
+        <p>When merging QLoRA adapters, you must load the base model in higher precision (FP16 or BF16) first, then merge. This is because the merge operation (<code>W' = W + (&alpha;/r) &middot; BA</code>) needs sufficient numerical precision. Merging in 4-bit would introduce unacceptable quantization noise. After merging, you can re-quantize the merged model to GGUF or AWQ for efficient serving.</p>
+    </div>
+
+
+<div class="callout key-insight">
+    <div class="callout-title">Key Insight</div>
+    <p><strong>LoRA adapters unlock multi-tenant serving.</strong> Because LoRA keeps the base model frozen and stores task-specific knowledge in small adapter matrices, you can serve dozens of different fine-tuned "models" from a single base model in GPU memory. At inference time, you simply swap the active adapter (a few megabytes) instead of loading an entirely separate model (many gigabytes). This has profound implications for <a class="cross-ref" href="../../part-2-understanding-llms/module-09-inference-optimization/section-9.1.html">inference optimization</a> and deployment: frameworks like LoRAX and S-LoRA can serve hundreds of adapters concurrently with minimal overhead, making personalized models economically viable at scale.</p>
+</div>
+
+    <h2>7. LoRA Hyperparameter Tuning Guide <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        Finding optimal LoRA hyperparameters requires systematic experimentation. Here is a practical guide based on what works across a wide range of tasks and model sizes.
+    </p>
+
+    <table>
+        <tr><th>Hyperparameter</th><th>Default</th><th>When to Increase</th><th>When to Decrease</th></tr>
+        <tr><td><code>r</code> (rank)</td><td>16</td><td>Complex tasks, large datasets, reasoning</td><td>Simple format changes, small datasets</td></tr>
+        <tr><td><code>lora_alpha</code></td><td>2 &times; r</td><td>Model not adapting enough</td><td>Training diverging, loss spiking</td></tr>
+        <tr><td><code>lora_dropout</code></td><td>0.05</td><td>Overfitting (val loss rises)</td><td>Large dataset, underfitting</td></tr>
+        <tr><td><code>learning_rate</code></td><td>2e-4</td><td>Underfitting, slow convergence</td><td>Divergence, loss oscillation</td></tr>
+        <tr><td><code>max_grad_norm</code></td><td>1.0</td><td>Very stable training</td><td>Gradient spikes (try 0.3)</td></tr>
+    </table>
+
+    <div class="callout note">
+        <div class="callout-title">Note</div>
+        <p>LoRA learning rates are typically 5-10x higher than full fine-tuning learning rates. This is because only a small fraction of parameters are being updated, so each update needs to have a larger effect. A learning rate of 2e-4 for LoRA corresponds roughly to 2e-5 for full fine-tuning in terms of per-step model change.</p>
+    </div>
+
+    <h2>8. The PEFT Library Ecosystem <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>
+        The <a class="cross-ref" href="../module-14-fine-tuning-fundamentals/section-14.5.html">Hugging Face</a> <code>peft</code> library provides a unified interface for all parameter-efficient methods. Beyond basic LoRA, it supports loading adapters from the Hub, combining adapters, and quantized training workflows.
+     Code Fragment 15.1.3 shows this approach in practice.</p>
+<pre><code class="language-text"># Configure LoRA adapter parameters: rank, alpha, target modules
+# Lower rank reduces trainable parameters; alpha scales the adapter contribution
+from peft import (
+    PeftModel,
+    PeftConfig,
+    get_peft_model,
+    LoraConfig,
+    TaskType,
+    AutoPeftModelForCausalLM,
+)
+
+# Load a LoRA adapter from Hugging Face Hub
+model = AutoPeftModelForCausalLM.from_pretrained(
+    "username/my-lora-adapter",   # Adapter repo on HF Hub
+    device_map="auto",
+    torch_dtype=torch.bfloat16,
+)
+
+# Inspect adapter configuration
+config = PeftConfig.from_pretrained("username/my-lora-adapter")
+print(f"Base model: {config.base_model_name_or_path}")
+print(f"Rank: {config.r}, Alpha: {config.lora_alpha}")
+print(f"Target modules: {config.target_modules}")
+
+# Push adapter to Hub (only saves the small adapter weights)
+model.push_to_hub("username/my-lora-adapter")
+# Adapter size: typically 50-200 MB vs 14+ GB for full model</code></pre>
+
+<div class="code-caption"><strong>Code Fragment 15.1.4:</strong> The PEFT library ecosystem for loading, inspecting, and sharing LoRA adapters via the Hugging Face Hub. The <code>AutoPeftModelForCausalLM</code> class automatically resolves the base model from the adapter repository, and <code>push_to_hub</code> uploads only the small adapter weights (typically 50 to 200 MB).</div>
+
+    <h3>QLoRA: 4-Bit Quantized LoRA</h3>
+
+    <p>QLoRA (Dettmers et al., 2023) combines LoRA with 4-bit NF4 quantization of the base model, reducing memory by roughly 4x compared to standard LoRA in FP16. The <code>bitsandbytes</code> library handles the quantization transparently through <code>BitsAndBytesConfig</code>. The frozen base weights are stored in 4-bit precision, while the LoRA adapter matrices train in BF16. This enables fine-tuning a 70B model on a single 48 GB GPU. Code Fragment 15.1.4b shows the setup.</p>
+
+<pre><code class="language-python"># pip install bitsandbytes peft transformers
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+import torch
+
+# 4-bit NF4 quantization config
+bnb_config = BitsAndBytesConfig(
+    load_in_4bit=True,
+    bnb_4bit_quant_type="nf4",
+    bnb_4bit_compute_dtype=torch.bfloat16,
+    bnb_4bit_use_double_quant=True,       # quantize the quantization constants
+)
+
+model = AutoModelForCausalLM.from_pretrained(
+    "meta-llama/Llama-3.1-8B-Instruct",
+    quantization_config=bnb_config,
+    device_map="auto",
+)
+model = prepare_model_for_kbit_training(model)   # freeze + enable gradients
+
+lora_config = LoraConfig(r=16, lora_alpha=32, lora_dropout=0.05,
+    target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
+                     "gate_proj", "up_proj", "down_proj"],
+    bias="none", task_type="CAUSAL_LM")
+model = get_peft_model(model, lora_config)
+model.print_trainable_parameters()
+# trainable params: 13,631,488 || all params: 4,544,075,776 || trainable%: 0.30</code></pre>
+<div class="code-caption"><strong>Code Fragment 15.1.4b:</strong> QLoRA setup using <code>bitsandbytes</code> for 4-bit NF4 quantization. The base model loads in 4-bit (roughly 5 GB for 8B parameters), while LoRA adapter matrices train in BF16. The <code>prepare_model_for_kbit_training</code> call freezes the quantized weights and enables gradient computation for the adapter layers.</div>
+
+    <!-- Quiz Section -->
+    <div class="quiz">
+        <h3>Section 15.1 Quiz</h3>
+
+        <p class="quiz-question">1. In the LoRA decomposition W' = W + BA, what are the dimensions of matrices B and A for a weight matrix of size d&times;k with rank r?</p>
+        <details open>
+            <summary>Show Answer</summary>
+            <div class="answer">B is d&times;r and A is r&times;k. The total trainable parameters are r&times;(d+k), which is much smaller than the d&times;k parameters in the original matrix when r is small. For example, with d=k=4096 and r=16, this is 131,072 versus 16,777,216 (a 128x reduction).</div>
+        </details>
+
+        <p class="quiz-question">2. Why is matrix B initialized to zeros and A initialized with random values, rather than the reverse?</p>
+        <details open>
+            <summary>Show Answer</summary>
+            <div class="answer">Initializing B to zeros ensures that BA = 0 at the start of training, so the model begins as an exact copy of the pretrained base. This provides a stable starting point. The choice of B=0 (rather than A=0) is a convention; either would work. The key requirement is that the product BA starts at zero so training begins from the pretrained behavior.</div>
+        </details>
+
+        <p class="quiz-question">3. What is the role of the alpha/r scaling factor in LoRA, and how should you adjust alpha when changing rank?</p>
+        <details open>
+            <summary>Show Answer</summary>
+            <div class="answer">The ratio alpha/r acts as a learning rate multiplier for the LoRA update. When you double r, you should generally double alpha to maintain the same effective scaling. A common starting point is alpha = 2r. If the model is not adapting enough, increase alpha; if training is unstable, decrease it.</div>
+        </details>
+
+        <p class="quiz-question">4. What three innovations does QLoRA combine, and why is each one necessary?</p>
+        <details open>
+            <summary>Show Answer</summary>
+            <div class="answer">QLoRA combines: (1) NF4 quantization, which reduces base model memory by 4x with minimal quality loss using a data type optimized for normally distributed weights; (2) double quantization, which compresses the quantization constants themselves, saving an additional ~0.4 bits per parameter; (3) paged optimizers, which use unified memory to gracefully handle GPU memory spikes during training without OOM errors.</div>
+        </details>
+
+        <p class="quiz-question">5. When should you keep LoRA adapters separate versus merging them into the base model?</p>
+        <details open>
+            <summary>Show Answer</summary>
+            <div class="answer">Keep adapters separate when you need to serve multiple tasks from a single base model (hot-swapping adapters per request), when storage is a concern (adapters are ~50MB vs. 14+ GB for a full model), or when you plan to update adapters independently. Merge when you need maximum inference speed (zero adapter overhead), when using inference engines that do not support adapter loading, or when deploying a single dedicated model for one task.</div>
+        </details>
+    </div>
+    <div class="callout tip">
+        <div class="callout-title">Tip: Start with LoRA Rank 8 or 16</div>
+        <p>For most fine-tuning tasks, LoRA rank 8 produces strong results with minimal trainable parameters. Increase to 16 or 32 only if you see underfitting. Higher ranks add parameters quadratically but rarely improve quality beyond rank 32.</p>
+    </div>
+
+    <!-- Key Takeaways -->
+    <div class="takeaways">
+        <h2>Key Takeaways</h2>
+        <ul>
+            <li><strong>LoRA decomposes weight updates</strong> into two small matrices (W' = W + BA), reducing trainable parameters by 100x or more while matching full fine-tuning quality on most tasks.</li>
+            <li><strong>Rank (r) controls the capacity</strong> of the adaptation. Start with r=16 for most tasks; increase to 32 or 64 only for complex reasoning tasks with sufficient data.</li>
+            <li><strong>Alpha scaling (&alpha;/r)</strong> acts as a learning rate multiplier. Set &alpha; = 2r as a default, and adjust based on training stability and downstream performance.</li>
+            <li><strong>Target all linear layers</strong> (attention + MLP) for best quality. Targeting only attention layers is faster but may sacrifice 1-3% accuracy on complex tasks.</li>
+            <li><strong>QLoRA enables 70B fine-tuning on a single GPU</strong> by combining NF4 quantization, double quantization, and paged optimizers, at the cost of ~30% slower training.</li>
+            <li><strong>Adapter merging</strong> converts the LoRA model into a standard model format. Merge in high precision (FP16/BF16), then re-quantize for serving if needed.</li>
+            <li><strong>LoRA learning rates are 5-10x higher</strong> than full fine-tuning rates because fewer parameters share the gradient signal.</li>
+        </ul>
+    </div>
+
+<div class="lab" id="lab-14-1">
+  <h2>Hands-On Lab: Fine-Tune a Model with LoRA and Compare Rank Settings</h2>
+  <div class="lab-meta">
+    <span class="lab-duration">Duration: ~60 minutes</span>
+    <span class="lab-difficulty">Intermediate</span>
+  </div>
+
+  <div class="lab-objective">
+    <h3>Objective</h3>
+    <p>Apply LoRA adapters to a language model using PEFT, train on a small dataset, and compare how different rank values (r=4, r=16, r=64) affect trainable parameter count, memory usage, and output quality.</p>
+  </div>
+
+  <div class="lab-skills">
+    <h3>What You'll Practice</h3>
+    <ul>
+      <li>Configuring LoRA with the PEFT library (target chapters, rank, alpha)</li>
+      <li>Inspecting trainable vs. frozen parameter counts</li>
+      <li>Training LoRA adapters with SFTTrainer</li>
+      <li>Saving, reloading, and merging adapters into the base model</li>
+      <li>Comparing rank settings on quality and efficiency metrics</li>
+    </ul>
+  </div>
+
+  <div class="lab-prereqs">
+    <h3>Setup</h3>
+    <pre><code class="language-bash">pip install transformers trl peft datasets accelerate torch bitsandbytes</code></pre>
+<div class="code-caption"><strong>Code Fragment 15.1.5:</strong> This command installs the required packages for LoRA fine-tuning: transformers, trl, peft, datasets, accelerate, torch, and bitsandbytes. The bitsandbytes library enables optional 4-bit quantization for QLoRA experiments.</div>
+  </div>
+
+  <div class="lab-steps">
+    <h3>Steps</h3>
+
+    <div class="lab-step">
+      <h3>Step 1: Load the base model and apply LoRA</h3>
+      <p>Load a small model and wrap it with a LoRA configuration. Inspect the parameter counts to see how few parameters are actually trainable.</p>
+      <pre><code class="language-python">from transformers import AutoModelForCausalLM, AutoTokenizer
+from peft import LoraConfig, get_peft_model, TaskType
+import torch
+
+model_name = "HuggingFaceTB/SmolLM2-135M-Instruct"
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+if tokenizer.pad_token is None:
+    tokenizer.pad_token = tokenizer.eos_token
+
+base_model = AutoModelForCausalLM.from_pretrained(
+    model_name, torch_dtype=torch.float16, device_map="auto"
+)
+
+# TODO: Create a LoraConfig with rank=16, alpha=32
+lora_config = LoraConfig(
+    r=16,
+    lora_alpha=32,
+    target_modules=["q_proj", "v_proj"],
+    task_type=TaskType.CAUSAL_LM,
+    lora_dropout=0.05,
+    bias="none"
+)
+
+model = get_peft_model(base_model, lora_config)
+model.print_trainable_parameters()
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 15.1.6:</strong> This lab step loads SmolLM2-135M-Instruct with AutoModelForCausalLM, creates a LoraConfig targeting q_proj and v_proj layers with rank 16 and alpha 32, and calls get_peft_model to wrap the base model. The print_trainable_parameters() call reveals that fewer than 0.1% of parameters are trainable.</div>
+      <details open>
+        <summary>Hint</summary>
+        <p>The <code>print_trainable_parameters()</code> method shows something like "trainable params: 131,072 || all params: 135,000,000 || trainable%: 0.097". Only the LoRA matrices are trainable; everything else is frozen.</p>
+      </details>
+    </div>
+
+    <div class="lab-step">
+      <h3>Step 2: Compare parameter counts across ranks</h3>
+      <p>Create LoRA configs with different ranks and compare the trainable parameter counts.</p>
+      <pre><code class="language-python">import pandas as pd
+
+ranks = [4, 8, 16, 32, 64]
+results = []
+
+for r in ranks:
+    base = AutoModelForCausalLM.from_pretrained(
+        model_name, torch_dtype=torch.float16, device_map="auto")
+    config = LoraConfig(r=r, lora_alpha=r * 2,
+        target_modules=["q_proj", "v_proj"],
+        task_type=TaskType.CAUSAL_LM, lora_dropout=0.05, bias="none")
+    pm = get_peft_model(base, config)
+
+    # TODO: Extract trainable and total parameter counts
+    trainable = sum(p.numel() for p in pm.parameters() if p.requires_grad)
+    total = sum(p.numel() for p in pm.parameters())
+    results.append({"rank": r, "trainable": trainable,
+                    "total": total, "pct": f"{trainable/total*100:.4f}%"})
+    del pm, base
+    torch.cuda.empty_cache()
+
+df = pd.DataFrame(results)
+print(df.to_string(index=False))
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 15.1.7:</strong> This lab step iterates over LoRA ranks [4, 8, 16, 32, 64], creating a fresh model and LoraConfig for each, then summing trainable vs. total parameters. The resulting pandas DataFrame shows that trainable parameter count scales linearly with rank while total model size remains constant.</div>
+      <details open>
+        <summary>Hint</summary>
+        <p>Notice how trainable parameters scale linearly with rank. Doubling the rank roughly doubles the trainable parameter count. The common heuristic <code>alpha = 2 * rank</code> keeps the effective learning rate stable across rank settings.</p>
+      </details>
+    </div>
+
+    <div class="lab-step">
+      <h3>Step 3: Train a LoRA adapter</h3>
+      <p>Fine-tune the LoRA adapter (r=16) on a small dataset.</p>
+      <pre><code class="language-python">from trl import SFTTrainer, SFTConfig
+from datasets import load_dataset
+
+dataset = load_dataset("HuggingFaceH4/no_robots", split="train")
+dataset = dataset.shuffle(seed=42).select(range(300))
+
+def format_chat(example):
+    return {"text": tokenizer.apply_chat_template(
+        example["messages"], tokenize=False, add_generation_prompt=False)}
+
+formatted = dataset.map(format_chat)
+
+# TODO: Configure training (use higher LR than full fine-tuning)
+training_args = SFTConfig(
+    output_dir="./lora-smollm2-r16",
+    num_train_epochs=3,
+    per_device_train_batch_size=4,
+    gradient_accumulation_steps=2,
+    learning_rate=2e-4,  # 10x higher than full FT
+    logging_steps=10,
+    max_seq_length=512,
+    fp16=True,
+    warmup_ratio=0.1,
+    save_strategy="epoch",
+    report_to="none",
+)
+
+trainer = SFTTrainer(model=model, args=training_args,
+    train_dataset=formatted, processing_class=tokenizer)
+result = trainer.train()
+print(f"Training loss: {result.training_loss:.4f}")
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 15.1.8:</strong> This lab step fine-tunes the LoRA adapter using SFTTrainer on 300 examples from the no_robots dataset. The SFTConfig sets learning_rate=2e-4 (10x higher than full fine-tuning), max_seq_length=512, and gradient_accumulation_steps=2 to simulate a larger effective batch size.</div>
+      <details open>
+        <summary>Hint</summary>
+        <p>LoRA typically uses 5x to 10x higher learning rate than full fine-tuning because only the small adapter matrices receive gradients. A learning rate of 2e-4 is a good starting point.</p>
+      </details>
+    </div>
+
+    <div class="lab-step">
+      <h3>Step 4: Save and merge the LoRA adapter</h3>
+      <p>Save the adapter weights (only a few KB), then reload and merge them into the base model.</p>
+      <pre><code class="language-python">import os
+from peft import PeftModel
+
+# Save adapter only
+model.save_pretrained("./lora-adapter-r16")
+adapter_size = sum(
+    os.path.getsize(os.path.join("./lora-adapter-r16", f))
+    for f in os.listdir("./lora-adapter-r16")
+    if f.endswith(('.safetensors', '.bin')))
+print(f"Adapter size: {adapter_size / 1024:.1f} KB")
+
+# Reload base model and merge adapter
+base_fresh = AutoModelForCausalLM.from_pretrained(
+    model_name, torch_dtype=torch.float16, device_map="auto")
+peft_model = PeftModel.from_pretrained(base_fresh, "./lora-adapter-r16")
+merged_model = peft_model.merge_and_unload()
+print("Adapter merged successfully!")
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 15.1.9:</strong> This lab step saves the LoRA adapter weights with save_pretrained (producing files of only a few hundred KB), then reloads the base model and merges the adapter via PeftModel.from_pretrained and merge_and_unload(). The adapter_size calculation demonstrates the storage savings compared to a full model checkpoint.</div>
+      <details open>
+        <summary>Hint</summary>
+        <p>The <code>merge_and_unload()</code> method folds the LoRA weights into the base model, producing a standard model that can be used without the PEFT library at inference time.</p>
+      </details>
+    </div>
+
+    <div class="lab-step">
+      <h3>Step 5: Test the merged model</h3>
+      <p>Generate responses and compare with the base model.</p>
+      <pre><code class="language-python">test_prompts = [
+    "Explain photosynthesis to a 10-year-old.",
+    "Write a short email declining a meeting politely.",
+    "List 3 advantages of renewable energy.",
+]
+
+for prompt in test_prompts:
+    messages = [{"role": "user", "content": prompt}]
+    fmt = tokenizer.apply_chat_template(
+        messages, tokenize=False, add_generation_prompt=True)
+    inputs = tokenizer(fmt, return_tensors="pt").to(merged_model.device)
+    with torch.no_grad():
+        outputs = merged_model.generate(
+            **inputs, max_new_tokens=200, temperature=0.7, do_sample=True)
+    response = tokenizer.decode(
+        outputs[0][inputs['input_ids'].shape[1]:], skip_special_tokens=True)
+    print(f"Prompt: {prompt}\nResponse: {response[:300]}\n{'-'*50}")
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 15.1.10:</strong> This lab step generates responses from the merged model on three test prompts using apply_chat_template and model.generate with <a class="cross-ref" href="../../part-1-foundations/module-05-decoding-text-generation/section-5.2.html">temperature</a>=0.7. Comparing these outputs against the base model's responses reveals the instruction-following improvements from LoRA fine-tuning.</div>
+      <details open>
+        <summary>Hint</summary>
+        <p>To get a fair comparison, reload the original base model and generate with the same settings. The LoRA-tuned model should show improved instruction following despite training less than 0.1% of parameters.</p>
+      </details>
+    </div>
+  </div>
+
+  <div class="lab-expected">
+    <h3>Expected Output</h3>
+    <ul>
+      <li>A parameter table showing r=4 trains ~0.02%, r=16 trains ~0.1%, r=64 trains ~0.4%</li>
+      <li>A saved adapter that is only a few hundred KB (vs. ~270MB full model)</li>
+      <li>Merged model outputs showing improved instruction following</li>
+    </ul>
+  </div>
+
+  <div class="lab-stretch">
+    <h3>Stretch Goals</h3>
+    <ul>
+      <li>Train adapters at r=4 and r=64, compare outputs, and measure which rank is best for this dataset size</li>
+      <li>Add QLoRA by loading in 4-bit (<code>BitsAndBytesConfig(load_in_4bit=True)</code>) and compare memory</li>
+      <li>Target all linear layers (<code>target_modules="all-linear"</code>) and compare results</li>
+    </ul>
+  </div>
+
+  <details class="lab-solution">
+    <summary>Complete Solution</summary>
+    <pre><code class="language-python">from transformers import AutoModelForCausalLM, AutoTokenizer
+from peft import LoraConfig, get_peft_model, PeftModel, TaskType
+from trl import SFTTrainer, SFTConfig
+from datasets import load_dataset
+import torch, pandas as pd, os
+
+model_name = "HuggingFaceTB/SmolLM2-135M-Instruct"
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+if tokenizer.pad_token is None: tokenizer.pad_token = tokenizer.eos_token
+
+# Step 1: Apply LoRA
+base_model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.float16, device_map="auto")
+lora_config = LoraConfig(r=16, lora_alpha=32, target_modules=["q_proj","v_proj"],
+    task_type=TaskType.CAUSAL_LM, lora_dropout=0.05, bias="none")
+model = get_peft_model(base_model, lora_config)
+model.print_trainable_parameters()
+
+# Step 2: Compare ranks
+for r in [4, 8, 16, 32, 64]:
+    b = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.float16, device_map="auto")
+    c = LoraConfig(r=r, lora_alpha=r*2, target_modules=["q_proj","v_proj"],
+        task_type=TaskType.CAUSAL_LM, lora_dropout=0.05, bias="none")
+    pm = get_peft_model(b, c)
+    t = sum(p.numel() for p in pm.parameters() if p.requires_grad)
+    a = sum(p.numel() for p in pm.parameters())
+    print(f"r={r}: {t:,} trainable / {a:,} total = {t/a*100:.4f}%")
+    del pm, b; torch.cuda.empty_cache()
+
+# Step 3: Train
+ds = load_dataset("HuggingFaceH4/no_robots", split="train").shuffle(seed=42).select(range(300))
+def fmt(ex): return {"text": tokenizer.apply_chat_template(ex["messages"], tokenize=False, add_generation_prompt=False)}
+formatted = ds.map(fmt)
+
+args = SFTConfig(output_dir="./lora-smollm2-r16", num_train_epochs=3, per_device_train_batch_size=4,
+    gradient_accumulation_steps=2, learning_rate=2e-4, logging_steps=10, max_seq_length=512,
+    fp16=True, warmup_ratio=0.1, save_strategy="epoch", report_to="none")
+trainer = SFTTrainer(model=model, args=args, train_dataset=formatted, processing_class=tokenizer)
+trainer.train()
+
+# Step 4: Save and merge
+model.save_pretrained("./lora-adapter-r16")
+base_fresh = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.float16, device_map="auto")
+merged = PeftModel.from_pretrained(base_fresh, "./lora-adapter-r16").merge_and_unload()
+
+# Step 5: Test
+for p in ["Explain photosynthesis to a 10-year-old.", "Write a short email declining a meeting.", "List 3 advantages of renewable energy."]:
+    msgs = [{"role":"user","content":p}]
+    f = tokenizer.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
+    i = tokenizer(f, return_tensors="pt").to(merged.device)
+    with torch.no_grad():
+        o = merged.generate(**i, max_new_tokens=200, temperature=0.7, do_sample=True)
+    print(f"Q: {p}\nA: {tokenizer.decode(o[0][i['input_ids'].shape[1]:], skip_special_tokens=True)[:300]}\n")
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 15.1.11:</strong> This complete solution combines all five lab steps into a single script: applying LoRA to SmolLM2-135M, benchmarking ranks 4 through 64, training with SFTTrainer on no_robots data, saving and merging the adapter, and generating test responses. The condensed version uses the same hyperparameters as the step-by-step walkthrough.</div>
+  </details>
+</div>
+
+
+
+    <div class="callout research-frontier">
+        <div class="callout-title">Research Frontier</div>
+        <p>LoRA variants continue to proliferate: DoRA decomposes weight updates into magnitude and direction components, while rsLoRA applies rank-dependent scaling for more stable training at higher ranks. Research on <em>LoRA composition</em> explores stacking, merging, and routing among multiple LoRA adapters at inference time, enabling modular skill composition without retraining. An open theoretical question is why low-rank adaptation works as well as full fine-tuning despite the severe parameter reduction, and whether optimal rank can be predicted from task properties. Recent work on <em>LoRA Soups</em> (2024) demonstrates that averaging multiple LoRA adapters trained on different data can outperform any individual adapter, paralleling the model soup findings in full fine-tuning.</p>
+    </div>
+
+<section class="exercises">
+    <h2>Exercises</h2>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 15.1.1: LoRA mechanism <span class="level-badge basic" title="Basic">BASIC</span> <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+        <p>Explain how LoRA works: what does it mean to add low-rank matrices A and B to a frozen weight matrix W? Why does this reduce memory and compute requirements?</p>
+        <details open><summary>Answer Sketch</summary>
+            <p>Instead of updating W (d x d, millions of parameters), LoRA freezes W and learns two small matrices: A (d x r) and B (r x d), where r << d (typically 8 to 64). The effective weight becomes W' = W + BA. This reduces trainable parameters from d*d to 2*d*r. For a 4096x4096 matrix with r=16, parameters drop from 16.7M to 131K (128x reduction). Memory savings come from not storing optimizer states (momentum, variance) for the frozen W.</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 15.1.2: Rank and alpha selection <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span> <span class="exercise-type analysis" title="Analysis">Analysis</span></div>
+        <p>You are fine-tuning a 7B model with LoRA. Compare the expected outcomes of rank=8/alpha=16 versus rank=64/alpha=128. How does the rank affect model capacity, training speed, and risk of overfitting?</p>
+        <details open><summary>Answer Sketch</summary>
+            <p>Rank 8: 0.1% trainable parameters, fastest training, lowest memory, but limited capacity for complex adaptations. Best for simple style transfer or single-task tuning. Rank 64: ~0.8% trainable parameters, slower but still much faster than full fine-tuning, more capacity for complex multi-task adaptation. Higher risk of overfitting on small datasets. Alpha/rank ratio (both 2.0 here) controls the effective learning rate of the LoRA updates; keeping it consistent means the learning dynamics are similar despite different ranks.</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 15.1.3: QLoRA setup <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span> <span class="exercise-type coding" title="Coding">Coding</span></div>
+        <p>Write the Python code to load a model in 4-bit quantization using bitsandbytes and attach LoRA adapters using the PEFT library. Include the BitsAndBytesConfig and LoraConfig.</p>
+        <details open><summary>Answer Sketch</summary>
+            <p><code>bnb_config = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type='nf4', bnb_4bit_compute_dtype=torch.bfloat16)</code>. Load: <code>model = AutoModelForCausalLM.from_pretrained('meta-llama/Llama-3-8B', quantization_config=bnb_config)</code>. LoRA: <code>lora_config = LoraConfig(r=16, lora_alpha=32, target_modules=['q_proj','v_proj','k_proj','o_proj'], lora_dropout=0.05)</code>. Apply: <code>model = get_peft_model(model, lora_config)</code>. This enables fine-tuning a 7B model on a single 16GB GPU.</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 15.1.4: Target module selection <span class="level-badge advanced" title="Advanced">ADVANCED</span> <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+        <p>Which transformer modules should you apply LoRA to? Compare applying LoRA to only attention projections (q, v) versus all linear layers (q, k, v, o, gate, up, down). What are the tradeoffs?</p>
+        <details open><summary>Answer Sketch</summary>
+            <p>Attention only (q, v): the original LoRA paper's default. Minimal parameters, fast training, works well for many tasks. All linear layers: ~3x more parameters but better adaptation capacity. Research shows that including the MLP layers (gate, up, down) improves performance on complex tasks and domain adaptation. Tradeoff: more target modules means more memory, slower training, but better quality. Start with q, v; expand to all linear layers if quality is insufficient.</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 15.1.5: Adapter merging and serving <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span> <span class="exercise-type coding" title="Coding">Coding</span></div>
+        <p>Write code that merges a LoRA adapter back into the base model weights for deployment. Explain when you would serve with merged weights versus keeping the adapter separate.</p>
+        <details open><summary>Answer Sketch</summary>
+            <p>Merge: <code>merged_model = model.merge_and_unload()</code>. Save: <code>merged_model.save_pretrained('merged_model/')</code>. Merge for deployment when: (1) you have a single adapter and want maximum inference speed (no adapter overhead), (2) you are using a serving framework that does not support adapters. Keep separate when: (1) you serve multiple adapters from the same base model (multi-tenant), (2) you want to A/B test adapters, (3) you need to quickly swap or update adapters without redeploying the base model.</p>
+        </details>
+    </div>
+
+</section>
+
+
+
+    <div class="whats-next">
+        <h2>What Comes Next</h2>
+        <p>In the next section, <a href="section-15.2.html">Section 15.2: Advanced PEFT Methods</a>, we survey advanced PEFT methods beyond LoRA, including DoRA, LoRA+, prefix tuning, adapters, and prompt tuning.</p>
+    </div>
+
+
+
+<section class="bibliography">
+    <div class="bibliography-title">Bibliography</div>
+
+    <div class="bib-category">Foundational Papers</div>
+
+    <div class="bib-entry-card">
+        <p class="bib-ref">Hu, E. J., Shen, Y., Wallis, P., Allen-Zhu, Z., Li, Y., Wang, S., Wang, L., &amp; Chen, W. (2022). <a href="https://arxiv.org/abs/2106.09685" target="_blank">LoRA: Low-Rank Adaptation of Large Language Models.</a> <em>ICLR 2022</em>.</p>
+        <p class="bib-annotation">The original LoRA paper that introduced low-rank decomposition for weight updates, enabling fine-tuning with a fraction of the parameters. Essential reading for anyone implementing parameter-efficient training, as nearly every modern PEFT workflow builds on these ideas.</p>
+        <span class="bib-meta">PEFT Core</span>
+    </div>
+
+    <div class="bib-entry-card">
+        <p class="bib-ref">Dettmers, T., Pagnoni, A., Holtzman, A., &amp; Zettlemoyer, L. (2023). <a href="https://arxiv.org/abs/2305.14314" target="_blank">QLoRA: Efficient Finetuning of Quantized Language Models.</a> <em>NeurIPS 2023</em>.</p>
+        <p class="bib-annotation">Combines 4-bit quantization with LoRA adapters, making it possible to fine-tune 65B parameter models on a single 48GB GPU. Practitioners working with limited hardware should read this to understand the quantization and paging tricks that reduce memory by 4x or more.</p>
+        <span class="bib-meta">Quantization + PEFT</span>
+    </div>
+
+    <div class="bib-entry-card">
+        <p class="bib-ref">Houlsby, N., Giurgiu, A., Jastrzebski, S., Morrone, B., de Laroussilhe, Q., Gesmundo, A., Attariyan, M., &amp; Gelly, S. (2019). <a href="https://arxiv.org/abs/1902.00751" target="_blank">Parameter-Efficient Transfer Learning for NLP.</a> <em>ICML 2019</em>.</p>
+        <p class="bib-annotation">Introduced adapter chapters inserted between transformer layers, establishing the conceptual foundation for parameter-efficient transfer. Researchers interested in the historical arc from full fine-tuning to modern PEFT methods should start here.</p>
+        <span class="bib-meta">Adapter Origins</span>
+    </div>
+
+    <div class="bib-category">Theory &amp; Surveys</div>
+
+    <div class="bib-entry-card">
+        <p class="bib-ref">Aghajanyan, A., Gupta, S., &amp; Zettlemoyer, L. (2021). <a href="https://arxiv.org/abs/2012.13255" target="_blank">Intrinsic Dimensionality Explains the Effectiveness of Language Model Fine-Tuning.</a> <em>ACL 2021</em>.</p>
+        <p class="bib-annotation">Provides the theoretical grounding for why low-rank adaptation works: pre-trained models have low intrinsic dimensionality. Anyone wanting to understand the mathematical justification behind LoRA's success should consult this analysis.</p>
+        <span class="bib-meta">Theory</span>
+    </div>
+
+    <div class="bib-entry-card">
+        <p class="bib-ref">Lialin, V., Deshpande, V., &amp; Rumshisky, A. (2023). <a href="https://arxiv.org/abs/2303.15647" target="_blank">Scaling Down to Scale Up: A Guide to Parameter-Efficient Fine-Tuning.</a></p>
+        <p class="bib-annotation">A comprehensive survey covering the full taxonomy of PEFT methods, from adapters to prompt tuning to reparameterization approaches. Ideal for practitioners comparing LoRA against alternatives and looking for guidance on which method to select for their use case.</p>
+        <span class="bib-meta">Survey</span>
+    </div>
+
+    <div class="bib-entry-card">
+        <p class="bib-ref">Ding, N., Qin, Y., Yang, G., Wei, F., Yang, Z., Su, Y., Hu, S., Chen, Y., Chan, C.-M., Chen, W., et al. (2023). <a href="https://arxiv.org/abs/2203.06904" target="_blank">Parameter-Efficient Fine-Tuning of Large-Scale Pre-Trained Language Models.</a> <em>Nature Machine Intelligence</em>, 5, 220-235.</p>
+        <p class="bib-annotation">A systematic review published in Nature Machine Intelligence that organizes PEFT methods into a clear taxonomy and <a class="cross-ref" href="../../part-8-evaluation-production/module-29-evaluation-observability/section-29.2.html">benchmarks</a> their performance across tasks. Recommended for researchers seeking a rigorous comparison framework with experimental results on large-scale models.</p>
+        <span class="bib-meta">Comprehensive Review</span>
+    </div>
+</section>
+
+<nav class="chapter-nav">
+    <a href="section-15.2.html" class="next">Next: Advanced PEFT Methods </a>
+</nav>
+    <footer><p>Fifth Edition, 2026 &middot; <a href="../../toc.html">Contents</a></p></footer>
+</main>
+</body>
+</html>

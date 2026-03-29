@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Section 10.5: Model Pruning and Sparsity</title>
+    <link rel="stylesheet" href="../../styles/book.css">
+    <link rel="stylesheet" href="../../vendor/katex/katex.min.css">
+    <script defer src="../../vendor/katex/katex.min.js"></script>
+    <script defer src="../../vendor/katex/contrib/auto-render.min.js"
+        onload="renderMathInElement(document.body, {
+            delimiters: [
+                {left: '$$', right: '$$', display: true},
+                {left: '$', right: '$', display: false}
+            ],
+            throwOnError: false
+        });"></script>
+    <link rel="stylesheet" href="../../vendor/prism/prism-theme.css">
+    <script defer src="../../vendor/prism/prism-bundle.min.js"></script>
+</head>
+<body>
+<header class="chapter-header">
+    <nav class="header-nav">
+        <a href="../../index.html" class="book-title-link">Building Conversational AI with LLMs and Agents</a>
+        <a href="../../toc.html" class="toc-link" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+    </nav>
+    <div class="part-label"><a href="../index.html">Part 3: Working with LLMs</a></div>
+    <div class="chapter-label"><a href="index.html">Chapter 10: Working with LLM APIs</a></div>
+    <h1>Model Pruning and Sparsity</h1>
+</header>
+
+<main class="content">
+<blockquote class="epigraph">
+    <p>"Perfection is achieved, not when there is nothing more to add, but when there is nothing left to take away."</p>
+    <cite><span class="agent-avatar-inline" style="background-color: #3498db;"><img src="../../front-matter/images/agents/pip.png" alt="Pip"></span> <a href="../../front-matter/wisdom-council.html#pip">Pip</a> <span class="agent-desc">AI Agent</span></cite>
+</blockquote>
+<div class="prerequisites">
+    <h3>Prerequisites</h3>
+    <p>This section builds on the quantization techniques from <a class="cross-ref" href="../../part-2-understanding-llms/module-09-inference-optimization/section-9.1.html">Section 9.1: Model Quantization</a> and the inference optimization concepts in <a class="cross-ref" href="../../part-2-understanding-llms/module-09-inference-optimization/section-9.4.html">Section 9.4: Serving Infrastructure</a>. Familiarity with transformer weight matrices from <a class="cross-ref" href="../../part-1-foundations/module-04-transformer-architecture/section-4.2.html">Section 4.2</a> will help you understand where pruning operates. The theoretical foundations of pruning are covered in <a class="cross-ref" href="../../part-2-understanding-llms/module-09-inference-optimization/section-9.5.html">Section 9.5</a>; this section focuses on practical application, tooling, and deployment workflows.</p>
+</div>
+
+
+    <div class="callout big-picture">
+        <div class="callout-title">Big Picture</div>
+        <p><strong>You have a 70-billion-parameter model that performs beautifully on your task, but it requires four A100 GPUs to serve and costs &#36;0.03 per request.</strong> Your budget demands single-GPU deployment at under &#36;0.005 per request. Quantization alone (<a class="cross-ref" href="../../part-2-understanding-llms/module-09-inference-optimization/section-9.1.html">Section 9.1</a>) gets you partway there by shrinking each weight from 16 bits to 4 bits. Pruning gets you the rest of the way by eliminating weights entirely. While <a class="cross-ref" href="../../part-2-understanding-llms/module-09-inference-optimization/section-9.5.html">Section 9.5</a> introduced the theory behind pruning and sparsity, this section is about doing it: choosing the right pruning method for your deployment target, running the tools, validating quality, and combining pruning with quantization and <a class="cross-ref" href="../../part-4-training-adapting/module-16-distillation-merging/section-16.1.html">distillation</a> to hit aggressive cost and latency targets. By the end, you will have a practical playbook for shipping sparse models in production.</p>
+    </div>
+
+
+    <h2>1. Why Pruning Matters for LLM Deployment <span class="level-badge basic" title="Basic">Basic</span></h2>
+
+    <p>Large language models are expensive to serve because they are large. A 70B parameter model at FP16 precision occupies roughly 140 GB of GPU memory, requiring multi-GPU setups just to load the weights. Every forward pass multiplies input activations through these weight matrices, so the number of nonzero weights directly determines both memory footprint and compute cost. Pruning attacks this problem at the source: it sets a fraction of weights to zero, reducing the effective model size without changing the architecture.</p>
+
+    <p>The practical appeal of pruning is that it operates on a fully trained model. Unlike <a class="cross-ref" href="../../part-4-training-adapting/module-16-distillation-merging/section-16.1.html">distillation</a>, which requires training a new smaller model from scratch, pruning preserves the original model's architecture and most of its learned representations. This makes it particularly attractive when you have a fine-tuned model (<a class="cross-ref" href="../../part-4-training-adapting/module-14-fine-tuning-fundamentals/section-14.1.html">Section 14.1</a>) that performs well on your task and you need to compress it for deployment without retraining.</p>
+
+    <p><strong>The sparsity opportunity.</strong> Research consistently shows that 50% to 80% of weights in large transformers can be removed with minimal quality degradation. The reason is that pretraining creates heavily over-parameterized models, where many weights encode redundant or rarely used knowledge. For a specific deployment task (say, customer service chat), the fraction of truly essential weights is even smaller. This means that task-specific pruning can often achieve higher sparsity ratios than general-purpose pruning while maintaining quality on the target domain.</p>
+
+    <p>Pruning also complements the API cost optimization strategies from <a href="section-10.3.html">Section 10.3</a>. If you self-host a pruned model behind your own API endpoint using frameworks like vLLM or TGI (<a class="cross-ref" href="../../part-2-understanding-llms/module-09-inference-optimization/section-9.4.html">Section 9.4</a>), you reduce per-request compute costs directly, potentially making self-hosting competitive with commercial API pricing for high-volume workloads.</p>
+
+    <h2>2. Unstructured Pruning <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>Unstructured pruning removes individual weights anywhere in the model's weight matrices. The resulting sparse matrices have zeros scattered throughout, with no requirement that the zeros form regular patterns. This flexibility allows unstructured pruning to achieve very high sparsity (often 70% to 90%) because the algorithm can selectively remove whichever weights matter least, regardless of their position.</p>
+
+    <h3>2.1 Magnitude Pruning</h3>
+
+    <p>The simplest and oldest pruning strategy is magnitude pruning: sort all weights by their absolute value and set the smallest ones to zero. The intuition is straightforward: weights near zero contribute little to the output of any matrix multiplication. Despite its simplicity, magnitude pruning remains a competitive baseline for moderate sparsity levels (up to 50%).</p>
+
+    <pre><code class="language-python">import torch
+import torch.nn.utils.prune as prune
+from transformers import AutoModelForCausalLM
+
+# Load a pretrained model
+model = AutoModelForCausalLM.from_pretrained("meta-llama/Llama-3.2-1B")
+
+# Apply magnitude pruning to all Linear layers
+for name, module in model.named_modules():
+    if isinstance(module, torch.nn.Linear):
+        prune.l1_unstructured(module, name="weight", amount=0.5)  # 50% sparsity
+
+# Check sparsity of a specific layer
+layer = model.model.layers[0].self_attn.q_proj
+zeros = (layer.weight == 0).sum().item()
+total = layer.weight.numel()
+print(f"Sparsity: {zeros / total:.1%}")  # Should be ~50.0%
+
+# Make pruning permanent (remove the reparameterization)
+for name, module in model.named_modules():
+    if isinstance(module, torch.nn.Linear):
+        prune.remove(module, "weight")</code></pre>
+
+    <p>The limitation of magnitude pruning is that it ignores context. A weight with small absolute value might still be critical if it sits on a high-activation pathway. This is why more sophisticated methods have emerged.</p>
+
+    <h3>2.2 Movement Pruning</h3>
+
+    <p>Movement pruning (Sanh et al., 2020) takes a different approach: instead of looking at weight magnitudes, it tracks which weights are moving toward zero during fine-tuning. Weights that the optimization process is "trying to eliminate" are pruned, while weights that are growing in magnitude are retained. This produces better results than magnitude pruning when combined with task-specific fine-tuning, because the pruning decision aligns with the model's adaptation to the target task.</p>
+
+    <h3>2.3 SparseGPT</h3>
+
+    <p>SparseGPT (Frantar &amp; Alistarh, 2023) was a breakthrough for LLM pruning because it can prune massive models in a single pass without any retraining. The algorithm works layer by layer, solving an optimization problem that minimizes the reconstruction error introduced by pruning. For each layer, SparseGPT computes the optimal set of weights to remove and adjusts the remaining weights to compensate for the removed ones. The key insight is that this layer-wise approach scales linearly with model size, making it feasible to prune models with hundreds of billions of parameters in hours rather than weeks.</p>
+
+    <pre><code class="language-python"># Using SparseGPT via the SparseML library
+# Install: pip install sparseml
+from sparseml.transformers import SparseAutoModelForCausalLM
+from sparseml.transformers import oneshot
+
+# One-shot pruning with SparseGPT
+oneshot(
+    model="meta-llama/Llama-3.2-1B",
+    dataset="open_platypus",
+    recipe="recipe.yaml",  # Specifies 50% unstructured sparsity
+    output_dir="./pruned-model",
+    num_calibration_samples=512,
+)
+
+# The recipe.yaml would contain:
+# sparsity_modifiers:
+#   SparseGPTModifier:
+#     sparsity: 0.5
+#     sequential_update: true
+#     targets: ["re:model.layers.\\d+.self_attn", "re:model.layers.\\d+.mlp"]</code></pre>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight</div>
+        <p>SparseGPT and Wanda represent a paradigm shift in pruning: they require no retraining at all. Traditional pruning methods followed a prune-then-retrain cycle that was prohibitively expensive for billion-parameter models. These one-shot methods need only a small calibration dataset (typically 128 to 512 samples) to guide their pruning decisions. This means you can prune a 70B model on a single GPU in a few hours, making pruning accessible to teams without massive compute budgets. The tradeoff is that one-shot methods typically achieve slightly lower quality than prune-and-retrain approaches at the same sparsity level, but the practical accessibility usually outweighs this gap.</p>
+    </div>
+
+    <h2>3. Structured Pruning <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>Structured pruning removes entire structural components of the model: full rows or columns from weight matrices, entire attention heads, or even whole transformer layers. Unlike unstructured pruning, which produces irregular sparsity patterns that require specialized sparse matrix libraries, structured pruning produces a genuinely smaller dense model that runs efficiently on standard hardware with no special kernel support.</p>
+
+    <h3>3.1 Attention Head Pruning</h3>
+
+    <p><a class="cross-ref" href="../../part-1-foundations/module-04-transformer-architecture/section-4.1.html">Multi-head attention</a> (<a class="cross-ref" href="../../part-1-foundations/module-04-transformer-architecture/section-4.2.html">Section 4.2</a>) distributes computation across multiple parallel attention heads. Research has shown that many of these heads are redundant: removing 20% to 40% of attention heads often has minimal impact on downstream performance. Michel et al. (2019) demonstrated that in some BERT models, a single attention head per layer suffices for most tasks.</p>
+
+    <p>For LLMs, head pruning is typically guided by an importance score computed over a calibration dataset. The score measures how much each head's output contributes to the model's final predictions. Heads with the lowest importance scores are removed, and the model architecture is updated accordingly.</p>
+
+    <pre><code class="language-python">import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+model = AutoModelForCausalLM.from_pretrained("meta-llama/Llama-3.2-1B")
+tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-1B")
+
+# Compute head importance via gradient-based scoring
+def compute_head_importance(model, dataloader, num_heads=32, num_layers=16):
+    """Score each attention head by its gradient-weighted contribution."""
+    head_importance = torch.zeros(num_layers, num_heads)
+
+    model.eval()
+    for batch in dataloader:
+        outputs = model(**batch, output_attentions=True)
+        loss = outputs.loss
+        loss.backward()
+
+        for layer_idx in range(num_layers):
+            attn_module = model.model.layers[layer_idx].self_attn
+            # Accumulate gradient magnitudes for Q, K, V projections
+            for proj in [attn_module.q_proj, attn_module.k_proj, attn_module.v_proj]:
+                grad = proj.weight.grad
+                if grad is not None:
+                    # Reshape to (num_heads, head_dim, input_dim) and sum
+                    head_dim = grad.shape[0] // num_heads
+                    grad_per_head = grad.view(num_heads, head_dim, -1)
+                    head_importance[layer_idx] += grad_per_head.abs().sum(dim=(1, 2))
+
+        model.zero_grad()
+
+    return head_importance / len(dataloader)
+
+# After computing importance, prune the lowest-scoring heads
+# by zeroing their Q, K, V, and O projection rows/columns</code></pre>
+
+    <h3>3.2 Layer Pruning</h3>
+
+    <p>Layer pruning removes entire transformer layers from the model stack. This is the most aggressive form of structured pruning: removing a layer eliminates all its parameters (<a class="cross-ref" href="../../part-1-foundations/module-03-sequence-models-attention/section-3.3.html">self-attention</a>, feed-forward network, layer norms) in one operation. A 32-layer model pruned to 24 layers is 25% smaller and 25% faster, with no sparse kernel overhead.</p>
+
+    <p>The challenge is selecting which layers to remove. Shallow layers (close to the input) tend to encode syntactic features, while deep layers (close to the output) encode more abstract, task-specific representations. Middle layers are often the most redundant. Studies on LLaMA models have shown that removing 8 out of 32 layers from the middle of the stack preserves over 90% of benchmark performance, while removing layers from the first or last quarter causes severe degradation.</p>
+
+    <h3>3.3 Width Pruning</h3>
+
+    <p>Width pruning reduces the hidden dimension of the model by removing entire neurons (columns) from feed-forward layers or reducing the embedding dimension. This produces a uniformly narrower model. Width pruning is less common than head or layer pruning for LLMs because it requires careful handling of <a class="cross-ref" href="../../part-1-foundations/module-04-transformer-architecture/section-4.1.html">residual connections</a>, but it can be effective when combined with knowledge distillation to recover lost quality.</p>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight</div>
+        <p>The fundamental tradeoff between unstructured and structured pruning is sparsity ratio versus hardware efficiency. Unstructured pruning at 70% sparsity removes more parameters than structured pruning at 30%, but the remaining parameters form an irregular pattern that standard GPUs cannot exploit efficiently. Structured pruning at 30% produces a genuinely smaller model that achieves the full theoretical speedup on any hardware. For deployment on commodity hardware without sparse kernel support, structured pruning often delivers better real-world speedups despite removing fewer total parameters. For deployment on NVIDIA Ampere or Hopper GPUs with sparse tensor core support, the 2:4 semi-structured sparsity pattern offers a compelling middle ground.</p>
+    </div>
+
+    <h2>4. The Wanda Method <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>Wanda (Sun et al., 2024), which stands for Pruning by <strong>W</strong>eights <strong>and</strong> Activations, introduced an elegantly simple idea: instead of using only weight magnitudes to decide what to prune, multiply each weight by the corresponding input activation norm. A weight might be small in absolute terms, but if it sits on a pathway with large activations, removing it would significantly change the layer's output. Conversely, a large weight on a pathway with near-zero activations contributes nothing and can be safely pruned.</p>
+
+    <p>The Wanda importance score for weight <em>w<sub>ij</sub></em> in a linear layer is:</p>
+
+    <p><strong>score(<span class="math">$w_{ij}$</span>) = |<span class="math">$w_{ij}$</span>| &middot; ||<span class="math">$X_{j}$</span>||<sub>2</sub></strong></p>
+
+    <p>where <em>X<sub>j</sub></em> is the <em>j</em>-th column of the input activation matrix collected over the calibration set. This is computed once per layer using a small calibration dataset (128 examples typically suffice), making Wanda nearly as fast as simple magnitude pruning while achieving quality comparable to the much more expensive SparseGPT.</p>
+
+    <pre><code class="language-python"># Wanda pruning implementation sketch
+# Reference: https://github.com/locuslab/wanda
+
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+def wanda_prune_layer(weight, activation_norms, sparsity_ratio=0.5):
+    """
+    Prune a linear layer using the Wanda criterion.
+
+    Args:
+        weight: (out_features, in_features) weight matrix
+        activation_norms: (in_features,) L2 norm of input activations
+        sparsity_ratio: fraction of weights to prune
+    """
+    # Compute importance: |weight| * activation_norm per input feature
+    importance = weight.abs() * activation_norms.unsqueeze(0)
+
+    # Find the threshold for the desired sparsity
+    num_prune = int(sparsity_ratio * weight.numel())
+    threshold = torch.kthvalue(importance.flatten(), num_prune).values
+
+    # Create mask: keep weights above threshold
+    mask = importance > threshold
+    return weight * mask.float(), mask
+
+
+# Collect activation norms over calibration data
+def collect_activation_norms(model, calibration_loader, layer_idx):
+    """Hook into a specific layer to collect input activation norms."""
+    norms = []
+
+    def hook_fn(module, input, output):
+        # input[0] shape: (batch, seq_len, hidden_dim)
+        norms.append(input[0].float().norm(dim=(0, 1)))
+
+    layer = model.model.layers[layer_idx].mlp.gate_proj
+    handle = layer.register_forward_hook(hook_fn)
+
+    with torch.no_grad():
+        for batch in calibration_loader:
+            model(**batch)
+
+    handle.remove()
+    return torch.stack(norms).mean(dim=0)</code></pre>
+
+    <div class="callout practical-example">
+        <div class="callout-title">Practical Example</div>
+        <p><strong>Pruning a Llama 3 model for single-GPU deployment.</strong> Suppose you have fine-tuned Llama-3.1-8B for a customer support chatbot and want to deploy it on a single L4 GPU (24 GB VRAM). At FP16, the model requires ~16 GB just for weights, leaving minimal room for the <a class="cross-ref" href="../../part-2-understanding-llms/module-08-inference-optimization/section-8.2.html">KV cache</a> (<a class="cross-ref" href="../../part-2-understanding-llms/module-09-inference-optimization/section-9.2.html">Section 9.2</a>) during inference. By applying Wanda at 50% unstructured sparsity and then quantizing to INT4 (<a class="cross-ref" href="../../part-2-understanding-llms/module-09-inference-optimization/section-9.1.html">Section 9.1</a>), you reduce the effective model size to ~4 GB, freeing 20 GB for the KV cache, batch processing, and operating system overhead. On a customer support evaluation benchmark, this pruned and quantized model retains 94% of the original's quality score while reducing per-request latency by 40% and doubling maximum throughput.</p>
+    </div>
+
+    <h2>5. Sparse Model Inference <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>Pruning a model is only half the battle. To realize actual speedups, the inference engine must exploit the sparsity pattern. A sparse weight matrix stored in dense format takes exactly the same amount of memory and compute as the original. Three approaches exist for translating sparsity into real performance gains.</p>
+
+    <h3>5.1 Sparse Matrix Formats and Kernels</h3>
+
+    <p>Unstructured sparse matrices are stored in compressed formats like CSR (Compressed Sparse Row) or CSC (Compressed Sparse Column) that skip zero values entirely. Libraries like <code>torch.sparse</code> and specialized CUDA kernels can perform matrix multiplications using these formats. However, on GPUs, the overhead of indirect indexing in sparse formats often negates the benefit of skipping zero multiplications, unless sparsity exceeds 90% to 95%. This is why unstructured sparsity at moderate levels (50% to 80%) frequently fails to deliver wall-clock speedups on current hardware, despite reducing the theoretical compute by half or more.</p>
+
+    <h3>5.2 NVIDIA Sparse Tensor Cores and 2:4 Sparsity</h3>
+
+    <p>NVIDIA's Ampere (A100), Ada Lovelace (L40, RTX 4090), and Hopper (H100) GPU architectures include sparse tensor cores that natively accelerate a specific sparsity pattern: <strong>2:4 structured sparsity</strong>. In this pattern, exactly 2 out of every 4 consecutive weights must be zero. The hardware stores only the 2 nonzero values plus a small index, achieving a genuine 2x speedup for matrix multiplications with no software overhead.</p>
+
+    <pre><code class="language-python"># Converting a model to 2:4 sparsity using PyTorch
+import torch
+from torch.sparse import to_sparse_semi_structured, SparseSemiStructuredTensor
+
+# Enable the fast path for semi-structured sparsity
+SparseSemiStructuredTensor._FORCE_CUTLASS = True
+
+model = AutoModelForCausalLM.from_pretrained(
+    "meta-llama/Llama-3.2-1B",
+    torch_dtype=torch.float16,
+    device_map="cuda"
+)
+
+# Apply 2:4 sparsity pattern to all linear layers
+for name, module in model.named_modules():
+    if isinstance(module, torch.nn.Linear):
+        # Prune to 2:4 pattern (keep 2 largest per group of 4)
+        weight = module.weight.data
+        # Reshape into groups of 4 along the input dimension
+        w_groups = weight.view(-1, weight.shape[1] // 4, 4)
+        # Find the 2 smallest values in each group
+        _, indices = w_groups.abs().topk(2, dim=-1, largest=False)
+        mask = torch.ones_like(w_groups, dtype=torch.bool)
+        mask.scatter_(-1, indices, False)
+        weight.view_as(w_groups).masked_fill_(~mask, 0)
+
+        # Convert to semi-structured sparse format for hardware acceleration
+        module.weight = torch.nn.Parameter(
+            to_sparse_semi_structured(module.weight.data)
+        )</code></pre>
+
+    <p>The 2:4 pattern is particularly powerful because it is the only sparsity pattern that delivers guaranteed hardware speedups across all batch sizes and sequence lengths on supported GPUs. For teams deploying on NVIDIA hardware, 2:4 sparsity is often the most practical pruning strategy.</p>
+
+    <h3>5.3 DeepSparse and Specialized Runtimes</h3>
+
+    <p>For CPU deployment, Neural Magic's DeepSparse runtime is specifically designed to exploit unstructured sparsity. It converts sparse weight matrices into an optimized execution plan that skips zero computations on CPUs, where the memory access patterns make sparse computation more favorable than on GPUs. DeepSparse can deliver near-GPU throughput for highly sparse models (90%+) running on commodity CPUs, making it an attractive option for teams without GPU infrastructure.</p>
+
+    <h2>6. Combining Pruning with Quantization and Distillation <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>The three compression techniques, pruning, <a class="cross-ref" href="../../part-2-understanding-llms/module-09-inference-optimization/section-9.1.html">quantization</a>, and <a class="cross-ref" href="../../part-4-training-adapting/module-16-distillation-merging/section-16.1.html">distillation</a>, are largely orthogonal and can be stacked for aggressive compression. The order in which you apply them matters significantly.</p>
+
+    <h3>6.1 The Recommended Pipeline</h3>
+
+    <p><strong>Step 1: Prune first.</strong> Apply SparseGPT or Wanda to achieve the target sparsity. Pruning works best on full-precision weights where the importance signal is cleanest.</p>
+
+    <p><strong>Step 2: Quantize the sparse model.</strong> After pruning, quantize the remaining nonzero weights to INT4 or INT8 using GPTQ or AWQ (<a class="cross-ref" href="../../part-2-understanding-llms/module-09-inference-optimization/section-9.1.html">Section 9.1</a>). The calibration data for quantization should reflect the pruned model's behavior, not the original dense model's.</p>
+
+    <p><strong>Step 3: Optionally, distill.</strong> If quality after pruning and quantization is insufficient, use the original dense model as a teacher to fine-tune the compressed student. Even a few hundred steps of distillation can recover 2 to 5 percentage points on benchmarks.</p>
+
+    <div class="diagram-container">
+        <svg viewBox="0 0 750 200" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, system-ui, sans-serif" role="img" aria-label="Compression pipeline: Prune, then Quantize, then optionally Distill">
+            <defs>
+                <marker id="arrow10_5" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+                    <polygon points="0 0, 8 3, 0 6" fill="#e94560"/>
+                </marker>
+                <filter id="shadow10_5" x="-5%" y="-5%" width="115%" height="115%">
+                    <feDropShadow dx="2" dy="2" stdDeviation="3" flood-opacity="0.1"/>
+                </filter>
+            </defs>
+            <text x="375" y="25" text-anchor="middle" font-size="15" font-weight="700" fill="#1a1a2e">Compression Pipeline: Prune, Quantize, Distill</text>
+
+            <!-- Dense Model -->
+            <rect filter="url(#shadow10_5)" x="20" y="55" width="130" height="55" rx="8" fill="#1a1a2e"/>
+            <text x="85" y="78" text-anchor="middle" fill="white" font-size="12" font-weight="600">Dense Model</text>
+            <text x="85" y="97" text-anchor="middle" fill="#aaa" font-size="10">70B FP16 = 140 GB</text>
+
+            <!-- Arrow 1 -->
+            <line x1="155" y1="82" x2="195" y2="82" stroke="#e94560" stroke-width="2" marker-end="url(#arrow10_5)"/>
+            <text x="175" y="72" text-anchor="middle" font-size="9" fill="#e94560" font-weight="600">Prune</text>
+
+            <!-- Sparse Model -->
+            <rect filter="url(#shadow10_5)" x="200" y="55" width="130" height="55" rx="8" fill="#6c5ce7"/>
+            <text x="265" y="78" text-anchor="middle" fill="white" font-size="12" font-weight="600">Sparse Model</text>
+            <text x="265" y="97" text-anchor="middle" fill="#ddd" font-size="10">50% sparse = 70 GB*</text>
+
+            <!-- Arrow 2 -->
+            <line x1="335" y1="82" x2="375" y2="82" stroke="#e94560" stroke-width="2" marker-end="url(#arrow10_5)"/>
+            <text x="355" y="72" text-anchor="middle" font-size="9" fill="#e94560" font-weight="600">Quantize</text>
+
+            <!-- Sparse + Quantized -->
+            <rect filter="url(#shadow10_5)" x="380" y="55" width="145" height="55" rx="8" fill="#27ae60"/>
+            <text x="452" y="78" text-anchor="middle" fill="white" font-size="12" font-weight="600">Sparse + INT4</text>
+            <text x="452" y="97" text-anchor="middle" fill="#ddd" font-size="10">~18 GB effective</text>
+
+            <!-- Arrow 3 -->
+            <line x1="530" y1="82" x2="570" y2="82" stroke="#e94560" stroke-width="2" marker-end="url(#arrow10_5)"/>
+            <text x="550" y="72" text-anchor="middle" font-size="9" fill="#e94560" font-weight="600">Distill</text>
+
+            <!-- Final Model -->
+            <rect filter="url(#shadow10_5)" x="575" y="55" width="150" height="55" rx="8" fill="#e94560"/>
+            <text x="650" y="78" text-anchor="middle" fill="white" font-size="12" font-weight="600">Production Model</text>
+            <text x="650" y="97" text-anchor="middle" fill="#ddd" font-size="10">Quality recovered</text>
+
+            <!-- Footnote -->
+            <text x="375" y="145" text-anchor="middle" font-size="10" fill="#666">* Storage savings depend on sparse format; compute savings depend on hardware support</text>
+            <text x="375" y="165" text-anchor="middle" font-size="10" fill="#666">Typical total compression: 8x to 16x reduction in effective model size</text>
+        </svg>
+        <div class="diagram-caption"><strong>Figure 10.5.1</strong>: The three-stage compression pipeline. Each stage is orthogonal, and the order (prune, quantize, distill) matters for best results.</div>
+    </div>
+
+    <h3>6.2 Sparse Quantized Formats</h3>
+
+    <p>The combination of 2:4 sparsity and INT8 quantization is particularly well supported on NVIDIA hardware, achieving a combined 4x speedup (2x from sparsity times 2x from quantization) with a single fused kernel. For even more aggressive compression, some teams apply 2:4 sparsity at INT4 precision, though this requires careful quality validation.</p>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight</div>
+        <p>When combining pruning with quantization, the order matters because each technique distorts the weight distribution. Pruning removes weights that the quantization calibration step would otherwise factor into its range and scale calculations. If you quantize first and then prune, the quantization parameters are computed on a distribution that includes weights that will later be zeroed, leading to suboptimal quantization of the surviving weights. Pruning first allows quantization to adapt its parameters to the sparse model's actual weight distribution, preserving more quality. Think of it like tailoring a suit: you cut the fabric (prune) before hemming the edges (quantize), not the other way around.</p>
+    </div>
+
+    <h2>7. Practical Guidelines <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>Choosing the right pruning approach depends on your deployment hardware, latency requirements, and acceptable quality loss. The following decision framework covers the most common scenarios.</p>
+
+    <h3>7.1 Which Method When</h3>
+
+    <div class="comparison-table">
+        <div class="comparison-table-title">7.1 Which Method When Comparison</div>
+        <table>
+        <tr><th>Scenario</th><th>Recommended Method</th><th>Target Sparsity</th><th>Expected Quality</th></tr>
+        <tr><td>NVIDIA Ampere/Hopper GPU</td><td>2:4 semi-structured (Wanda or SparseGPT)</td><td>50% (fixed)</td><td>95% to 98% of dense</td></tr>
+        <tr><td>CPU deployment with DeepSparse</td><td>Unstructured (SparseGPT)</td><td>70% to 90%</td><td>90% to 95% of dense</td></tr>
+        <tr><td>Standard GPU, no sparse support</td><td>Structured (layer or head pruning)</td><td>20% to 40%</td><td>92% to 97% of dense</td></tr>
+        <tr><td>Maximum compression needed</td><td>Prune (50%) + Quantize (INT4) + Distill</td><td>50% + 4x quant</td><td>90% to 95% of dense</td></tr>
+        <tr><td>Task-specific deployment</td><td>Movement pruning during fine-tuning</td><td>60% to 80%</td><td>93% to 97% on target task</td></tr>
+    </table>
+    </div>
+
+    <h3>7.2 Sparsity Targets and Quality Tradeoffs</h3>
+
+    <p><strong>The 50% sweet spot.</strong> Across most methods and models, 50% sparsity is the point where you get meaningful compression with minimal quality loss. Below 50%, the compression savings are often not worth the engineering effort. Above 70%, quality degradation becomes noticeable on challenging benchmarks, though task-specific performance may still be acceptable.</p>
+
+    <p><strong>Layer-wise sparsity allocation.</strong> Not all layers are equally pruneable. Embedding layers and the final language modeling head should generally be left dense (or pruned very conservatively), as they have outsized impact on model quality. Middle transformer layers tolerate higher sparsity than the first and last few layers. Tools like SparseGPT and Wanda support per-layer sparsity targets to exploit this observation.</p>
+
+    <p><strong>Calibration data matters.</strong> The choice of calibration data for one-shot methods (SparseGPT, Wanda) significantly affects which weights are identified as important. Use calibration data that resembles your deployment distribution. If your application is code generation, calibrate on code samples, not Wikipedia articles. Even 128 well-chosen calibration examples can outperform 1024 poorly chosen ones.</p>
+
+    <h3>7.3 Validation Strategy</h3>
+
+    <p>After pruning, always validate on a held-out evaluation set that represents your production workload. Standard benchmarks (MMLU, HellaSwag) provide a general quality signal, but task-specific evaluation (<a class="cross-ref" href="../../part-8-evaluation-production/module-29-evaluation-observability/section-29.1.html">Section 25.1</a>) is essential because pruning can affect different capabilities unevenly. A model that retains 95% of its general benchmark score might have lost 20% on a specific subtask that matters for your application.</p>
+
+    <div class="callout research-frontier">
+        <div class="callout-title">Research Frontier</div>
+        <p><strong>Activation-aware structured pruning.</strong> Recent work is bridging the gap between unstructured and structured pruning by using activation statistics to guide structured decisions. Methods like SliceGPT (Ashkboos et al., 2024) remove entire rows and columns from weight matrices based on their contribution to the activation covariance, achieving structured compression ratios previously possible only with unstructured methods. Another active direction is combining pruning with Mixture-of-Experts (<a class="cross-ref" href="../../part-2-understanding-llms/module-07-modern-llm-landscape/section-7.2.html">Section 7.2</a>) architectures, where experts that are rarely activated by production traffic are pruned entirely, reducing model size without affecting the routing of commonly used experts. Hardware-aware pruning, where the pruning algorithm directly optimizes for measured latency on the target deployment hardware rather than theoretical FLOP reduction, is also gaining traction as the gap between theoretical and realized speedups remains a persistent challenge.</p>
+    </div>
+
+
+    <h2>8. Exercises</h2>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise</div>
+        <span class="exercise-type conceptual">Conceptual</span>
+        <p><strong>Structured vs. unstructured tradeoffs.</strong> A colleague argues that unstructured pruning at 80% sparsity is always better than structured pruning at 30% because it removes more parameters. Explain why this reasoning is flawed. In your answer, discuss: (a) the role of hardware support in translating parameter reduction into wall-clock speedups, (b) the storage format overhead of sparse matrices, and (c) a scenario where 30% structured pruning delivers better real-world latency than 80% unstructured pruning.</p>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise</div>
+        <span class="exercise-type coding">Coding</span>
+        <p><strong>Implement Wanda from scratch.</strong> Using PyTorch, implement the Wanda pruning criterion for a single <code>nn.Linear</code> layer. Your implementation should: (a) register a forward hook to collect input activation norms over a calibration batch, (b) compute the importance score <code>|w| * ||x||</code> for each weight, (c) create a binary mask that zeros the lowest-scoring 50% of weights, and (d) verify that the pruned layer's output on the calibration data deviates by less than 5% (relative L2 error) from the original. Compare your results with simple magnitude pruning at the same sparsity level.</p>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise</div>
+        <span class="exercise-type analysis">Analysis</span>
+        <p><strong>Pruning sensitivity analysis.</strong> Load a small language model (e.g., GPT-2 or Llama-3.2-1B) and compute the per-layer sensitivity to pruning. For each transformer layer, apply magnitude pruning at 50% sparsity to only that layer (keeping all other layers dense) and measure the <a class="cross-ref" href="../../appendices/appendix-b-ml-essentials/section-b.4.html">perplexity</a> increase on a validation set. Plot the per-layer sensitivity and identify: (a) which layers are most sensitive to pruning, (b) whether there is a pattern (early, middle, or late layers), and (c) how you would use this information to design a non-uniform sparsity schedule.</p>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise</div>
+        <span class="exercise-type coding">Coding</span>
+        <p><strong>2:4 sparsity conversion.</strong> Write a function that converts a dense weight matrix to the 2:4 sparsity pattern by selecting the two largest-magnitude weights in each group of four consecutive elements along the input dimension. Apply this function to all linear layers in a small transformer model and measure: (a) the perplexity before and after conversion, (b) the actual inference speedup using <code>torch.sparse.to_sparse_semi_structured</code> on a CUDA device, and (c) how the speedup varies with batch size. If you lack GPU access, simulate the pattern and report only the quality metrics.</p>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise</div>
+        <span class="exercise-type analysis">Analysis</span>
+        <p><strong>Compression pipeline comparison.</strong> Take a small language model and compare three compression pipelines on both quality (perplexity) and size: (a) quantization only (INT4 via GPTQ), (b) pruning only (50% Wanda), and (c) pruning (50% Wanda) followed by quantization (INT4). For each pipeline, measure the model size on disk, the perplexity on a held-out validation set, and the memory footprint during inference. Determine which pipeline achieves the best quality-per-byte tradeoff and explain why the combined approach does or does not outperform the individual techniques.</p>
+    </div>
+
+
+    <h2>What's Next</h2>
+
+    <p>Model pruning is one piece of the deployment optimization toolkit. Combined with <a class="cross-ref" href="../../part-2-understanding-llms/module-09-inference-optimization/section-9.1.html">quantization</a>, <a class="cross-ref" href="../../part-2-understanding-llms/module-09-inference-optimization/section-9.3.html">speculative decoding</a>, and the serving infrastructure techniques from <a class="cross-ref" href="../../part-2-understanding-llms/module-09-inference-optimization/section-9.4.html">Section 9.4</a>, pruning enables deployment configurations that were impractical with dense models. As you move into <a class="cross-ref" href="../module-11-prompt-engineering/index.html">Chapter 11: Prompt Engineering</a>, you will see how careful prompt design can further reduce the computational load on your (now smaller) models by eliciting better responses with fewer tokens and shorter conversations. For teams considering fine-tuning compressed models, <a class="cross-ref" href="../../part-4-training-adapting/module-15-peft/section-15.1.html">Chapter 15 on PEFT</a> covers parameter-efficient techniques like <a class="cross-ref" href="../../part-4-training-adapting/module-14-peft/section-14.1.html">LoRA</a> that compose naturally with pruned models, and <a class="cross-ref" href="../../part-4-training-adapting/module-16-distillation-merging/section-16.1.html">Chapter 16 on distillation</a> provides the recovery strategy when aggressive pruning degrades quality beyond acceptable thresholds.</p>
+
+
+<section class="bibliography" id="bibliography">
+    <div class="bibliography-title">References and Further Reading</div>
+    <div class="bib-category">Foundational Pruning Methods</div>
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://arxiv.org/abs/2301.00774" target="_blank" rel="noopener">Frantar, E. &amp; Alistarh, D. (2023). <em>SparseGPT: Massive Language Models Can Be Accurately Pruned in One-Shot</em>. ICML 2023.</a></p>
+        <p class="bib-annotation">Introduced the one-shot pruning paradigm for LLMs, demonstrating that billion-parameter models can be pruned to 50% or more sparsity without retraining. The layer-wise reconstruction approach scales linearly with model size.</p>
+        <span class="bib-meta">Paper</span>
+    </div>
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://arxiv.org/abs/2306.11695" target="_blank" rel="noopener">Sun, M. et al. (2024). <em>A Simple and Effective Pruning Approach for Large Language Models</em>. ICLR 2024.</a></p>
+        <p class="bib-annotation">The Wanda paper. Shows that multiplying weight magnitudes by input activation norms produces pruning decisions comparable to SparseGPT at a fraction of the computational cost. An essential read for practical LLM pruning.</p>
+        <span class="bib-meta">Paper</span>
+    </div>
+    <div class="bib-category">Structured Pruning</div>
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://arxiv.org/abs/2401.15826" target="_blank" rel="noopener">Ashkboos, S. et al. (2024). <em>SliceGPT: Compress Large Language Models by Deleting Rows and Columns</em>. ICLR 2024.</a></p>
+        <p class="bib-annotation">Demonstrates structured pruning of LLMs by removing entire rows and columns from weight matrices, achieving significant compression without sparse kernel requirements.</p>
+        <span class="bib-meta">Paper</span>
+    </div>
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://arxiv.org/abs/2005.07683" target="_blank" rel="noopener">Sanh, V. et al. (2020). <em>Movement Pruning: Adaptive Sparsity during Fine-Tuning</em>. NeurIPS 2020.</a></p>
+        <p class="bib-annotation">Introduces movement pruning, which prunes weights based on their movement during fine-tuning rather than their magnitude. Achieves superior results for task-specific pruning compared to magnitude-based methods.</p>
+        <span class="bib-meta">Paper</span>
+    </div>
+    <div class="bib-category">Hardware-Accelerated Sparsity</div>
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://developer.nvidia.com/blog/accelerating-inference-with-sparsity-using-ampere-and-tensorrt/" target="_blank" rel="noopener">NVIDIA. (2021). <em>Accelerating Inference with Sparsity Using Ampere and TensorRT</em>. NVIDIA Developer Blog.</a></p>
+        <p class="bib-annotation">NVIDIA's guide to using 2:4 structured sparsity on Ampere GPUs. Covers the hardware mechanism, the sparse tensor core architecture, and practical guidance for achieving 2x speedups with the semi-structured pattern.</p>
+        <span class="bib-meta">Documentation</span>
+    </div>
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://pytorch.org/docs/stable/sparse.html" target="_blank" rel="noopener">PyTorch. (2025). <em>Sparse Tensor Documentation</em>. PyTorch Official Docs.</a></p>
+        <p class="bib-annotation">Official PyTorch documentation for sparse tensor operations, including semi-structured sparsity support via <code>to_sparse_semi_structured</code>. Essential reference for implementing the code examples in this section.</p>
+        <span class="bib-meta">Documentation</span>
+    </div>
+</section>
+
+<nav class="chapter-nav">
+    <a href="section-10.4.html" class="prev">Previous: Reasoning Models &amp; Multimodal APIs</a>
+    <a href="index.html" class="next">Chapter 10 Overview </a>
+</nav>
+    <footer><p>Fifth Edition, 2026 &middot; <a href="../../toc.html">Contents</a></p></footer>
+</main>
+</body>
+</html>

@@ -58,9 +58,9 @@ Five review perspectives were applied to all 15 HTML section files:
 
 ### Module 08
 
-1. **Section 8.1:** NF4's information-theoretic optimality (quantization levels placed at normal distribution quantiles) is a beautiful mathematical insight that is explained well but not framed as an aha moment. Add: "NF4 is the optimal 4-bit scheme because neural network weights are Gaussian."
-2. **Section 8.3:** The counterintuitive claim that speculative decoding produces EXACTLY the same output distribution as standard decoding deserves a bigger moment. Students expect lossy approximation; the mathematical guarantee of losslessness is genuinely surprising.
-3. **Section 8.2:** PagedAttention's core insight (treat KV cache like OS virtual memory with non-contiguous physical blocks) is well stated but could be more impactful if preceded by the problem it solves: "without PagedAttention, 60-80% of allocated KV cache memory is wasted on internal fragmentation."
+1. **Section 10.1:** NF4's information-theoretic optimality (quantization levels placed at normal distribution quantiles) is a beautiful mathematical insight that is explained well but not framed as an aha moment. Add: "NF4 is the optimal 4-bit scheme because neural network weights are Gaussian."
+2. **Section 10.3:** The counterintuitive claim that speculative decoding produces EXACTLY the same output distribution as standard decoding deserves a bigger moment. Students expect lossy approximation; the mathematical guarantee of losslessness is genuinely surprising.
+3. **Section 10.2:** PagedAttention's core insight (treat KV cache like OS virtual memory with non-contiguous physical blocks) is well stated but could be more impactful if preceded by the problem it solves: "without PagedAttention, 60-80% of allocated KV cache memory is wasted on internal fragmentation."
 
 ---
 
@@ -68,13 +68,13 @@ Five review perspectives were applied to all 15 HTML section files:
 
 ### HIGH Priority
 
-**1. [INTEGRITY] Section 8.3: No from-scratch speculative decoding implementation.**
+**1. [INTEGRITY] Section 10.3: No from-scratch speculative decoding implementation.**
 The syllabus and chapter plan promise a lab implementing the draft-verify-resample loop. The section only shows the Hugging Face `assistant_model` API. Students cannot understand acceptance/rejection sampling from an API call alone. A 30-line pedagogical implementation with a toy model is needed.
-*Location:* `module-08-inference-optimization/section-8.3.html`
+*Location:* `module-10-inference-optimization/section-10.3.html`
 
-**2. [INTEGRITY] Section 8.3: Mathematical proof of lossless distribution preservation is absent.**
+**2. [INTEGRITY] Section 10.3: Mathematical proof of lossless distribution preservation is absent.**
 The Key Insight callout states speculative decoding is "lossless" but the probability argument is never shown. The acceptance criterion min(1, q(x)/p(x)) is given without explaining why it preserves the target distribution. Even an informal walkthrough would prevent misconceptions.
-*Location:* `module-08-inference-optimization/section-8.3.html`
+*Location:* `module-10-inference-optimization/section-10.3.html`
 
 **3. [LEARNING QUALITY] Section 7.2: MLA explanation jumps from concept to code without a worked numerical example.**
 Students are told MLA achieves "93% cache reduction" but the path from standard MHA dimensions to compressed latent dimensions is never shown concretely. Add: "Standard MHA caches 128 heads x 128 dims = 16,384 values; MLA compresses to 512 dims, a 97% reduction."
@@ -93,7 +93,7 @@ All three Module 07 sections after 7.1 contain code but never show expected outp
 *Location:* All three files in `module-07-modern-llm-landscape/`
 
 **7. [INTEGRITY] All 15 sections: Zero explicit cross-references to prerequisite modules.**
-No section HTML file contains textual references to prerequisite material (e.g., "as covered in Module 04"). Section 8.2 (KV Cache) assumes attention mechanism knowledge from Module 04. Section 7.3 references Chinchilla scaling laws but never points to Section 6.3.
+No section HTML file contains textual references to prerequisite material (e.g., "as covered in Module 04"). Section 10.2 (KV Cache) assumes attention mechanism knowledge from Module 04. Section 7.3 references Chinchilla scaling laws but never points to Section 6.3.
 *Location:* All 15 section files
 
 **8. [CLARITY] Section 6.6: Tensor parallelism described abstractly without a matrix example.**
@@ -130,21 +130,21 @@ All exercises are quiz questions with hidden answers. There are no prompts askin
 
 ### MEDIUM Priority
 
-**16. [INTEGRITY] Section 8.1: GGUF format not discussed.**
-GGUF is the dominant quantization format for local inference (llama.cpp, Ollama), which Section 8.4 extensively covers. Students using Ollama in 8.4 encounter GGUF models immediately but 8.1 never explains the format or its mixed-precision strategy.
-*Location:* `module-08-inference-optimization/section-8.1.html`
+**16. [INTEGRITY] Section 10.1: GGUF format not discussed.**
+GGUF is the dominant quantization format for local inference (llama.cpp, Ollama), which Section 10.4 extensively covers. Students using Ollama in 8.4 encounter GGUF models immediately but 8.1 never explains the format or its mixed-precision strategy.
+*Location:* `module-10-inference-optimization/section-10.1.html`
 
-**17. [CLARITY] Section 8.2: GQA memory savings not demonstrated numerically.**
+**17. [CLARITY] Section 10.2: GQA memory savings not demonstrated numerically.**
 The MHA vs. MQA vs. GQA table lists qualitative differences, but no worked calculation shows the concrete memory difference (e.g., "Llama 3 8B with 8 KV heads uses X GB at 4K context vs. Y GB with 32 full KV heads").
-*Location:* `module-08-inference-optimization/section-8.2.html`
+*Location:* `module-10-inference-optimization/section-10.2.html`
 
 **18. [LEARNING QUALITY] Section 7.3: DeepSeek-R1 GRPO algorithm not explained.**
 The section describes R1's training pipeline at a high level but never names or explains GRPO (Group Relative Policy Optimization), which is the specific algorithm enabling emergent reasoning. A brief outline of its mechanism would strengthen the section.
 *Location:* `module-07-modern-llm-landscape/section-7.3.html`
 
-**19. [INTEGRITY] GQA/MLA content duplication between Section 7.2 and Section 8.2 with no cross-reference.**
+**19. [INTEGRITY] GQA/MLA content duplication between Section 7.2 and Section 10.2 with no cross-reference.**
 Both sections independently explain GQA and MLA. The overlap is conceptually justified (architecture in 7.2, memory optimization in 8.2) but neither section acknowledges the other. Readers will encounter near-duplicate explanations without understanding this is intentional.
-*Location:* `section-7.2.html` and `section-8.2.html`
+*Location:* `section-7.2.html` and `section-10.2.html`
 
 **20. [ENGAGEMENT] Section 7.4: Attention drops in the second half.**
 The opening hook about 6.5 billion underserved people is powerful, but the section becomes a catalog of benchmarks and techniques after the cultural bias discussion. The closing needs a stronger emotional or practical anchor to maintain momentum.
@@ -170,13 +170,13 @@ PaLM introduced the Pathways system at 540B scale. BLOOM was the first large-sca
 The implicit gradient descent view and the task vector concept both lend themselves to diagramming but have no visual support. A second diagram showing how task vectors work (activations with vs. without demonstrations) would strengthen understanding.
 *Location:* `module-06-pretraining-scaling-laws/section-6.7.html`
 
-**26. [LEARNING QUALITY] Section 8.2: TTT (Test-Time Training) explanation is too brief.**
+**26. [LEARNING QUALITY] Section 10.2: TTT (Test-Time Training) explanation is too brief.**
 TTT is a genuinely novel concept that students could easily confuse with standard fine-tuning. The current one-paragraph treatment does not adequately distinguish TTT (inference-time temporary weight updates) from continued pre-training.
-*Location:* `module-08-inference-optimization/section-8.2.html`
+*Location:* `module-10-inference-optimization/section-10.2.html`
 
-**27. [INTEGRITY] Section 8.4: TensorRT-LLM has no code example.**
+**27. [INTEGRITY] Section 10.4: TensorRT-LLM has no code example.**
 Unlike vLLM, TGI, and Ollama (all with runnable examples), TensorRT-LLM is described only textually. Since it is positioned as the highest-throughput option (30-50% over vLLM), the lack of a concrete example creates an asymmetry.
-*Location:* `module-08-inference-optimization/section-8.4.html`
+*Location:* `module-10-inference-optimization/section-10.4.html`
 
 **28. [CLARITY] Section 7.2: Gemma model family missing.**
 Despite Google's Gemma 2 and Gemma 3 being competitive open-weight models (mentioned on the module index page), they receive no dedicated discussion in the section text. A brief subsection or expanded table entry is warranted.
@@ -204,9 +204,9 @@ The section distinguishes open-source from open-weight but does not explain prac
 Module 07 section lengths range from 674 (7.1) to 949 (7.3). Consider splitting MCTS into its own subsection or appendix, or trimming the explanation to a high-level overview with pointers to further reading.
 *Location:* `module-07-modern-llm-landscape/section-7.3.html`
 
-**34. [ENGAGEMENT] Section 8.2 lacks its own distinct hook.**
+**34. [ENGAGEMENT] Section 10.2 lacks its own distinct hook.**
 The opening reads as a continuation of 8.1 rather than presenting a fresh motivating problem. Start with the specific problem: "You quantized your model to 4-bit, but inference is still slow. Why? The KV cache is now the bottleneck."
-*Location:* `module-08-inference-optimization/section-8.2.html`
+*Location:* `module-10-inference-optimization/section-10.2.html`
 
 **35. [INTEGRITY] Section 6.6: Sequence parallelism and context parallelism absent.**
 With long-context models becoming standard (128K+ for Llama 3, 1M for Gemini), these techniques are increasingly relevant. Add a brief subsection or forward reference.
@@ -216,13 +216,13 @@ With long-context models becoming standard (128K+ for Llama 3, 1M for Gemini), t
 Module 06 has 4 questions per section. Module 07 has varying counts (4 to 6). Module 08 has varying counts. Standardize for template consistency.
 *Location:* All section files
 
-**37. [CLARITY] Section 8.1: Lacks an intuitive analogy for quantization.**
+**37. [CLARITY] Section 10.1: Lacks an intuitive analogy for quantization.**
 A comparison to reducing color depth in an image (millions of colors to 256 colors, then to 16 colors) would immediately ground the abstract mathematics for students without signal-processing background.
-*Location:* `module-08-inference-optimization/section-8.1.html`
+*Location:* `module-10-inference-optimization/section-10.1.html`
 
-**38. [INTEGRITY] Section 8.4: Cost optimization and auto-scaling strategies not covered.**
+**38. [INTEGRITY] Section 10.4: Cost optimization and auto-scaling strategies not covered.**
 The section covers the serving stack thoroughly but does not discuss spot instances, model caching across cold starts, auto-scaling policies, or the economics of self-hosted vs. API inference.
-*Location:* `module-08-inference-optimization/section-8.4.html`
+*Location:* `module-10-inference-optimization/section-10.4.html`
 
 **39. [VISUAL] Section 7.4: Tokenization efficiency bar chart should be an SVG, not just code output.**
 The code output shows token counts per language, but a visual bar chart would be far more impactful for demonstrating the disparity. The data is already present; it just needs a diagram.

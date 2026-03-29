@@ -1,0 +1,819 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Section 20.5: Structured Data & Text-to-SQL</title>
+    <link rel="stylesheet" href="../../styles/book.css">
+    <link rel="stylesheet" href="../../vendor/katex/katex.min.css">
+    <script defer src="../../vendor/katex/katex.min.js"></script>
+    <script defer src="../../vendor/katex/contrib/auto-render.min.js"
+        onload="renderMathInElement(document.body, {
+            delimiters: [
+                {left: '$$', right: '$$', display: true},
+                {left: '$', right: '$', display: false}
+            ],
+            throwOnError: false
+        });"></script>
+    <link rel="stylesheet" href="../../vendor/prism/prism-theme.css">
+    <script defer src="../../vendor/prism/prism-bundle.min.js"></script>
+</head>
+<body>
+<header class="chapter-header">
+    <nav class="header-nav">
+        <a href="../../index.html" class="book-title-link">Building Conversational AI with LLMs and Agents</a>
+        <a href="../../toc.html" class="toc-link" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+    </nav>
+    <div class="part-label"><a href="../index.html">Part 5: Retrieval and Conversation</a></div>
+    <div class="chapter-label"><a href="index.html">Chapter 20: Retrieval-Augmented Generation</a></div>
+    <h1>Structured Data &amp; Text-to-SQL</h1>
+</header>
+
+<main class="content">
+
+    <blockquote class="epigraph">
+        <p>Why memorize a million rows when you can simply ask the database a well-formed question?</p>
+        <cite><span class="agent-avatar-inline" style="background-color: #2980b9;"><img src="../../front-matter/images/agents/rag.png" alt="RAG"></span> <a href="../../front-matter/wisdom-council.html#rag">RAG</a> <span class="agent-desc">AI Agent</span></cite>
+    </blockquote>
+
+    <div class="prerequisites">
+        <h3>Prerequisites</h3>
+        <p>Text-to-SQL and structured data <a class="cross-ref" href="../module-19-rag/section-19.1.html">RAG</a> extend the retrieval paradigm from <a href="section-20.1.html">Section 20.1</a> to tabular and relational data sources. You should be comfortable with basic SQL concepts and understand how LLMs generate <a class="cross-ref" href="../../part-3-working-with-llms/module-10-llm-apis/section-10.3.html">structured output</a>, a topic introduced in <a class="cross-ref" href="../../part-3-working-with-llms/module-11-prompt-engineering/section-11.2.html">Section 11.2</a>. The evaluation challenges discussed here connect to the broader <a class="cross-ref" href="../../part-8-evaluation-production/module-29-evaluation-observability/section-29.1.html">LLM evaluation</a> framework in <a class="cross-ref" href="../../part-8-evaluation-production/module-29-evaluation-observability/section-29.1.html">Section 29.1</a>.</p>
+    </div>
+
+    <div class="callout big-picture">
+        <div class="callout-title">Big Picture</div>
+        <p><strong>Most enterprise knowledge lives in databases, not documents.</strong> Sales figures, inventory counts, customer records, and financial data are stored in relational databases and spreadsheets. Text-to-SQL enables users to query these structured data sources using natural language, bridging the gap between business questions and database queries. Combined with traditional document-based RAG (as covered in <a href="section-20.1.html">Section 20.1</a>), this creates hybrid retrieval systems that can answer questions requiring both factual context and precise numerical data.</p>
+    </div>
+
+
+    <h2>1. LLMs and Tabular Data <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        Tabular data presents unique challenges for LLMs. Unlike free-form text, tables have strict
+        row-column structure, typed values, and relational constraints (foreign keys, uniqueness).
+        LLMs can process small tables directly in their <a class="cross-ref" href="../../part-1-foundations/module-04-transformer-architecture/section-4.2.html">context window</a>, but larger datasets require
+        the model to generate executable queries (SQL, pandas) that retrieve the relevant information.
+    </p>
+
+    <h3>1.1 Direct Table Reasoning</h3>
+
+    <p>
+        For small tables (fewer than 50 rows), LLMs can reason over tabular data presented directly in the
+        prompt. The key is formatting: presenting tables as Markdown or structured text with clear column
+        headers helps the model understand the schema. However, this approach fails for large datasets
+        because of context window limits and because LLM arithmetic on many rows is unreliable.
+     Code Fragment 20.5.1 below puts this into practice.</p>
+
+<pre><code class="language-python"># implement ask_about_table
+# Key operations: API interaction
+
+import pandas as pd
+from openai import OpenAI
+
+client = OpenAI()
+
+def ask_about_table(df: pd.DataFrame, question: str):
+    """Ask a question about a small DataFrame directly."""
+    # Convert to markdown for clear formatting
+    table_md = df.to_markdown(index=False)
+
+    response = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[{
+            "role": "system",
+            "content": "You are a data analyst. Answer questions about "
+                       "the provided table. Show your reasoning."
+        }, {
+            "role": "user",
+            "content": f"Table:\n{table_md}\n\nQuestion: {question}"
+        }]
+    )
+    return response.choices[0].message.content
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 20.5.1:</strong> Converting structured data (DataFrames, SQL results) into markdown tables so the LLM can reason over tabular content in natural language.</div>
+
+    <div class="callout fun-note">
+              <div class="callout-title">Fun Fact</div>
+        <p>The Spider <a class="cross-ref" href="../../part-8-evaluation-production/module-29-evaluation-observability/section-29.2.html">benchmark</a> for text-to-SQL contains 10,181 questions across 200 databases. State-of-the-art LLMs now score above 85% on it, which sounds impressive until you realize that the remaining 15% includes queries like nested correlated subqueries with HAVING clauses that most human SQL developers would also get wrong on the first try.</p>
+    </div>
+
+    <h2>2. Text-to-SQL: Architecture <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        Text-to-SQL systems convert natural language questions into SQL queries that can be executed
+        against a database. The core challenge is mapping the user's informal language to the precise
+        syntax of SQL while correctly identifying which tables, columns, and joins are needed. Modern
+        LLM-based text-to-SQL pipelines achieve over 85% accuracy on standard benchmarks by combining
+        schema linking, <a class="cross-ref" href="../../part-3-working-with-llms/module-11-prompt-engineering/section-11.2.html">few-shot examples</a>, and error correction.
+     Figure 20.5.1 traces the complete text-to-SQL pipeline.</p>
+
+    <!-- SVG: Text-to-SQL Pipeline -->
+    <div class="diagram-container">
+        <svg viewBox="0 0 760 280" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, system-ui, sans-serif" role="img" aria-label="Diagram: 2. Text-to-SQL: Architecture Intermediate">
+            <text x="380" y="22" text-anchor="middle" font-size="14" font-weight="bold" fill="#1a1a2e">Text-to-SQL Pipeline</text>
+
+            <!-- Natural Language -->
+            <rect filter="url(#shadow_279252)" x="20" y="60" width="140" height="55" rx="8" fill="url(#grad_279252_e3f2fd)" stroke="#1565c0" stroke-width="2"/>
+            <text x="90" y="82" text-anchor="middle" font-size="11" font-weight="bold" fill="#0d47a1">NL Question</text>
+            <text x="90" y="100" text-anchor="middle" font-size="11" fill="#555">"Top 5 customers</text>
+            <text x="90" y="110" text-anchor="middle" font-size="11" fill="#555">by revenue"</text>
+
+            <line x1="160" y1="87" x2="190" y2="87" stroke="#333" stroke-width="1.5" marker-end="url(#asql)" stroke-linecap="round"/>
+
+            <!-- Schema Linking -->
+            <rect x="195" y="50" width="130" height="75" rx="8" fill="url(#grad_279252_fff3e0)" stroke="#e65100" stroke-width="1.5"/>
+            <text x="260" y="72" text-anchor="middle" font-size="11" font-weight="bold" fill="#e65100">Schema Link</text>
+            <text x="260" y="90" text-anchor="middle" font-size="11" fill="#555">Map NL terms to</text>
+            <text x="260" y="103" text-anchor="middle" font-size="11" fill="#555">tables + columns</text>
+            <text x="260" y="116" text-anchor="middle" font-size="11" fill="#555">+ relationships</text>
+
+            <line x1="325" y1="87" x2="355" y2="87" stroke="#333" stroke-width="1.5" marker-end="url(#asql)" stroke-linecap="round"/>
+
+            <!-- SQL Generation -->
+            <rect x="360" y="50" width="130" height="75" rx="8" fill="#e8f5e9" stroke="#2e7d32" stroke-width="2"/>
+            <text x="425" y="72" text-anchor="middle" font-size="11" font-weight="bold" fill="#2e7d32">LLM Generate</text>
+            <text x="425" y="90" text-anchor="middle" font-size="11" fill="#555">Prompt with schema</text>
+            <text x="425" y="103" text-anchor="middle" font-size="11" fill="#555">+ examples</text>
+            <text x="425" y="116" text-anchor="middle" font-size="11" fill="#555">produces SQL</text>
+
+            <line x1="490" y1="87" x2="520" y2="87" stroke="#333" stroke-width="1.5" marker-end="url(#asql)" stroke-linecap="round"/>
+
+            <!-- Execute -->
+            <rect x="525" y="55" width="100" height="65" rx="8" fill="url(#grad_279252_f3e5f5)" stroke="#7b1fa2" stroke-width="1.5"/>
+            <text x="575" y="77" text-anchor="middle" font-size="11" font-weight="bold" fill="#7b1fa2">Execute</text>
+            <text x="575" y="95" text-anchor="middle" font-size="11" fill="#555">Run against</text>
+            <text x="575" y="108" text-anchor="middle" font-size="11" fill="#555">database</text>
+
+            <line x1="625" y1="87" x2="655" y2="87" stroke="#333" stroke-width="1.5" marker-end="url(#asql)" stroke-linecap="round"/>
+
+            <!-- Answer -->
+            <rect x="660" y="60" width="80" height="55" rx="8" fill="url(#grad_279252_e8eaf6)" stroke="#283593" stroke-width="2"/>
+            <text x="700" y="82" text-anchor="middle" font-size="11" font-weight="bold" fill="#283593">Answer</text>
+            <text x="700" y="100" text-anchor="middle" font-size="11" fill="#555">Results +</text>
+            <text x="700" y="110" text-anchor="middle" font-size="11" fill="#555">NL summary</text>
+
+            <!-- Error correction loop -->
+            <path d="M 575 120 C 575 175 425 175 425 125" fill="none" stroke="#c62828" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#asql)" stroke-linecap="round"/>
+            <text x="500" y="160" text-anchor="middle" font-size="11" fill="#c62828" font-weight="bold">Error? Regenerate</text>
+
+            <!-- Database icon -->
+            <rect x="525" y="190" width="100" height="45" rx="6" fill="url(#grad_279252_fce4ec)" stroke="#c62828" stroke-width="1"/>
+            <text x="575" y="210" text-anchor="middle" font-size="10" font-weight="bold" fill="#c62828">Database</text>
+            <text x="575" y="225" text-anchor="middle" font-size="11" fill="#555">PostgreSQL, MySQL</text>
+            <line x1="575" y1="190" x2="575" y2="120" stroke="#c62828" stroke-width="1" stroke-dasharray="3,3" stroke-linecap="round"/>
+
+            <!-- Schema info -->
+            <rect x="195" y="190" width="130" height="45" rx="6" fill="url(#grad_279252_fff8e1)" stroke="#f9a825" stroke-width="1"/>
+            <text x="260" y="210" text-anchor="middle" font-size="10" font-weight="bold" fill="#f57f17">Schema Info</text>
+            <text x="260" y="225" text-anchor="middle" font-size="11" fill="#555">Tables, columns, types</text>
+            <line x1="260" y1="190" x2="260" y2="125" stroke="#f9a825" stroke-width="1" stroke-dasharray="3,3" stroke-linecap="round"/>
+
+            <defs>
+<linearGradient id="grad_279252_e3f2fd" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#f2ffff"/><stop offset="100%" stop-color="#e3f2fd"/></linearGradient>
+<linearGradient id="grad_279252_f3e5f5" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#fff4ff"/><stop offset="100%" stop-color="#f3e5f5"/></linearGradient>
+<linearGradient id="grad_279252_e8eaf6" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#f7f9ff"/><stop offset="100%" stop-color="#e8eaf6"/></linearGradient>
+<linearGradient id="grad_279252_fce4ec" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#fff3fb"/><stop offset="100%" stop-color="#fce4ec"/></linearGradient>
+<linearGradient id="grad_279252_fff8e1" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#fffff0"/><stop offset="100%" stop-color="#fff8e1"/></linearGradient>
+<linearGradient id="grad_279252_fff3e0" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#ffffef"/><stop offset="100%" stop-color="#fff3e0"/></linearGradient>
+<filter id="shadow_279252" x="-5%" y="-5%" width="115%" height="115%"><feDropShadow dx="2" dy="2" stdDeviation="3" flood-opacity="0.1"/></filter>
+
+                <marker id="asql" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                    <path d="M 0 0 L 10 5 L 0 10 z" fill="#333"/>
+                </marker>
+            </defs>
+        </svg>
+        <div class="diagram-caption"><strong>Figure 20.5.1</strong>: Text-to-SQL pipeline: schema linking maps natural language to database elements, the LLM generates SQL, execution returns results, and errors trigger regeneration.</div>
+    </div>
+
+    <h3>2.1 Schema Linking</h3>
+
+    <p>
+        Schema linking is the process of identifying which database tables and columns are relevant to the
+        user's question. This is often the hardest step because users rarely use exact column names. A user
+        asking about "revenue" might mean the <code>total_amount</code> column in the <code>orders</code>
+        table, or the <code>annual_revenue</code> column in the <code>companies</code> table.
+     Code Fragment 20.5.2 below puts this into practice.</p>
+
+<pre><code class="language-python"># implement get_schema_context
+# Key operations: RAG pipeline, prompt construction
+
+def get_schema_context(db_connection, relevant_tables=None):
+    """Extract schema information for the LLM prompt."""
+    schema_parts = []
+
+    # Get all tables or filter to relevant ones
+    tables = relevant_tables or get_all_tables(db_connection)
+
+    for table in tables:
+        columns = get_columns(db_connection, table)
+        col_info = []
+        for col in columns:
+            col_str = f"  {col['name']} {col['type']}"
+            if col.get("primary_key"):
+                col_str += " PRIMARY KEY"
+            if col.get("foreign_key"):
+                col_str += f" REFERENCES {col['foreign_key']}"
+            col_info.append(col_str)
+
+        # Include sample values for disambiguation
+        samples = get_sample_values(db_connection, table, limit=3)
+
+        schema_parts.append(
+            f"CREATE TABLE {table} (\n"
+            + ",\n".join(col_info)
+            + f"\n);\n-- Sample rows: {samples}"
+        )
+
+    return "\n\n".join(schema_parts)
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 20.5.2:</strong> Extracting database schema context (table names, columns, types) and formatting it as a prompt section so the LLM can write accurate SQL. The function encapsulates reusable logic that can be applied across different inputs. Tracing through each step builds the intuition needed when debugging or extending similar systems.</div>
+
+    <h3>2.2 SQL Generation with Few-Shot Examples</h3>
+
+    <p>Once the schema context is prepared, the next step is generating executable SQL from the user's natural language question. Code Fragment 20.5.3 below demonstrates how to combine schema information with optional few-shot examples in a single LLM call.</p>
+
+<pre><code class="language-python"># implement text_to_sql
+# Key operations: API interaction
+
+def text_to_sql(question, schema_context, examples=None):
+    """Generate SQL from natural language question."""
+
+    few_shot = ""
+    if examples:
+        few_shot = "\n\nExamples:\n" + "\n".join([
+            f"Q: {ex['question']}\nSQL: {ex['sql']}"
+            for ex in examples
+        ])
+
+    response = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[{
+            "role": "system",
+            "content": <span style="color:#a6e3a1;">f"""You are a SQL expert. Generate a SQL query to
+answer the user's question based on this schema:
+
+{schema_context}
+{few_shot}
+
+Rules:
+- Use only tables and columns from the schema
+- Return ONLY the SQL query, no explanation
+- Use standard SQL compatible with PostgreSQL
+- Add LIMIT 100 to prevent unbounded results
+- Handle NULLs appropriately"""</span>
+        }, {
+            "role": "user",
+            "content": question
+        }],
+        temperature=0.0
+    )
+
+    sql = response.choices[0].message.content.strip()
+    # Remove markdown code fences if present
+    sql = sql.replace("```sql", "").replace("```", "").strip()
+    return sql
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 20.5.3:</strong> The text_to_sql function converts natural language questions into executable SQL by injecting the database schema and optional few-shot examples into the LLM prompt. Notice the post-processing step that strips markdown code fences, a common artifact when LLMs generate SQL in conversational contexts.</div>
+
+    <div class="callout note">
+        <div class="callout-title">Note</div>
+        <p>The choice of few-shot examples dramatically affects text-to-SQL accuracy. The most effective strategy is to embed the user's question and retrieve the most similar examples from a curated example bank using vector similarity. This "dynamic few-shot" approach ensures that the examples shown to the LLM are maximally relevant to the current question, improving accuracy by 10 to 20% compared to fixed examples on complex queries.</p>
+    </div>
+
+    <h2>3. Error Correction and Self-Healing Queries <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        Even the best LLMs generate incorrect SQL queries. Common errors include referencing nonexistent
+        columns, incorrect join conditions, missing GROUP BY clauses, and type mismatches. A robust
+        text-to-SQL pipeline includes an error correction loop that catches execution failures, sends
+        the error message back to the LLM along with the original query, and asks for a corrected version.
+     Code Fragment 20.5.4 below puts this into practice.</p>
+
+<pre><code class="language-python"># implement execute_with_retry
+# See inline comments for step-by-step details.
+
+import sqlite3
+
+def execute_with_retry(question, schema_context, db_path,
+                        max_retries=3):
+    """Execute SQL with automatic error correction."""
+    conn = sqlite3.connect(db_path)
+    error_history = []
+
+    for attempt in range(max_retries):
+        # Generate SQL (include errors from prior attempts)
+        if error_history:
+            error_context = "\n".join([
+                f"Attempt {e['attempt']}: {e['sql']}\n"
+                f"Error: {e['error']}"
+                for e in error_history
+            ])
+            question_with_context = (
+                f"{question}\n\nPrevious failed attempts:\n"
+                f"{error_context}\n\nFix the errors."
+            )
+        else:
+            question_with_context = question
+
+        sql = text_to_sql(question_with_context, schema_context)
+
+        try:
+            cursor = conn.execute(sql)
+            columns = [desc[0] for desc in cursor.description]
+            rows = cursor.fetchall()
+            return {
+                "sql": sql,
+                "columns": columns,
+                "rows": rows,
+                "attempts": attempt + 1
+            }
+        except Exception as e:
+            error_history.append({
+                "attempt": attempt + 1,
+                "sql": sql,
+                "error": str(e)
+            })
+
+    return {"error": "Failed after max retries",
+            "history": error_history}
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 20.5.4:</strong> Running a self-correcting text-to-SQL loop: if the generated query fails, the error message is fed back to the LLM for a revised attempt.</div>
+
+    <div class="callout warning">
+        <div class="callout-title">Warning</div>
+        <p>Allowing an LLM to generate and execute SQL queries introduces serious security risks. Always enforce these safeguards: (1) use a read-only database connection (no INSERT, UPDATE, DELETE, or DROP), (2) set query timeouts to prevent long-running queries, (3) limit result set sizes, (4) validate generated SQL against an allowlist of permitted operations before execution, and (5) run queries against a replica or snapshot, never the production database directly.</p>
+    </div>
+
+    <h2>4. Text-to-SQL Benchmarks <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        Standard benchmarks measure text-to-SQL system performance across databases of varying complexity.
+        The two most widely used benchmarks are Spider and BIRD, which test different aspects of the
+        text-to-SQL challenge.
+    </p>
+
+    <div class="comparison-table">
+        <div class="comparison-table-title">4. Text-to-SQL Benchmarks Intermediate Comparison</div>
+        <table>
+        <tr>
+            <th>Benchmark</th>
+            <th>Databases</th>
+            <th>Questions</th>
+            <th>Key Challenge</th>
+            <th>SOTA Accuracy</th>
+        </tr>
+        <tr>
+            <td>Spider</td>
+            <td>200 databases</td>
+            <td>10,181</td>
+            <td>Cross-database generalization</td>
+            <td>~87% (execution)</td>
+        </tr>
+        <tr>
+            <td>BIRD</td>
+            <td>95 databases</td>
+            <td>12,751</td>
+            <td>Real-world complexity, external knowledge</td>
+            <td>~72% (execution)</td>
+        </tr>
+        <tr>
+            <td>WikiSQL</td>
+            <td>26,521 tables</td>
+            <td>80,654</td>
+            <td>Single-table, simpler queries</td>
+            <td>~93% (execution)</td>
+        </tr>
+        <tr>
+            <td>SParC</td>
+            <td>200 databases</td>
+            <td>4,298</td>
+            <td>Multi-turn conversational SQL</td>
+            <td>~70% (execution)</td>
+        </tr>
+    </table>
+    </div>
+
+    <h2>5. CSV and Spreadsheet Processing <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>
+        Not all structured data lives in databases. CSV files, Excel spreadsheets, and Google Sheets
+        are ubiquitous in business environments. LLMs can process these by either loading them into
+        an in-memory database (SQLite) for SQL queries or generating pandas code for direct manipulation.
+     Code Fragment 20.5.5 below puts this into practice.</p>
+
+<pre><code class="language-python"># implement csv_to_queryable
+# Key operations: memory management
+
+import pandas as pd
+import sqlite3
+
+def csv_to_queryable(csv_path, table_name="data"):
+    """Load a CSV into SQLite for text-to-SQL querying."""
+    df = pd.read_csv(csv_path)
+
+    # Create in-memory database
+    conn = sqlite3.connect(":memory:")
+    df.to_sql(table_name, conn, index=False)
+
+    # Generate schema description
+    schema = f"Table: {table_name}\nColumns:\n"
+    for col in df.columns:
+        dtype = str(df[col].dtype)
+        sample = df[col].dropna().head(3).tolist()
+        schema += f"  {col} ({dtype}), e.g., {sample}\n"
+
+    return conn, schema
+
+# Usage
+conn, schema = csv_to_queryable("sales_data.csv", "sales")
+result = execute_with_retry(
+    "What are the top 5 products by total revenue this quarter?",
+    schema, conn
+)
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 20.5.5:</strong> Building a complete text-to-SQL pipeline with an in-memory SQLite database, demonstrating the end-to-end flow from natural language question to formatted answer.</div>
+
+    <h2>6. Hybrid Structured/Unstructured Retrieval <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>
+        Many real-world questions require combining structured data (from databases) with unstructured
+        context (from documents). For example, "Why did Q3 revenue decline for our enterprise segment?"
+        requires both the numerical revenue data from a database and contextual explanations from
+        quarterly reports, meeting notes, or market analyses.
+     Figure 20.5.2 shows how hybrid retrieval merges database results with document context.</p>
+
+    <!-- SVG: Hybrid Retrieval -->
+    <div class="diagram-container">
+        <svg viewBox="0 0 700 280" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, system-ui, sans-serif" role="img" aria-label="Diagram: 6. Hybrid Structured/Unstructured Retrieval Advanced">
+            <text x="350" y="22" text-anchor="middle" font-size="14" font-weight="bold" fill="#1a1a2e">Hybrid Structured + Unstructured Retrieval</text>
+
+            <!-- Question -->
+            <rect filter="url(#shadow_a585b4)" x="250" y="45" width="200" height="40" rx="8" fill="url(#grad_a585b4_e3f2fd)" stroke="#1565c0" stroke-width="2"/>
+            <text x="350" y="70" text-anchor="middle" font-size="11" font-weight="bold" fill="#0d47a1">"Why did Q3 revenue decline?"</text>
+
+            <!-- Two paths -->
+            <line x1="300" y1="85" x2="150" y2="120" stroke="#333" stroke-width="1.5" marker-end="url(#ahyb)" stroke-linecap="round"/>
+            <line x1="400" y1="85" x2="550" y2="120" stroke="#333" stroke-width="1.5" marker-end="url(#ahyb)" stroke-linecap="round"/>
+
+            <!-- Structured Path -->
+            <rect x="50" y="120" width="200" height="65" rx="8" fill="url(#grad_a585b4_fff3e0)" stroke="#e65100" stroke-width="1.5"/>
+            <text x="150" y="142" text-anchor="middle" font-size="11" font-weight="bold" fill="#e65100">Structured Retrieval</text>
+            <text x="150" y="158" text-anchor="middle" font-size="11" fill="#555">Text-to-SQL: revenue by segment</text>
+            <text x="150" y="172" text-anchor="middle" font-size="11" fill="#555">Q3 vs Q2 comparison, trends</text>
+
+            <!-- Unstructured Path -->
+            <rect x="450" y="120" width="200" height="65" rx="8" fill="#e8f5e9" stroke="#2e7d32" stroke-width="1.5"/>
+            <text x="550" y="142" text-anchor="middle" font-size="11" font-weight="bold" fill="#2e7d32">Unstructured Retrieval</text>
+            <text x="550" y="158" text-anchor="middle" font-size="11" fill="#555">Vector search: quarterly reports,</text>
+            <text x="550" y="172" text-anchor="middle" font-size="11" fill="#555">meeting notes, market analysis</text>
+
+            <!-- Converge -->
+            <line x1="150" y1="185" x2="300" y2="220" stroke="#333" stroke-width="1.5" marker-end="url(#ahyb)" stroke-linecap="round"/>
+            <line x1="550" y1="185" x2="400" y2="220" stroke="#333" stroke-width="1.5" marker-end="url(#ahyb)" stroke-linecap="round"/>
+
+            <!-- Combined -->
+            <rect x="250" y="215" width="200" height="50" rx="8" fill="url(#grad_a585b4_f3e5f5)" stroke="#7b1fa2" stroke-width="2"/>
+            <text x="350" y="237" text-anchor="middle" font-size="11" font-weight="bold" fill="#7b1fa2">LLM Synthesis</text>
+            <text x="350" y="253" text-anchor="middle" font-size="11" fill="#555">Numbers + context = full answer</text>
+
+            <defs>
+<linearGradient id="grad_a585b4_e3f2fd" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#f2ffff"/><stop offset="100%" stop-color="#e3f2fd"/></linearGradient>
+<linearGradient id="grad_a585b4_f3e5f5" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#fff4ff"/><stop offset="100%" stop-color="#f3e5f5"/></linearGradient>
+<linearGradient id="grad_a585b4_fff3e0" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#ffffef"/><stop offset="100%" stop-color="#fff3e0"/></linearGradient>
+<filter id="shadow_a585b4" x="-5%" y="-5%" width="115%" height="115%"><feDropShadow dx="2" dy="2" stdDeviation="3" flood-opacity="0.1"/></filter>
+
+                <marker id="ahyb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                    <path d="M 0 0 L 10 5 L 0 10 z" fill="#333"/>
+                </marker>
+            </defs>
+        </svg>
+        <div class="diagram-caption"><strong>Figure 20.5.2</strong>: Hybrid retrieval combines precise numerical data from databases with contextual explanations from documents to produce comprehensive answers.</div>
+    </div>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight</div>
+        <p>The most common pattern for hybrid retrieval is to route the question to both a text-to-SQL pipeline and a document RAG pipeline in parallel, then combine both result sets in the LLM prompt. The structured data provides the "what" (exact numbers, trends, comparisons), while the unstructured data provides the "why" (explanations, context, causal factors). This combination produces answers that are both precise and insightful.</p>
+    </div>
+
+    <h2>7. Multi-Table Joins and Complex Queries <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>
+        The hardest text-to-SQL queries involve multiple tables with complex join conditions, nested
+        subqueries, window functions, and conditional aggregations. These queries require the LLM to
+        understand the database's relational structure: which tables connect to which, through what
+        foreign keys, and with what cardinality.
+    </p>
+
+    <div class="callout note">
+        <div class="callout-title">Note</div>
+        <p>Three techniques significantly improve accuracy on complex multi-table queries: (1) <strong>Schema descriptions</strong>: annotating each column with a human-readable description of what it contains and how it relates to business concepts. (2) <strong>Join hints</strong>: explicitly listing common join patterns (e.g., "orders.customer_id joins to customers.id"). (3) <strong><a class="cross-ref" href="../../part-2-understanding-llms/module-08-reasoning-test-time-compute/section-8.1.html">Chain-of-thought</a> SQL</strong>: asking the LLM to first write out its reasoning about which tables and joins are needed before generating the SQL, which reduces errors on queries requiring 3+ table joins.</p>
+    </div>
+
+    <!-- Quiz -->
+    <div class="quiz">
+        <h3>Section 20.5 Quiz</h3>
+
+        <div class="quiz-question">1. Why is direct table reasoning in the LLM context window unreliable for large datasets?</div>
+        <details open>
+            <summary>Show Answer</summary>
+            <div class="answer">Two main reasons: (1) Context window limits prevent including large tables (a table with 10,000 rows would consume most of the context budget), and (2) LLMs perform unreliable arithmetic over many rows. They may miscount, miscalculate sums, or skip rows. For any dataset beyond roughly 50 rows, generating executable code (SQL or pandas) that computes the answer precisely is far more reliable.</div>
+        </details>
+
+        <div class="quiz-question">2. What is schema linking and why is it the hardest step in text-to-SQL?</div>
+        <details open>
+            <summary>Show Answer</summary>
+            <div class="answer">Schema linking maps natural language terms in the user's question to specific database tables and columns. It is the hardest step because users rarely use exact column names. "Revenue" might mean total_amount, annual_revenue, or sales_total depending on context. The system must disambiguate these mappings using table descriptions, column types, sample values, and the overall question context. Errors in schema linking cascade into incorrect SQL generation.</div>
+        </details>
+
+        <div class="quiz-question">3. How does the error correction loop improve text-to-SQL reliability?</div>
+        <details open>
+            <summary>Show Answer</summary>
+            <div class="answer">When a generated SQL query fails execution (syntax error, missing column, type mismatch), the error message is sent back to the LLM along with the failed query and the original question. The LLM can then diagnose the specific error and generate a corrected query. This retry loop typically runs for up to 3 attempts and catches most common errors (wrong column names, missing GROUP BY, incorrect joins), significantly improving end-to-end execution accuracy.</div>
+        </details>
+
+        <div class="quiz-question">4. What security measures are essential for production text-to-SQL systems?</div>
+        <details open>
+            <summary>Show Answer</summary>
+            <div class="answer">Five essential safeguards: (1) Read-only database connections (prevent INSERT, UPDATE, DELETE, DROP), (2) query timeouts to prevent long-running queries from overloading the database, (3) result set size limits to prevent memory exhaustion, (4) SQL validation against an allowlist of permitted operations before execution, and (5) running queries against a database replica or snapshot rather than the production database.</div>
+        </details>
+
+        <div class="quiz-question">5. When should you use hybrid structured/unstructured retrieval instead of text-to-SQL alone?</div>
+        <details open>
+            <summary>Show Answer</summary>
+            <div class="answer">Use hybrid retrieval when the question requires both precise data and contextual explanation. Questions like "Why did Q3 revenue decline?" need numerical revenue data from a database (the "what") combined with contextual explanations from quarterly reports, meeting notes, or market analyses (the "why"). Text-to-SQL alone can provide the numbers but cannot explain causation or context that exists only in unstructured documents.</div>
+        </details>
+    </div>
+    <div class="callout tip">
+        <div class="callout-title">Tip: Add a Reranker After Initial Retrieval</div>
+        <p>Retrieve a broad set (top 20 to 50) with fast vector search, then rerank with a cross-encoder model to select the top 3 to 5. This two-stage approach is more accurate than retrieving only 3 to 5 directly, because cross-encoders can compare query and document jointly.</p>
+    </div>
+
+    <!-- Key Takeaways -->
+    <div class="takeaways">
+        <h2>Key Takeaways</h2>
+        <ul>
+            <li><strong>Text-to-SQL unlocks database-backed RAG:</strong> By converting natural language to SQL, LLMs can query relational databases for precise numerical answers that vector search cannot provide.</li>
+            <li><strong>Schema linking is the critical bottleneck:</strong> Correctly mapping user terms to database columns determines success; enhance it with column descriptions, sample values, and dynamic few-shot examples.</li>
+            <li><strong>Error correction loops are essential:</strong> Automatic retry with error feedback catches most SQL generation mistakes, improving reliability from roughly 70% to over 85% on complex queries.</li>
+            <li><strong>Security is non-negotiable:</strong> Read-only connections, query timeouts, result limits, SQL validation, and database replicas are mandatory safeguards for any production text-to-SQL system.</li>
+            <li><strong>Hybrid retrieval combines precision and context:</strong> The most powerful answers come from combining structured data (exact numbers) with unstructured context (explanations), retrieved in parallel and synthesized by the LLM.</li>
+        </ul>
+    </div>
+
+    <div class="callout practical-example">
+      <div class="callout-title">Replacing a Dashboard with Natural Language SQL Queries</div>
+      <p><strong>Who:</strong> A data analytics team lead at a retail chain with 400 stores</p>
+      <p><strong>Situation:</strong> Regional managers needed daily access to sales metrics (revenue by category, inventory levels, promotional performance) but had to submit requests to the analytics team because the BI dashboard was too rigid for ad-hoc questions.</p>
+      <p><strong>Problem:</strong> The analytics team processed 60+ ad-hoc data requests per week, each taking 15 to 30 minutes. Managers often waited 2 days for answers, which made the data stale by the time they received it.</p>
+      <p><strong>Dilemma:</strong> Giving managers direct SQL access was a security risk and required training they lacked. A fully natural-language interface risked generating incorrect queries that could produce misleading business decisions.</p>
+      <p><strong>Decision:</strong> They built a text-to-SQL system with <a class="cross-ref" href="../../part-8-evaluation-production/module-31-production-engineering/section-31.4.html">guardrails</a>: the LLM generated read-only SELECT queries, a schema description layer exposed only pre-approved tables and columns, and every generated query was validated against a set of SQL safety rules before execution.</p>
+      <p><strong>How:</strong> Table and column descriptions (with business-friendly names and sample values) were injected into the prompt. Ambiguous queries triggered a clarification step. Results were returned as formatted tables with a natural language summary explaining the numbers.</p>
+      <p><strong>Result:</strong> Managers self-served 78% of their data questions. The analytics team's ad-hoc request volume dropped from 60 to 13 per week. Query accuracy (validated against analyst-written queries) was 91% on a test set of 200 common questions.</p>
+      <p><strong>Lesson:</strong> <strong>Text-to-SQL works best when you constrain the schema surface area, enforce read-only access, and add a clarification step for ambiguous queries rather than guessing the user's intent.</strong></p>
+    </div>
+
+
+
+    <h2>8. Automated RAG Pipeline Optimization <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>
+        Building a RAG pipeline involves dozens of configuration decisions: which <a class="cross-ref" href="../module-19-embeddings-vector-db/section-19.1.html">embedding model</a> to use, what chunk size and overlap to set, how many documents to retrieve, whether to apply <a class="cross-ref" href="../module-19-rag/section-19.2.html">reranking</a>, what <a class="cross-ref" href="../../part-3-working-with-llms/module-11-prompt-engineering/section-11.3.html">prompt template</a> to use for generation, and how to handle multi-hop queries. Traditionally, teams tune these parameters manually through trial and error. Automated RAG optimization treats the entire pipeline as a configurable system and uses systematic search to find the best configuration for a given dataset and task. This approach is gaining traction as RAG matures from a research prototype into a production pattern.
+    </p>
+
+    <h3>8.1 RAG as a Configurable Pipeline</h3>
+
+    <p>The key insight behind AutoRAG is that every RAG pipeline is a composition of interchangeable components, each with its own hyperparameters. Just as AutoML tunes model architecture and <a class="cross-ref" href="../../part-4-training-adapting/module-14-fine-tuning-fundamentals/section-14.3.html">learning rate</a>, AutoRAG tunes retrieval and generation parameters:</p>
+
+    <div class="comparison-table">
+        <div class="comparison-table-title">8.1 RAG as a Configurable Pipeline Comparison</div>
+        <table>
+        <thead>
+            <tr>
+                <th>Pipeline Stage</th>
+                <th>Configurable Parameters</th>
+                <th>Example Options</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><strong>Chunking</strong></td>
+                <td>Strategy, chunk size, overlap</td>
+                <td>Recursive (512 tokens, 10% overlap) vs. semantic chunking</td>
+            </tr>
+            <tr>
+                <td><strong>Embedding</strong></td>
+                <td>Model, dimensionality</td>
+                <td>OpenAI text-embedding-3-small vs. Cohere embed-v3 vs. BGE-M3</td>
+            </tr>
+            <tr>
+                <td><strong>Retrieval</strong></td>
+                <td><a class="cross-ref" href="../../part-1-foundations/module-05-decoding-text-generation/section-5.2.html">Top-k</a>, similarity metric, hybrid weights</td>
+                <td>Top-5 cosine vs. top-10 with <a class="cross-ref" href="../module-19-rag/section-19.2.html">BM25</a> hybrid (0.7/0.3 blend)</td>
+            </tr>
+            <tr>
+                <td><strong>Reranking</strong></td>
+                <td>Model, threshold</td>
+                <td>No reranking vs. Cohere rerank-v3 vs. cross-encoder</td>
+            </tr>
+            <tr>
+                <td><strong>Generation</strong></td>
+                <td>Model, <a class="cross-ref" href="../../part-1-foundations/module-05-decoding-text-generation/section-5.2.html">temperature</a>, prompt template</td>
+                <td>GPT-4o with structured prompt vs. Claude with concise template</td>
+            </tr>
+        </tbody>
+    </table>
+    </div>
+
+    <h3>8.2 RAGAs: Evaluation Metrics for RAG</h3>
+
+    <p>
+        Meaningful optimization requires meaningful metrics. The RAGAs framework (Shahul et al., 2023) provides a suite of evaluation metrics specifically designed for RAG systems. These metrics evaluate both the retrieval and generation stages independently, enabling targeted optimization. The key metrics are:
+    </p>
+
+    <ul>
+        <li><strong>Context Precision:</strong> What fraction of retrieved passages are actually relevant to the question? High precision means the retriever is not wasting context window space on irrelevant documents.</li>
+        <li><strong>Context Recall:</strong> What fraction of the information needed to answer the question is present in the retrieved passages? High recall means the retriever is finding all the relevant evidence.</li>
+        <li><strong>Faithfulness:</strong> Is every claim in the generated answer supported by the retrieved context? This directly measures <a class="cross-ref" href="../../part-9-safety-strategy/module-32-safety-ethics-regulation/section-32.2.html">hallucination</a> risk.</li>
+        <li><strong>Answer Relevancy:</strong> Does the generated answer actually address the question asked? A faithful answer can still be irrelevant if the model focuses on the wrong part of the context.</li>
+    </ul>
+
+    <h3>8.3 Manual vs. Automated RAG Tuning</h3>
+
+    <div class="comparison-table">
+        <div class="comparison-table-title">8.3 Manual vs. Automated RAG Tuning</div>
+        <table>
+        <thead>
+            <tr>
+                <th>Dimension</th>
+                <th>Manual Tuning</th>
+                <th>Automated (AutoRAG)</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><strong>Configuration space explored</strong></td>
+                <td>3 to 5 configurations</td>
+                <td>50 to 200+ configurations</td>
+            </tr>
+            <tr>
+                <td><strong>Time investment</strong></td>
+                <td>Days to weeks</td>
+                <td>Hours (automated evaluation)</td>
+            </tr>
+            <tr>
+                <td><strong>Reproducibility</strong></td>
+                <td>Low (undocumented decisions)</td>
+                <td>High (logged experiments, metric history)</td>
+            </tr>
+            <tr>
+                <td><strong>Discovery of non-obvious configs</strong></td>
+                <td>Unlikely</td>
+                <td>Common (e.g., small chunks + reranker beats large chunks)</td>
+            </tr>
+            <tr>
+                <td><strong>Upfront cost</strong></td>
+                <td>Low (human time)</td>
+                <td>Moderate (compute for eval runs)</td>
+            </tr>
+            <tr>
+                <td><strong>Best for</strong></td>
+                <td>Prototypes, simple pipelines</td>
+                <td>Production systems, complex multi-stage pipelines</td>
+            </tr>
+        </tbody>
+    </table>
+    </div>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight</div>
+        <p>The most important lesson from AutoRAG research is that optimal configurations are often counterintuitive. Teams frequently discover that smaller chunk sizes with aggressive reranking outperform larger chunks without reranking, or that a cheaper embedding model paired with a cross-encoder reranker beats a premium embedding model used alone. Without systematic evaluation across many configurations, these non-obvious tradeoffs remain hidden. The chunking evaluation framework from <a class="cross-ref" href="../../part-5-retrieval-conversation/module-19-embeddings-vector-db/section-19.4.html">Section 19.4</a> and the <a class="cross-ref" href="../../part-8-evaluation-production/module-29-evaluation-observability/section-29.3.html">LLM-as-judge</a> evaluation pattern from <a class="cross-ref" href="../../part-8-evaluation-production/module-29-evaluation-observability/section-29.2.html">Section 29.2</a> provide the building blocks for automated RAG evaluation.</p>
+    </div>
+
+    <div class="callout practical-example">
+        <div class="callout-title">AutoRAG Optimization for an Enterprise Knowledge Base</div>
+        <p><strong>Scenario:</strong> A team managing a customer support knowledge base with 50,000 articles needed to optimize their RAG pipeline. Manual tuning over two weeks had achieved 72% answer accuracy (judged by support agents).</p>
+        <p><strong>Approach:</strong> They used an automated evaluation harness with 200 ground-truth question-answer pairs and RAGAs metrics (faithfulness, context precision, answer relevancy). The harness tested 96 configurations: 4 chunk sizes (256, 512, 768, 1024 tokens), 3 embedding models, 2 retrieval strategies (dense-only vs. hybrid), 2 reranking options (none vs. cross-encoder), and 2 generation models.</p>
+        <p><strong>Result:</strong> The winning configuration (384-token chunks with Cohere embed-v3, hybrid retrieval, cross-encoder reranking, and GPT-4o-mini for generation) achieved 86% answer accuracy, a 14-point improvement. Notably, this configuration used a cheaper generation model than the manually tuned version, reducing per-query cost by 40% while improving quality.</p>
+    </div>
+
+<div class="callout research-frontier">
+    <div class="callout-title">Research Frontier</div>
+    <p><strong>LLM-native SQL generation</strong> is improving through specialized <a href="../../part-4-training-adapting/module-14-fine-tuning-fundamentals/index.html" class="cross-ref">fine-tuning</a> on SQL benchmarks (BIRD, Spider 2.0), with models like SQLCoder and DIN-SQL achieving near-human accuracy on complex queries. <strong>Semantic layers</strong> (e.g., Cube, dbt Metrics) provide a business-friendly abstraction over raw database schemas, reducing hallucinated column names and join errors. <strong>Multi-turn SQL conversations</strong> allow users to iteratively refine queries through natural language, with the system maintaining query history and context. Research into <strong>privacy-preserving text-to-SQL</strong> is developing methods to generate accurate queries without exposing raw data to the LLM. <strong>AutoRAG frameworks</strong> (AutoRAG, Ragas, ARES) are systematizing RAG pipeline optimization by combining automated evaluation with configuration search, paralleling the evolution of hyperparameter tuning in traditional ML.</p>
+</div>
+
+
+<section class="exercises">
+    <h2>Exercises <span class="level-badge intermediate" title="INTERMEDIATE">INTERMEDIATE</span></h2>
+    <p><strong>How to use these exercises:</strong> These exercises cover text-to-SQL, structured data RAG, and AutoRAG optimization.</p>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 20.5.1: Text-to-SQL motivation <span class="level-badge basic" title="Basic">BASIC</span> <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+        <p>Why is it useful to have an LLM generate SQL queries rather than building a custom search interface? What risks does this introduce?</p>
+        <details open><summary>Show Answer</summary>
+            <p>Text-to-SQL lets non-technical users query databases using natural language, eliminating the need to learn SQL. Risks: SQL injection if queries are executed without sandboxing, incorrect queries that return wrong data with high confidence, and queries that are too expensive (full table scans, cross-joins).</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 20.5.2: Schema linking <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span> <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+        <p>Explain what schema linking is and why it is the most critical step in a text-to-SQL pipeline. What happens when schema linking fails?</p>
+        <details open><summary>Show Answer</summary>
+            <p>Schema linking maps natural language terms to table and column names. Without it, the LLM may reference non-existent columns or join the wrong tables. Failure produces syntactically valid but semantically incorrect SQL.</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 20.5.3: Self-healing queries <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span> <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+        <p>Describe how error correction works in a text-to-SQL system. Why is it better to have the LLM fix its own SQL than to simply retry?</p>
+        <details open><summary>Show Answer</summary>
+            <p>The LLM receives the SQL error message (e.g., "column 'user_name' not found") and the original query, allowing it to correct the specific mistake. Blind retries would generate the same error. Self-correction works because the error message provides targeted feedback.</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 20.5.4: Hybrid retrieval <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span> <span class="exercise-type discussion" title="Discussion">Discussion</span></div>
+        <p>A user asks "How did our top customers perform last quarter?" This requires both a database query (customer metrics) and document retrieval (qualitative analysis). How would you design a system that handles both?</p>
+        <details open><summary>Show Answer</summary>
+            <p>Use a query router that classifies the intent: (a) structured/quantitative questions go to text-to-SQL, (b) qualitative/descriptive questions go to vector retrieval, (c) hybrid questions invoke both and combine results in the final prompt.</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 20.5.5: AutoRAG <span class="level-badge advanced" title="Advanced">ADVANCED</span> <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+        <p>Explain the concept of automated RAG pipeline optimization. What components are tuned, and what metrics guide the search?</p>
+        <details open><summary>Show Answer</summary>
+            <p>AutoRAG treats the RAG pipeline configuration as a hyperparameter optimization problem. Components tuned: chunk size, overlap, embedding model, retrieval top-K, reranker, prompt template. Metrics: answer correctness (LLM-as-judge), faithfulness (grounded in sources), retrieval recall, latency, and cost.</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 20.5.6: Basic text-to-SQL <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span> <span class="exercise-type coding" title="Coding">Coding</span></div>
+        <p>Create a SQLite database with 3 tables. Write a prompt that provides the schema to an LLM and ask it to generate SQL for 5 natural language questions. Execute the SQL and check correctness.</p>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 20.5.7: Error correction loop <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span> <span class="exercise-type coding" title="Coding">Coding</span></div>
+        <p>Extend your text-to-SQL pipeline with error handling: if the generated SQL fails, send the error message back to the LLM and ask it to fix the query. Allow up to 3 retries.</p>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 20.5.8: CSV analysis <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span> <span class="exercise-type coding" title="Coding">Coding</span></div>
+        <p>Build a pipeline that takes a CSV file, infers the schema, converts it to a SQLite database, and answers natural language questions about the data using text-to-SQL.</p>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 20.5.9: AutoRAG sweep <span class="level-badge advanced" title="Advanced">ADVANCED</span> <span class="exercise-type coding" title="Coding">Coding</span></div>
+        <p>Implement a simple AutoRAG optimization: for a fixed test set of 20 questions, sweep over chunk sizes (128, 256, 512), top-K values (3, 5, 10), and with/without reranking. Report the best configuration based on answer accuracy.</p>
+    </div>
+</section>
+
+<div class="whats-next">
+    <h2>What Comes Next</h2>
+    <p>In the next section, <a href="section-20.6.html">Section 20.6: RAG Frameworks &amp; Orchestration</a>, we survey RAG frameworks and orchestration tools, the practical libraries that simplify building production RAG systems.</p>
+</div>
+
+<section class="bibliography">
+    <div class="bibliography-title">References &amp; Further Reading</div>
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://arxiv.org/abs/2204.00498" target="_blank">Rajkumar, N. et al. (2022). "Evaluating the Text-to-SQL Capabilities of Large Language Models." <em>arXiv preprint</em>.</a></p>
+        <p class="bib-annotation">An early evaluation of LLM performance on text-to-SQL tasks, establishing baselines for the field. Highlights both strengths and failure modes. Good starting point for understanding LLM SQL capabilities.</p>
+        <span class="bib-meta">Paper</span>
+    </div>
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://arxiv.org/abs/1809.08887" target="_blank">Yu, T. et al. (2018). "Spider: A Large-Scale Human-Labeled Dataset for Complex and Cross-Domain Semantic Parsing and Text-to-SQL Task." <em>EMNLP 2018</em>.</a></p>
+        <p class="bib-annotation">The most widely-used benchmark for text-to-SQL evaluation with complex, cross-domain queries. Continues to be the standard evaluation dataset. Essential context for anyone working in this space.</p>
+        <span class="bib-meta">Paper</span>
+    </div>
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://arxiv.org/abs/2304.11015" target="_blank">Pourreza, M. &amp; Rafiei, D. (2023). "DIN-SQL: Decomposed In-Context Learning of Text-to-SQL with Self-Correction." <em>NeurIPS 2023</em>.</a></p>
+        <p class="bib-annotation">Introduces a decomposition approach that breaks complex SQL generation into manageable sub-tasks. Achieves state-of-the-art results through self-correction. Valuable for teams implementing production text-to-SQL.</p>
+        <span class="bib-meta">Paper</span>
+    </div>
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://arxiv.org/abs/2305.03111" target="_blank">Li, J. et al. (2024). "Can LLM Already Serve as A Database Interface?" <em>NeurIPS 2024</em>.</a></p>
+        <p class="bib-annotation">A large-scale benchmark testing LLMs as database interfaces in realistic settings. Evaluates practical deployment scenarios beyond academic benchmarks. Recommended for practitioners assessing production readiness.</p>
+        <span class="bib-meta">Paper</span>
+    </div>
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://vanna.ai/" target="_blank">Vanna.ai: Open-source Text-to-SQL.</a></p>
+        <p class="bib-annotation">An open-source framework for training custom text-to-SQL models on your own database schema. Supports multiple LLM backends and database types. Ideal for teams wanting a turnkey text-to-SQL solution.</p>
+        <span class="bib-meta">Tool</span>
+    </div>
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://github.com/defog-ai/sqlcoder" target="_blank">SQLCoder by Defog.</a></p>
+        <p class="bib-annotation">A family of <a class="cross-ref" href="../../part-2-understanding-llms/module-07-modern-llm-landscape/section-7.1.html">open-source models</a> <a class="cross-ref" href="../../part-4-training-adapting/module-14-fine-tuning-fundamentals/section-14.1.html">fine-tuned</a> specifically for text-to-SQL generation. Competitive with larger models at a fraction of the cost. Recommended for teams needing a self-hosted SQL generation model.</p>
+        <span class="bib-meta">Tool</span>
+    </div>
+</section>
+
+
+
+<nav class="chapter-nav">
+    <a href="section-20.4.html" class="prev">Previous: Deep Research &amp; Agentic RAG</a>
+    <a href="section-20.6.html" class="next">Next: RAG Frameworks &amp; Orchestration </a>
+</nav>
+    <footer><p>Fifth Edition, 2026 &middot; <a href="../../toc.html">Contents</a></p></footer>
+</main>
+</body>
+</html>

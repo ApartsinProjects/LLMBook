@@ -7,9 +7,9 @@ Each fix below can be completed in under 30 minutes. Where possible, exact text 
 
 ---
 
-## 1. Add cross-reference to Module 04 at the top of Section 8.2 (KV Cache)
+## 1. Add cross-reference to Module 04 at the top of Section 10.2 (KV Cache)
 
-**File:** `module-08-inference-optimization/section-8.2.html`
+**File:** `module-10-inference-optimization/section-10.2.html`
 **Where:** After the Big Picture callout, before the first content paragraph.
 **Insert:**
 
@@ -34,9 +34,9 @@ Each fix below can be completed in under 30 minutes. Where possible, exact text 
 
 ---
 
-## 3. Add cross-reference to Section 7.2 in Section 8.2 for GQA/MLA
+## 3. Add cross-reference to Section 7.2 in Section 10.2 for GQA/MLA
 
-**File:** `module-08-inference-optimization/section-8.2.html`
+**File:** `module-10-inference-optimization/section-10.2.html`
 **Where:** First mention of GQA (Grouped-Query Attention).
 **Insert after the first sentence introducing GQA:**
 
@@ -46,7 +46,7 @@ Each fix below can be completed in under 30 minutes. Where possible, exact text 
 
 ---
 
-## 4. Add forward reference from Section 7.2 to Section 8.2 for GQA/MLA
+## 4. Add forward reference from Section 7.2 to Section 10.2 for GQA/MLA
 
 **File:** `module-07-modern-llm-landscape/section-7.2.html`
 **Where:** End of the GQA/MLA discussion subsection.
@@ -54,7 +54,7 @@ Each fix below can be completed in under 30 minutes. Where possible, exact text 
 
 ```html
 <div class="note-callout">
-<strong>Looking ahead:</strong> We return to the memory optimization implications of GQA and MLA in Section 8.2, where we quantify the KV cache savings these architectures provide during inference.
+<strong>Looking ahead:</strong> We return to the memory optimization implications of GQA and MLA in Section 10.2, where we quantify the KV cache savings these architectures provide during inference.
 </div>
 ```
 
@@ -168,9 +168,9 @@ FLOPs (floating-point operations, a count; not to be confused with FLOPS, which 
 
 ---
 
-## 13. Add TTT distinction from fine-tuning in Section 8.2
+## 13. Add TTT distinction from fine-tuning in Section 10.2
 
-**File:** `module-08-inference-optimization/section-8.2.html`
+**File:** `module-10-inference-optimization/section-10.2.html`
 **Where:** The TTT (Test-Time Training) paragraph in the Research Frontiers subsection.
 **Append to existing paragraph:**
 
@@ -180,9 +180,9 @@ Unlike fine-tuning, which permanently updates model weights for reuse across man
 
 ---
 
-## 14. Add speculative decoding "draft and editor" analogy to Section 8.3
+## 14. Add speculative decoding "draft and editor" analogy to Section 10.3
 
-**File:** `module-08-inference-optimization/section-8.3.html`
+**File:** `module-10-inference-optimization/section-10.3.html`
 **Where:** After the Big Picture callout, before the mathematical treatment.
 **Insert:**
 
@@ -194,9 +194,9 @@ Unlike fine-tuning, which permanently updates model weights for reuse across man
 
 ---
 
-## 15. Add quantization "color depth" analogy to Section 8.1
+## 15. Add quantization "color depth" analogy to Section 10.1
 
-**File:** `module-08-inference-optimization/section-8.1.html`
+**File:** `module-10-inference-optimization/section-10.1.html`
 **Where:** After the Big Picture callout, before the mathematical treatment of quantization.
 **Insert:**
 
@@ -236,9 +236,9 @@ Unlike fine-tuning, which permanently updates model weights for reuse across man
 
 ---
 
-## 18. Add Section 8.2 opening hook improvement
+## 18. Add Section 10.2 opening hook improvement
 
-**File:** `module-08-inference-optimization/section-8.2.html`
+**File:** `module-10-inference-optimization/section-10.2.html`
 **Where:** The opening paragraph of the section (after the Big Picture callout).
 **Prepend to existing opening paragraph:**
 
@@ -283,7 +283,7 @@ You quantized your model to 4-bit and slashed its memory footprint by 4x. But in
 | 1 | 8.2 | Cross-reference to Module 04 | 5 min |
 | 2 | 7.3 | Cross-reference to Section 6.3 | 5 min |
 | 3 | 8.2 | Cross-reference to Section 7.2 (GQA) | 5 min |
-| 4 | 7.2 | Forward reference to Section 8.2 (GQA) | 5 min |
+| 4 | 7.2 | Forward reference to Section 10.2 (GQA) | 5 min |
 | 5 | 7.1 | "Last updated" note on pricing | 5 min |
 | 6 | 7.2 | MLA numerical example | 10 min |
 | 7 | 6.5 | Optimizer memory aha-moment | 10 min |

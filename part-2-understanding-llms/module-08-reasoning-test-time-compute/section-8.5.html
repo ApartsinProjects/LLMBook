@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Section 8.5: Compute-Optimal Inference and Evaluation</title>
+    <link rel="stylesheet" href="../../styles/book.css">
+    <link rel="stylesheet" href="../../vendor/katex/katex.min.css">
+    <script defer src="../../vendor/katex/katex.min.js"></script>
+    <script defer src="../../vendor/katex/contrib/auto-render.min.js"
+        onload="renderMathInElement(document.body, {
+            delimiters: [
+                {left: '$$', right: '$$', display: true},
+                {left: '$', right: '$', display: false}
+            ],
+            throwOnError: false
+        });"></script>
+    <link rel="stylesheet" href="../../vendor/prism/prism-theme.css">
+    <script defer src="../../vendor/prism/prism-bundle.min.js"></script>
+</head>
+<body>
+<header class="chapter-header">
+    <nav class="header-nav">
+        <a href="../../index.html" class="book-title-link">Building Conversational AI with LLMs and Agents</a>
+        <a href="../../toc.html" class="toc-link" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+    </nav>
+    <div class="part-label"><a href="../index.html">Part 2: Understanding LLMs</a></div>
+    <div class="chapter-label"><a href="index.html">Chapter 8: Reasoning Models &amp; Test-Time Compute</a></div>
+    <h1>Compute-Optimal Inference and Evaluation</h1>
+</header>
+
+<main class="content">
+
+    <blockquote class="epigraph">
+        <p>The question is never simply "is the model smart enough?" It is always "is the model smart enough given the time and money I am willing to spend?"</p>
+        <cite><span class="agent-avatar-inline" style="background-color: #8e44ad;"><img src="../../front-matter/images/agents/chinchilla.png" alt="Chinchilla"></span> <a href="../../front-matter/wisdom-council.html#chinchilla">Chinchilla</a> <span class="agent-desc">AI Agent</span></cite>
+    </blockquote>
+
+    <div class="prerequisites">
+        <h3>Prerequisites</h3>
+        <p>This section builds on the test-time compute paradigm from <a href="section-8.1.html">Section 8.1</a>, the model architectures from <a href="section-8.2.html">Section 8.2</a>, and the training methods from <a href="section-8.3.html">Section 8.3</a> (especially process <a class="cross-ref" href="../../part-4-training-adapting/module-17-alignment-rlhf-dpo/section-17.1.html">reward models</a>). Familiarity with evaluation methodology from <a class="cross-ref" href="../../part-8-evaluation-production/module-29-evaluation-observability/index.html">Chapter 29</a> is helpful but not required. Knowledge of MCTS from game-playing AI (AlphaGo) provides useful context for Section 2.</p>
+    </div>
+
+    <div class="callout big-picture">
+        <div class="callout-title">Big Picture</div>
+        <p><strong>Making test-time compute pay off.</strong> The previous sections established that reasoning models can dramatically improve accuracy on hard problems. But "more thinking" is not free: every additional token costs money, takes time, and consumes GPU resources. This section addresses the central engineering question: how do you allocate a fixed inference compute budget to maximize performance? We cover the compute-optimal frontier, Monte Carlo Tree Search applied to language, the <a class="cross-ref" href="../../part-8-evaluation-production/module-29-evaluation-observability/section-29.2.html">benchmarks</a> used to evaluate reasoning models, and the cost analysis that determines whether reasoning models make economic sense for a given application. For the broader evaluation framework, see <a class="cross-ref" href="../../part-8-evaluation-production/module-29-evaluation-observability/index.html">Chapter 29</a>.</p>
+    </div>
+
+
+    <h2>1. The Compute-Optimal Inference Frontier <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>The compute-optimal inference problem, formalized by Snell et al. (2024), asks: given a total inference compute budget of <span class="math">C</span> FLOPs for a single query, what combination of model size and test-time strategies maximizes expected accuracy?</p>
+
+    <h3>1.1 Formalizing the Trade-off</h3>
+
+    <p>Let <span class="math">C</span> be the total inference compute budget. A model with <span class="math">N</span> parameters requires approximately <span class="math">$2N$</span> FLOPs per token generated (for dense transformers; <a class="cross-ref" href="../module-07-modern-llm-landscape/section-7.2.html">MoE</a> models use fewer active parameters). If the model generates <span class="math">T</span> total tokens (including thinking tokens), the compute cost is roughly <span class="math">$2NT$</span>. For best-of-N with <span class="math">K</span> samples, the cost is <span class="math">$2NTK$</span>.</p>
+
+    <p>The optimization problem is:</p>
+
+    <div class="math-block">
+    $$maximize Accuracy(N, T, K) subject to 2 * N * T * K \leq C$$
+    
+</div>
+
+    <p>where <span class="math">N</span> is model size, <span class="math">T</span> is tokens per sample, and <span class="math">K</span> is number of samples.</p>
+
+    <h3>1.2 Key Findings</h3>
+
+    <p>Snell et al. established several important results through experiments on mathematical reasoning benchmarks:</p>
+
+    <ol>
+        <li><strong>Difficulty-dependent optimality:</strong> The optimal allocation shifts dramatically with problem difficulty. For easy problems (base accuracy >90%), a single pass through the largest affordable model is optimal. For hard problems (base accuracy 10% to 50%), using a smaller model with many samples and a reward model beats the larger model at the same total FLOPs.</li>
+        <li><strong>The 14x equivalence:</strong> On hard problems, a model with test-time compute scaling can match a model 14x larger (by parameter count) at the same total compute budget. This means that a 7B model with best-of-N (N=128) and a PRM verifier can match a ~100B model on specific hard reasoning tasks.</li>
+        <li><strong>Reward model quality matters:</strong> The benefit of test-time compute depends critically on having a good verifier. Without a reliable reward model, additional samples do not help because you cannot distinguish correct from incorrect solutions. The quality of the reward model sets the ceiling on test-time scaling benefits.</li>
+        <li><strong>Diminishing returns:</strong> Like train-time scaling, test-time scaling exhibits diminishing returns. Doubling inference compute typically yields a 5% to 15% accuracy improvement, with the gain decreasing as compute increases.</li>
+    </ol>
+
+    <p><strong>Why this matters for production systems.</strong> The compute-optimal frontier turns model selection from a single choice into a routing problem. Instead of picking one model for all queries, you classify each query by difficulty and route easy queries to a large model with a single pass (cheapest per correct answer) and hard queries to a smaller model with many samples plus a verifier (best accuracy per FLOP). This is the same tiered routing pattern discussed in <a class="cross-ref" href="../../part-3-working-with-llms/module-11-prompt-engineering/section-11.3.html">Section 10.3</a>, but applied at the inference-compute level rather than the model-selection level. In practice, the difficulty classifier itself can be surprisingly simple: a lightweight model that predicts whether the base model's first attempt will be correct.</p>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight</div>
+        <p>The 14x model-size equivalence result has a counterintuitive implication: for hard problems, you should often <em>downgrade</em> your model and spend the saved FLOPs on sampling. A 7B model generating 128 solutions with a PRM verifier can match a 100B model on hard math, at the same total compute cost. But this only works when you have a reliable verifier. The quality of your reward model, not your language model, becomes the binding constraint on reasoning performance. This connects directly to the PRM training methods covered in <a href="section-8.3.html">Section 8.3</a>.</p>
+    </div>
+
+    <!-- Diagram: Compute-Optimal Frontier -->
+    <div class="diagram-container">
+        <svg viewBox="0 0 750 400" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, system-ui, sans-serif" role="img" aria-label="Diagram">
+<defs>
+<linearGradient id="grad_d8a642_fafafa" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#ffffff"/><stop offset="100%" stop-color="#fafafa"/></linearGradient>
+<filter id="shadow_d8a642" x="-5%" y="-5%" width="115%" height="115%"><feDropShadow dx="2" dy="2" stdDeviation="3" flood-opacity="0.1"/></filter>
+</defs>
+            <rect filter="url(#shadow_d8a642)" width="750" height="400" fill="url(#grad_d8a642_fafafa)" rx="10"/>
+            <text x="375" y="28" text-anchor="middle" font-size="15" font-weight="700" fill="#1a1a2e">Compute-Optimal Inference Frontier by Task Difficulty</text>
+
+            <!-- Axes -->
+            <line x1="80" y1="350" x2="700" y2="350" stroke="#333" stroke-width="2" stroke-linecap="round"/>
+            <line x1="80" y1="350" x2="80" y2="50" stroke="#333" stroke-width="2" stroke-linecap="round"/>
+            <text x="390" y="390" text-anchor="middle" font-size="12" fill="#555">Total Inference FLOPs (log scale)</text>
+            <text x="30" y="200" text-anchor="middle" font-size="12" fill="#555" transform="rotate(-90,30,200)">Accuracy (%)</text>
+
+            <!-- Axis labels -->
+            <text x="80" y="370" font-size="11" fill="#888">10^12</text>
+            <text x="250" y="370" font-size="11" fill="#888">10^13</text>
+            <text x="420" y="370" font-size="11" fill="#888">10^14</text>
+            <text x="590" y="370" font-size="11" fill="#888">10^15</text>
+
+            <text x="65" y="345" font-size="11" fill="#888" text-anchor="end">0%</text>
+            <text x="65" y="275" font-size="11" fill="#888" text-anchor="end">25%</text>
+            <text x="65" y="200" font-size="11" fill="#888" text-anchor="end">50%</text>
+            <text x="65" y="125" font-size="11" fill="#888" text-anchor="end">75%</text>
+            <text x="65" y="60" font-size="11" fill="#888" text-anchor="end">100%</text>
+
+            <!-- Easy tasks: larger model wins -->
+            <path d="M100,120 C200,100 400,80 680,65" fill="none" stroke="#27ae60" stroke-width="2.5" stroke-linecap="round"/>
+            <text x="550" y="55" font-size="10" font-weight="600" fill="#27ae60">Easy tasks</text>
+            <text x="550" y="68" font-size="11" fill="#27ae60">(bigger model optimal)</text>
+
+            <!-- Hard tasks: test-time compute wins -->
+            <path d="M100,310 C200,260 350,150 680,90" fill="none" stroke="#e94560" stroke-width="2.5" stroke-linecap="round"/>
+            <text x="600" y="85" font-size="10" font-weight="600" fill="#e94560">Hard tasks</text>
+            <text x="600" y="98" font-size="11" fill="#e94560">(test-time scaling optimal)</text>
+
+            <!-- Annotations for strategies -->
+            <circle cx="200" cy="300" r="4" fill="#e94560"/>
+            <text x="215" y="298" font-size="11" fill="#555">7B, 1 sample</text>
+
+            <circle cx="350" cy="200" r="4" fill="#e94560"/>
+            <text x="365" y="198" font-size="11" fill="#555">7B, 64 samples + PRM</text>
+
+            <circle cx="350" cy="170" r="5" fill="#8e44ad"/>
+            <text x="365" y="168" font-size="11" fill="#555">70B, 1 sample</text>
+
+            <circle cx="500" cy="130" r="4" fill="#e94560"/>
+            <text x="515" y="128" font-size="11" fill="#555">7B, 256 samples + PRM</text>
+
+            <!-- Arrow showing crossover -->
+            <line x1="350" y1="185" x2="350" y2="205" stroke="#333" stroke-width="1" stroke-dasharray="3,3" stroke-linecap="round"/>
+            <text x="280" y="192" font-size="11" fill="#333">Crossover:</text>
+            <text x="268" y="204" font-size="11" fill="#333">7B+samples beats</text>
+            <text x="278" y="216" font-size="11" fill="#333">70B on hard tasks</text>
+        </svg>
+        <div class="diagram-caption"><strong>Figure 8.5.1</strong>: Compute-optimal inference frontier. On easy tasks (green), larger models are optimal. On hard tasks (red), smaller models with test-time compute scaling cross over and outperform larger models at matched total FLOPs. The crossover point depends on task difficulty and reward model quality.</div>
+    </div>
+
+    <h2>2. Monte Carlo Tree Search for Language <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>Monte Carlo Tree Search (MCTS), the algorithm behind AlphaGo's superhuman Go play, can be adapted for structured reasoning over language. Instead of searching a tree of board positions, MCTS for language searches a tree of partial reasoning chains, where each node represents the reasoning so far and edges represent possible next reasoning steps.</p>
+
+    <h3>2.1 Adapting MCTS for Reasoning</h3>
+
+    <p>The four phases of MCTS (selection, expansion, simulation, <a class="cross-ref" href="../../part-1-foundations/module-00-ml-pytorch-foundations/section-0.2.html">backpropagation</a>) map to language reasoning as follows:</p>
+
+    <ol>
+        <li><strong>Selection:</strong> Starting from the root (the problem statement), traverse the tree using the UCB formula to balance exploration and exploitation. Visit the child node with the highest UCB score: <span class="math">$UCB(node) = V(node)/N(node) + c * sqrt(ln(N(parent))/N(node))$</span>, where V is cumulative value, N is visit count, and c is an exploration constant.</li>
+        <li><strong>Expansion:</strong> At a leaf node, generate one or more candidate next reasoning steps using the language model. Each new step becomes a child node in the tree.</li>
+        <li><strong>Simulation (rollout):</strong> From the new node, complete the reasoning chain to produce a final answer. This can use the same model with lower quality settings (higher <a class="cross-ref" href="../../part-1-foundations/module-05-decoding-text-generation/section-5.2.html">temperature</a>, fewer tokens) for speed, or a smaller model.</li>
+        <li><strong>Backpropagation:</strong> Evaluate the completed solution (correct/incorrect), then propagate the result back up the tree. Increment visit counts and update value estimates for all nodes along the path from root to the expanded leaf.</li>
+    </ol>
+
+    <p>After a fixed number of iterations (or a compute budget), the algorithm returns the solution found by following the most-visited child at each level from the root.</p>
+
+    <h3>2.2 Key Design Choices for Language MCTS</h3>
+
+    <ul>
+        <li><strong>Step granularity:</strong> What constitutes a "step"? Options include sentence-level, paragraph-level, or reasoning-block-level (delimited by newlines or special tokens). Finer granularity allows more precise <a class="cross-ref" href="../module-09-inference-optimization/section-9.2.html">pruning</a> but increases the tree's branching factor.</li>
+        <li><strong>Value function:</strong> MCTS requires a value function to evaluate partial solutions. Options include: a trained PRM (best quality), the LLM itself prompted as a self-evaluator (convenient but less reliable), or the rollout success rate (accurate but slow).</li>
+        <li><strong>Branching factor:</strong> How many candidate steps to generate at each expansion. Higher branching explores more options but dilutes compute. Typical values are 3 to 8 candidates per expansion.</li>
+        <li><strong>Stopping criterion:</strong> When to stop expanding. Options include a fixed compute budget (iterations or tokens), convergence detection (the best solution has not changed for N iterations), or confidence threshold (the highest-value leaf exceeds a score threshold).</li>
+    </ul>
+
+    <h3>2.3 AlphaProof: MCTS for Formal Mathematics</h3>
+
+    <p>Google DeepMind's AlphaProof (2024) is the most impressive application of tree search to language reasoning. The system combines:</p>
+
+    <ul>
+        <li>A language model that proposes proof steps in the Lean 4 formal verification language</li>
+        <li>MCTS to search over the proof tree, exploring different proof strategies</li>
+        <li>Lean 4's type checker as a perfect verifier (a proof either compiles or it does not)</li>
+        <li>Reinforcement learning to improve the language model's proof-step proposals over time</li>
+    </ul>
+
+    <p>AlphaProof solved 4 of 6 problems from the 2024 International Mathematical Olympiad, earning a score equivalent to a silver medal. This is the strongest result to date in automated mathematical reasoning. The system's success demonstrates the power of combining language models with formal verification and structured search.</p>
+
+    <p><strong>Why formal verification changes the game.</strong> The critical ingredient in AlphaProof is not the language model or the tree search; it is the Lean 4 type checker acting as a perfect verifier. In most reasoning tasks, verifying correctness is nearly as hard as generating the solution. But formal proof systems flip this asymmetry: checking a proof is trivial (the compiler does it), while finding one is extremely hard. This is why MCTS works so well here: each candidate proof step can be checked instantly, enabling the tree search to prune incorrect branches with zero false positives. For practical applications outside formal math, the absence of a perfect verifier is the main barrier to adopting tree search, which is why the reward model quality findings from <a href="section-8.3.html">Section 8.3</a> are so important.</p>
+
+    <div class="callout fun-note">
+              <div class="callout-title">Fun Fact</div>
+        <p>AlphaProof sometimes spent three days on a single IMO problem, generating millions of candidate proof steps. A human mathematician solving the same problem at the IMO has 4.5 hours. But the comparison is not straightforward: AlphaProof's "three days" represents massively parallel computation across many GPUs. If you count wall-clock time on a single machine, AlphaProof would need much longer. The system trades compute for mathematical insight, which is precisely the test-time compute paradigm taken to its extreme.</p>
+    </div>
+
+    <h2>3. Reasoning Benchmarks <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>Evaluating reasoning models requires benchmarks that specifically test multi-step logical reasoning, mathematical problem-solving, and complex analysis. Standard LLM benchmarks (MMLU, HellaSwag) are not sufficiently challenging to differentiate reasoning models. The following benchmarks have become the standard evaluation suite for reasoning capabilities.</p>
+
+    <h3>3.1 Mathematics</h3>
+
+    <div class="comparison-table">
+        <div class="comparison-table-title">3.1 Mathematics Comparison</div>
+        <table>
+        <thead>
+            <tr>
+                <th>Benchmark</th>
+                <th>Tasks</th>
+                <th>Difficulty</th>
+                <th>Size</th>
+                <th>Notes</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>GSM8K</td>
+                <td>Grade school math word problems</td>
+                <td>Easy</td>
+                <td>1,319 test</td>
+                <td>Largely saturated (>95% for reasoning models)</td>
+            </tr>
+            <tr>
+                <td>MATH-500</td>
+                <td>Competition math (AMC, AIME level)</td>
+                <td>Medium</td>
+                <td>500 test</td>
+                <td>Subset of MATH dataset; still challenging</td>
+            </tr>
+            <tr>
+                <td>AIME 2024</td>
+                <td>American Invitational Mathematics Exam</td>
+                <td>Hard</td>
+                <td>30 problems</td>
+                <td>The primary benchmark for top reasoning models</td>
+            </tr>
+            <tr>
+                <td>FrontierMath</td>
+                <td>Research-level mathematics</td>
+                <td>Extreme</td>
+                <td>~100 problems</td>
+                <td>Designed to be unsolvable by current AI; o3 solved ~25%</td>
+            </tr>
+        </tbody>
+    </table>
+    </div>
+
+    <h3>3.2 Coding</h3>
+
+    <div class="comparison-table">
+        <div class="comparison-table-title">3.2 Coding Comparison</div>
+        <table>
+        <thead>
+            <tr>
+                <th>Benchmark</th>
+                <th>Tasks</th>
+                <th>Difficulty</th>
+                <th>Notes</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>HumanEval / HumanEval+</td>
+                <td>Function-level <a class="cross-ref" href="../../part-7-multimodal-applications/module-28-llm-applications/section-28.1.html">code generation</a></td>
+                <td>Easy to Medium</td>
+                <td>Largely saturated (&gt;95%)</td>
+            </tr>
+            <tr>
+                <td>SWE-bench Verified</td>
+                <td>Real GitHub issues from popular repos</td>
+                <td>Hard</td>
+                <td>Most relevant for practical coding ability</td>
+            </tr>
+            <tr>
+                <td>LiveCodeBench</td>
+                <td>Competition programming (Codeforces, LeetCode)</td>
+                <td>Hard</td>
+                <td>Continuously updated with new problems</td>
+            </tr>
+        </tbody>
+    </table>
+    </div>
+
+    <h3>3.3 Science and General Reasoning</h3>
+
+    <div class="comparison-table">
+        <div class="comparison-table-title">3.3 Science and General Reasoning Comparison</div>
+        <table>
+        <thead>
+            <tr>
+                <th>Benchmark</th>
+                <th>Tasks</th>
+                <th>Difficulty</th>
+                <th>Notes</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>GPQA Diamond</td>
+                <td>Graduate-level science (physics, chemistry, biology)</td>
+                <td>Hard</td>
+                <td>Questions written and validated by domain PhDs</td>
+            </tr>
+            <tr>
+                <td>ARC-<a class="cross-ref" href="../../part-10-frontiers/module-35-ai-society/section-35.2.html">AGI</a></td>
+                <td>Abstract reasoning and pattern completion</td>
+                <td>Hard</td>
+                <td>Tests generalization, not just memorization</td>
+            </tr>
+            <tr>
+                <td>MMLU-Pro</td>
+                <td>Multi-domain knowledge with harder questions</td>
+                <td>Medium</td>
+                <td>Harder version of MMLU with less guessability</td>
+            </tr>
+        </tbody>
+    </table>
+    </div>
+
+    <div class="callout warning">
+        <div class="callout-title">Benchmark Limitations</div>
+        <p>Reasoning benchmarks have several important limitations that practitioners should be aware of:</p>
+        <ul>
+            <li><strong>Contamination risk:</strong> Many benchmark problems are publicly available on the internet and may appear in training data. AIME problems, for example, are published annually and have been available online for decades. Models may have memorized solutions rather than reasoning about them independently.</li>
+            <li><strong>Narrow task distribution:</strong> Strong performance on math competition problems does not guarantee strong performance on practical reasoning tasks (debugging code, analyzing contracts, diagnosing medical conditions).</li>
+            <li><strong>Evaluation setup variance:</strong> Different papers report different numbers for the same model because they use different evaluation setups: single attempt vs. best-of-N, different temperatures, different post-processing of answers.</li>
+            <li><strong>Small sample sizes:</strong> AIME 2024 has only 30 problems. Statistical confidence intervals on 30-problem benchmarks are wide. A 3-percentage-point difference between models may not be statistically significant.</li>
+        </ul>
+        <p>For comprehensive evaluation methodology, see <a href="../../part-8-evaluation-production/module-29-evaluation-observability/index.html" class="cross-ref">Chapter 29</a>.</p>
+    </div>
+
+    <h2>4. The Reasoning Tax: Cost Analysis <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>The "reasoning tax" is the additional cost of using reasoning models compared to standard models for the same task. Understanding this tax is essential for determining whether reasoning models are economically viable for a given application.</p>
+
+    <h3>4.1 Cost Breakdown Example</h3>
+
+    <p>Consider a task where you need to process 10,000 complex analysis queries per day. We compare three approaches:</p>
+
+    <div class="comparison-table">
+        <div class="comparison-table-title">4.1 Cost Breakdown Example Comparison</div>
+        <table>
+        <thead>
+            <tr>
+                <th>Approach</th>
+                <th>Model</th>
+                <th>Tokens/Query</th>
+                <th>Cost/Query</th>
+                <th>Daily Cost</th>
+                <th>Accuracy</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>Standard</td>
+                <td>GPT-4o</td>
+                <td>500 in + 200 out</td>
+                <td>&#36;0.003</td>
+                <td>&#36;30</td>
+                <td>72%</td>
+            </tr>
+            <tr>
+                <td>Reasoning (medium)</td>
+                <td>o4-mini</td>
+                <td>500 in + 2000 thinking + 200 out</td>
+                <td>&#36;0.010</td>
+                <td>&#36;100</td>
+                <td>88%</td>
+            </tr>
+            <tr>
+                <td>Reasoning (high)</td>
+                <td>o3</td>
+                <td>500 in + 8000 thinking + 200 out</td>
+                <td>&#36;0.33</td>
+                <td>&#36;3,300</td>
+                <td>94%</td>
+            </tr>
+            <tr>
+                <td>Routed (optimal)</td>
+                <td>Mixed</td>
+                <td>Varies</td>
+                <td>~&#36;0.015</td>
+                <td>&#36;150</td>
+                <td>90%</td>
+            </tr>
+        </tbody>
+    </table>
+    </div>
+
+    <p>The "routed (optimal)" row uses a difficulty <a class="cross-ref" href="../../part-3-working-with-llms/module-12-hybrid-ml-llm/section-12.2.html">classifier</a> to send 70% of queries to GPT-4o and 30% to o4-mini. It achieves 90% accuracy (close to the reasoning model's 88% overall, higher on the hard subset) at a fraction of the cost of sending everything to a reasoning model.</p>
+
+    <h3>4.2 When the Reasoning Tax Pays Off</h3>
+
+    <p>The reasoning tax is justified when the value of the accuracy improvement exceeds the additional cost. Concretely:</p>
+
+    <div class="math-block">
+    $$Value of reasoning = (Accuracy_{reasoning} - Accuracy_{standard}) * Value_{per}_{correct} - (Cost_{reasoning} - Cost_{standard})$$
+    
+</div>
+
+    <p>For example, if each correct analysis saves &#36;50 in manual review and accuracy improves from 72% to 90% on 10,000 daily queries, the additional 1,800 correct analyses per day save &#36;90,000. The additional daily cost of &#36;120 (routed approach) is trivially justified. But if each correct analysis saves only &#36;0.01, the &#36;120 additional cost far exceeds the &#36;18 in value from improved accuracy.</p>
+
+    <h2>5. Research Frontiers <span class="level-badge research" title="Research">Research</span></h2>
+
+    <div class="callout research-frontier">
+        <div class="callout-title">Research Frontier</div>
+        <p><strong>The future of test-time compute scaling.</strong> Several active research directions are pushing the boundaries of what reasoning models can achieve:</p>
+        <ul>
+            <li><strong>Test-time training (TTT):</strong> Instead of fixed model weights at inference time, TTT methods update the model's weights on each test example before generating a response. This is a more radical form of test-time compute that allows the model to literally learn from the problem before solving it. Early results (Sun et al., 2024) show promising improvements on distribution-shift tasks.</li>
+            <li><strong>Adaptive compute per layer:</strong> Current reasoning models allocate compute by generating more tokens (sequential computation). Research on early exiting and adaptive layer selection could allow models to allocate different amounts of per-token compute based on difficulty, without generating extra tokens.</li>
+            <li><strong>Continuous reasoning:</strong> Instead of discrete thinking tokens, some research explores continuous latent reasoning where the model performs computation in its hidden state space rather than in the token space. This could be more efficient than token-level reasoning because it avoids the bottleneck of serializing thoughts into text.</li>
+            <li><strong>Reasoning with tools:</strong> Combining reasoning with <a class="cross-ref" href="../../part-6-agentic-ai/module-22-ai-agents/section-22.3.html">tool use</a> (code execution, web search, database queries) during the thinking phase. OpenAI's o3 and o4-mini already support this, executing code within their reasoning chains to verify calculations. The integration of reasoning with the agentic frameworks discussed in <a class="cross-ref" href="../../part-6-agentic-ai/module-22-ai-agents/index.html">Chapter 22</a> is an active frontier.</li>
+            <li><strong>Efficient reasoning through <a class="cross-ref" href="../../part-4-training-adapting/module-16-distillation-merging/section-16.1.html">distillation</a>:</strong> Can we distill the reasoning capability of large models (o3, R1) into much smaller models that reason efficiently? R1-Distill shows this is partially possible, but the accuracy gap widens as model size decreases. Closing this gap would democratize access to reasoning capabilities.</li>
+        </ul>
+    </div>
+
+    <!-- Exercises -->
+    <div class="quiz">
+        <h3>Exercises</h3>
+
+        <div class="quiz-question">
+            <strong>Exercise 1 (Level 2):</strong> You are evaluating whether to use a reasoning model for an automated legal document analysis pipeline. Your current GPT-4o system achieves 78% accuracy, and initial tests show o4-mini achieves 91% accuracy. Each correctly analyzed document saves &#36;200 in attorney review time. You process 500 documents per day. The GPT-4o system costs &#36;0.005/document and o4-mini costs &#36;0.04/document. Calculate the net value of switching to the reasoning model, and determine the break-even accuracy improvement threshold (the minimum accuracy improvement that justifies the cost increase).
+        </div>
+        <details open>
+            <summary>Show Answer</summary>
+            <div class="answer">
+                <p><strong>Current system (GPT-4o):</strong></p>
+                <ul>
+                    <li>Accuracy: 78% = 390 correct out of 500</li>
+                    <li>Value from correct analyses: 390 * &#36;200 = &#36;78,000/day</li>
+                    <li>Inference cost: 500 * &#36;0.005 = &#36;2.50/day</li>
+                    <li>Net value: &#36;78,000 - &#36;2.50 = &#36;77,997.50/day</li>
+                </ul>
+                <p><strong>Reasoning model (o4-mini):</strong></p>
+                <ul>
+                    <li>Accuracy: 91% = 455 correct out of 500</li>
+                    <li>Value from correct analyses: 455 * &#36;200 = &#36;91,000/day</li>
+                    <li>Inference cost: 500 * &#36;0.04 = &#36;20/day</li>
+                    <li>Net value: &#36;91,000 - &#36;20 = &#36;90,980/day</li>
+                </ul>
+                <p><strong>Net improvement:</strong> &#36;90,980 - &#36;77,997.50 = &#36;12,982.50/day. The reasoning model is overwhelmingly worth it.</p>
+                <p><strong>Break-even threshold:</strong> The additional cost is &#36;20 - &#36;2.50 = &#36;17.50/day. Each additional correct document saves &#36;200. So we need &#36;17.50 / &#36;200 = 0.0875 additional correct documents per day. Since we process 500 documents, this is 0.0875/500 = 0.0175% accuracy improvement. In practice, the break-even accuracy improvement is negligible (less than 0.02 percentage points), because the &#36;200 value per correct document is so much larger than the per-document cost. This illustrates why reasoning models are almost always worth it when the value of accuracy is high, regardless of the cost multiplier.</p>
+            </div>
+        </details>
+
+        <div class="quiz-question">
+            <strong>Exercise 2 (Level 2):</strong> Explain why MCTS is more compute-efficient than best-of-N for hard reasoning problems but less efficient for easy problems. Under what conditions should a system switch between the two strategies?
+        </div>
+        <details open>
+            <summary>Show Answer</summary>
+            <div class="answer">
+                <p><strong>Why MCTS is better for hard problems:</strong> Hard problems have low per-sample success rates (e.g., 5%). With best-of-N, each of the N samples is independent. To have a 50% chance of finding at least one correct solution with p=0.05, you need N = ln(0.5)/ln(0.95) = 14 samples. For p=0.01, you need N = 69 samples. Most of this compute is wasted on solutions that fail in the first few steps.</p>
+                <p>MCTS reuses information across samples. If a PRM identifies that a particular first step is promising (score 0.8) while another is unlikely to succeed (score 0.1), MCTS allocates more compute to the promising branch. It prunes failing branches early, concentrating compute on the most productive reasoning paths. This "informed search" is far more efficient than the "blind sampling" of best-of-N when the solution space is large and the success rate is low.</p>
+                <p><strong>Why MCTS is worse for easy problems:</strong> For easy problems (p=0.9), most independent samples succeed. Best-of-N with N=4 has a 99.99% success rate. MCTS adds overhead: the tree structure, UCB calculations, PRM evaluations at each node, and the sequential nature of tree expansion. This overhead is wasted when simple independent sampling would have succeeded on the first try.</p>
+                <p><strong>Switching criterion:</strong> Estimate the base model's success probability p on the problem (using a difficulty classifier or a fast initial sample). If p > 0.5, use best-of-N with small N (4 to 8). If p is between 0.1 and 0.5, use best-of-N with larger N (16 to 64). If p < 0.1, switch to MCTS where the search structure provides the most benefit. The threshold values should be calibrated empirically on a held-out evaluation set.</p>
+            </div>
+        </details>
+
+        <div class="quiz-question">
+            <strong>Exercise 3 (Level 3, Research):</strong> FrontierMath is designed to resist memorization by including problems not found in any public dataset. Despite this, o3 solves ~25% of FrontierMath problems. Propose a research methodology to determine whether o3 is genuinely reasoning about these problems or using sophisticated pattern matching against structurally similar problems seen during training. What experiments would provide evidence for or against genuine mathematical reasoning?
+        </div>
+        <details open>
+            <summary>Show Answer</summary>
+            <div class="answer">
+                <p>This is a deep question about the nature of reasoning in language models. A rigorous methodology would include:</p>
+                <p><strong>Experiment 1: Perturbation robustness.</strong> Take the FrontierMath problems that o3 solves and create systematic perturbations: change numerical values, swap variable names, alter one condition, or add an irrelevant condition. Genuine reasoning should be robust to surface-level perturbations (the model adapts its approach to the new values) but sensitive to logical perturbations (changing a condition should change the answer, and the model should reflect this). If the model solves the original but fails on minor numerical variants, it suggests memorization of solution patterns rather than genuine reasoning.</p>
+                <p><strong>Experiment 2: Proof verification.</strong> For problems where o3 produces a correct answer, examine the reasoning trace (if visible) or ask the model to produce a formal proof in Lean 4. If the reasoning is genuine, the model should be able to articulate valid proof steps. If it is pattern matching, the reasoning trace might contain non-sequiturs or skipped logical steps that happen to arrive at the right answer. The formal proof setting is especially revealing because Lean's type checker will reject invalid reasoning steps.</p>
+                <p><strong>Experiment 3: Transfer across representations.</strong> Present the same mathematical problem in different representations: natural language, symbolic notation, visual/geometric form, or as a computer science problem isomorphic to the original. Genuine reasoning should transfer across representations (perhaps with reduced performance), while pattern matching would be representation-specific.</p>
+                <p><strong>Experiment 4: Novel problem construction.</strong> Commission domain-expert mathematicians to create genuinely novel problems that combine concepts in ways that have never appeared in any publication. If o3 solves these at similar rates to FrontierMath, it supports genuine reasoning. If performance drops dramatically, it suggests reliance on similarity to training data.</p>
+                <p>A finding of "genuine reasoning" does not require the model to reason like a human. It means the model has internalized mathematical structure in a way that generalizes beyond its training distribution, which is a weaker but more testable claim than "the model understands mathematics."</p>
+            </div>
+        </details>
+    </div>
+
+    <div class="takeaways">
+        <h2>Key Takeaways</h2>
+        <ul>
+            <li><strong>Compute-optimal inference</strong> is difficulty-dependent: on easy problems, use a large model with a single pass; on hard problems, use a smaller model with many samples and a verifier. The crossover point depends on base accuracy and reward model quality.</li>
+            <li><strong>MCTS for language</strong> brings structured search to reasoning, enabling efficient exploration of hard problems by pruning failing branches early. AlphaProof demonstrated this at the highest level by solving IMO problems.</li>
+            <li><strong>Reasoning benchmarks</strong> (AIME, MATH-500, SWE-bench, GPQA, FrontierMath) vary in difficulty and specificity. Practitioners should evaluate on task-specific benchmarks rather than relying on general benchmark scores.</li>
+            <li><strong>The reasoning tax</strong> (5x to 100x cost increase) is justified when the value of accuracy improvements exceeds the additional cost. For high-value tasks, the tax is almost always worth it; for low-value, high-volume tasks, routing is essential.</li>
+            <li><strong>Active research frontiers</strong> include test-time training, adaptive per-layer compute, continuous latent reasoning, and reasoning with tool use. These directions promise to make test-time compute scaling more efficient and broadly applicable.</li>
+        </ul>
+    </div>
+
+    <div class="callout note">
+        <div class="callout-title">Chapter Summary</div>
+        <p>This chapter has covered the full arc of reasoning models and test-time compute: the paradigm shift from train-time scaling (<a href="section-8.1.html">Section 8.1</a>), the model architectures (<a href="section-8.2.html">Section 8.2</a>), the training methods (<a href="section-8.3.html">Section 8.3</a>), practical usage guidance (<a href="section-8.4.html">Section 8.4</a>), and the compute economics and evaluation landscape (this section). The next chapter, <a class="cross-ref" href="../module-09-inference-optimization/index.html">Chapter 09: Inference Optimization</a>, covers the infrastructure that makes all of this practical: <a class="cross-ref" href="../module-09-inference-optimization/section-9.1.html">quantization</a>, KV-cache optimization, <a class="cross-ref" href="../../part-1-foundations/module-05-decoding-text-generation/section-5.4.html">speculative decoding</a>, and serving frameworks.</p>
+    </div>
+
+    <section class="bibliography">
+        <div class="bibliography-title">References &amp; Further Reading</div>
+
+        <div class="bib-category">Compute-Optimal Inference</div>
+
+        <div class="bib-entry-card">
+            <p class="bib-ref">Snell, C. et al. (2024). <a href="https://arxiv.org/abs/2408.03314" target="_blank" rel="noopener">"Scaling LLM Test-Time Compute Optimally can be More Effective than Scaling Model Parameters."</a> <em>arXiv preprint arXiv:2408.03314</em>.</p>
+            <p class="bib-annotation">The foundational paper for compute-optimal inference, establishing the theoretical framework and the 14x model-size equivalence result.</p>
+        </div>
+
+        <div class="bib-category">Tree Search and Formal Reasoning</div>
+
+        <div class="bib-entry-card">
+            <p class="bib-ref">Silver, D. et al. (2017). <a href="https://www.nature.com/articles/nature24270" target="_blank" rel="noopener">"Mastering the Game of Go without Human Knowledge."</a> <em>Nature</em>, 550(7676), 354-359.</p>
+            <p class="bib-annotation">AlphaGo Zero, which demonstrated that MCTS combined with neural network value and policy functions can achieve superhuman performance without human training data. The intellectual ancestor of AlphaProof.</p>
+        </div>
+
+        <div class="bib-entry-card">
+            <p class="bib-ref">AlphaProof Team, Google DeepMind (2024). <a href="https://deepmind.google/discover/blog/ai-solves-imo-problems-at-silver-medal-level/" target="_blank" rel="noopener">"AI Achieves Silver-Medal Standard Solving International Mathematical Olympiad Problems."</a> <em>Google DeepMind Blog</em>.</p>
+            <p class="bib-annotation">Announcement of AlphaProof's IMO results, demonstrating MCTS applied to formal mathematical theorem proving in Lean 4.</p>
+        </div>
+
+        <div class="bib-entry-card">
+            <p class="bib-ref">Zhou, A. et al. (2023). <a href="https://arxiv.org/abs/2310.04406" target="_blank" rel="noopener">"Language Agent Tree Search Unifies Reasoning Acting and Planning in Language Models."</a> <em>arXiv preprint arXiv:2310.04406</em>.</p>
+            <p class="bib-annotation">Introduces LATS, adapting MCTS specifically for LLM reasoning with reflection-based backpropagation.</p>
+        </div>
+
+        <div class="bib-category">Benchmarks</div>
+
+        <div class="bib-entry-card">
+            <p class="bib-ref">Hendrycks, D. et al. (2021). <a href="https://arxiv.org/abs/2103.03874" target="_blank" rel="noopener">"Measuring Mathematical Problem Solving With the MATH Dataset."</a> <em>NeurIPS 2021</em>.</p>
+            <p class="bib-annotation">Introduces the MATH dataset of competition mathematics problems with difficulty levels, the basis for MATH-500.</p>
+        </div>
+
+        <div class="bib-entry-card">
+            <p class="bib-ref">Jimenez, C.E. et al. (2024). <a href="https://arxiv.org/abs/2310.06770" target="_blank" rel="noopener">"SWE-bench: Can Language Models Resolve Real-World GitHub Issues?"</a> <em>ICLR 2024</em>.</p>
+            <p class="bib-annotation">The SWE-bench benchmark for evaluating code generation on real-world software engineering tasks from GitHub repositories.</p>
+        </div>
+
+        <div class="bib-category">Research Frontiers</div>
+
+        <div class="bib-entry-card">
+            <p class="bib-ref">Sun, Y. et al. (2024). <a href="https://arxiv.org/abs/2407.04620" target="_blank" rel="noopener">"Learning to (Learn at Test Time): RNNs with Expressive Hidden States."</a> <em>arXiv preprint arXiv:2407.04620</em>.</p>
+            <p class="bib-annotation">Introduces test-time training layers that update model weights during inference, a more radical form of test-time compute scaling.</p>
+        </div>
+    </section>
+
+<h2>Exercises</h2>
+
+<div class="callout exercise">
+    <div class="callout-title">Exercise 8.5.1: Reasoning in production systems <span class="level-badge basic" title="Basic">BASIC</span> <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+    <p>You are deploying a reasoning model in a production system that handles 10,000 queries per day. What infrastructure considerations differ from deploying a standard chat model?</p>
+    <details open>
+        <summary>Answer Sketch</summary>
+        <p>Key differences: (1) Latency: reasoning models generate 5 to 50x more tokens, so response times are 5 to 50x longer. Need streaming responses and user-facing progress indicators. (2) Cost: 5 to 10x higher per-query cost requires careful budgeting and routing (send only complex queries to the reasoning model). (3) Timeout handling: some queries may take minutes; need graceful timeout policies and fallback to simpler models. (4) Caching: reasoning responses for repeated queries is highly valuable given the cost. (5) Monitoring: track reasoning chain length, success rate, and cost per query to optimize routing thresholds.</p>
+    </details>
+</div>
+
+<div class="callout exercise">
+    <div class="callout-title">Exercise 8.5.2: Structured reasoning outputs <span class="level-badge basic" title="Basic">BASIC</span> <span class="exercise-type coding" title="Coding">Coding</span></div>
+    <p>Write a prompt that instructs a reasoning model to produce structured output: a JSON object with fields for 'reasoning_steps' (array of step descriptions), 'final_answer', and 'confidence' (0 to 1). Parse the output and validate the structure.</p>
+    <details open>
+        <summary>Answer Sketch</summary>
+        <p>Prompt: 'Solve this problem. Output your response as JSON with these fields: reasoning_steps (array of strings, each describing one step), final_answer (string), confidence (float 0 to 1). Problem: [...]'. Use <code>json.loads()</code> to parse and validate required fields exist. Common failure modes: the model may include reasoning text outside the JSON, produce invalid JSON with trailing commas, or hallucinate extra fields. Using structured output APIs (JSON mode) when available is more reliable than prompting alone.</p>
+    </details>
+</div>
+
+<div class="callout exercise">
+    <div class="callout-title">Exercise 8.5.3: Reasoning chain evaluation <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span> <span class="exercise-type analysis" title="Analysis">Analysis</span></div>
+    <p>Given a model's reasoning chain and the correct answer, design a rubric to evaluate reasoning quality beyond just answer correctness. What dimensions should you measure?</p>
+    <details open>
+        <summary>Answer Sketch</summary>
+        <p>Dimensions: (1) Correctness of each step: is each individual reasoning step logically valid? (2) Relevance: does each step contribute to reaching the answer, or are there irrelevant detours? (3) Completeness: are all necessary steps present, or does the chain skip important reasoning? (4) Faithfulness: does the final answer actually follow from the reasoning (or was it guessed independently)? (5) Efficiency: does the chain reach the answer in a reasonable number of steps without unnecessary repetition? Scoring each dimension on a 1 to 5 scale gives a nuanced view of reasoning quality. A chain that reaches the right answer with incorrect intermediate steps should score lower than one with all correct steps.</p>
+    </details>
+</div>
+
+<div class="callout exercise">
+    <div class="callout-title">Exercise 8.5.4: Ensemble reasoning strategies <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span> <span class="exercise-type coding" title="Coding">Coding</span></div>
+    <p>Implement a reasoning ensemble that: (1) generates 5 independent CoT solutions, (2) extracts the final answer from each, (3) takes majority vote, and (4) if no majority exists, generates a 6th solution that reviews all 5 and synthesizes a final answer. Test on 10 problems.</p>
+    <details open>
+        <summary>Answer Sketch</summary>
+        <p>For the synthesis step, prompt: 'Here are 5 attempts to solve this problem: [solutions]. Some may be correct and others wrong. Analyze each solution, identify errors, and give the final correct answer.' This meta-reasoning step adds cost but is only triggered when there is disagreement (no majority). Expected improvement: 5 to 10 points over single-chain reasoning. The synthesis approach is particularly effective because it benefits from seeing multiple perspectives and common error patterns.</p>
+    </details>
+</div>
+
+<div class="callout exercise">
+    <div class="callout-title">Exercise 8.5.5: Reasoning with external verification <span class="level-badge advanced" title="Advanced">ADVANCED</span> <span class="exercise-type discussion" title="Discussion">Discussion</span></div>
+    <p>For domains where reasoning correctness is critical (medical diagnosis, legal analysis, financial calculations), what verification mechanisms can be added around a reasoning model? How do you balance automation with human oversight?</p>
+    <details open>
+        <summary>Answer Sketch</summary>
+        <p>Verification layers: (1) Automated checks: unit tests for code-based reasoning, dimensional analysis for physics, constraint checking for optimization problems. (2) Cross-model verification: run the same problem through multiple models and flag disagreements. (3) Symbolic verification: for math, check the answer by substitution or use a computer algebra system. (4) Human review: flag high-stakes decisions, low-confidence outputs, and edge cases for expert review. Balance: automate verification for routine cases where checks are reliable (math, code, structured data). Require human review when the domain lacks automated verification (medical interpretation, legal judgment). Use confidence calibration to determine the review threshold: review outputs where the model is uncertain or where the automated verifier and model disagree.</p>
+    </details>
+</div>
+
+<div class="whats-next">
+    <h2>What Comes Next</h2>
+    <p>This concludes Chapter 8 on reasoning and test-time compute. In the next chapter, <a href="../module-09-inference-optimization/index.html" class="cross-ref">Chapter 09: Inference Optimization</a>, we shift from reasoning strategies to the systems-level techniques that make LLM inference fast and cost-effective, including quantization, KV-cache management, and speculative decoding.</p>
+</div>
+
+
+
+<nav class="chapter-nav">
+    <a href="section-8.4.html" class="prev">Previous: Prompting and Using Reasoning Models</a>
+</nav>
+    <footer><p>Fifth Edition, 2026 &middot; <a href="../../toc.html">Contents</a></p></footer>
+</main>
+</body>
+</html>

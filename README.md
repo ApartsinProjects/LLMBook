@@ -6,17 +6,20 @@ A comprehensive, hands-on textbook covering modern Large Language Model technolo
 
 ## Course Overview
 
-**28 Modules + Capstone + 10 Appendices** covering:
+**36 Chapters (00-35) + Capstone + 10 Appendices** covering:
 
-| Part | Modules | Topics |
-|------|---------|--------|
+| Part | Chapters | Topics |
+|------|----------|--------|
 | **I: Foundations** | 00-05 | ML/PyTorch basics, NLP, tokenization, attention, transformers, decoding |
-| **II: Understanding LLMs** | 06-08 | Pre-training, scaling laws, modern models, inference optimization |
-| **III: Working with LLMs** | 09-11 | APIs, prompt engineering, hybrid ML+LLM architectures |
-| **IV: Training & Adapting** | 12-17 | Synthetic data, fine-tuning, PEFT, distillation, alignment, interpretability |
-| **V: Retrieval & Conversation** | 18-20 | Embeddings, vector databases, RAG, conversational AI |
-| **VI: Agents & Applications** | 21-25 | AI agents, multi-agent systems, multimodal, applications, evaluation |
-| **VII: Production & Strategy** | 26-27 | Deployment, safety, ethics, LLM strategy, ROI |
+| **II: Understanding LLMs** | 06-09, 18 | Pre-training, scaling laws, modern models, reasoning, inference optimization, interpretability |
+| **III: Working with LLMs** | 10-12 | APIs, prompt engineering, hybrid ML+LLM architectures |
+| **IV: Training & Adapting** | 13-17 | Synthetic data, fine-tuning, PEFT, distillation, alignment |
+| **V: Retrieval & Conversation** | 19-21 | Embeddings, vector databases, RAG, conversational AI |
+| **VI: Agentic AI** | 22-26 | AI agents, tool use and protocols, multi-agent systems, specialized agents, agent safety |
+| **VII: Multimodal & Applications** | 27-28 | Multimodal models, LLM applications |
+| **VIII: Evaluation & Production** | 29-31 | Evaluation, observability, monitoring, production engineering |
+| **IX: Safety & Strategy** | 32-33 | Safety, ethics, regulation, LLM strategy, ROI |
+| **X: Frontiers** | 34-35 | Emerging architectures, AI and society |
 | **Capstone** | | End-to-end conversational AI agent project |
 | **Appendices** | A-J | Math, ML, Python, setup, Git, glossary, hardware, models, prompts, benchmarks |
 
@@ -24,8 +27,7 @@ A comprehensive, hands-on textbook covering modern Large Language Model technolo
 
 ```
 LLMBook/
-├── index.html                              # Interactive syllabus (GitHub Pages)
-├── index.html                           # Source syllabus
+├── index.html                                     # Interactive syllabus (GitHub Pages)
 ├── part-1-foundations/
 │   ├── module-00-ml-pytorch-foundations/
 │   ├── module-01-foundations-nlp-text-representation/
@@ -36,31 +38,42 @@ LLMBook/
 ├── part-2-understanding-llms/
 │   ├── module-06-pretraining-scaling-laws/
 │   ├── module-07-modern-llm-landscape/
-│   └── module-08-inference-optimization/
+│   ├── module-08-reasoning-test-time-compute/
+│   ├── module-09-inference-optimization/
+│   └── module-18-interpretability/
 ├── part-3-working-with-llms/
-│   ├── module-09-llm-apis/
-│   ├── module-10-prompt-engineering/
-│   └── module-11-hybrid-ml-llm/
+│   ├── module-10-llm-apis/
+│   ├── module-11-prompt-engineering/
+│   └── module-12-hybrid-ml-llm/
 ├── part-4-training-adapting/
-│   ├── module-12-synthetic-data/
-│   ├── module-13-fine-tuning-fundamentals/
-│   ├── module-14-peft/
-│   ├── module-15-distillation-merging/
-│   ├── module-16-alignment-rlhf-dpo/
-│   └── module-17-interpretability/
+│   ├── module-13-synthetic-data/
+│   ├── module-14-fine-tuning-fundamentals/
+│   ├── module-15-peft/
+│   ├── module-16-distillation-merging/
+│   └── module-17-alignment-rlhf-dpo/
 ├── part-5-retrieval-conversation/
-│   ├── module-18-embeddings-vector-db/
-│   ├── module-19-rag/
-│   └── module-20-conversational-ai/
-├── part-6-agents-applications/
-│   ├── module-21-ai-agents/
-│   ├── module-22-multi-agent-systems/
-│   ├── module-23-multimodal/
-│   ├── module-24-llm-applications/
-│   └── module-25-evaluation-observability/
-├── part-7-production-strategy/
-│   ├── module-26-production-safety-ethics/
-│   └── module-27-strategy-product-roi/
+│   ├── module-19-embeddings-vector-db/
+│   ├── module-20-rag/
+│   └── module-21-conversational-ai/
+├── part-6-agentic-ai/
+│   ├── module-22-ai-agents/
+│   ├── module-23-tool-use-protocols/
+│   ├── module-24-multi-agent-systems/
+│   ├── module-25-specialized-agents/
+│   └── module-26-agent-safety-production/
+├── part-7-multimodal-applications/
+│   ├── module-27-multimodal/
+│   └── module-28-llm-applications/
+├── part-8-evaluation-production/
+│   ├── module-29-evaluation-observability/
+│   ├── module-30-observability-monitoring/
+│   └── module-31-production-engineering/
+├── part-9-safety-strategy/
+│   ├── module-32-safety-ethics-regulation/
+│   └── module-33-strategy-product-roi/
+├── part-10-frontiers/
+│   ├── module-34-emerging-architectures/
+│   └── module-35-ai-society/
 ├── capstone/
 └── appendices/
     ├── appendix-a-mathematical-foundations/
@@ -77,7 +90,7 @@ LLMBook/
 
 ## How This Book Is Built
 
-Each chapter is produced by a **36-agent AI team** orchestrated through **13 phases** ([meet the team](https://apartsinprojects.github.io/LLMBook/team.html)):
+Each chapter is produced by a **42-agent AI team** orchestrated through **13 phases** ([meet the team](https://apartsinprojects.github.io/LLMBook/team.html)):
 
 1. **Setup**: Chapter Lead defines scope, outline, and coordination plan
 2. **Planning**: Curriculum alignment, deep explanation design, teaching flow review

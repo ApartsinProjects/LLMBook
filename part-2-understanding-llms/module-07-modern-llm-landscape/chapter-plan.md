@@ -226,7 +226,7 @@
 - Module 06 (Pre-training): scaling laws (referenced in reasoning model compute tradeoffs), pre-training objectives (CLM, MTP referenced in DeepSeek V3), distributed training (FP8, MoE concepts)
 
 ### Downstream (modules that build on this one)
-- Module 08 (Inference Optimization): MLA's KV cache compression connects to Section 8.2; MoE sparse activation connects to serving efficiency
+- Module 08 (Inference Optimization): MLA's KV cache compression connects to Section 10.2; MoE sparse activation connects to serving efficiency
 - Module 09 (Working with LLM APIs): practical API access to frontier models surveyed in Section 7.1
 - Module 10 (Prompt Engineering): chain-of-thought prompting builds on Section 7.3's reasoning model discussion
 - Module 13 (Fine-Tuning): open-weight models from Section 7.2 are the starting points for fine-tuning

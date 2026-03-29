@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Section 9.6: Test-Time Compute &amp; Reasoning Models</title>
+    <link rel="stylesheet" href="../../styles/book.css">
+    <link rel="stylesheet" href="../../vendor/katex/katex.min.css">
+    <script defer src="../../vendor/katex/katex.min.js"></script>
+    <script defer src="../../vendor/katex/contrib/auto-render.min.js"
+        onload="renderMathInElement(document.body, {
+            delimiters: [
+                {left: '$$', right: '$$', display: true},
+                {left: '$', right: '$', display: false}
+            ],
+            throwOnError: false
+        });"></script>
+    <link rel="stylesheet" href="../../vendor/prism/prism-theme.css">
+    <script defer src="../../vendor/prism/prism-bundle.min.js"></script>
+</head>
+<body>
+<header class="chapter-header">
+    <nav class="header-nav">
+        <a href="../../index.html" class="book-title-link">Building Conversational AI with LLMs and Agents</a>
+        <a href="../../toc.html" class="toc-link" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+    </nav>
+    <div class="part-label"><a href="../index.html">Part 2: Understanding LLMs</a></div>
+    <div class="chapter-label"><a href="index.html">Chapter 9: Inference Optimization</a></div>
+    <h1>Test-Time Compute &amp; Reasoning Models</h1>
+</header>
+
+<main class="content">
+
+    <blockquote class="epigraph">
+        <p>"A wise person does not always answer faster. Sometimes wisdom means pausing to think."</p>
+        <cite><span class="agent-avatar-inline" style="background-color: #1abc9c;"><img src="../../front-matter/images/agents/quant.png" alt="Quant"></span> <a href="../../front-matter/wisdom-council.html#quant">Quant</a> <span class="agent-desc">AI Agent</span></cite>
+    </blockquote>
+
+    <div class="prerequisites">
+        <h3>Prerequisites</h3>
+        <p>This section builds on the inference optimization techniques covered in <a href="section-9.1.html">Section 9.1 (Quantization)</a> through <a href="section-9.5.html">Section 9.5 (Pruning)</a>, and assumes familiarity with autoregressive decoding from <a class="cross-ref" href="../../part-1-foundations/module-05-decoding-text-generation/section-5.1.html">Section 05.1</a> and sampling strategies from <a class="cross-ref" href="../../part-1-foundations/module-05-decoding-text-generation/section-5.2.html">Section 05.2</a>. Understanding <a class="cross-ref" href="../../part-4-training-adapting/module-17-alignment-rlhf-dpo/section-17.1.html">reinforcement learning from human feedback</a> (<a class="cross-ref" href="../../part-4-training-adapting/module-17-alignment-rlhf-dpo/section-17.1.html">Section 17.1</a>) will provide helpful context for process reward models.</p>
+    </div>
+
+    <div class="callout big-picture">
+        <div class="callout-title">Big Picture</div>
+        <p>Every optimization technique in this chapter so far has focused on making inference <strong>faster and cheaper</strong>: quantization reduces memory, pruning removes weights, speculative decoding parallelizes token generation, and serving frameworks maximize throughput. This section reverses the question entirely. Instead of asking "how do we spend less compute at inference time?", reasoning models ask: <strong>"what if we spend more compute at inference time to get better answers?"</strong> This paradigm shift, known as <em>test-time compute scaling</em>, represents one of the most important developments in LLM capabilities since the original <a class="cross-ref" href="../module-06-pretraining-scaling-laws/section-6.3.html">scaling laws</a> covered in <a class="cross-ref" href="../module-06-pretraining-scaling-laws/section-6.2.html">Section 06.2</a>. The previous sections taught you how to make inference efficient; this section teaches you when and why to make it deliberately <em>expensive</em>. For a comprehensive treatment of reasoning model architectures, training methods, and evaluation, see <a href="../module-08-reasoning-test-time-compute/index.html" class="cross-ref">Chapter 08: Reasoning Models and Test-Time Compute</a>.</p>
+    </div>
+
+
+    <h2>1. The Test-Time Compute Paradigm <span class="level-badge basic" title="Basic">Basic</span></h2>
+
+    <p>For years, the dominant recipe for improving LLM performance was straightforward: train a bigger model on more data. The scaling laws formalized by Kaplan et al. (2020) and Hoffmann et al. (2022) showed that loss decreases predictably as you increase model parameters and training tokens. But this approach has diminishing returns: doubling model size requires roughly doubling both training compute and serving costs, while the performance gain follows a power law with a small exponent.</p>
+
+    <p>Test-time compute scaling offers a different tradeoff. Instead of making the model permanently larger (which increases cost for every query, whether easy or hard), you let the model "think longer" only when it needs to. The key insight is that many problems benefit from extended reasoning: breaking a problem into steps, checking intermediate results, exploring alternative approaches, and self-correcting errors. By generating additional "thinking tokens" at inference time, a smaller model can match or exceed the performance of a much larger model on challenging tasks, while remaining fast and cheap on easy ones.</p>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight</div>
+        <p>The traditional scaling paradigm treats every query identically: a 70B model uses 70B parameters whether you ask "What is 2+2?" or "Prove that there are infinitely many primes." Test-time compute scaling breaks this symmetry. A reasoning model might spend 50 tokens of internal thought on the first question and 5,000 tokens on the second. This <strong>adaptive compute allocation</strong> is analogous to how humans spend seconds on easy questions and hours on hard ones. The practical consequence is profound: you can trade inference FLOPs for better answers on hard problems, and the exchange rate is often favorable. A 70B reasoning model thinking for 30 seconds can outperform a 400B standard model that answers in 2 seconds, at a fraction of the training cost.</p>
+    </div>
+
+    <p>This paradigm shift was first demonstrated at scale by OpenAI's o1 model in late 2024, which showed that a model trained with reinforcement learning to produce extended <a class="cross-ref" href="../module-08-reasoning-test-time-compute/section-8.1.html">chain-of-thought</a> reasoning could achieve dramatic improvements on mathematics, coding, and scientific reasoning <a class="cross-ref" href="../../part-8-evaluation-production/module-29-evaluation-observability/section-29.2.html">benchmarks</a>. The results were striking: on the American Invitational Mathematics Examination (AIME), o1 scored comparably to top human competitors, while standard GPT-4 level models struggled with even basic problems from the same exam.</p>
+
+    <h2>2. Reasoning Models: Architecture and Training <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <h3>2.1 The "Thinking Tokens" Paradigm</h3>
+
+    <p>Reasoning models generate two distinct types of output: <strong>thinking tokens</strong> (internal reasoning that the user may or may not see) and <strong>answer tokens</strong> (the final response). During inference, the model first generates a potentially lengthy chain of thought, exploring the problem space, checking its own work, and refining its approach. Only after this thinking phase does it produce the visible answer. The thinking tokens are typically enclosed in special delimiters (such as <code>&lt;think&gt;...&lt;/think&gt;</code>) and may be hidden from the end user or shown as a collapsible "reasoning trace."</p>
+
+    <p>This is not simply <a class="cross-ref" href="../../part-3-working-with-llms/module-11-prompt-engineering/section-11.1.html">prompt engineering</a> with "think step by step" instructions. Reasoning models are specifically <strong>trained</strong> (typically through reinforcement learning) to produce high-quality internal reasoning. The RL training reward signal comes from verifiable outcomes: did the model get the math problem right? Did the generated code pass all test cases? This outcome-based training teaches the model to develop effective reasoning strategies organically, rather than mimicking the surface form of chain-of-thought demonstrations.</p>
+
+    <h3>2.2 Key Reasoning Models</h3>
+
+    <p><strong>OpenAI o1, o3, and o4-mini.</strong> The o-series models pioneered commercial reasoning at scale. Released starting in late 2024, o1 demonstrated that reinforcement learning could train models to produce extended internal reasoning chains. The model generates a hidden chain of thought before every response, with the thinking process sometimes consuming thousands of tokens. The o3 and o4-mini models refined this approach with improved training recipes and more efficient architectures. o4-mini, in particular, showed that smaller models trained for reasoning can outperform much larger standard models on hard benchmarks, while keeping costs manageable for production workloads.</p>
+
+    <p><strong>DeepSeek R1.</strong> Released in January 2025, DeepSeek R1 is an open-weight reasoning model that demonstrated a remarkably simple training recipe. The team applied group relative policy optimization (GRPO) directly to a base language model, rewarding correct answers on math and coding tasks, without any supervised <a href="../../part-4-training-adapting/module-14-fine-tuning-fundamentals/index.html" class="cross-ref">fine-tuning</a> on human-written chain-of-thought examples. The model spontaneously developed reasoning behaviors (self-verification, backtracking, exploring alternatives) purely through RL training. DeepSeek R1 matched or exceeded o1-preview on several benchmarks while being fully open-weight, enabling the research community to study and build upon its approach. The training recipe is described in detail in DeepSeek-AI (2025).</p>
+
+    <p><strong>Google Gemini 2.5 Thinking Mode.</strong> Google's Gemini 2.5 models include an optional "thinking" mode that enables extended reasoning. When activated, the model generates a visible thinking trace before its answer, similar to the o-series approach. The Gemini implementation is notable for its integration with <a class="cross-ref" href="../../part-7-multimodal-applications/module-27-multimodal/section-27.1.html">multimodal</a> inputs (discussed in <a class="cross-ref" href="../../part-7-multimodal-applications/module-27-multimodal/section-27.1.html">Section 27.1</a>): the model can reason over images, charts, and documents, not just text.</p>
+
+    <p><strong>Anthropic Claude with extended thinking.</strong> Claude models also support an extended thinking mode where the model produces a structured reasoning trace before answering. The thinking budget can be configured by the API caller, allowing fine-grained control over the compute/quality tradeoff.</p>
+
+    <div class="comparison-table">
+        <div class="comparison-table-title">Dimension Comparison</div>
+        <table>
+        <caption>Table 9.6.1: Comparison of Standard LLM vs. Reasoning Model Behavior</caption>
+        <tr><th>Dimension</th><th>Standard LLM</th><th>Reasoning Model</th></tr>
+        <tr><td><strong>Response latency</strong></td><td>1 to 5 seconds (typical)</td><td>5 to 120+ seconds (depends on problem difficulty)</td></tr>
+        <tr><td><strong>Output tokens per query</strong></td><td>100 to 2,000 (answer only)</td><td>500 to 50,000+ (thinking + answer)</td></tr>
+        <tr><td><strong>Cost per query</strong></td><td>&#36;0.001 to &#36;0.05</td><td>&#36;0.01 to &#36;2.00+ (proportional to thinking tokens)</td></tr>
+        <tr><td><strong>Accuracy on easy tasks</strong></td><td>High</td><td>High (similar, sometimes slightly lower due to overthinking)</td></tr>
+        <tr><td><strong>Accuracy on hard reasoning</strong></td><td>Low to moderate</td><td>High (often 2x to 5x improvement on math/code benchmarks)</td></tr>
+        <tr><td><strong>Streaming experience</strong></td><td>Immediate token flow</td><td>Pause during thinking, then answer streams</td></tr>
+        <tr><td><strong>Determinism</strong></td><td>Controllable via <a class="cross-ref" href="../../part-1-foundations/module-05-decoding-text-generation/section-5.2.html">temperature</a></td><td>Less controllable; thinking paths vary across runs</td></tr>
+    </table>
+    </div>
+
+    <h2>3. Process Reward Models (PRMs) <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>A standard reward model (often called an <strong>Outcome Reward Model</strong>, or ORM) evaluates only the final answer. Given a question and a complete response, the ORM assigns a single scalar score. This is the approach used in standard <a class="cross-ref" href="../../part-4-training-adapting/module-16-alignment-rlhf-dpo/section-16.1.html">RLHF</a>, as covered in <a class="cross-ref" href="../../part-4-training-adapting/module-17-alignment-rlhf-dpo/section-17.1.html">Section 17.1</a>. However, for multi-step reasoning, outcome-level reward has a critical limitation: it provides no signal about <em>where</em> the reasoning went wrong. A model that makes a correct guess for the wrong reasons receives the same reward as one that reasons flawlessly.</p>
+
+    <p><strong>Process Reward Models (PRMs)</strong> address this by scoring <em>each step</em> of the reasoning chain independently. Given a partial solution up to step <em>k</em>, the PRM predicts the probability that continuing from this step will eventually reach a correct answer. This provides dense, step-level feedback that can guide both training and inference-time search.</p>
+
+    <h3>3.1 Training PRMs</h3>
+
+    <p>The seminal work on PRMs is Lightman et al. (2023), which introduced the PRM800K dataset: 800,000 step-level human annotations on mathematical reasoning chains. Each step in a solution is labeled as "correct," "incorrect," or "neutral." Training a reward model on these annotations produces a PRM that can evaluate reasoning quality at each intermediate step.</p>
+
+    <p>A key finding from this work is that PRMs substantially outperform ORMs when used to select among multiple candidate solutions. Given 100 candidate solutions to a math problem, ranking them by the PRM's minimum step-level score (the "worst step" heuristic) identifies correct solutions far more reliably than ranking by a single outcome score. The Math-Shepherd project (Wang et al., 2024) extended this approach by automating the collection of step-level labels, using Monte Carlo rollouts to estimate whether each step leads to a correct answer. This automation makes PRM training scalable without requiring expensive human annotations for every step.</p>
+
+    <h3>3.2 How PRMs Enable Better Reasoning</h3>
+
+    <p>PRMs unlock several powerful inference-time strategies:</p>
+
+    <ul>
+        <li><strong>Best-of-N with step-level scoring:</strong> Generate N candidate reasoning chains and select the one with the highest minimum PRM score across all steps. This catches chains that arrive at the right answer through flawed reasoning.</li>
+        <li><strong>Step-level <a class="cross-ref" href="../../part-1-foundations/module-05-decoding-text-generation/section-5.1.html">beam search</a>:</strong> At each reasoning step, generate multiple continuations, score them with the PRM, and keep only the top-scoring branches. This prunes bad reasoning paths early, before they waste compute.</li>
+        <li><strong>Training signal for RL:</strong> Use the PRM as a dense reward signal during reinforcement learning, providing feedback at every step rather than only at the end of a complete solution. This dramatically improves sample efficiency during RL training.</li>
+    </ul>
+
+    <h2>4. Search at Inference Time <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>The combination of a reasoning model and a verifier (PRM or ORM) naturally leads to <em>search</em> at inference time. Rather than generating a single reasoning chain and hoping it is correct, the system generates multiple candidates and uses the verifier to select or guide the best one. This is conceptually similar to how AlphaGo combined a neural network with Monte Carlo Tree Search; the model provides intuition and the search procedure provides reliability.</p>
+
+    <h3>4.1 Best-of-N Sampling</h3>
+
+    <p>The simplest search strategy is best-of-N: generate N independent solutions to a problem, score each one with a verifier, and return the highest-scoring solution. Despite its simplicity, best-of-N is remarkably effective. On the MATH benchmark, generating 256 solutions and selecting the best one (as scored by a PRM) can boost accuracy from roughly 50% (single sample) to over 85%. The cost scales linearly with N, but the returns diminish logarithmically, so there is a practical sweet spot (typically N = 16 to 64 for most applications).</p>
+
+    <h3>4.2 Monte Carlo Tree Search (MCTS) for Reasoning</h3>
+
+    <p>MCTS extends best-of-N by introducing <em>structured exploration</em>. Instead of generating complete solutions independently, MCTS builds a tree where each node represents a partial reasoning state and each edge represents a reasoning step. The algorithm iterates through four phases: (1) <strong>selection</strong>, using an upper confidence bound to balance exploration and exploitation; (2) <strong>expansion</strong>, generating new reasoning steps from promising nodes; (3) <strong>simulation</strong>, rolling out the reasoning to completion; and (4) <strong><a class="cross-ref" href="../../part-1-foundations/module-00-ml-pytorch-foundations/section-0.2.html">backpropagation</a></strong>, updating node values based on the outcome. A PRM provides the value estimates at each node, replacing the random rollouts used in traditional MCTS with informed step-level evaluations.</p>
+
+    <h3>4.3 The Compute-Optimal Frontier</h3>
+
+    <p>A central question in test-time compute scaling is: <strong>when should you think more versus use a bigger model?</strong> Snell et al. (2024) systematically studied this question and found that the answer depends on problem difficulty. For easy problems, a standard model answers correctly on the first attempt, so additional thinking wastes compute. For moderately hard problems, best-of-N sampling with a small model can match a much larger model at lower total cost. For extremely hard problems, even extensive search with a small model cannot compensate for fundamental capability gaps, and a larger model is necessary.</p>
+
+    <p>The practical implication is a <strong>routing strategy</strong>: classify incoming queries by difficulty and route them to the appropriate compute tier. Easy queries go to a fast, cheap model with no extra thinking. Medium queries go to a reasoning model with moderate thinking budget. Hard queries go to a large reasoning model with extensive search. This adaptive allocation can reduce overall inference costs by 3x to 10x compared to sending every query to the most capable model. We revisit routing architectures in the context of <a class="cross-ref" href="../../part-8-evaluation-production/module-29-evaluation-observability/section-29.4.html">Section 29.4</a>.</p>
+
+    <p><strong>Why test-time compute changes the optimization calculus.</strong> Every technique in this chapter so far (quantization, <a class="cross-ref" href="../module-08-inference-optimization/section-8.2.html">KV cache</a> optimization, speculative decoding, pruning) optimizes for the same objective: minimize the cost of producing each token. Reasoning models invert this objective. They deliberately spend more tokens (and more compute) per query because the marginal value of a correct answer on hard problems far exceeds the marginal cost of extra tokens. This means the serving infrastructure you build must support both modes: high-throughput, low-latency serving for easy queries (using all the techniques from Sections <a href="section-9.1.html">9.1</a> through <a href="section-9.5.html">9.5</a>) and high-compute, variable-latency serving for reasoning queries. The frameworks discussed in <a href="section-9.4.html">Section 9.4</a> (vLLM, SGLang) are evolving to support this dual mode, but the optimal architecture for mixed reasoning/standard workloads remains an active area of engineering.</p>
+
+    <h2>5. Using Reasoning Models in Practice <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <h3>5.1 API Usage</h3>
+
+    <p>Reasoning model APIs follow the same chat completion interface as standard models, but with additional parameters to control thinking behavior. Code Fragment 9.6.1 demonstrates how to call a reasoning model and inspect both the thinking trace and the final answer.</p>
+
+<pre><code class="language-python">
+# Python implementation
+# Key operations: API call, response parsing, cost estimation
+from openai import OpenAI
+
+client = OpenAI()
+
+# Call a reasoning model with extended thinking
+response = client.chat.completions.create(
+    model="o4-mini",       # reasoning model
+    messages=[
+        {
+            "role": "user",
+            "content": (
+                "Find all positive integers n such that "
+                "n^2 + 2n + 3 is divisible by n + 1."
+            )
+        }
+    ],
+    # Some APIs allow controlling thinking budget:
+    # max_completion_tokens includes both thinking + answer tokens
+    max_completion_tokens=16000
+)
+
+# The response includes both reasoning and answer
+message = response.choices[0].message
+print("=== Final Answer ===")
+print(message.content)
+
+# Access thinking tokens (if exposed by the API)
+# Note: OpenAI o-series models hide thinking tokens by default;
+# other providers (DeepSeek, Anthropic) may expose them.
+if hasattr(message, "reasoning_content") and message.reasoning_content:
+    print("\n=== Thinking Trace (first 500 chars) ===")
+    print(message.reasoning_content[:500])
+
+# Cost awareness: reasoning models consume many more tokens
+usage = response.usage
+print(f"\nTokens used: {usage.total_tokens}")
+print(f"  Prompt tokens:     {usage.prompt_tokens}")
+print(f"  Completion tokens: {usage.completion_tokens}")
+# For o-series, completion_tokens includes hidden thinking tokens
+# A simple math question might use 2,000+ thinking tokens
+# A hard problem might use 20,000+ thinking tokens
+</code></pre>
+    <div class="code-output">=== Final Answer ===
+We need n + 1 to divide n^2 + 2n + 3. Since n^2 + 2n + 3 = (n+1)^2 + 2,
+we need (n+1) | 2. So n + 1 is in {1, 2}, giving n in {1}.
+
+The answer is n = 1.
+
+Tokens used: 2847
+  Prompt tokens: 38
+  Completion tokens: 2809</div>
+    <div class="code-caption"><strong>Code Fragment 9.6.1:</strong> Calling a reasoning model via the <a class="cross-ref" href="../../part-3-working-with-llms/module-10-llm-apis/section-10.1.html">OpenAI API</a>. Note the high completion token count, which includes hidden thinking tokens.</div>
+
+    <h3>5.2 DeepSeek R1: Open-Weight Reasoning</h3>
+
+    <p>For teams that need on-premise deployment or want to customize reasoning behavior, DeepSeek R1 provides a fully open-weight alternative. The model can be served using the same infrastructure covered in <a href="section-9.4.html">Section 9.4</a> (vLLM, SGLang, TGI) and exposes its thinking trace directly in the output. Code Fragment 9.6.2 shows how to use R1 with visible reasoning.</p>
+
+<pre><code class="language-python">
+# Python implementation
+# Key operations: local model inference, thinking trace extraction
+from transformers import AutoTokenizer, AutoModelForCausalLM
+import torch
+
+# Load DeepSeek R1 (or a distilled variant for testing)
+model_name = "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B"
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+model = AutoModelForCausalLM.from_pretrained(
+    model_name,
+    torch_dtype=torch.bfloat16,
+    device_map="auto"
+)
+
+prompt = "How many prime numbers are there between 100 and 130?"
+messages = [{"role": "user", "content": prompt}]
+input_text = tokenizer.apply_chat_template(
+    messages, tokenize=False, add_generation_prompt=True
+)
+inputs = tokenizer(input_text, return_tensors="pt").to(model.device)
+
+# Generate with enough tokens for thinking + answer
+outputs = model.generate(
+    **inputs,
+    max_new_tokens=4096,
+    temperature=0.6,
+    do_sample=True
+)
+
+full_response = tokenizer.decode(
+    outputs[0][inputs["input_ids"].shape[1]:],
+    skip_special_tokens=True
+)
+
+# R1 outputs thinking inside &lt;think&gt;...&lt;/think&gt; tags
+if "&lt;think&gt;" in full_response and "&lt;/think&gt;" in full_response:
+    think_start = full_response.index("&lt;think&gt;") + len("&lt;think&gt;")
+    think_end = full_response.index("&lt;/think&gt;")
+    thinking = full_response[think_start:think_end].strip()
+    answer = full_response[think_end + len("&lt;/think&gt;"):].strip()
+    print(f"Thinking ({len(thinking.split())} words):")
+    print(thinking[:300] + "...")
+    print(f"\nFinal answer: {answer}")
+else:
+    print(full_response)
+</code></pre>
+    <div class="code-output">Thinking (187 words):
+Let me work through this systematically. I need to check each number
+from 101 to 129 for primality.
+
+101: not divisible by 2, 3, 5, 7. sqrt(101) is about 10, so I only
+need to check up to 10. 101/7 = 14.4... So 101 is prime.
+103: similar check... 103 is prime.
+107: prime.
+109: prime.
+113: prime...
+
+Final answer: There are 6 prime numbers between 100 and 130: 101, 103, 107, 109, 113, and 127.</div>
+    <div class="code-caption"><strong>Code Fragment 9.6.2:</strong> Using DeepSeek R1 locally with visible thinking trace. The model generates explicit reasoning before answering.</div>
+
+    <div class="callout practical-example">
+        <div class="callout-title">Routing Easy vs. Hard Queries at a Financial Services Firm</div>
+        <p><strong>Who:</strong> A quantitative analysis team at a mid-size asset management firm building an AI assistant for portfolio analysts.</p>
+        <p><strong>Situation:</strong> The team initially deployed a reasoning model (o3) for all queries, achieving excellent accuracy on complex financial calculations and regulatory interpretation.</p>
+        <p><strong>Problem:</strong> Monthly API costs reached &#36;18,000 because every query, including simple ones like "What is the current P/E ratio of AAPL?" and "Summarize this earnings call," was being processed with full extended thinking. Average response latency was 12 seconds, frustrating analysts who needed quick lookups.</p>
+        <p><strong>Decision:</strong> The team implemented a difficulty-based router. A lightweight <a class="cross-ref" href="../../part-3-working-with-llms/module-12-hybrid-ml-llm/section-12.2.html">classifier</a> (<a class="cross-ref" href="../../part-4-training-adapting/module-14-fine-tuning-fundamentals/section-14.1.html">fine-tuned</a> from a small <a class="cross-ref" href="../../part-5-retrieval-conversation/module-19-embeddings-vector-db/section-19.1.html">embedding model</a>) categorized incoming queries into three tiers: (1) factual lookups and simple summaries sent to GPT-4o-mini; (2) multi-step calculations and comparisons sent to GPT-4o; and (3) complex reasoning tasks (portfolio optimization, risk scenario analysis, regulatory interpretation) sent to o3.</p>
+        <p><strong>Result:</strong> Monthly costs dropped to &#36;4,200 (a 77% reduction). Average latency fell to 2.8 seconds. Accuracy on hard reasoning tasks remained unchanged, while simple query accuracy actually improved slightly because the fast model was less likely to overthink straightforward questions.</p>
+        <p><strong>Lesson:</strong> <strong>Reasoning models are a precision tool, not a universal replacement.</strong> The highest-<a class="cross-ref" href="../../part-9-safety-strategy/module-33-strategy-product-roi/section-33.2.html">ROI</a> deployment routes hard problems to reasoning models and everything else to fast, cheap standard models. Spending &#36;0.50 in thinking tokens on a question that a &#36;0.001 call can answer correctly is waste, not intelligence.</p>
+    </div>
+
+    <h3>5.3 Cost and Latency Considerations</h3>
+
+    <p>Thinking tokens are not free. Each thinking token incurs the same per-token cost as an output token (and sometimes more, depending on the provider). A reasoning model that generates 10,000 thinking tokens before producing a 200-token answer costs roughly 50x more than a standard model that produces the same 200-token answer directly. The latency impact is similarly significant: those 10,000 thinking tokens must be generated sequentially before the answer begins streaming, creating a noticeable delay.</p>
+
+    <p>For production systems, the key practices are:</p>
+
+    <ul>
+        <li><strong>Set thinking budgets:</strong> Most reasoning model APIs allow you to cap the maximum number of thinking tokens. For well-defined tasks, experiment to find the minimum budget that maintains accuracy.</li>
+        <li><strong>Use streaming for user experience:</strong> Even when the thinking phase takes 30 seconds, streaming the thinking trace (where available) gives users feedback that the model is working, reducing perceived latency.</li>
+        <li><strong>Batch hard problems:</strong> If latency is not critical (offline analysis, batch processing), reasoning models provide the best accuracy per dollar on hard tasks. The cost premium is justified when correctness matters more than speed.</li>
+        <li><strong>Monitor token usage:</strong> Track thinking token consumption per query type. Unexpected spikes in thinking tokens often indicate that the model is struggling with ambiguous inputs that could be clarified through better prompting (see <a class="cross-ref" href="../../part-3-working-with-llms/module-11-prompt-engineering/section-11.1.html">Section 11.1</a>).</li>
+    </ul>
+
+    <h2>6. The Compute-Optimal Frontier: Think More or Use a Bigger Model? <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>Snell et al. (2024) formalized the tradeoff between test-time compute and model size. Their key finding is that the optimal strategy depends on a "difficulty curve": for each problem, there exists a crossover point where additional test-time compute on a smaller model becomes more expensive than simply querying a larger model once. Below this crossover, test-time compute wins. Above it, model scale wins.</p>
+
+    <p>The practical framework for deciding between test-time compute and model scale involves three factors:</p>
+
+    <ol>
+        <li><strong>Problem difficulty distribution:</strong> If most of your queries are hard (e.g., competitive programming, advanced mathematics), investing in a larger model may be more cost-effective than scaling test-time compute on a small one. If difficulty varies widely, adaptive routing yields the best results.</li>
+        <li><strong>Latency requirements:</strong> Test-time compute introduces variable latency proportional to problem difficulty. For real-time applications (chatbots, autocomplete), this variability can be unacceptable. For batch or offline applications, it is irrelevant.</li>
+        <li><strong>Verifier quality:</strong> The effectiveness of test-time search depends critically on having a good verifier. For domains where correctness can be checked automatically (math, code, formal logic), test-time compute is highly effective. For open-ended tasks (creative writing, summarization), verifiers are weaker, and the returns from additional thinking diminish rapidly.</li>
+    </ol>
+
+    <!-- Quiz -->
+    <div class="quiz">
+        <h3>&#x2753; Section Quiz</h3>
+
+        <p class="quiz-question">1. What is the fundamental difference between traditional scaling (training bigger models) and test-time compute scaling?</p>
+        <details open>
+            <summary>Show Answer</summary>
+            <div class="answer">Traditional scaling increases model parameters and training data, which raises the cost of every query equally regardless of difficulty. Test-time compute scaling keeps the model size fixed but allows the model to spend variable amounts of inference compute per query. Easy questions get fast, cheap answers; hard questions get more thinking time. This adaptive allocation means you only pay extra compute when the problem warrants it.</div>
+        </details>
+
+        <p class="quiz-question">2. How does a Process Reward Model (PRM) differ from an Outcome Reward Model (ORM), and why does this matter for reasoning?</p>
+        <details open>
+            <summary>Show Answer</summary>
+            <div class="answer">An ORM scores only the final answer, providing a single reward signal for the entire reasoning chain. A PRM scores each intermediate step, providing dense feedback about where reasoning is correct or goes wrong. This matters because PRM scores enable step-level search (pruning bad reasoning branches early), more reliable selection among candidate solutions (catching right-answer-wrong-reasoning cases), and more sample-efficient RL training through dense reward signals.</div>
+        </details>
+
+        <p class="quiz-question">3. Why is best-of-N sampling with a verifier effective despite its simplicity?</p>
+        <details open>
+            <summary>Show Answer</summary>
+            <div class="answer">Best-of-N works because generating N independent solutions explores N different reasoning paths. Even if each individual path has a moderate probability of being correct (say 30%), the probability that at least one of N = 16 samples is correct is very high (approximately 99%). The verifier (PRM or ORM) then identifies which sample is most likely correct. The cost scales linearly with N, but accuracy improves rapidly for small N, creating a favorable cost/accuracy tradeoff up to a practical ceiling.</div>
+        </details>
+
+        <p class="quiz-question">4. When should you prefer a standard (non-reasoning) model over a reasoning model?</p>
+        <details open>
+            <summary>Show Answer</summary>
+            <div class="answer">Prefer a standard model when: (1) the task is straightforward and does not require multi-step reasoning (factual lookups, simple summaries, classification); (2) latency is critical and users cannot wait for a thinking phase; (3) cost sensitivity is high and the task does not justify 10x to 50x higher per-query costs; or (4) the task is inherently open-ended (creative writing, brainstorming) where additional thinking provides diminishing returns because there is no clear "correct" answer to verify against.</div>
+        </details>
+    </div>
+
+    <!-- Takeaways -->
+    <div class="takeaways">
+        <h2>Key Takeaways</h2>
+        <ul>
+            <li><strong>Test-time compute scaling</strong> is the paradigm of spending more inference compute (thinking tokens) to improve answer quality, as opposed to training a larger model.</li>
+            <li><strong>Reasoning models</strong> (OpenAI o-series, DeepSeek R1, Gemini 2.5 thinking, Claude extended thinking) generate internal chain-of-thought reasoning before answering, achieving dramatic improvements on math, code, and scientific reasoning.</li>
+            <li><strong>Process Reward Models (PRMs)</strong> score each reasoning step independently, enabling step-level search, early pruning of bad reasoning paths, and more reliable solution selection.</li>
+            <li><strong>Inference-time search</strong> (best-of-N, MCTS, beam search over reasoning chains) uses verifiers to select among multiple candidate solutions, trading compute for accuracy.</li>
+            <li><strong>The compute-optimal frontier</strong> depends on problem difficulty: test-time compute wins for medium-hard problems, while model scale wins for the hardest problems and is unnecessary for easy ones.</li>
+            <li><strong>Adaptive routing</strong> (sending easy queries to cheap models and hard queries to reasoning models) is the highest-ROI deployment strategy, often reducing costs by 3x to 10x compared to using a reasoning model for everything.</li>
+            <li><strong>Thinking tokens are not free:</strong> always set thinking budgets, monitor token consumption, and match the compute tier to the task difficulty.</li>
+        </ul>
+    </div>
+
+    <div class="callout research-frontier">
+        <div class="callout-title">Research Frontier</div>
+        <p>Test-time compute scaling is one of the fastest-moving areas in LLM research. Several directions are particularly active as of early 2026. <strong>Learned search policies</strong> aim to replace fixed search algorithms (best-of-N, MCTS) with models that learn when and how to search, dynamically allocating compute based on problem features. <strong>Self-verification</strong> trains the reasoning model to also serve as its own verifier, eliminating the need for a separate PRM. <strong>Efficient thinking</strong> investigates compression techniques for thinking tokens: can the model reason in a more compact latent space rather than generating verbose natural-language reasoning chains? <strong><a class="cross-ref" href="../../part-6-agentic-ai/module-24-multi-agent-systems/section-24.1.html">Multi-agent</a> reasoning</strong> (explored further in <a class="cross-ref" href="../../part-6-agentic-ai/module-24-multi-agent-systems/section-24.1.html">Section 24.1</a>) uses multiple model instances that debate and verify each other's reasoning, combining test-time compute scaling with ensemble diversity. Finally, <strong>distilling reasoning</strong> into standard models (training a non-reasoning model on the thinking traces of a reasoning model) aims to capture some benefits of test-time compute at standard inference cost, connecting to the <a class="cross-ref" href="../../part-4-training-adapting/module-16-distillation-merging/section-16.1.html">distillation</a> techniques in <a class="cross-ref" href="../../part-4-training-adapting/module-16-distillation-merging/section-16.1.html">Section 16.1</a>.</p>
+    </div>
+
+
+
+<h2>Exercises</h2>
+
+<div class="callout exercise">
+    <div class="callout-title">Exercise 9.6.1: End-to-end optimization priorities <span class="level-badge basic" title="Basic">BASIC</span> <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+    <p>You have been asked to reduce LLM serving costs by 3x. Rank these optimization options by expected impact: quantization, prompt engineering (shorter prompts), model distillation, caching, and hardware upgrade. Justify your ranking.</p>
+    <details open>
+        <summary>Answer Sketch</summary>
+        <p>1. Model routing/distillation (highest impact): using a 7B model for 70% of queries instead of 70B saves ~7x on those queries. Overall: ~5x savings. 2. Quantization (INT4): reduces memory and compute by ~3x. 3. Caching (prompt + semantic): eliminates compute for repeated/similar queries, typically 20 to 40% hit rate. 4. Prompt engineering: shorter prompts reduce prefill cost but usually affect response quality. 5. Hardware upgrade: newer GPUs (H100 vs. A100) give 2 to 3x improvement but require capital investment. The best strategy combines routing (biggest lever) with quantization (low effort, high return) to easily achieve 3x reduction.</p>
+    </details>
+</div>
+
+<div class="callout exercise">
+    <div class="callout-title">Exercise 9.6.2: Profiling LLM inference <span class="level-badge basic" title="Basic">BASIC</span> <span class="exercise-type coding" title="Coding">Coding</span></div>
+    <p>Write a script that profiles LLM inference, measuring: time-to-first-token, tokens-per-second during generation, total latency, and peak GPU memory usage. Use <code>torch.cuda.Event</code> for precise timing.</p>
+    <details open>
+        <summary>Answer Sketch</summary>
+        <p>Use <code>torch.cuda.Event(enable_timing=True)</code> to create start/end events. Record before prefill, after first token (TTFT), and at each subsequent token. Peak memory: <code>torch.cuda.max_memory_allocated()</code>. Key measurements: TTFT reveals prefill efficiency, tokens/second reveals decode speed, and memory reveals how much headroom exists for batching. For a 7B model on A100: expect TTFT ~50ms for a 100-token prompt, ~30 tokens/second for decode, and ~14 GB peak memory in FP16.</p>
+    </details>
+</div>
+
+<div class="callout exercise">
+    <div class="callout-title">Exercise 9.6.3: Inference optimization for edge devices <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span> <span class="exercise-type analysis" title="Analysis">Analysis</span></div>
+    <p>Compare the inference optimization requirements for three deployment targets: (1) cloud GPU (A100/H100), (2) consumer GPU (RTX 4090), and (3) mobile device (phone with NPU). What techniques are essential for each?</p>
+    <details open>
+        <summary>Answer Sketch</summary>
+        <p>Cloud GPU: focus on throughput (continuous batching, large batch sizes, PagedAttention). Quantization to INT8 for memory efficiency. Speculative decoding for latency-sensitive applications. Consumer GPU: limited to 24 GB VRAM, so quantization (INT4) is essential. Single-request latency matters more than throughput. <a class="cross-ref" href="../../part-1-foundations/module-04-transformer-architecture/section-4.4.html">FlashAttention</a> and efficient KV-cache management are critical. Mobile NPU: extremely limited memory (4 to 8 GB shared with OS), so INT4 or even INT3 quantization is mandatory. Model size limited to 1 to 3B parameters. Operator-level optimization (custom kernels for NPU hardware) and model architecture co-design (fewer layers, shared weights) are necessary. Battery constraints limit sustained inference duration.</p>
+    </details>
+</div>
+
+<div class="callout exercise">
+    <div class="callout-title">Exercise 9.6.4: Benchmark design for inference <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span> <span class="exercise-type coding" title="Coding">Coding</span></div>
+    <p>Design and implement an inference benchmark that tests: (1) prefill throughput (tokens/second for prompt processing), (2) decode throughput (tokens/second for generation), (3) concurrent request handling (throughput at batch sizes 1, 4, 16, 64), and (4) memory utilization at each batch size.</p>
+    <details open>
+        <summary>Answer Sketch</summary>
+        <p>Send requests with varying prompt lengths (128, 512, 2048, 8192 tokens) and generation lengths (64, 256, 1024 tokens) at different batch sizes. Measure wall-clock time, GPU utilization (nvidia-smi), and memory. Key metrics to report: tokens/second/GPU for both prefill and decode, TTFT at each batch size, and the maximum batch size before OOM. Present results as a table showing the latency-throughput tradeoff curve. Good benchmarks also test mixed workloads (varying prompt and response lengths within a batch) to simulate realistic traffic.</p>
+    </details>
+</div>
+
+<div class="callout exercise">
+    <div class="callout-title">Exercise 9.6.5: Future of inference optimization <span class="level-badge advanced" title="Advanced">ADVANCED</span> <span class="exercise-type discussion" title="Discussion">Discussion</span></div>
+    <p>Predict three major advances in LLM inference optimization over the next two years. Consider hardware trends (chip architectures), algorithmic improvements, and system-level innovations.</p>
+    <details open>
+        <summary>Answer Sketch</summary>
+        <p>1. Hardware: custom LLM inference chips (like Groq's LPU and Cerebras' wafer-scale engine) that are designed for the specific memory access patterns of autoregressive generation, potentially achieving 10x throughput/dollar over GPUs. 2. Algorithmic: advances in linear attention or state-space models (Mamba-like architectures) that reduce the fundamental O(n^2) attention bottleneck, enabling million-token contexts without approximation. 3. System-level: intelligent request routing and model cascading that automatically selects the cheapest model capable of handling each query, with speculative execution across model tiers. Together, these could reduce inference costs by 10 to 100x, making current frontier-model capabilities available at today's small-model prices.</p>
+    </details>
+</div>
+
+<div class="whats-next">
+    <h2>What Comes Next</h2>
+    <p>This concludes Chapter 9 on inference optimization. In the next chapter, <a class="cross-ref" href="../../part-3-working-with-llms/module-10-llm-apis/index.html">Chapter 10: LLM APIs</a>, we shift from optimizing inference to using LLMs through their API interfaces, covering the practical engineering of building applications on top of hosted models.</p>
+</div>
+
+<section class="bibliography" id="bibliography">
+    <div class="bibliography-title">References and Further Reading</div>
+
+    <div class="bib-category">Test-Time Compute and Reasoning</div>
+
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://arxiv.org/abs/2408.03314" target="_blank" rel="noopener">Snell, C. et al. (2024). <em>Scaling LLM Test-Time Compute Optimally Can Be More Effective Than Scaling Model Parameters</em>.</a></p>
+        <p class="bib-annotation">The foundational study on test-time compute scaling. Demonstrates that optimally allocating inference compute can outperform 14x larger models on challenging tasks, and provides a framework for deciding when to think more versus use a bigger model.</p>
+        <span class="bib-meta">Paper</span>
+    </div>
+
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://openai.com/index/learning-to-reason-with-llms/" target="_blank" rel="noopener">OpenAI. (2024). <em>Learning to Reason with LLMs</em>. OpenAI Blog.</a></p>
+        <p class="bib-annotation">OpenAI's technical overview of the o1 model, describing how reinforcement learning trains models to produce extended chains of thought. Includes benchmark results on AIME, Codeforces, and GPQA.</p>
+        <span class="bib-meta">Blog Post</span>
+    </div>
+
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://openai.com/index/openai-o1-system-card/" target="_blank" rel="noopener">OpenAI. (2024). <em>OpenAI o1 System Card</em>.</a></p>
+        <p class="bib-annotation">The safety and capability evaluation for o1, documenting reasoning capabilities, failure modes, and safety mitigations. Essential reading for understanding the alignment considerations specific to reasoning models (see also <a class="cross-ref" href="../../part-4-training-adapting/module-17-alignment-rlhf-dpo/index.html">Chapter 17</a>).</p>
+        <span class="bib-meta">Technical Report</span>
+    </div>
+
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://arxiv.org/abs/2501.12948" target="_blank" rel="noopener">DeepSeek-AI. (2025). <em>DeepSeek-R1: Incentivizing Reasoning Capability in LLMs via Reinforcement Learning</em>.</a></p>
+        <p class="bib-annotation">Describes the training recipe for DeepSeek R1, demonstrating that pure RL (without supervised chain-of-thought data) can produce strong reasoning models. The open-weight release enabled widespread research into reasoning model training.</p>
+        <span class="bib-meta">Paper</span>
+    </div>
+
+    <div class="bib-category">Process Reward Models</div>
+
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://arxiv.org/abs/2305.20050" target="_blank" rel="noopener">Lightman, H. et al. (2023). <em>Let's Verify Step by Step</em>. ICLR 2024.</a></p>
+        <p class="bib-annotation">Introduces PRM800K and demonstrates that process-level reward models substantially outperform outcome-level reward models for selecting correct mathematical reasoning chains. The dataset and methodology have become foundational for PRM research.</p>
+        <span class="bib-meta">Paper</span>
+    </div>
+
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://arxiv.org/abs/2312.08935" target="_blank" rel="noopener">Wang, P. et al. (2024). <em>Math-Shepherd: Verify and Reinforce LLMs Step-by-step without Human Annotations</em>. ACL 2024.</a></p>
+        <p class="bib-annotation">Proposes automated collection of step-level labels using Monte Carlo estimation, making PRM training scalable without human annotation. Demonstrates competitive results with PRM800K-trained models at a fraction of the labeling cost.</p>
+        <span class="bib-meta">Paper</span>
+    </div>
+
+    <div class="bib-category">Inference-Time Search</div>
+
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://arxiv.org/abs/2406.07394" target="_blank" rel="noopener">Brown, B. et al. (2024). <em>Large Language Monkeys: Scaling Inference Compute with Repeated Sampling</em>.</a></p>
+        <p class="bib-annotation">Systematic study of best-of-N sampling at scale. Shows that coverage (the probability that at least one sample is correct) improves log-linearly with the number of samples, providing practical guidelines for compute allocation.</p>
+        <span class="bib-meta">Paper</span>
+    </div>
+
+</section>
+
+<nav class="chapter-nav">
+    <a href="section-9.5.html" class="prev">Previous: Model Pruning &amp; Sparsity</a>
+</nav>
+    <footer><p>Fifth Edition, 2026 &middot; <a href="../../toc.html">Contents</a></p></footer>
+</main>
+</body>
+</html>

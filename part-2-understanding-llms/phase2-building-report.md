@@ -40,7 +40,7 @@ Date: 2026-03-26
 
 6. **[Code] Section 7.1 (Closed-Source Models) has zero runnable code.** Even a minimal example showing how to call the OpenAI API, the Claude API, or the Gemini API would add practical value. Learners reading about frontier models should see how they are accessed programmatically. Priority: HIGH.
 
-7. **[Visual] Section 8.3 (Speculative Decoding) uses only one SVG.** The acceptance/rejection sampling math deserves a visual showing probability distributions overlapping (draft vs. target), which would make the min(1, p/q) acceptance criterion intuitive. Priority: MEDIUM-HIGH.
+7. **[Visual] Section 10.3 (Speculative Decoding) uses only one SVG.** The acceptance/rejection sampling math deserves a visual showing probability distributions overlapping (draft vs. target), which would make the min(1, p/q) acceptance criterion intuitive. Priority: MEDIUM-HIGH.
 
 8. **[Exercise] No "modify and observe" exercises exist anywhere in Modules 06, 07, or 08.** All exercises are quiz questions with hidden answers. There are no prompts asking the learner to change a parameter in a code example and predict or observe the result. This is a significant gap in active learning design. Priority: HIGH.
 
@@ -48,7 +48,7 @@ Date: 2026-03-26
 
 9. **[Visual] Section 6.7 (In-Context Learning) has only one SVG for a section with four distinct theoretical frameworks.** The implicit gradient descent view and the task vector concept both lend themselves to diagramming but have no visual support. Priority: MEDIUM-HIGH.
 
-10. **[Analogy] Section 8.1 (Quantization) lacks an intuitive analogy for how quantization works.** A comparison to reducing color depth in an image (millions of colors to 256 colors) would immediately ground the abstract math. Priority: MEDIUM-HIGH.
+10. **[Analogy] Section 10.1 (Quantization) lacks an intuitive analogy for how quantization works.** A comparison to reducing color depth in an image (millions of colors to 256 colors) would immediately ground the abstract math. Priority: MEDIUM-HIGH.
 
 11. **[Analogy] Section 6.4 (Data Curation) uses no analogies to explain MinHash LSH.** The concept of "fingerprinting" documents could be compared to how Shazam identifies songs from audio fingerprints, making the locality-sensitive hashing idea far more approachable. Priority: MEDIUM.
 
@@ -60,7 +60,7 @@ Date: 2026-03-26
 
 15. **[Code] Section 6.2 (Pre-training Objectives) FIM code does not show output.** The code block for `apply_fim` does not include a `code-output` block. Learners cannot see what the FIM transformation looks like in practice without running the code. Priority: MEDIUM.
 
-16. **[Analogy] Section 8.2 (KV Cache) compares PagedAttention to OS virtual memory but does not note where the analogy breaks down.** The comparison is excellent, but it should mention that, unlike OS paging, KV cache blocks are never swapped to disk and eviction policies differ significantly. Priority: MEDIUM.
+16. **[Analogy] Section 10.2 (KV Cache) compares PagedAttention to OS virtual memory but does not note where the analogy breaks down.** The comparison is excellent, but it should mention that, unlike OS paging, KV cache blocks are never swapped to disk and eviction policies differ significantly. Priority: MEDIUM.
 
 17. **[Visual] Diagram captions are consistently good across all sections.** Every SVG has a descriptive caption with a figure number. This is a strength. No action needed.
 
@@ -72,7 +72,7 @@ Date: 2026-03-26
 
 ### Minor: Polish and Enhancement Opportunities
 
-21. **[Exercise] Section 8.2 quiz questions are not visible in the initial read but are confirmed to exist.** Verify that quiz formatting is consistent with the details/summary pattern used elsewhere. Priority: LOW-MEDIUM.
+21. **[Exercise] Section 10.2 quiz questions are not visible in the initial read but are confirmed to exist.** Verify that quiz formatting is consistent with the details/summary pattern used elsewhere. Priority: LOW-MEDIUM.
 
 22. **[Code] Section 7.3 code example uses `deepseek-ai/DeepSeek-R1-Distill-Qwen-7B` without noting model size or download requirements.** A brief comment about disk/memory requirements (approximately 14 GB for BF16) would help learners plan. Priority: LOW-MEDIUM.
 
@@ -84,9 +84,9 @@ Date: 2026-03-26
 
 26. **[Exercise] All quizzes use the details/summary HTML pattern correctly.** Every quiz question has a collapsible answer. This is consistent and well-implemented. No action needed.
 
-27. **[Visual] Section 8.4 (Serving Infrastructure) has strong diagram coverage with two SVGs, four code examples, and four code outputs.** This is the most code-rich section in Module 08 and serves as a good model for other sections. No action needed.
+27. **[Visual] Section 10.4 (Serving Infrastructure) has strong diagram coverage with two SVGs, four code examples, and four code outputs.** This is the most code-rich section in Module 08 and serves as a good model for other sections. No action needed.
 
-28. **[Analogy] Section 8.3 (Speculative Decoding) uses the "draft and verify" terminology clearly but could add a brief analogy.** Comparing to an editor reviewing a writer's draft (accept most text, fix a few sentences) would make the concept immediately accessible. Priority: LOW.
+28. **[Analogy] Section 10.3 (Speculative Decoding) uses the "draft and verify" terminology clearly but could add a brief analogy.** Comparing to an editor reviewing a writer's draft (accept most text, fix a few sentences) would make the concept immediately accessible. Priority: LOW.
 
 29. **[Code] Code blocks across all sections use consistent syntax highlighting with the Catppuccin color scheme.** The syntax highlighting is applied uniformly. No action needed.
 

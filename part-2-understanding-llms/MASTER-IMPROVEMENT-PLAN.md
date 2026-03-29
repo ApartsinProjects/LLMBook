@@ -36,16 +36,16 @@ These items represent missing promised content, broken self-containment, or stru
 ### T1-01. Add cross-references to prerequisite modules in all 15 section HTML files
 - **Module:** ALL
 - **Reports:** Phase 1 (#27), Phase 3 (#1), Phase 4 (#7)
-- **Details:** Zero sections contain inline references to prerequisite material. Section 8.2 (KV Cache) assumes attention knowledge from Module 04 with no pointer. Section 7.3 mentions Chinchilla scaling laws but never points to Section 6.3. Section 6.6 (Distributed Training) references tensor operations with no pointer to Module 00 (PyTorch foundations).
+- **Details:** Zero sections contain inline references to prerequisite material. Section 10.2 (KV Cache) assumes attention knowledge from Module 04 with no pointer. Section 7.3 mentions Chinchilla scaling laws but never points to Section 6.3. Section 6.6 (Distributed Training) references tensor operations with no pointer to Module 00 (PyTorch foundations).
 - **Fix:** Add brief parenthetical references at first use of prerequisite concepts throughout all 15 sections. Minimum: one cross-reference per section to Part I material and one to earlier Part II material where applicable.
 
-### T1-02. Add from-scratch speculative decoding implementation to Section 8.3
+### T1-02. Add from-scratch speculative decoding implementation to Section 10.3
 - **Module:** 08
 - **Reports:** Phase 1 (#1), Phase 3 (#10), Phase 4 (#1)
 - **Details:** The syllabus and chapter plan promise a lab implementing the draft-verify-resample loop. The section only shows the Hugging Face `assistant_model` API and a Medusa simulation. Students cannot understand acceptance/rejection sampling from an API call alone.
 - **Fix:** Add a 30-line pedagogical implementation using two GPT-2 models (small draft, larger target) with the full accept/reject/resample loop.
 
-### T1-03. Add mathematical proof of lossless distribution preservation to Section 8.3
+### T1-03. Add mathematical proof of lossless distribution preservation to Section 10.3
 - **Module:** 08
 - **Reports:** Phase 1 (#2), Phase 3 (#29), Phase 4 (#2)
 - **Details:** The Key Insight callout states speculative decoding is "lossless" but the probability argument is never shown. The acceptance criterion min(1, q(x)/p(x)) is given without explaining why it preserves the target distribution.
@@ -109,7 +109,7 @@ These items represent missing promised content, broken self-containment, or stru
 - **Module:** 07, 08
 - **Reports:** Phase 5 (#3)
 - **Details:** Knowledge distillation appears in pretraining (teacher-student), post-training (distilling reasoning traces, as DeepSeek-R1 demonstrated), and inference (draft models). All reference courses cover this, but Part II does not.
-- **Fix:** Add a "Paper Spotlight" on the DeepSeek-R1 distillation pipeline in Section 7.3, and a cross-reference noting the connection to draft models in Section 8.3.
+- **Fix:** Add a "Paper Spotlight" on the DeepSeek-R1 distillation pipeline in Section 7.3, and a cross-reference noting the connection to draft models in Section 10.3.
 
 ### T1-14. Update Section 7.1 for model staleness and add evaluation framework
 - **Module:** 07
@@ -129,12 +129,12 @@ These items represent missing promised content, broken self-containment, or stru
 
 These items represent significant gaps in depth, coverage, or pedagogy that should be addressed soon after blocking issues.
 
-### T2-01. Add GGUF format discussion to Section 8.1
+### T2-01. Add GGUF format discussion to Section 10.1
 - **Module:** 08
 - **Reports:** Phase 1 (#9), Phase 3 (#23), Phase 4 (#16), Phase 5 (#8)
-- **Details:** GGUF is the dominant format for local inference (llama.cpp, Ollama). Section 8.4 references it but Section 8.1 never explains the format or its mixed-precision k-quant strategy.
+- **Details:** GGUF is the dominant format for local inference (llama.cpp, Ollama). Section 10.4 references it but Section 10.1 never explains the format or its mixed-precision k-quant strategy.
 
-### T2-02. Add GQA memory savings worked calculation to Section 8.2
+### T2-02. Add GQA memory savings worked calculation to Section 10.2
 - **Module:** 08
 - **Reports:** Phase 1 (#6), Phase 4 (#17)
 - **Details:** The MHA vs. MQA vs. GQA table lacks concrete numbers. A Llama 3 8B example showing GB of KV cache at 4K context under MHA vs. GQA would make the architectural choice tangible.
@@ -148,7 +148,7 @@ These items represent significant gaps in depth, coverage, or pedagogy that shou
 - **Module:** 07, 08
 - **Reports:** Phase 1 (#27), Phase 3 (#4), Phase 4 (#19)
 - **Details:** Both sections independently explain GQA and MLA. Neither acknowledges the other.
-- **Fix:** In 7.2: "We return to GQA's memory implications in Section 8.2." In 8.2: "GQA architecture details were introduced in Section 7.2; here we focus on memory savings."
+- **Fix:** In 7.2: "We return to GQA's memory implications in Section 10.2." In 8.2: "GQA architecture details were introduced in Section 7.2; here we focus on memory savings."
 
 ### T2-05. Upgrade Module 07 quiz questions to higher Bloom's levels
 - **Module:** 07
@@ -161,7 +161,7 @@ These items represent significant gaps in depth, coverage, or pedagogy that shou
 - **Reports:** Phase 2 (#4), Phase 4 (#10)
 - **Details:** The section covers five optimizer topics but only grokking gets a diagram. A learning rate schedule comparison visualization is strongly needed.
 
-### T2-07. Add TTT (Test-Time Training) expanded explanation to Section 8.2
+### T2-07. Add TTT (Test-Time Training) expanded explanation to Section 10.2
 - **Module:** 08
 - **Reports:** Phase 1 (#10), Phase 3 (#25), Phase 4 (#26)
 - **Details:** TTT is described in one paragraph. Students may confuse it with fine-tuning. The key distinction (temporary inference-time weight updates that are discarded after generation) is not clearly stated.
@@ -181,7 +181,7 @@ These items represent significant gaps in depth, coverage, or pedagogy that shou
 - **Reports:** Phase 1 (#12), Phase 3 (#21), Phase 4 (#21)
 - **Details:** The Muennighoff et al. finding (up to 4 epochs of data repetition with minimal degradation) is mentioned in a single paragraph. Practical guidance on when to repeat vs. augment vs. synthesize is missing.
 
-### T2-11. Add TensorRT-LLM code example to Section 8.4
+### T2-11. Add TensorRT-LLM code example to Section 10.4
 - **Module:** 08
 - **Reports:** Phase 1 (#16), Phase 3 (#15), Phase 4 (#27)
 - **Details:** vLLM, TGI, and Ollama all have runnable examples. TensorRT-LLM, positioned as the highest-throughput option, has only a descriptive paragraph.
@@ -201,10 +201,10 @@ These items represent significant gaps in depth, coverage, or pedagogy that shou
 - **Reports:** Phase 1 (#23), Phase 4 (#29)
 - **Details:** Reasoning traces can make hallucinations either more transparent (visible errors) or more convincing (coherent but incorrect chains). This practical consideration is absent.
 
-### T2-15. Add KV cache quantization subsection to Section 8.2
+### T2-15. Add KV cache quantization subsection to Section 10.2
 - **Module:** 08
 - **Reports:** Phase 5 (#13)
-- **Details:** KV cache quantization (INT4/INT8 for cached keys/values) is standard in production serving. vLLM supports it natively. This is distinct from weight quantization and extends Section 8.1.
+- **Details:** KV cache quantization (INT4/INT8 for cached keys/values) is standard in production serving. vLLM supports it natively. This is distinct from weight quantization and extends Section 10.1.
 
 ### T2-16. Add Mamba/SSM "Where This Leads Next" sidebar to Section 6.2 or 7.2
 - **Module:** 06 or 07
@@ -216,7 +216,7 @@ These items represent significant gaps in depth, coverage, or pedagogy that shou
 - **Reports:** Phase 1 (#15), Phase 4 (#32)
 - **Details:** The section distinguishes open-source from open-weight but does not explain Llama's 700M MAU restriction, Apache 2.0, or other practical licensing differences critical for production.
 
-### T2-18. Add GPTQ Hessian explanation to Section 8.1
+### T2-18. Add GPTQ Hessian explanation to Section 10.1
 - **Module:** 08
 - **Reports:** Phase 1 (#17)
 - **Details:** GPTQ is described as "Hessian-based optimal rounding" but the Hessian's role (second-order sensitivity of loss to weight perturbations) is not explained.
@@ -236,17 +236,17 @@ These items represent significant gaps in depth, coverage, or pedagogy that shou
 - **Reports:** Phase 1 (#19), Phase 3 (#30), Phase 4 (#35), Phase 5 (#10)
 - **Details:** With 128K+ context models now standard, ring attention and sequence parallelism are increasingly relevant. The chapter plan flags this gap.
 
-### T2-22. Add self-speculative decoding mention to Section 8.3
+### T2-22. Add self-speculative decoding mention to Section 10.3
 - **Module:** 08
 - **Reports:** Phase 5 (#17)
 - **Details:** LayerSkip, SPEED, and similar "draft-free" approaches eliminate the need for a separate draft model. These are notable extensions of the speculative decoding concept.
 
-### T2-23. Add SGLang expanded coverage and verify LMDeploy in Section 8.4
+### T2-23. Add SGLang expanded coverage and verify LMDeploy in Section 10.4
 - **Module:** 08
 - **Reports:** Phase 5 (#9)
 - **Details:** SGLang has emerged as a strong vLLM competitor in 2025, particularly for structured output. RadixAttention deserves at least a paragraph.
 
-### T2-24. Add acceptance/rejection sampling probability distribution SVG to Section 8.3
+### T2-24. Add acceptance/rejection sampling probability distribution SVG to Section 10.3
 - **Module:** 08
 - **Reports:** Phase 2 (#7)
 - **Details:** A visual showing overlapping draft vs. target distributions with the min(1, p/q) acceptance criterion would make the math intuitive.
@@ -262,7 +262,7 @@ These items represent significant gaps in depth, coverage, or pedagogy that shou
 
 These items improve quality, polish, and competitiveness with reference courses.
 
-### T3-01. Add quantization analogy (color depth reduction) to Section 8.1
+### T3-01. Add quantization analogy (color depth reduction) to Section 10.1
 - **Module:** 08
 - **Reports:** Phase 2 (#10), Phase 4 (#37)
 
@@ -302,7 +302,7 @@ These items improve quality, polish, and competitiveness with reference courses.
 - **Module:** 06
 - **Reports:** Phase 3 (#26), Phase 4 (#30)
 
-### T3-11. Improve Section 8.2 opening hook
+### T3-11. Improve Section 10.2 opening hook
 - **Module:** 08
 - **Reports:** Phase 4 (#34)
 - **Fix:** Start with: "You quantized your model to 4-bit, but inference is still slow. Why? The KV cache is now the bottleneck."
@@ -351,7 +351,7 @@ These items improve quality, polish, and competitiveness with reference courses.
 - **Module:** 06
 - **Reports:** Phase 5 (#23)
 
-### T3-23. Add cost optimization and auto-scaling discussion to Section 8.4
+### T3-23. Add cost optimization and auto-scaling discussion to Section 10.4
 - **Module:** 08
 - **Reports:** Phase 1 (#29), Phase 4 (#38)
 

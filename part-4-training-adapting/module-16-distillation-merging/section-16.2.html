@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Section 16.2: Model Merging & Composition</title>
+    <link rel="stylesheet" href="../../styles/book.css">
+    <link rel="stylesheet" href="../../vendor/katex/katex.min.css">
+    <script defer src="../../vendor/katex/katex.min.js"></script>
+    <script defer src="../../vendor/katex/contrib/auto-render.min.js"
+        onload="renderMathInElement(document.body, {
+            delimiters: [
+                {left: '$$', right: '$$', display: true},
+                {left: '$', right: '$', display: false}
+            ],
+            throwOnError: false
+        });"></script>
+    <link rel="stylesheet" href="../../vendor/prism/prism-theme.css">
+    <script defer src="../../vendor/prism/prism-bundle.min.js"></script>
+</head>
+<body>
+<header class="chapter-header">
+    <nav class="header-nav">
+        <a href="../../index.html" class="book-title-link">Building Conversational AI with LLMs and Agents</a>
+        <a href="../../toc.html" class="toc-link" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+    </nav>
+    <div class="part-label"><a href="../index.html">Part 4: Training and Adapting</a></div>
+    <div class="chapter-label"><a href="index.html">Chapter 16: Distillation and Merging</a></div>
+    <h1>Model Merging &amp; Composition</h1>
+</header>
+
+<main class="content">
+
+<blockquote class="epigraph">
+    <p>The whole is greater than the sum of its parts, especially when the parts are neural networks that learned different things.</p>    <cite><span class="agent-avatar-inline" style="background-color: #1abc9c;"><img src="../../front-matter/images/agents/distill.png" alt="Distill"></span> <a href="../../front-matter/wisdom-council.html#distill">Distill</a> <span class="agent-desc">AI Agent</span></cite>
+</blockquote>
+
+<figure class="illustration">
+ <img src="images/model-merging-cocktail.png" alt="A bartender mixing different model weights together like cocktail ingredients to create a blended model" loading="lazy">
+ <figcaption><strong>Figure 16.2.1</strong>: Model merging is mixology for neural networks. Combine the right weights in the right proportions, and you get something better than any single ingredient.</figcaption>
+</figure>
+
+
+<div class="prerequisites">
+    <h3>Prerequisites</h3>
+    <p>This section builds on the distillation fundamentals from <a href="section-16.1.html">Section 16.1: Knowledge Distillation for LLMs</a>. You should also be comfortable with <a class="cross-ref" href="../module-14-fine-tuning-fundamentals/section-14.1.html">fine-tuning</a> workflows from <a class="cross-ref" href="../module-14-fine-tuning-fundamentals/section-14.1.html">Section 14.1</a> and the <a href="../module-15-peft/index.html" class="cross-ref">LoRA</a> adapter mechanics covered in <a class="cross-ref" href="../module-15-peft/section-15.1.html">Section 15.1</a>, since merging frequently involves combining <a class="cross-ref" href="../module-15-peft/section-15.1.html">LoRA</a>-adapted models.</p>
+</div>
+
+    <div class="callout big-picture">
+        <div class="callout-title">Big Picture</div>
+        <p><strong>Model merging creates multi-skilled models by combining weights from specialized fine-tunes, requiring no GPU training at all.</strong> If you have a model fine-tuned for code and another fine-tuned for medical text, merging can produce a single model that handles both domains. This sounds like magic, and the theoretical understanding is still developing, but the empirical results are striking. Merged models regularly top the Open LLM Leaderboard, and the technique has become a core tool in the <a class="cross-ref" href="../../part-2-understanding-llms/module-07-modern-llm-landscape/section-7.1.html">open-source model</a> ecosystem. This section covers the key merging algorithms (Linear, SLERP, TIES, DARE), the theoretical framework of task arithmetic, and practical workflows using MergeKit. The fine-tuning techniques from <a class="cross-ref" href="../module-14-fine-tuning-fundamentals/section-14.3.html">Section 14.3</a> and <a class="cross-ref" href="../module-15-peft/section-15.1.html">Section 15.1</a> produce the specialized models that merging combines.</p>
+    </div>
+
+
+    <h2>1. Why Model Merging Works <span class="level-badge basic" title="Basic">Basic</span></h2>
+
+    <p>
+        Model merging exploits a remarkable property of neural network loss landscapes: models fine-tuned from the same base occupy a connected region of parameter space where linear interpolations between them tend to perform well. When two models are fine-tuned from the same pretrained checkpoint, their weight differences from the base represent "task vectors" in parameter space. These task vectors can be combined arithmetically because the underlying loss landscape in the neighborhood of the pretrained model is approximately convex.
+    </p>
+
+    <p>
+        The key constraint is that all models being merged must share the same architecture and originate from the same base pretrained checkpoint. You cannot merge a Llama model with a Mistral model (for an overview of these model families, see <a class="cross-ref" href="../../part-2-understanding-llms/module-07-modern-llm-landscape/index.html">Chapter 07</a>), or even two Llama models fine-tuned from different pretrained versions. The common ancestry is what ensures the weight spaces are compatible. Figure 16.2.1 visualizes these task vectors in parameter space.
+    </p>
+
+
+<div class="callout key-insight">
+    <div class="callout-title">Key Insight: The Cocktail Mixer</div>
+    <p>Think of model merging as mixing cocktails. Each fine-tuned model is a single spirit with a distinct flavor profile (one excels at code, another at creative writing, a third at math). Weight averaging is the simplest mix: equal parts of each. SLERP and TIES are more sophisticated bartending techniques that blend flavors along smooth curves or resolve conflicting ingredients. The result can be a balanced cocktail that inherits the best of each spirit, though poor mixing ratios can produce something undrinkable.</p>
+</div>
+
+    <div class="diagram-container">
+        <svg viewBox="0 0 700 300" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, system-ui, sans-serif" role="img" aria-label="Diagram">
+<defs>
+<linearGradient id="grad_c5ecae_f5f5f5" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#ffffff"/><stop offset="100%" stop-color="#f5f5f5"/></linearGradient>
+<filter id="shadow_c5ecae" x="-5%" y="-5%" width="115%" height="115%"><feDropShadow dx="2" dy="2" stdDeviation="3" flood-opacity="0.1"/></filter>
+</defs>
+            <text x="350" y="25" text-anchor="middle" font-size="15" font-weight="bold" fill="#333">Task Vectors in Parameter Space</text>
+
+            <!-- Base model point -->
+            <circle cx="350" cy="200" r="8" fill="#3949ab"/>
+            <text x="350" y="230" text-anchor="middle" font-size="12" font-weight="bold" fill="#3949ab">Base Model</text>
+
+            <!-- Code model -->
+            <circle cx="180" cy="90" r="8" fill="#2e7d32"/>
+            <text x="180" y="75" text-anchor="middle" font-size="12" font-weight="bold" fill="#2e7d32">Code FT</text>
+            <line x1="345" y1="195" x2="185" y2="95" stroke="#2e7d32" stroke-width="2" stroke-dasharray="6" stroke-linecap="round"/>
+            <text x="240" y="160" font-size="10" fill="#2e7d32" transform="rotate(-35, 240, 160)">Task Vector A</text>
+
+            <!-- Medical model -->
+            <circle cx="520" cy="90" r="8" fill="#e65100"/>
+            <text x="520" y="75" text-anchor="middle" font-size="12" font-weight="bold" fill="#e65100">Medical FT</text>
+            <line x1="355" y1="195" x2="515" y2="95" stroke="#e65100" stroke-width="2" stroke-dasharray="6" stroke-linecap="round"/>
+            <text x="460" y="160" font-size="10" fill="#e65100" transform="rotate(35, 460, 160)">Task Vector B</text>
+
+            <!-- Merged model -->
+            <circle cx="350" cy="80" r="10" fill="#8e44ad" stroke="#8e44ad" stroke-width="2"/>
+            <text x="350" y="60" text-anchor="middle" font-size="12" font-weight="bold" fill="#8e44ad">Merged Model</text>
+            <line x1="350" y1="192" x2="350" y2="92" stroke="#8e44ad" stroke-width="2.5" stroke-linecap="round"/>
+            <text x="370" y="145" font-size="10" fill="#8e44ad">A + B combined</text>
+
+            <!-- Legend -->
+            <rect filter="url(#shadow_c5ecae)" x="50" y="255" width="600" height="35" fill="url(#grad_c5ecae_f5f5f5)" stroke="#ddd" stroke-width="1" rx="4"/>
+            <text x="350" y="278" text-anchor="middle" font-size="11" fill="#555">Task vectors (weight deltas from base) can be added to create multi-skill models</text>
+        </svg>
+        <div class="diagram-caption"><strong>Figure 16.2.1</strong>: Task vectors represent the weight changes from fine-tuning. Adding task vectors combines capabilities.</div>
+    </div>
+
+
+<p><strong>Why does model merging work at all?</strong> This is one of the most surprising results in recent LLM research. The intuition relies on the concept of <em>linear mode connectivity</em>: models fine-tuned from the same base checkpoint tend to occupy the same low-loss basin in the parameter space. Because they share the same initialization, the paths from the base model to each fine-tuned variant do not cross high-loss barriers. Averaging (or otherwise combining) their weights produces a point that also lies within this shared basin, inheriting capabilities from both. This explains why merging fails for models trained from different random initializations: they occupy entirely separate loss basins with no linear path between them. The practical consequence is that model merging is only reliable when all constituent models descend from the same base checkpoint.</p>
+
+<div class="callout key-insight">
+    <div class="callout-title">Key Insight</div>
+    <p><strong>Model merging gives you multi-task capability without multi-task training data.</strong> If you have one LoRA adapter fine-tuned for code generation and another for medical Q&A, merging them can produce a model competent at both tasks, without ever creating a dataset that mixes code and medical examples. This is uniquely valuable in practice because collecting balanced multi-task training data is one of the hardest parts of fine-tuning. Merging bypasses this entirely by combining independently trained specialists.</p>
+</div>
+
+    <h2>2. Merging Methods <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <h3>2.1 Linear (Weighted Average)</h3>
+
+    <p>
+        The simplest merging method computes a weighted average of model weights. Given models A and B with weights <span class="math">$W_{A}$</span> and <span class="math">$W_{B}$</span>, the merged model has weights:
+    </p>
+
+    <div class="math-block">
+$$W_{merged} = \alpha \cdot W_{A} + (1 - \alpha) \cdot W_{B}$$
+</div>
+
+    <p>
+        The mixing coefficient &alpha; controls the balance between models. Setting &alpha; = 0.5 gives equal weight to both. Linear merging is fast and simple, but it can produce mediocre results when the models have very different weight distributions because opposing parameter changes can cancel each other out.
+    </p>
+
+    <h3>2.2 SLERP (Spherical Linear Interpolation)</h3>
+
+    <p>
+        SLERP treats weight vectors as points on a high-dimensional sphere and interpolates along the geodesic (shortest path on the sphere surface) rather than in a straight line through the interior. This preserves the magnitude of weight vectors better than linear interpolation, which tends to shrink weights toward zero when the models diverge.
+    </p>
+
+    <p>
+        SLERP is applied layer by layer (or parameter by parameter) and produces consistently better results than linear averaging. It is the recommended default for merging two models.
+    </p>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight</div>
+        <p>SLERP can only merge exactly two models at a time. For merging three or more models, you must either chain multiple SLERP operations (merge A+B, then merge result+C) or use a method that natively supports multiple inputs like Linear averaging or TIES. The order of chained SLERP merges can affect the result, so experiment with different orderings.</p>
+    </div>
+
+    <div class="callout practical-example">
+      <div class="callout-title">Merging Specialist LoRAs for a Multi-Skill Assistant</div>
+      <p><strong>Who:</strong> Open-source model developer contributing to the <a class="cross-ref" href="../module-14-fine-tuning-fundamentals/section-14.5.html">Hugging Face</a> community</p>
+      <p><strong>Situation:</strong> The developer had three separately fine-tuned LoRA adapters on Mistral 7B: one for creative writing, one for <a class="cross-ref" href="../../part-7-multimodal-applications/module-28-llm-applications/section-28.1.html">code generation</a>, and one for factual Q&amp;A.</p>
+      <p><strong>Problem:</strong> Serving three separate adapters required either runtime adapter switching (adding latency) or running three model instances (tripling GPU cost).</p>
+      <p><strong>Dilemma:</strong> Linear averaging of the three adapters degraded performance on all tasks because the code adapter and creative writing adapter pushed parameters in opposite directions for shared layers.</p>
+      <p><strong>Decision:</strong> They used TIES-Merging with density 0.5 to resolve parameter conflicts, trimming low-magnitude deltas and electing the majority sign direction before averaging.</p>
+      <p><strong>How:</strong> Using the <code>mergekit</code> library, they defined a YAML config specifying TIES as the merge method, set density to 0.5, and assigned equal weight to all three models. The merge completed in 4 minutes on CPU.</p>
+      <p><strong>Result:</strong> The merged model retained 92% of each specialist's <a class="cross-ref" href="../../part-8-evaluation-production/module-29-evaluation-observability/section-29.2.html">benchmark</a> score on its domain, compared to only 78% with naive linear averaging. A single model served all three tasks with no adapter switching overhead.</p>
+      <p><strong>Lesson:</strong> <strong>When merging models with conflicting parameter updates, TIES resolves sign conflicts that destroy performance under simple averaging; always try TIES before concluding that merging does not work for your use case.</strong></p>
+    </div>
+
+    <div class="callout fun-note">
+              <div class="callout-title">Fun Fact</div>
+        <p>Model merging combines multiple fine-tuned models into one without any additional training. It is like mixing paint colors: if blue is good at code and red is good at creative writing, maybe purple can do both. Surprisingly, this metaphor holds up better than you would expect.</p>
+    </div>
+
+    <h3>2.3 TIES (TRIM, Elect Sign, merge)</h3>
+
+    <p>
+        TIES-Merging (2023) addresses the interference problem that plagues simple averaging. When two fine-tuned models modify the same parameter in opposite directions, averaging cancels out both changes. TIES handles this through three steps:
+    </p>
+
+    <ol>
+        <li><strong>TRIM:</strong> Remove small-magnitude changes (below a threshold) that are likely noise rather than meaningful task knowledge.</li>
+        <li><strong>Elect Sign:</strong> For each parameter, take a majority vote across models on the sign of the change. Parameters where models disagree on direction are resolved by the majority.</li>
+        <li><strong>Merge:</strong> Average only the values that agree with the elected sign, zeroing out conflicting contributions.</li>
+    </ol>
+
+    <p>Figure 16.2.2 walks through these three TIES steps visually.</p>
+
+    <div class="diagram-container">
+        <svg viewBox="0 0 700 280" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, system-ui, sans-serif" role="img" aria-label="Diagram: 2.3 TIES (TRIM, Elect Sign, merge)">
+<defs>
+<linearGradient id="grad_571eb4_f3e5f5" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#fff4ff"/><stop offset="100%" stop-color="#f3e5f5"/></linearGradient>
+<linearGradient id="grad_571eb4_ffcdd2" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#ffdce1"/><stop offset="100%" stop-color="#ffcdd2"/></linearGradient>
+<linearGradient id="grad_571eb4_c8e6c9" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#d7f5d8"/><stop offset="100%" stop-color="#c8e6c9"/></linearGradient>
+<linearGradient id="grad_571eb4_f5f5f5" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#ffffff"/><stop offset="100%" stop-color="#f5f5f5"/></linearGradient>
+<linearGradient id="grad_571eb4_e8f4fd" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#f7ffff"/><stop offset="100%" stop-color="#e8f4fd"/></linearGradient>
+<filter id="shadow_571eb4" x="-5%" y="-5%" width="115%" height="115%"><feDropShadow dx="2" dy="2" stdDeviation="3" flood-opacity="0.1"/></filter>
+</defs>
+            <text x="350" y="25" text-anchor="middle" font-size="15" font-weight="bold" fill="#333">TIES-Merging: Three-Step Process</text>
+
+            <!-- Step 1: Trim -->
+            <rect filter="url(#shadow_571eb4)" x="30" y="50" width="190" height="110" fill="url(#grad_571eb4_e8f4fd)" stroke="#3498db" stroke-width="1.5" rx="8"/>
+            <text x="125" y="75" text-anchor="middle" font-size="13" font-weight="bold" fill="#1565c0">1. TRIM</text>
+            <text x="125" y="98" text-anchor="middle" font-size="11" fill="#555">Remove small changes</text>
+            <text x="125" y="115" text-anchor="middle" font-size="11" fill="#555">(likely noise)</text>
+
+            <rect x="55" y="128" width="20" height="15" fill="url(#grad_571eb4_c8e6c9)" stroke="#2e7d32" stroke-width="1"/>
+            <rect x="80" y="128" width="20" height="15" fill="url(#grad_571eb4_ffcdd2)" stroke="#c62828" stroke-width="1"/>
+            <rect x="105" y="128" width="20" height="15" fill="url(#grad_571eb4_c8e6c9)" stroke="#2e7d32" stroke-width="1"/>
+            <rect x="130" y="128" width="20" height="15" fill="#eee" stroke="#999" stroke-width="1" stroke-dasharray="2"/>
+            <rect x="155" y="128" width="20" height="15" fill="#eee" stroke="#999" stroke-width="1" stroke-dasharray="2"/>
+            <text x="125" y="155" text-anchor="middle" font-size="11" fill="#888">Dashed = trimmed</text>
+
+            <!-- Arrow -->
+            <text x="235" y="110" text-anchor="middle" font-size="24" fill="#333">&rarr;</text>
+
+            <!-- Step 2: Elect Sign -->
+            <rect x="255" y="50" width="190" height="110" fill="#e8f5e9" stroke="#2e7d32" stroke-width="1.5" rx="8"/>
+            <text x="350" y="75" text-anchor="middle" font-size="13" font-weight="bold" fill="#2e7d32">2. ELECT SIGN</text>
+            <text x="350" y="98" text-anchor="middle" font-size="11" fill="#555">Majority vote on</text>
+            <text x="350" y="115" text-anchor="middle" font-size="11" fill="#555">direction of change</text>
+
+            <text x="285" y="140" font-size="10" fill="#2e7d32">Model A: +0.3</text>
+            <text x="285" y="155" font-size="10" fill="#c62828">Model B: -0.1</text>
+            <text x="380" y="148" font-size="11" font-weight="bold" fill="#2e7d32">Elect: +</text>
+
+            <!-- Arrow -->
+            <text x="460" y="110" text-anchor="middle" font-size="24" fill="#333">&rarr;</text>
+
+            <!-- Step 3: Merge -->
+            <rect x="480" y="50" width="190" height="110" fill="url(#grad_571eb4_f3e5f5)" stroke="#7b1fa2" stroke-width="1.5" rx="8"/>
+            <text x="575" y="75" text-anchor="middle" font-size="13" font-weight="bold" fill="#7b1fa2">3. MERGE</text>
+            <text x="575" y="98" text-anchor="middle" font-size="11" fill="#555">Average only values</text>
+            <text x="575" y="115" text-anchor="middle" font-size="11" fill="#555">matching elected sign</text>
+
+            <text x="575" y="140" text-anchor="middle" font-size="10" fill="#555">Keep +0.3 from A</text>
+            <text x="575" y="155" text-anchor="middle" font-size="10" fill="#555">Zero out -0.1 from B</text>
+
+            <!-- Result -->
+            <rect x="130" y="200" width="440" height="60" fill="url(#grad_571eb4_f5f5f5)" stroke="#ddd" stroke-width="1" rx="6"/>
+            <text x="350" y="225" text-anchor="middle" font-size="12" font-weight="bold" fill="#333">Result: Cleaner merge with less destructive interference</text>
+            <text x="350" y="245" text-anchor="middle" font-size="11" fill="#555">Particularly effective when merging 3+ models with conflicting changes</text>
+        </svg>
+        <div class="diagram-caption"><strong>Figure 16.2.2</strong>: TIES reduces interference by trimming noise, resolving sign conflicts, and merging only aligned contributions.</div>
+    </div>
+
+    <h3>2.4 DARE (Drop And REscale)</h3>
+
+    <p>
+        DARE (2024) takes a different approach to reducing interference: it randomly drops a large fraction (typically 90-99%) of the delta parameters before merging, then rescales the remaining parameters to compensate. The intuition is that fine-tuning changes are highly redundant, and a small random subset of changes captures the essential task knowledge. By keeping only a sparse set of changes from each model, the probability of destructive interference is dramatically reduced.
+    </p>
+
+    <p>
+        DARE can be combined with other merging methods (DARE+TIES is a popular combination) and tends to work especially well when merging many models or when the models have been fine-tuned for very different tasks.
+    </p>
+
+    <h3>2.5 Model Stock</h3>
+
+    <p>
+        Model Stock (2024) draws on ideas from portfolio theory in finance. Instead of merging all models uniformly, it selects an optimal subset and weighting based on the geometric properties of the models in weight space. It computes the distances between models and the base, then assigns weights that maximize diversity while minimizing deviation from the base. This produces more robust merges, particularly when some of the input models are lower quality or overfitted.
+    </p>
+
+    <h2>3. Merging Method Comparison <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <div class="comparison-table">
+        <div class="comparison-table-title">3. Merging Method Comparison Intermediate</div>
+        <table>
+        <tr><th>Method</th><th>Models</th><th>Handles Interference</th><th>Complexity</th><th>Best For</th></tr>
+        <tr><td><strong>Linear</strong></td><td>2+</td><td>No</td><td>Very Low</td><td>Quick baseline, similar models</td></tr>
+        <tr><td><strong>SLERP</strong></td><td>2 only</td><td>Partially</td><td>Low</td><td>Default for two-model merges</td></tr>
+        <tr><td><strong>TIES</strong></td><td>2+</td><td>Yes (sign election)</td><td>Medium</td><td>Merging 3+ diverse models</td></tr>
+        <tr><td><strong>DARE</strong></td><td>2+</td><td>Yes (sparsification)</td><td>Medium</td><td>Many models, high diversity</td></tr>
+        <tr><td><strong>DARE+TIES</strong></td><td>2+</td><td>Yes (both)</td><td>Medium</td><td>Best overall quality</td></tr>
+        <tr><td><strong>Model Stock</strong></td><td>2+</td><td>Yes (selection)</td><td>High</td><td>Quality-sensitive merges</td></tr>
+    </table>
+    </div>
+
+    <h2>4. Task Arithmetic <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        Task arithmetic provides the theoretical framework for understanding model merging. A "task vector" is defined as the element-wise difference between a fine-tuned model and its pretrained base: <strong>&tau; = <span class="math">$W_{ft}$</span> - <span class="math">$W_{base}$</span></strong>. Task arithmetic shows that these vectors can be manipulated algebraically:
+    </p>
+
+    <ul>
+        <li><strong>Addition:</strong> <span class="math">$W_{base}$</span> + &tau;<sub>A</sub> + &tau;<sub>B</sub> creates a model with both capabilities</li>
+        <li><strong>Negation:</strong> <span class="math">$W_{base}$</span> - &tau;<sub>A</sub> removes capability A (useful for unlearning)</li>
+        <li><strong>Scaling:</strong> <span class="math">$W_{base}$</span> + &lambda;&tau;<sub>A</sub> controls the strength of adaptation</li>
+    </ul>
+
+    <p>Code Fragment 16.2.1 demonstrates this approach.</p>
+
+<pre><code class="language-python"># Implement model merging by interpolating weight tensors
+# Linear interpolation (LERP/SLERP) blends capabilities from multiple models
+import torch
+from transformers import AutoModelForCausalLM
+
+def compute_task_vector(base_model_id, finetuned_model_id):
+    """Compute task vector: delta = finetuned - base."""
+    # Load pretrained causal LM (decoder-only architecture)
+    base = AutoModelForCausalLM.from_pretrained(base_model_id)
+    finetuned = AutoModelForCausalLM.from_pretrained(finetuned_model_id)
+
+    task_vector = {}
+    for name in base.state_dict():
+        task_vector[name] = (
+            finetuned.state_dict()[name].float()
+            - base.state_dict()[name].float()
+        )
+    return task_vector
+
+def apply_task_vectors(base_model_id, task_vectors, scaling_factors):
+    """Apply scaled task vectors to base model."""
+    model = AutoModelForCausalLM.from_pretrained(base_model_id)
+    state_dict = model.state_dict()
+
+    for tv, scale in zip(task_vectors, scaling_factors):
+        for name in state_dict:
+            state_dict[name] = state_dict[name].float() + scale * tv[name]
+
+    model.load_state_dict(state_dict)
+    return model
+
+# Example: combine code and medical capabilities
+code_tv = compute_task_vector("base-model", "code-finetuned")
+medical_tv = compute_task_vector("base-model", "medical-finetuned")
+
+merged = apply_task_vectors(
+    "base-model",
+    [code_tv, medical_tv],
+    [0.7, 0.5],   # Scaling factors per task
+)</code></pre>
+
+<div class="code-caption"><strong>Code Fragment 16.2.1:</strong> Fine-tuning pipeline configuration with training hyperparameters. The <a class="cross-ref" href="../module-14-fine-tuning-fundamentals/section-14.3.html">learning rate</a>, batch size, and epochs control the optimization trajectory.</div>
+
+    <p>Code Fragment 16.2.2 demonstrates model merging.</p>
+
+<pre><code class="language-text"># TIES merge configuration (merge_ties.yml)
+models:
+  - model: models/code-llama-7b
+    parameters:
+      density: 0.5    # Keep top 50% of changes
+      weight: 1.0
+  - model: models/medical-llama-7b
+    parameters:
+      density: 0.5
+      weight: 0.8
+  - model: models/math-llama-7b
+    parameters:
+      density: 0.5
+      weight: 0.6
+
+merge_method: ties
+base_model: meta-llama/Llama-3-8B
+parameters:
+  normalize: true
+dtype: bfloat16</code></pre>
+
+<div class="code-caption"><strong>Code Fragment 16.2.2:</strong> TIES merge YAML configuration for MergeKit. Each model specifies a density parameter (fraction of weight changes to keep) and a weight for its contribution. The <code>normalize</code> flag ensures merged weights maintain proper scale.</div>
+
+    <p>Run the merge from the command line or use the MergeKit Python API for programmatic control. Code Fragment 16.2.3 shows both approaches.</p>
+
+<pre><code class="language-python"># pip install mergekit
+# Option 1: CLI (most common)
+# mergekit-yaml merge_ties.yml ./merged-output --cuda --copy-tokenizer
+
+# Option 2: Python API for programmatic merging
+from mergekit.config import MergeConfiguration
+from mergekit.merge import MergeOptions, run_merge
+
+config = MergeConfiguration.from_yaml("merge_ties.yml")
+run_merge(
+    config,
+    out_path="./merged-output",
+    options=MergeOptions(
+        cuda=True,
+        copy_tokenizer=True,
+        lazy_unpickle=True,    # lower RAM usage
+    ),
+)
+print("Merge complete. Test with: transformers AutoModelForCausalLM.from_pretrained('./merged-output')")</code></pre>
+<div class="code-caption"><strong>Code Fragment 16.2.3:</strong> Running a MergeKit merge via the CLI or the Python API. The <code>lazy_unpickle</code> option loads models incrementally to reduce peak RAM usage, which is essential when merging multiple 7B+ models.</div>
+
+    <div class="callout warning">
+        <div class="callout-title">Warning</div>
+        <p>Model merging requires enough system memory (RAM, not GPU VRAM) to hold all models simultaneously. Merging three 7B models in BF16 requires roughly 42 GB of RAM. Use the <code>--lazy-unpickle</code> flag in MergeKit to reduce memory usage by loading models incrementally. For very large models, consider merging on a cloud instance with sufficient RAM rather than on a local machine.</p>
+    </div>
+
+    <h2>7. Evolutionary Model Merging <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>
+        Evolutionary model merging (Sakana AI, 2024) automates the search for optimal merge configurations using evolutionary algorithms. Instead of manually selecting merge methods, weights, and layer-specific parameters, an evolutionary optimizer explores the space of possible merges and evaluates each candidate against a <a class="cross-ref" href="../../part-8-evaluation-production/module-29-evaluation-observability/index.html">benchmark suite</a>. This approach has produced merged models that significantly outperform manually configured merges.
+    </p>
+
+    <p>
+        The search space includes merge method selection, per-layer interpolation weights, density parameters (for TIES/DARE), and even layer permutations. The evolutionary algorithm (typically CMA-ES or NSGA-II) optimizes these parameters against multiple objectives: performance on target benchmarks, retention of base model capabilities, and overall coherence. Figure 16.2.3 depicts this optimization loop.
+    </p>
+
+    <div class="diagram-container">
+        <svg viewBox="0 0 700 220" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, system-ui, sans-serif" role="img" aria-label="Diagram">
+            <text x="350" y="25" text-anchor="middle" font-size="15" font-weight="bold" fill="#333">Evolutionary Merge Optimization Loop</text>
+
+            <!-- Population -->
+            <rect filter="url(#shadow_7d95de)" x="40" y="55" width="130" height="60" fill="url(#grad_7d95de_e8eaf6)" stroke="#3949ab" stroke-width="1.5" rx="6"/>
+            <text x="105" y="80" text-anchor="middle" font-size="12" font-weight="bold" fill="#3949ab">Population</text>
+            <text x="105" y="100" text-anchor="middle" font-size="10" fill="#555">N merge configs</text>
+
+            <!-- Arrow -->
+            <line x1="172" y1="85" x2="210" y2="85" stroke="#333" stroke-width="1.5" marker-end="url(#arrowE)" stroke-linecap="round"/>
+            <defs>
+<linearGradient id="grad_7d95de_fff3e0" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#ffffef"/><stop offset="100%" stop-color="#fff3e0"/></linearGradient>
+<linearGradient id="grad_7d95de_f3e5f5" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#fff4ff"/><stop offset="100%" stop-color="#f3e5f5"/></linearGradient>
+<linearGradient id="grad_7d95de_e8eaf6" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#f7f9ff"/><stop offset="100%" stop-color="#e8eaf6"/></linearGradient>
+<linearGradient id="grad_7d95de_c8e6c9" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#d7f5d8"/><stop offset="100%" stop-color="#c8e6c9"/></linearGradient>
+<filter id="shadow_7d95de" x="-5%" y="-5%" width="115%" height="115%"><feDropShadow dx="2" dy="2" stdDeviation="3" flood-opacity="0.1"/></filter>
+<marker id="arrowE" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#333"/></marker></defs>
+
+            <!-- Merge -->
+            <rect x="215" y="55" width="120" height="60" fill="url(#grad_7d95de_c8e6c9)" stroke="#2e7d32" stroke-width="1.5" rx="6"/>
+            <text x="275" y="80" text-anchor="middle" font-size="12" font-weight="bold" fill="#2e7d32">Merge</text>
+            <text x="275" y="100" text-anchor="middle" font-size="10" fill="#555">Apply each config</text>
+
+            <line x1="337" y1="85" x2="375" y2="85" stroke="#333" stroke-width="1.5" marker-end="url(#arrowE)" stroke-linecap="round"/>
+
+            <!-- Evaluate -->
+            <rect x="380" y="55" width="120" height="60" fill="url(#grad_7d95de_fff3e0)" stroke="#e65100" stroke-width="1.5" rx="6"/>
+            <text x="440" y="80" text-anchor="middle" font-size="12" font-weight="bold" fill="#e65100">Evaluate</text>
+            <text x="440" y="100" text-anchor="middle" font-size="10" fill="#555">Benchmark suite</text>
+
+            <line x1="502" y1="85" x2="540" y2="85" stroke="#333" stroke-width="1.5" marker-end="url(#arrowE)" stroke-linecap="round"/>
+
+            <!-- Select + Mutate -->
+            <rect x="545" y="55" width="120" height="60" fill="url(#grad_7d95de_f3e5f5)" stroke="#7b1fa2" stroke-width="1.5" rx="6"/>
+            <text x="605" y="80" text-anchor="middle" font-size="12" font-weight="bold" fill="#7b1fa2">Select + Mutate</text>
+            <text x="605" y="100" text-anchor="middle" font-size="10" fill="#555">Next generation</text>
+
+            <!-- Loop back arrow -->
+            <path d="M 605 117 L 605 165 L 105 165 L 105 117" fill="none" stroke="#888" stroke-width="1.5" stroke-dasharray="6" marker-end="url(#arrowE)" stroke-linecap="round"/>
+            <text x="350" y="185" text-anchor="middle" font-size="10" fill="#888">Repeat for K generations</text>
+        </svg>
+        <div class="diagram-caption"><strong>Figure 16.2.3</strong>: Evolutionary optimization searches the space of merge configurations, evaluating each candidate on benchmarks.</div>
+    </div>
+
+    <!-- Quiz Section -->
+    <div class="quiz">
+        <h3>Section 16.2 Quiz</h3>
+
+        <p class="quiz-question">1. What is the fundamental requirement for two models to be mergeable, and why?</p>
+        <details open>
+            <summary>Show Answer</summary>
+            <div class="answer">Both models must share the same architecture and originate from the same pretrained base checkpoint. This requirement exists because the weight spaces must be compatible. Models fine-tuned from the same base occupy a connected region of parameter space where interpolation between them traverses low-loss areas. Models from different bases have incompatible weight spaces where interpolation produces garbage.</div>
+        </details>
+
+        <p class="quiz-question">2. Why does SLERP generally outperform linear averaging for model merging?</p>
+        <details open>
+            <summary>Show Answer</summary>
+            <div class="answer">Linear averaging interpolates through the interior of the weight space, which tends to shrink weight magnitudes when the two models diverge. SLERP interpolates along the surface of a hypersphere, preserving the magnitude of weight vectors while smoothly transitioning direction. This magnitude preservation maintains the scaling properties that the model learned during training, resulting in better performance.</div>
+        </details>
+
+        <p class="quiz-question">3. Explain the three steps of TIES-Merging and why each is necessary.</p>
+        <details open>
+            <summary>Show Answer</summary>
+            <div class="answer">TRIM removes small-magnitude parameter changes that are likely training noise, reducing the chance of noise accumulation across models. ELECT SIGN resolves direction conflicts by taking a majority vote when models modify the same parameter in opposite directions. MERGE averages only the values that agree with the elected sign, zeroing out conflicting contributions. Together, these steps prevent the destructive interference where opposing changes cancel each other out during averaging.</div>
+        </details>
+
+        <p class="quiz-question">4. What is a task vector, and how does task arithmetic enable model composition?</p>
+        <details open>
+            <summary>Show Answer</summary>
+            <div class="answer">A task vector is the element-wise difference between a fine-tuned model's weights and its pretrained base weights: &tau; = W_ft - W_base. It represents "what the model learned" during fine-tuning. Task arithmetic shows that these vectors can be added (to combine capabilities), subtracted (to remove capabilities), and scaled (to control strength). Adding multiple task vectors to a base model creates a single model that inherits capabilities from all source fine-tunes.</div>
+        </details>
+
+        <p class="quiz-question">5. When would you use model soups versus multi-model merging (TIES/DARE)?</p>
+        <details open>
+            <summary>Show Answer</summary>
+            <div class="answer">Model soups average checkpoints from the same training run or from runs that differ only in hyperparameters (learning rate, data ordering). The goal is improved robustness and generalization for a single task. Multi-model merging (TIES/DARE) combines models fine-tuned for different tasks to create a multi-skill model. Use soups when you want a more robust version of your existing model; use TIES/DARE when you want to combine capabilities from models trained on different domains or tasks.</div>
+        </details>
+    </div>
+    <div class="callout tip">
+        <div class="callout-title">Tip: Use <a class="cross-ref" href="../../part-1-foundations/module-05-decoding-text-generation/section-5.2.html">Temperature</a> Scaling During Distillation</div>
+        <p>Set temperature to 2.0 to 4.0 when computing the teacher's soft labels. Higher temperatures reveal more of the teacher's uncertainty and inter-class relationships, giving the student richer learning signals than hard labels or low-temperature outputs.</p>
+    </div>
+
+    <!-- Key Takeaways -->
+    <div class="takeaways">
+        <h2>Key Takeaways</h2>
+        <ul>
+            <li><strong>Model merging combines specialized models</strong> into multi-skilled models with zero additional training, requiring only system RAM (not GPU VRAM).</li>
+            <li><strong>All models must share the same base</strong> architecture and pretrained checkpoint for merging to produce meaningful results.</li>
+            <li><strong>SLERP is the best default for two-model merges</strong>, preserving weight magnitudes through spherical interpolation rather than linear averaging.</li>
+            <li><strong>TIES and DARE handle interference</strong> when merging three or more models, using sign election and sparsification to prevent conflicting changes from canceling out.</li>
+            <li><strong>Task arithmetic provides the theoretical foundation:</strong> task vectors (fine-tuning deltas) can be added, subtracted, and scaled to compose and decompose model capabilities.</li>
+            <li><strong>Model soups average checkpoints</strong> from the same training process to improve robustness and generalization for a single task.</li>
+            <li><strong>MergeKit is the standard tool</strong> for practical model merging, supporting all major algorithms through YAML configuration files.</li>
+            <li><strong>Evolutionary merging automates</strong> the search for optimal merge configurations, often outperforming manually tuned merges.</li>
+        </ul>
+    </div>
+
+    <div class="callout research-frontier">
+    <div class="callout-title">Research Frontier</div>
+    <p>Model merging has moved beyond simple weight averaging with methods like TIES-Merging (which resolves sign conflicts between parameter deltas) and DARE (which randomly prunes delta parameters before merging). The <em>evolutionary model merging</em> approach by Sakana AI uses optimization algorithms to search over merging configurations, discovering non-obvious combinations that outperform expert-designed blends. The key open problem is predicting merge quality before performing the merge, since current approaches require expensive post-merge evaluation to determine whether a combination was successful.</p>
+</div>
+
+<section class="exercises">
+    <h2>Exercises</h2>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 16.2.1: Task arithmetic concept <span class="level-badge basic" title="Basic">BASIC</span> <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+        <p>Explain the concept of task arithmetic in model merging. What does it mean to compute a 'task vector', and how can you add or subtract task vectors?</p>
+        <details open><summary>Answer Sketch</summary>
+            <p>A task vector is the difference between a fine-tuned model's weights and the base model's weights: <code>task_vector = W_finetuned - W_base</code>. This vector captures what the fine-tuning learned. You can add task vectors to give the base model multiple skills: <code>W_merged = W_base + task_vector_code + task_vector_medical</code>. You can subtract to remove capabilities: <code>W_detoxified = W_base + task_vector - toxic_vector</code>. This treats model capabilities as compositional vectors in weight space.</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 16.2.2: SLERP vs. linear merging <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span> <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+        <p>Compare linear interpolation and SLERP (Spherical Linear Interpolation) for merging two models. When does SLERP produce better results?</p>
+        <details open><summary>Answer Sketch</summary>
+            <p>Linear: <code>W = (1-t)*W_A + t*W_B</code>. Simple but can reduce the magnitude of weight vectors, potentially degrading quality. SLERP: interpolates along the great circle on the unit hypersphere, preserving the magnitude of weight vectors. SLERP produces better results when the two models have similar magnitudes but different directions, which is common for models fine-tuned from the same base. For very similar models, the difference is minimal.</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 16.2.3: MergeKit workflow <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span> <span class="exercise-type coding" title="Coding">Coding</span></div>
+        <p>Write a MergeKit YAML configuration that merges a code-specialized model and a math-specialized model using the TIES method with density 0.5.</p>
+        <details open><summary>Answer Sketch</summary>
+            <p>Config: <code>merge_method: ties; base_model: meta-llama/Llama-3-8B; models: [{model: code-llama-8b, parameters: {density: 0.5, weight: 1.0}}, {model: math-llama-8b, parameters: {density: 0.5, weight: 1.0}}]; parameters: {normalize: true}; dtype: float16</code>. Run: <code>mergekit-yaml config.yaml output_dir/</code>. TIES resolves sign conflicts between task vectors by keeping only the top 50% (density) of parameters and resolving sign disagreements by majority vote.</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 16.2.4: DARE method <span class="level-badge advanced" title="Advanced">ADVANCED</span> <span class="exercise-type analysis" title="Analysis">Analysis</span></div>
+        <p>Explain the DARE (Drop And REscale) merging method. How does randomly dropping delta parameters before merging improve the result compared to naive averaging?</p>
+        <details open><summary>Answer Sketch</summary>
+            <p>DARE randomly sets a fraction (1 minus p) of each task vector's parameters to zero, then rescales the remaining parameters by 1/p to preserve the expected magnitude. This works because most parameters in a task vector are noise; only a small fraction carry the task-specific signal. Dropping noise reduces interference between task vectors during merging, allowing more models to be merged simultaneously without quality degradation. DARE enables merging 5+ models where naive averaging fails.</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 16.2.5: Merge evaluation <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span> <span class="exercise-type coding" title="Coding">Coding</span></div>
+        <p>After merging a code model and a medical model, write an evaluation script that tests the merged model on both code generation and medical QA benchmarks, plus a general knowledge benchmark to check for degradation.</p>
+        <details open><summary>Answer Sketch</summary>
+            <p>Run three evaluation suites: (1) Code: HumanEval or MBPP, measure pass@1. (2) Medical: MedQA or PubMedQA, measure accuracy. (3) General: MMLU or HellaSwag, measure accuracy. Compare against: the base model, the code-only fine-tune, and the medical-only fine-tune. The merged model should approach the specialist accuracy on each domain while retaining general capability above the base model. Report results in a comparison table with confidence intervals.</p>
+        </details>
+    </div>
+
+</section>
+
+
+
+
+<div class="whats-next">
+    <h2>What Comes Next</h2>
+    <p>In the next section, <a href="section-16.3.html">Section 16.3: Continual Learning and Domain Adaptation</a>, we address continual learning and domain adaptation, keeping models current as data distributions shift over time. Model merging approaches also relate to the <a class="cross-ref" href="../module-15-peft/section-15.1.html">LoRA adapter concepts in Section 15.1</a>, since adapters can themselves be merged.</p>
+</div>
+
+<section class="bibliography">
+    <div class="bibliography-title">&#128218; References &amp; Further Reading</div>
+
+    <div class="bib-category">Foundational Merging Theory</div>
+
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://arxiv.org/abs/2212.04089" target="_blank" rel="noopener">Ilharco, G., Ribeiro, M. T., Wortsman, M., et al. (2023). Editing Models with Task Arithmetic. <em>ICLR 2023</em>.</a></p>
+        <p class="bib-annotation">Introduces the task vector framework: subtracting a base model's weights from a fine-tuned model creates a direction in weight space that can be added, negated, or combined. The theoretical foundation for most modern merging methods.</p>
+        <span class="bib-meta">&#128196; Paper</span>
+    </div>
+
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://arxiv.org/abs/2203.05482" target="_blank" rel="noopener">Wortsman, M., Ilharco, G., Gadre, S. Y., et al. (2022). Model soups: averaging weights of multiple fine-tuned models improves accuracy without increasing inference time. <em>ICML 2022</em>.</a></p>
+        <p class="bib-annotation">Demonstrates that averaging weights of models fine-tuned with different hyperparameters yields better accuracy than any individual model. The simplest and most reliable form of model merging.</p>
+        <span class="bib-meta">&#128196; Paper</span>
+    </div>
+
+    <div class="bib-category">Advanced Merging Algorithms</div>
+
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://arxiv.org/abs/2306.01708" target="_blank" rel="noopener">Yadav, P., Tam, D., Choshen, L., Raffel, C., &amp; Bansal, M. (2023). TIES-Merging: Resolving Interference When Merging Models. <em>NeurIPS 2023</em>.</a></p>
+        <p class="bib-annotation">Addresses parameter interference during merging by trimming low-magnitude changes, resolving sign conflicts, and then merging. Produces significantly better results than naive averaging for dissimilar fine-tunes.</p>
+        <span class="bib-meta">&#128196; Paper</span>
+    </div>
+
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://arxiv.org/abs/2311.03099" target="_blank" rel="noopener">Yu, L., Yu, B., Yu, H., Huang, F., &amp; Li, Y. (2024). Language Models are Super Mario: Absorbing Abilities from Homologous Models as a Free Lunch. <em>ICML 2024</em>.</a></p>
+        <p class="bib-annotation">Introduces DARE (Drop And REscale), which randomly drops most delta parameters before merging. Counterintuitively, this sparsification improves merged model quality by reducing interference between task vectors.</p>
+        <span class="bib-meta">&#128196; Paper</span>
+    </div>
+
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://arxiv.org/abs/2111.09832" target="_blank" rel="noopener">Matena, M. &amp; Raffel, C. (2022). Merging Models with Fisher-Weighted Averaging. <em>NeurIPS 2022</em>.</a></p>
+        <p class="bib-annotation">Uses Fisher information to weight parameters by their importance during merging. More principled than uniform averaging, though computationally more expensive. Good for understanding information-theoretic merging.</p>
+        <span class="bib-meta">&#128196; Paper</span>
+    </div>
+
+    <div class="bib-category">Tools &amp; Toolkits</div>
+
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://arxiv.org/abs/2403.13257" target="_blank" rel="noopener">Goddard, C., Siriwardhana, S., Ehghaghi, M., et al. (2024). Arcee's MergeKit: A Toolkit for Merging Large Language Models.</a></p>
+        <p class="bib-annotation">The standard open-source toolkit for model merging, supporting linear, SLERP, TIES, DARE, and other methods via YAML configuration. Essential for anyone doing practical merging work with Hugging Face models.</p>
+        <span class="bib-meta">&#128295; Tool</span>
+    </div>
+</section>
+
+
+
+<nav class="chapter-nav">
+    <a href="section-16.1.html" class="prev">Previous: Knowledge Distillation for LLMs</a>
+    <a href="section-16.3.html" class="next">Next: Continual Learning &amp; Domain Adaptation </a>
+</nav>
+    <footer><p>Fifth Edition, 2026 &middot; <a href="../../toc.html">Contents</a></p></footer>
+</main>
+</body>
+</html>

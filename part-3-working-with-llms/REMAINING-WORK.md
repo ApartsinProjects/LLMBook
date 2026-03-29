@@ -8,26 +8,26 @@
 ## Applied Summary
 
 ### BLOCKING (3/3 applied)
-- [x] B1: Added 2 quiz questions to Section 11.2 (now has 6)
-- [x] B2: Added Gemini function calling code example to Section 9.2
+- [x] B1: Added 2 quiz questions to Section 13.2 (now has 6)
+- [x] B2: Added Gemini function calling code example to Section 11.2
 - [x] B3: Deduplicated semantic cache (kept in 9.3, replaced in 11.4 with cross-reference + threshold analysis)
 
 ### HIGH (11/13 applied)
-- [x] H1: Added AWS Bedrock boto3 code example to Section 9.1
-- [x] H2: Expanded step-back prompting with two-phase code example in Section 10.2
-- [x] H3: Added few-shot CoT code example with exemplar reasoning chains in Section 10.2
-- [x] H4: Added LLMLingua pip install + compression code example in Section 10.4
-- [x] H5: Added BAML installation/compilation steps in Section 11.5
-- [x] H6: Rewrote Section 9.1 Big Picture with narrative hook (cost overrun war story)
-- [x] H7: Added prompt technique decision flowchart (SVG) to Section 10.2
+- [x] H1: Added AWS Bedrock boto3 code example to Section 11.1
+- [x] H2: Expanded step-back prompting with two-phase code example in Section 12.2
+- [x] H3: Added few-shot CoT code example with exemplar reasoning chains in Section 12.2
+- [x] H4: Added LLMLingua pip install + compression code example in Section 12.4
+- [x] H5: Added BAML installation/compilation steps in Section 13.5
+- [x] H6: Rewrote Section 11.1 Big Picture with narrative hook (cost overrun war story)
+- [x] H7: Added prompt technique decision flowchart (SVG) to Section 12.2
 - [x] H8: Added 3 Paper Spotlight callouts (Wei et al., Wang et al., Khattab et al.)
 - [x] H9: Added "Where This Leads Next" boxes at ends of Sections 9.3, 10.4, 11.5
-- [x] H10: Added cross-reference to Part I/II prerequisites in Section 11.2
-- [x] H11: Added reasoning models note (o3, o4-mini, DeepSeek R1) in Section 10.2 flowchart
+- [x] H10: Added cross-reference to Part I/II prerequisites in Section 13.2
+- [x] H11: Added reasoning models note (o3, o4-mini, DeepSeek R1) in Section 12.2 flowchart
 
 ### HIGH (2/13 not applied)
-- [ ] H12: MCP standard mention in Section 9.2 (APPLIED as an MCP callout near function calling section)
-- [ ] H13: A/B testing skeleton code or learning objective removal in Section 10.4
+- [ ] H12: MCP standard mention in Section 11.2 (APPLIED as an MCP callout near function calling section)
+- [ ] H13: A/B testing skeleton code or learning objective removal in Section 12.4
 
 **H13 Justification:** Adding a full A/B testing code skeleton requires careful design (random assignment, metric comparison, statistical significance) and would add 40+ lines to an already dense section. The better approach is either (a) adding it as a standalone subsection or (b) removing the claim from the learning objectives. Both options need editorial decision that goes beyond code insertion.
 
@@ -51,8 +51,8 @@
 - [x] MCP callout added to 9.2 (H12)
 
 ### MEDIUM (4/19 not applied)
-- [ ] M9: Instructor retry validation failure demo (Section 9.2)
-- [ ] M16: TTFT definition before first use (Section 9.1)
+- [ ] M9: Instructor retry validation failure demo (Section 11.2)
+- [ ] M16: TTFT definition before first use (Section 11.1)
 - [ ] M19: LLM Integration Stack mnemonic (Connect, Control, Combine) on index pages
 
 **M9 Justification:** Adding a retry demo that deliberately triggers a validation error requires careful setup (a Pydantic model with constrained ranges, a prompt that generates out-of-range values). The existing note callout about retries is adequate for now; a future pass can add the code example.
@@ -77,7 +77,7 @@ None of the LOW priority items were applied. These are polish-level improvements
 **Justification:** LOW items are polish improvements that do not affect pedagogical completeness or accuracy. They should be addressed in a subsequent polish pass. L9 (CSS extraction) in particular is a structural change that affects all 12 files and should be done as a dedicated refactoring task.
 
 ### Items from Phase 4-12 Report Not Addressed
-- Cognitive overload in Section 10.3 (splitting into 10.3 + 10.5): This is a structural reorganization requiring new file creation, navigation link updates, and index page changes. Not appropriate for a content improvement pass.
+- Cognitive overload in Section 12.3 (splitting into 10.3 + 10.5): This is a structural reorganization requiring new file creation, navigation link updates, and index page changes. Not appropriate for a content improvement pass.
 - CSS duplication: Same as L9 above.
 - Voice consistency: Same as L10 above.
 - Code output JSON syntax highlighting: CSS enhancement, deferred.
@@ -88,8 +88,8 @@ None of the LOW priority items were applied. These are polish-level improvements
 
 ## Recommended Next Steps
 
-1. **Editorial decision on H13:** Remove A/B testing from Section 10.4 learning objectives, or add a minimal A/B skeleton.
+1. **Editorial decision on H13:** Remove A/B testing from Section 12.4 learning objectives, or add a minimal A/B skeleton.
 2. **CSS extraction (L9):** Create `part3-styles.css` and replace inline styles across all 12 section files.
 3. **LOW items pass:** Address L1 through L8 in a targeted pass.
 4. **New SVG diagrams:** Create the three missing diagrams flagged by chapter plans.
-5. **Section 10.3 split consideration:** Evaluate whether the cognitive load warrants splitting.
+5. **Section 12.3 split consideration:** Evaluate whether the cognitive load warrants splitting.

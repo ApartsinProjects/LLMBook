@@ -11,7 +11,7 @@
 The two reports collectively identify 80 findings. After de-duplication, 52 unique action items remain. Duplicates removed:
 - "Missing Gemini function calling" (Report 1 #2, Report 2 #25 partial overlap)
 - "Multimodal API coverage" (Report 1 #13, Report 2 #34)
-- "Section 9.1 opening needs a hook" (Report 1 implied in #4, Report 2 #2)
+- "Section 11.1 opening needs a hook" (Report 1 implied in #4, Report 2 #2)
 - "Paper Spotlight callouts" (Report 1 implied, Report 2 #11)
 - "Where This Leads Next boxes" (Report 1 implied, Report 2 #33)
 - "Prompt technique decision flowchart" (Report 1 implied in #5, Report 2 #16)
@@ -26,7 +26,7 @@ The two reports collectively identify 80 findings. After de-duplication, 52 uniq
 
 | # | Finding | Section | Action |
 |---|---------|---------|--------|
-| B1 | Quiz count is 5, not 6 in Section 11.2 | 11.2 | Add one quiz question at Apply/Evaluate level on embedding model selection |
+| B1 | Quiz count is 5, not 6 in Section 13.2 | 11.2 | Add one quiz question at Apply/Evaluate level on embedding model selection |
 | B2 | Missing Gemini function calling example | 9.2 | Add a Gemini function_declarations code example |
 | B3 | Semantic cache code duplicated between 9.3 and 11.4 | 9.3, 11.4 | Keep implementation in 9.3; replace 11.4 code with cross-reference and cost-optimization focus |
 
@@ -39,7 +39,7 @@ The two reports collectively identify 80 findings. After de-duplication, 52 uniq
 | H3 | Missing few-shot CoT code | 10.2 | Add 2-3 exemplar reasoning chain example |
 | H4 | LLMLingua has no code example | 10.4 | Add pip install + compression call with token counts |
 | H5 | BAML Python integration missing | 11.5 | Add pip install, compilation, and Python calling code |
-| H6 | Section 9.1 opens like API docs, not a story | 9.1 | Rewrite Big Picture with a narrative hook (cost/failure scenario) |
+| H6 | Section 11.1 opens like API docs, not a story | 9.1 | Rewrite Big Picture with a narrative hook (cost/failure scenario) |
 | H7 | No decision flowchart for prompt techniques | 10.2 | Add SVG decision flowchart |
 | H8 | No "Paper Spotlight" callouts | 10.2, 10.3, 11.1 | Add Paper Spotlight boxes for Wei, Kojima, Wang, Yao, Shinn, Khattab |
 | H9 | No "Where This Leads Next" at module endings | 9.3, 10.4, 11.5 | Add forward-looking callout boxes |

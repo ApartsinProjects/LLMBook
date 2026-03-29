@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Section 14.3: Supervised Fine-Tuning (SFT)</title>
+    <link rel="stylesheet" href="../../styles/book.css">
+    <link rel="stylesheet" href="../../vendor/katex/katex.min.css">
+    <script defer src="../../vendor/katex/katex.min.js"></script>
+    <script defer src="../../vendor/katex/contrib/auto-render.min.js"
+        onload="renderMathInElement(document.body, {
+            delimiters: [
+                {left: '$$', right: '$$', display: true},
+                {left: '$', right: '$', display: false}
+            ],
+            throwOnError: false
+        });"></script>
+    <link rel="stylesheet" href="../../vendor/prism/prism-theme.css">
+    <script defer src="../../vendor/prism/prism-bundle.min.js"></script>
+</head>
+<body>
+<header class="chapter-header">
+    <nav class="header-nav">
+        <a href="../../index.html" class="book-title-link">Building Conversational AI with LLMs and Agents</a>
+        <a href="../../toc.html" class="toc-link" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+    </nav>
+    <div class="part-label"><a href="../index.html">Part 4: Training and Adapting</a></div>
+    <div class="chapter-label"><a href="index.html">Chapter 14: Fine-Tuning Fundamentals</a></div>
+    <h1>Supervised Fine-Tuning (SFT)</h1>
+</header>
+
+<main class="content">
+
+<blockquote class="epigraph">
+    <p>"The loss curve went down. The eval metrics went up. The model still produced nonsense. Welcome to supervised fine-tuning, where sanity checks are not optional."</p>    <cite><span class="agent-avatar-inline" style="background-color: #27ae60;"><img src="../../front-matter/images/agents/finetune.png" alt="Finetune"></span> <a href="../../front-matter/wisdom-council.html#finetune">Finetune</a> <span class="agent-desc">AI Agent</span></cite>
+</blockquote>
+
+<figure class="illustration">
+ <img src="images/catastrophic-forgetting.png" alt="A model losing old memories while absorbing new ones, depicted as books falling off a shelf as new ones are added" loading="lazy">
+ <figcaption><strong>Figure 14.3.1</strong>: Catastrophic forgetting: your model aced the new task but forgot everything else. It is like cramming for one exam and blanking on all the others.</figcaption>
+</figure>
+
+
+<div class="prerequisites">
+    <h3>Prerequisites</h3>
+    <p>This section builds on fine-tuning basics from <a href="section-14.1.html">Section 14.1: When and Why to Fine-Tune</a> and data preparation covered in <a href="section-14.2.html">Section 14.2: Data Preparation for Fine-Tuning</a>.</p>
+</div>
+
+    <div class="callout big-picture">
+        <div class="callout-title">Big Picture</div>
+        <p><strong>Supervised fine-tuning (SFT) is the core technique for teaching a pre-trained model to follow instructions and produce specific outputs.</strong> In SFT, you train on input/output pairs where the loss is computed only on the output tokens (the assistant's response), not the input tokens (the user's prompt). Building on the data preparation from <a href="section-14.2.html">Section 14.2</a>, this section walks through the complete SFT workflow using Hugging Face's TRL library, from loading the model to selecting hyperparameters, configuring gradient accumulation, and monitoring training with Weights &amp; Biases and TensorBoard.</p>
+    </div>
+
+
+    <h2>1. The SFT Training Loop <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>At its core, SFT modifies the standard <a class="cross-ref" href="../../part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.2.html">causal language modeling</a> objective in one important way: the loss is masked so that gradient updates come only from predicting the assistant's response tokens. The model still sees the full conversation during the forward pass (for context), but only the response tokens contribute to the loss. This teaches the model what to generate rather than what to predict about the user's input. Figure 14.3.1 visualizes this masking scheme. Code Fragment 14.3.1 shows this approach in practice.</p>
+
+    <div class="diagram-container">
+        <svg viewBox="0 0 760 250" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Diagram: 1. The SFT Training Loop Intermediate">
+<defs>
+<linearGradient id="grad_8f5342_ffcdd2" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#ffdce1"/><stop offset="100%" stop-color="#FFCDD2"/></linearGradient>
+<linearGradient id="grad_8f5342_f0f0f0" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#ffffff"/><stop offset="100%" stop-color="#f0f0f0"/></linearGradient>
+<linearGradient id="grad_8f5342_c8e6c9" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#d7f5d8"/><stop offset="100%" stop-color="#C8E6C9"/></linearGradient>
+<filter id="shadow_8f5342" x="-5%" y="-5%" width="115%" height="115%"><feDropShadow dx="2" dy="2" stdDeviation="3" flood-opacity="0.1"/></filter>
+</defs>
+            <text x="380" y="25" font-family="Segoe UI, system-ui, sans-serif" font-size="14" font-weight="bold" fill="#1a1a2e" text-anchor="middle">SFT Loss Masking: Only Compute Loss on Response Tokens</text>
+            <!-- Token sequence -->
+            <rect filter="url(#shadow_8f5342)" x="20" y="50" width="720" height="45" rx="5" fill="url(#grad_8f5342_f0f0f0)" stroke="#ccc"/>
+            <text x="30" y="78" font-family="Consolas, monospace" font-size="11" fill="#333">&lt;|user|&gt; What is photosynthesis? &lt;|assistant|&gt; Photosynthesis is the process by which plants convert light...</text>
+            <!-- Labels row -->
+            <text x="380" y="115" font-family="Segoe UI, system-ui, sans-serif" font-size="12" font-weight="bold" fill="#555" text-anchor="middle">Labels (for loss computation):</text>
+            <!-- Masked region -->
+            <rect x="20" y="125" width="310" height="35" rx="4" fill="url(#grad_8f5342_ffcdd2)" stroke="#EF5350" stroke-width="1.5"/>
+            <text x="175" y="148" font-family="Consolas, monospace" font-size="11" fill="#C62828" text-anchor="middle">-100 -100 -100 -100 -100 -100 -100</text>
+            <!-- Loss region -->
+            <rect x="340" y="125" width="400" height="35" rx="4" fill="url(#grad_8f5342_c8e6c9)" stroke="#4CAF50" stroke-width="1.5"/>
+            <text x="540" y="148" font-family="Consolas, monospace" font-size="11" fill="#2E7D32" text-anchor="middle">Photo synth esis is the process by which ...</text>
+            <!-- Labels -->
+            <text x="175" y="185" font-family="Segoe UI, system-ui, sans-serif" font-size="11" fill="#C62828" text-anchor="middle">Ignored (label = -100)</text>
+            <text x="175" y="200" font-family="Segoe UI, system-ui, sans-serif" font-size="10" fill="#888" text-anchor="middle">No gradient from prompt tokens</text>
+            <text x="540" y="185" font-family="Segoe UI, system-ui, sans-serif" font-size="11" fill="#2E7D32" text-anchor="middle">Loss computed here</text>
+            <text x="540" y="200" font-family="Segoe UI, system-ui, sans-serif" font-size="10" fill="#888" text-anchor="middle">Model learns to generate these tokens</text>
+        </svg>
+        <div class="diagram-caption"><strong>Figure 14.3.1</strong>: In SFT, the loss is computed only on response tokens. Prompt tokens are masked with label -100.</div>
+    </div>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight</div>
+        <p>The loss masking strategy in SFT reflects a principle from educational psychology called the "desirable difficulty" framework (Bjork, 1994). The model sees the full conversation (including the user prompt) as context, but only receives a learning signal from the response tokens. This is analogous to how a student benefits from reading the problem statement (exposure) but only learns by practicing the solution (active retrieval). If the model were also trained to predict the prompt tokens, it would waste capacity learning to mimic user writing styles, a form of what cognitive scientists call "irrelevant encoding." The masking ensures that every gradient signal pushes the model toward the specific skill you want: generating good responses, not parroting questions. This same principle appears in curriculum design and instructional theory, where the distinction between "studying the question" and "practicing the answer" determines learning efficiency.</p>
+    </div>
+
+    <h3>1.1 Complete SFT Script with TRL</h3>
+
+    <p>The following implementation (Code Fragment 14.3.1) shows this approach in practice.</p>
+
+<pre><code class="language-python"># Configure PyTorch training with gradient accumulation and mixed precision
+# These settings control memory usage and effective batch size
+import torch
+from datasets import load_dataset
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+from trl import SFTTrainer, SFTConfig
+
+# 1. Load model and tokenizer
+model_name = "meta-llama/Llama-3.1-8B-Instruct"
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+
+# Ensure pad token is set (required for batched training)
+if tokenizer.pad_token is None:
+    tokenizer.pad_token = tokenizer.eos_token
+
+model = AutoModelForCausalLM.from_pretrained(
+    model_name,
+    torch_dtype=torch.bfloat16,
+    device_map="auto",
+    attn_implementation="flash_attention_2",  # Faster training
+)
+
+# 2. Load and prepare dataset (ChatML/messages format)
+dataset = load_dataset("json", data_files={
+    "train": "data/train.jsonl",
+    "validation": "data/val.jsonl"
+})
+
+# 3. Configure SFT training
+sft_config = SFTConfig(
+    output_dir="./checkpoints/llama-sft",
+
+    # Core hyperparameters
+    num_train_epochs=3,
+    per_device_train_batch_size=4,
+    per_device_eval_batch_size=4,
+    gradient_accumulation_steps=8,    # Effective batch = 4 * 8 = 32
+    learning_rate=2e-5,
+    weight_decay=0.01,
+    warmup_ratio=0.1,                 # 10% of steps for warmup
+    lr_scheduler_type="cosine",
+
+    # Sequence configuration
+    max_seq_length=2048,
+    packing=True,                     # Enable sequence packing
+
+    # Precision and optimization
+    bf16=True,                        # Use bfloat16 mixed precision
+    gradient_checkpointing=True,      # Trade compute for memory
+    gradient_checkpointing_kwargs={"use_reentrant": False},
+
+    # Logging and evaluation
+    logging_steps=10,
+    eval_strategy="steps",
+    eval_steps=100,
+    save_strategy="steps",
+    save_steps=100,
+    save_total_limit=3,               # Keep only 3 best checkpoints
+    load_best_model_at_end=True,
+    metric_for_best_model="eval_loss",
+
+    # Monitoring
+    report_to="wandb",                # or "tensorboard"
+    run_name="llama-8b-sft-v1",
+
+    # Reproducibility
+    seed=42,
+    data_seed=42,
+)
+
+# 4. Create trainer and start training
+trainer = SFTTrainer(
+    model=model,
+    args=sft_config,
+    train_dataset=dataset["train"],
+    eval_dataset=dataset["validation"],
+    processing_class=tokenizer,
+)
+
+# 5. Train
+trainer.train()
+
+# 6. Save the final model
+trainer.save_model("./models/llama-sft-final")
+tokenizer.save_pretrained("./models/llama-sft-final")</code></pre>
+
+<div class="code-caption"><strong>Code Fragment 14.3.1:</strong> <a href="../../part-2-understanding-llms/module-09-inference-optimization/section-9.1.html" class="cross-ref">Quantization</a> configuration for reducing model memory footprint. Lower precision (4-bit or 8-bit) trades minimal accuracy loss for substantial memory savings.</div>
+
+    <p>The following snippet in Code Fragment 14.3.2 demonstrates the implementation.</p>
+
+<pre><code class="language-python"># Calculating effective batch size
+def compute_effective_batch_size(
+    per_device_batch_size: int,
+    gradient_accumulation_steps: int,
+    num_gpus: int = 1
+) -> dict:
+    """Calculate effective batch size and training throughput."""
+    effective_batch = per_device_batch_size * gradient_accumulation_steps * num_gpus
+
+    return {
+        "per_device_batch_size": per_device_batch_size,
+        "gradient_accumulation_steps": gradient_accumulation_steps,
+        "num_gpus": num_gpus,
+        "effective_batch_size": effective_batch,
+        "optimizer_steps_per_epoch": "num_examples / effective_batch_size",
+    }
+
+# Common configurations
+configs = [
+    (2, 16, 1),   # Single GPU, small memory
+    (4, 8, 1),    # Single GPU, moderate memory
+    (4, 4, 4),    # 4 GPUs, distributed
+    (8, 2, 8),    # 8 GPUs, large cluster
+]
+
+print(f"{'Per-device':>12} {'Grad Accum':>12} {'GPUs':>6} {'Effective BS':>14}")
+print("-" * 50)
+for pd_bs, ga, gpus in configs:
+    result = compute_effective_batch_size(pd_bs, ga, gpus)
+    print(f"{pd_bs:>12} {ga:>12} {gpus:>6} {result['effective_batch_size']:>14}")</code></pre>
+
+<div class="code-caption"><strong>Code Fragment 14.3.2:</strong> Effective batch size calculator. The function multiplies per-device batch size, gradient accumulation steps, and GPU count. The table shows how different hardware configurations achieve the same effective batch size.</div>
+
+    <div class="code-output">
+  Per-device   Grad Accum   GPUs   Effective BS
+--------------------------------------------------
+           2           16      1             32
+           4            8      1             32
+           4            4      4             64
+           8            2      8            128
+    </div>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight</div>
+        <p><strong>Mental Model: The Dial and the Dashboard.</strong> Think of SFT hyperparameters as dials on a machine. The learning rate dial controls how aggressively the model updates its weights: too high and it forgets everything it knew; too low and it barely learns anything new. The batch size dial controls how much data the model "sees" before each update. The key insight is that these dials interact: a larger effective batch size smooths the gradient signal, which means you can safely turn up the learning rate. Monitor your eval loss dashboard at every checkpoint. If the train loss drops but eval loss rises, you have turned the dials too far.</p>
+    </div>
+
+
+    <p>Code Fragment 14.3.3 compares three common learning rate schedules side by side.</p>
+
+<pre><code class="language-python"># Visualizing different schedulers
+from transformers import get_scheduler
+import torch
+
+def visualize_schedulers(
+    total_steps: int = 1000,
+    warmup_steps: int = 100,
+    learning_rate: float = 2e-5
+):
+    """Compare learning rate schedules side by side."""
+    schedules = {}
+
+    for sched_type in ["cosine", "linear", "constant_with_warmup"]:
+        # Create a dummy optimizer
+        param = torch.nn.Parameter(torch.zeros(1))
+        optimizer = torch.optim.AdamW([param], lr=learning_rate)
+
+        scheduler = get_scheduler(
+            name=sched_type,
+            optimizer=optimizer,
+            num_warmup_steps=warmup_steps,
+            num_training_steps=total_steps,
+        )
+
+        lrs = []
+        for step in range(total_steps):
+            lrs.append(optimizer.param_groups[0]["lr"])
+            optimizer.step()
+            scheduler.step()
+
+        schedules[sched_type] = lrs
+
+    # Print sample points
+    checkpoints = [0, 50, 100, 250, 500, 750, 999]
+    print(f"{'Step':>6} {'Cosine':>12} {'Linear':>12} {'Constant':>12}")
+    print("-" * 44)
+    for step in checkpoints:
+        print(f"{step:>6} {schedules['cosine'][step]:>12.2e} "
+              f"{schedules['linear'][step]:>12.2e} "
+              f"{schedules['constant_with_warmup'][step]:>12.2e}")
+
+    return schedules
+
+schedules = visualize_schedulers()</code></pre>
+
+<div class="code-caption"><strong>Code Fragment 14.3.3:</strong> Learning rate scheduler comparison. The function creates cosine, linear, and constant-with-warmup schedules, then prints the learning rate at key checkpoints to show how each decays over training.</div>
+
+    <div class="code-output">
+  Step       Cosine       Linear     Constant
+--------------------------------------------
+     0     0.00e+00     0.00e+00     0.00e+00
+    50     1.00e-05     1.00e-05     1.00e-05
+   100     2.00e-05     2.00e-05     2.00e-05
+   250     1.91e-05     1.67e-05     2.00e-05
+   500     1.00e-05     1.11e-05     2.00e-05
+   750     2.45e-06     5.56e-06     2.00e-05
+   999     2.47e-08     2.22e-08     2.00e-05
+    </div>
+
+    <p>The following implementation (Code Fragment 14.3.4) shows this approach in practice.</p>
+
+<pre><code class="language-python"># Sanity check: verify training is working correctly
+def run_sanity_check(trainer, tokenizer, dataset, num_samples=3):
+    """Quick sanity check before committing to a full training run."""
+
+    print("=" * 60)
+    print("SANITY CHECK")
+    print("=" * 60)
+
+    # 1. Check a few tokenized examples
+    print("\n1. Sample tokenized examples:")
+    for i in range(min(num_samples, len(dataset))):
+        example = dataset[i]
+        messages = example["messages"]
+        text = tokenizer.apply_chat_template(messages, tokenize=False)
+        tokens = tokenizer(text)["input_ids"]
+        print(f"   Example {i}: {len(tokens)} tokens")
+        # Decode and check it looks reasonable
+        decoded = tokenizer.decode(tokens[:50])
+        print(f"   First 50 tokens: {decoded[:100]}...")
+
+    # 2. Run a few training steps
+    print("\n2. Running 10 training steps...")
+    trainer.args.max_steps = 10
+    trainer.args.logging_steps = 1
+    result = trainer.train()
+
+    # 3. Check loss trajectory
+    logs = trainer.state.log_history
+    losses = [l["loss"] for l in logs if "loss" in l]
+    print(f"   Loss trajectory: {[f'{l:.4f}' for l in losses]}")
+
+    if len(losses) >= 2:
+        if losses[-1] < losses[0]:
+            print("   [PASS] Loss is decreasing")
+        else:
+            print("   [WARN] Loss is not decreasing; check learning rate")
+
+    # 4. Generate a sample response
+    print("\n3. Sample generation:")
+    model = trainer.model
+    model.eval()
+    test_messages = [{"role": "user", "content": "Hello, how are you?"}]
+    inputs = tokenizer.apply_chat_template(
+        test_messages, return_tensors="pt", add_generation_prompt=True
+    ).to(model.device)
+
+    with torch.no_grad():
+        output = model.generate(inputs, max_new_tokens=50, temperature=0.7)
+
+    response = tokenizer.decode(output[0][inputs.shape[1]:], skip_special_tokens=True)
+    print(f"   Response: {response[:200]}")
+
+    print("\n" + "=" * 60)
+    print("Sanity check complete. Review above before full training.")
+    print("=" * 60)</code></pre>
+
+<div class="code-caption"><strong>Code Fragment 14.3.4:</strong> <a class="cross-ref" href="../../part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.1.html">Pre-training</a> sanity check routine. The function inspects tokenized examples, runs 10 training steps to verify loss decreases, and generates a sample response to confirm the model is learning before committing to a full run.</div>
+
+    <div class="quiz">
+        <h3>Section 14.3 Quiz</h3>
+
+        <div class="quiz-question">1. In SFT, why is the loss computed only on the assistant's response tokens and not on the user's prompt tokens?</div>
+        <details open><summary>Show Answer</summary><div class="answer">The goal of SFT is to teach the model what to <em>generate</em> in response to user inputs, not to predict user inputs. Computing loss on prompt tokens would waste gradient updates trying to improve the model's ability to predict user messages, which is irrelevant to the task. By masking prompt tokens (setting labels to -100), all learning signal comes from improving the quality of generated responses.</div></details>
+
+        <div class="quiz-question">2. If you have a per-device batch size of 4 and 8 gradient accumulation steps on a single GPU, what is the effective batch size?</div>
+        <details open><summary>Show Answer</summary><div class="answer">The effective batch size is 4 (per-device) x 8 (gradient accumulation) x 1 (GPU) = <strong>32</strong>. The model processes 4 examples per forward pass, accumulates gradients over 8 such passes, and then performs one optimizer step using the averaged gradients from all 32 examples.</div></details>
+
+        <div class="quiz-question">3. You observe that training loss is decreasing but validation loss starts increasing after 200 steps. What is happening and what should you do?</div>
+        <details open><summary>Show Answer</summary><div class="answer">This is <strong>overfitting</strong>: the model is memorizing the training data rather than learning generalizable patterns. Solutions: (1) Stop training at step 200 and use that checkpoint (set <code>load_best_model_at_end=True</code>). (2) Add regularization (increase weight_decay to 0.05 to 0.1). (3) Reduce the number of epochs. (4) Augment the training dataset with more diverse examples. (5) Try a lower learning rate to slow the rate of weight updates.</div></details>
+
+        <div class="quiz-question">4. Why is cosine annealing preferred over a constant learning rate for fine-tuning?</div>
+        <details open><summary>Show Answer</summary><div class="answer">Cosine annealing smoothly reduces the learning rate from its peak to near zero over the course of training. This allows the model to make large updates early (when it is far from the optimum) and progressively smaller updates later (for fine-grained convergence). A constant learning rate risks overshooting the optimum in later stages, leading to oscillation and worse final performance. The warmup phase at the start prevents instability from large early gradients on the new data distribution.</div></details>
+
+        <div class="quiz-question">5. What is the purpose of gradient checkpointing, and what is its tradeoff?</div>
+        <details open><summary>Show Answer</summary><div class="answer">Gradient checkpointing reduces <a href="../../appendices/appendix-g-hardware-compute/index.html" class="cross-ref">GPU memory</a> usage during training by not storing all intermediate activations from the forward pass. Instead, it recomputes activations during the backward pass as needed. The tradeoff is <strong>compute for memory</strong>: training is approximately 20% to 30% slower because of the recomputation, but memory usage decreases significantly (roughly 2x to 3x reduction). This enables fine-tuning larger models on GPUs with limited memory.</div></details>
+    </div>
+
+
+    <h3>Custom Training Loops with Accelerate</h3>
+
+    <p>While TRL's <code>SFTTrainer</code> handles most fine-tuning needs, some workflows require custom training loops (for example, multi-task losses, custom gradient manipulation, or non-standard data pipelines). The HuggingFace <code>accelerate</code> library wraps PyTorch training code so it runs unchanged on a single GPU, multiple GPUs, or TPUs. You write standard PyTorch, then <code>Accelerator</code> handles device placement, gradient synchronization, and mixed precision. Code Fragment 14.3.4b shows the core pattern.</p>
+
+<pre><code class="language-python"># pip install accelerate
+from accelerate import Accelerator
+from torch.utils.data import DataLoader
+import torch
+
+accelerator = Accelerator(mixed_precision="bf16")
+
+# Standard PyTorch setup (model, optimizer, dataloader)
+model = ...       # your AutoModelForCausalLM
+optimizer = torch.optim.AdamW(model.parameters(), lr=2e-5)
+train_loader = DataLoader(dataset, batch_size=4, shuffle=True)
+
+# Accelerate wraps everything for distributed + mixed precision
+model, optimizer, train_loader = accelerator.prepare(
+    model, optimizer, train_loader
+)
+
+# Training loop: identical to single-GPU PyTorch
+for batch in train_loader:
+    outputs = model(**batch)
+    loss = outputs.loss
+    accelerator.backward(loss)      # replaces loss.backward()
+    optimizer.step()
+    optimizer.zero_grad()
+
+# Launch with: accelerate launch --num_processes 4 train.py</code></pre>
+<div class="code-caption"><strong>Code Fragment 14.3.4b:</strong> HuggingFace <code>accelerate</code> wraps a standard PyTorch loop for distributed training. The <code>accelerator.prepare()</code> call handles device placement and gradient synchronization; <code>accelerator.backward()</code> replaces the usual <code>loss.backward()</code>. Launch with <code>accelerate launch</code> to scale to multiple GPUs with zero code changes.</div>
+
+<div class="callout key-insight">
+    <div class="callout-title">Key Insight</div>
+    <p><strong>Why SFT is necessary but not sufficient for alignment.</strong> SFT teaches the model <em>what format</em> to produce (instruction-following, structured outputs, appropriate length). But it cannot teach the model <em>which</em> of several plausible responses is better, because SFT only sees correct examples with no comparative signal. This is exactly the gap that <a class="cross-ref" href="../module-17-alignment-rlhf-dpo/section-17.1.html">RLHF</a> and <a class="cross-ref" href="../module-17-alignment-rlhf-dpo/section-17.2.html">DPO</a> address in Chapter 17: they introduce preference signals that teach the model to distinguish better from worse among plausible options.</p>
+</div>
+    <div class="callout tip">
+        <div class="callout-title">Tip: Evaluate on Held-Out Data Every Epoch</div>
+        <p>Always hold out 10 to 20% of your data for validation. Check eval loss after every epoch and stop training when it starts increasing (early stopping). Fine-tuning can overfit in as few as 2 to 3 epochs on small datasets.</p>
+    </div>
+
+    <div class="takeaways">
+        <h2>Key Takeaways</h2>
+        <ul>
+            <li><strong>SFT loss is masked</strong>: only response tokens contribute to the loss; prompt tokens are labeled -100 and ignored during <a class="cross-ref" href="../../part-1-foundations/module-00-ml-pytorch-foundations/section-0.2.html">backpropagation</a>.</li>
+            <li><strong>Start with 2e-5 learning rate</strong> for 7B+ models, use cosine annealing with 5% to 10% warmup, and train for 2 to 3 epochs as a baseline.</li>
+            <li><strong>Gradient accumulation</strong> lets you simulate large batch sizes on limited hardware; effective batch size = per_device_batch x grad_accum_steps x num_gpus.</li>
+            <li><strong>Enable <a class="cross-ref" href="../../part-1-foundations/module-04-transformer-architecture/section-4.3.html">Flash Attention</a> 2</strong> and gradient checkpointing to maximize training efficiency and minimize memory usage.</li>
+            <li><strong>Monitor both train and eval loss</strong> at every checkpoint; a growing gap signals overfitting and calls for early stopping or more regularization.</li>
+            <li><strong>Run a sanity check</strong> (10 to 20 steps on a small subset) before every full training run to catch data format issues, OOM errors, and learning rate problems early.</li>
+        </ul>
+    </div>
+
+    <div class="callout practical-example">
+      <div class="callout-title">Catching Overfitting Early with a Sanity Check Protocol</div>
+      <p><strong>Who:</strong> A senior ML engineer mentoring a junior engineer through their first SFT training run on Llama 2 13B for a customer service response generation task.</p>
+      <p><strong>Situation:</strong> The junior engineer had prepared 15,000 training examples and was about to launch a full 3-epoch training run on 8 A100 GPUs, estimated to take 18 hours and cost &#36;2,400.</p>
+      <p><strong>Problem:</strong> The senior engineer noticed the junior had set the learning rate to 2e-4 (10x higher than recommended for a 13B model) and had not configured evaluation steps. Without monitoring, overfitting or divergence would not be detected until the full run completed.</p>
+      <p><strong>Dilemma:</strong> They could fix the learning rate and hope for the best (risky with an untested dataset), add evaluation logging and watch the full run (18 hours of waiting), or run a quick sanity check on a small subset first to validate all settings.</p>
+      <p><strong>Decision:</strong> They implemented a three-step sanity check protocol: (1) overfit on 20 examples for 50 steps to verify the model could learn, (2) run 200 steps on the full dataset with evaluation every 50 steps to check the loss curve, and (3) generate sample outputs at step 200 to qualitatively verify learning.</p>
+      <p><strong>How:</strong> The sanity check took 12 minutes on a single GPU. Step 1 confirmed the model could memorize (training loss dropped to 0.1). Step 2 revealed the learning rate of 2e-4 caused loss oscillation after step 100. They reduced it to 2e-5, re-ran the 200-step check, and saw a smooth declining loss curve. Step 3 showed the model was already generating responses in the correct format.</p>
+      <p><strong>Result:</strong> The 12-minute sanity check prevented what would have been a failed &#36;2,400 training run. The corrected hyperparameters produced a model that achieved a 4.2/5 quality rating from human evaluators (compared to 3.8/5 for the baseline). The sanity check protocol became a mandatory pre-training step for the team.</p>
+      <p><strong>Lesson:</strong> <strong>A 10-to-15-minute sanity check (overfit test, short loss curve, sample generation) before every full training run catches configuration errors that would otherwise waste hours of compute and thousands of dollars.</strong></p>
+    </div>
+
+<div class="lab" id="lab-13-3">
+  <h2>Hands-On Lab: Fine-Tune a Small Language Model with TRL</h2>
+  <div class="lab-meta">
+    <span class="lab-duration">Duration: ~75 minutes</span>
+    <span class="lab-difficulty">Intermediate</span>
+  </div>
+
+  <div class="lab-objective">
+    <h3>Objective</h3>
+    <p>Fine-tune a small language model (SmolLM2-135M) on a custom instruction dataset using Hugging Face TRL's SFTTrainer, monitor training with loss curves, and evaluate the result by comparing base versus fine-tuned outputs.</p>
+  </div>
+
+  <div class="lab-skills">
+    <h3>What You'll Practice</h3>
+    <ul>
+      <li>Loading and configuring a causal language model for SFT</li>
+      <li>Preparing a ChatML dataset with proper formatting</li>
+      <li>Setting hyperparameters: learning rate, batch size, gradient accumulation</li>
+      <li>Running SFTTrainer with loss masking on prompt tokens</li>
+      <li>Comparing before/after generation quality</li>
+    </ul>
+  </div>
+
+  <div class="lab-prereqs">
+    <h3>Setup</h3>
+    <pre><code class="language-bash">pip install transformers trl datasets accelerate torch matplotlib</code></pre>
+<div class="code-caption"><strong>Code Fragment 14.3.5:</strong> This command installs transformers, trl, datasets, accelerate, torch, and matplotlib for the SFT training lab. The matplotlib package enables loss curve visualization in Step 4.</div>
+    <p>This lab runs on a free Colab GPU (T4). No paid API keys required.</p>
+  </div>
+
+  <div class="lab-steps">
+    <h3>Steps</h3>
+
+    <div class="lab-step">
+      <h3>Step 1: Load the base model and capture baseline outputs</h3>
+      <p>Load a small model that fits comfortably on a free Colab GPU. Save base model outputs for comparison after training.</p>
+      <pre><code class="language-python">from transformers import AutoModelForCausalLM, AutoTokenizer
+import torch
+
+model_name = "HuggingFaceTB/SmolLM2-135M-Instruct"
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+model = AutoModelForCausalLM.from_pretrained(
+    model_name, torch_dtype=torch.float16, device_map="auto"
+)
+if tokenizer.pad_token is None:
+    tokenizer.pad_token = tokenizer.eos_token
+
+print(f"Model parameters: {model.num_parameters():,}")
+
+# TODO: Generate a baseline response to a test prompt
+# Use tokenizer.apply_chat_template() to format as chat
+test_prompt = "Explain what a neural network is in simple terms."
+messages = [{"role": "user", "content": test_prompt}]
+# Save this output to compare after fine-tuning
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 14.3.6:</strong> This lab step loads SmolLM2-135M-Instruct with AutoModelForCausalLM in float16 precision and captures a baseline response using apply_chat_template. Saving the base model output before training enables a side-by-side comparison after fine-tuning.</div>
+      <details open>
+        <summary>Hint</summary>
+        <p>Use <code>tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)</code> to format the prompt, then <code>model.generate()</code> with max_new_tokens=150.</p>
+      </details>
+    </div>
+
+    <div class="lab-step">
+      <h3>Step 2: Prepare the training dataset</h3>
+      <p>Load a small instruction dataset and format it for SFT training.</p>
+      <pre><code class="language-python">from datasets import load_dataset
+
+dataset = load_dataset("HuggingFaceH4/no_robots", split="train")
+dataset = dataset.shuffle(seed=42).select(range(500))
+
+print(f"Training examples: {len(dataset)}")
+print(f"First example messages: {dataset[0]['messages'][:2]}")
+
+# TODO: Define a formatting function for the chat template
+def format_chat(example):
+    # Use tokenizer.apply_chat_template() on example["messages"]
+    # Return {"text": formatted_string}
+    pass
+
+formatted_dataset = dataset.map(format_chat)
+print(f"Formatted preview: {formatted_dataset[0]['text'][:300]}")
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 14.3.7:</strong> This lab step loads 500 shuffled examples from the HuggingFaceH4/no_robots instruction dataset and defines a format_chat function that applies the <a class="cross-ref" href="../../part-1-foundations/module-02-tokenization-subword-models/section-2.1.html">tokenizer</a>'s chat template. The formatted text column is used as input to SFTTrainer in the next step.</div>
+      <details open>
+        <summary>Hint</summary>
+        <p>Use <code>tokenizer.apply_chat_template(example["messages"], tokenize=False, add_generation_prompt=False)</code> and return <code>{"text": result}</code>.</p>
+      </details>
+    </div>
+
+    <div class="lab-step">
+      <h3>Step 3: Configure and launch SFT training</h3>
+      <p>Set up SFTTrainer with appropriate hyperparameters for a small model and short training run.</p>
+      <pre><code class="language-python">from trl import SFTTrainer, SFTConfig
+
+# TODO: Fill in the training configuration
+training_args = SFTConfig(
+    output_dir="./sft-smollm2",
+    num_train_epochs=3,
+    per_device_train_batch_size=4,
+    gradient_accumulation_steps=2,
+    # TODO: Set learning_rate, logging_steps, max_seq_length,
+    # fp16, warmup_ratio, save_strategy, report_to
+)
+
+trainer = SFTTrainer(
+    model=model,
+    args=training_args,
+    train_dataset=formatted_dataset,
+    processing_class=tokenizer,
+)
+
+result = trainer.train()
+print(f"Training loss: {result.training_loss:.4f}")
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 14.3.8:</strong> This lab step configures SFTConfig with per_device_train_batch_size=4, gradient_accumulation_steps=2, and num_train_epochs=3, then launches training with SFTTrainer. The TODO comments prompt students to fill in learning_rate, logging_steps, and max_seq_length before running.</div>
+      <details open>
+        <summary>Hint</summary>
+        <p>Good defaults: <code>learning_rate=2e-5, logging_steps=10, max_seq_length=512, fp16=True, warmup_ratio=0.1, save_strategy="epoch", report_to="none"</code>.</p>
+      </details>
+    </div>
+
+    <div class="lab-step">
+      <h3>Step 4: Plot the training loss curve</h3>
+      <p>Visualize training loss to verify the model is learning properly.</p>
+      <pre><code class="language-python">import matplotlib.pyplot as plt
+
+losses = [e['loss'] for e in trainer.state.log_history if 'loss' in e]
+steps = [e['step'] for e in trainer.state.log_history if 'loss' in e]
+
+plt.figure(figsize=(10, 5))
+plt.plot(steps, losses, 'b-', alpha=0.7)
+plt.xlabel('Training Step')
+plt.ylabel('Loss')
+plt.title('SFT Training Loss')
+plt.grid(True, alpha=0.3)
+plt.savefig('sft_loss_curve.png', dpi=100)
+plt.show()
+print(f"Final loss: {losses[-1]:.4f}")
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 14.3.9:</strong> This lab step extracts per-step loss values from trainer.state.log_history, filters entries containing a 'loss' key, and plots the training curve with matplotlib. The saved sft_loss_curve.png file and final loss printout confirm whether training converged.</div>
+      <details open>
+        <summary>Hint</summary>
+        <p>Not all entries in log_history have a "loss" key (some are evaluation logs). Filter for entries containing "loss". The loss should decrease from ~2.5 to ~1.5 over 3 epochs.</p>
+      </details>
+    </div>
+
+    <div class="lab-step">
+      <h3>Step 5: Compare base vs. fine-tuned outputs</h3>
+      <p>Generate responses from the fine-tuned model and compare with baseline.</p>
+      <pre><code class="language-python">test_prompts = [
+    "Explain what a neural network is in simple terms.",
+    "Write a Python function to reverse a string.",
+    "What are three tips for giving a good presentation?",
+]
+
+for prompt in test_prompts:
+    messages = [{"role": "user", "content": prompt}]
+    formatted = tokenizer.apply_chat_template(
+        messages, tokenize=False, add_generation_prompt=True)
+    inputs = tokenizer(formatted, return_tensors="pt").to(model.device)
+
+    with torch.no_grad():
+        outputs = model.generate(
+            **inputs, max_new_tokens=200, temperature=0.7, do_sample=True)
+
+    response = tokenizer.decode(
+        outputs[0][inputs['input_ids'].shape[1]:], skip_special_tokens=True)
+    print(f"Prompt: {prompt}")
+    print(f"Response: {response}")
+    print("-" * 60)
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 14.3.10:</strong> This lab step generates responses from the fine-tuned model on three test prompts using model.generate with <a class="cross-ref" href="../../part-1-foundations/module-05-decoding-text-generation/section-5.2.html">temperature</a>=0.7 and max_new_tokens=200. Comparing these outputs with the baseline captured in Step 1 reveals improvements in instruction following and response structure.</div>
+      <details open>
+        <summary>Hint</summary>
+        <p>For a fair comparison, save base model outputs before training (Step 1). Look for improvements in instruction following, formatting, and response quality.</p>
+      </details>
+    </div>
+  </div>
+
+  <div class="lab-expected">
+    <h3>Expected Output</h3>
+    <ul>
+      <li>A training loss curve showing steady decrease from ~2.5 to ~1.5 over 3 epochs</li>
+      <li>The fine-tuned model should produce more structured, instruction-following responses</li>
+      <li>A saved model checkpoint in <code>./sft-smollm2</code> (~300MB for SmolLM2-135M)</li>
+    </ul>
+  </div>
+
+  <div class="lab-stretch">
+    <h3>Stretch Goals</h3>
+    <ul>
+      <li>Add a validation split and plot both training and validation loss to detect overfitting</li>
+      <li>Experiment with learning rates (1e-5, 5e-5, 1e-4) and compare final loss values</li>
+      <li>Try packing multiple short examples into a single sequence (<code>packing=True</code> in SFTConfig)</li>
+    </ul>
+  </div>
+
+  <details class="lab-solution">
+    <summary>Complete Solution</summary>
+    <pre><code class="language-python">from transformers import AutoModelForCausalLM, AutoTokenizer
+from trl import SFTTrainer, SFTConfig
+from datasets import load_dataset
+import torch, matplotlib.pyplot as plt
+
+model_name = "HuggingFaceTB/SmolLM2-135M-Instruct"
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.float16, device_map="auto")
+if tokenizer.pad_token is None:
+    tokenizer.pad_token = tokenizer.eos_token
+
+# Capture baseline
+base_outputs = {}
+for p in ["Explain what a neural network is in simple terms.",
+          "Write a Python function to reverse a string.",
+          "What are three tips for giving a good presentation?"]:
+    msgs = [{"role": "user", "content": p}]
+    fmt = tokenizer.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
+    inp = tokenizer(fmt, return_tensors="pt").to(model.device)
+    with torch.no_grad():
+        out = model.generate(**inp, max_new_tokens=200, temperature=0.7, do_sample=True)
+    base_outputs[p] = tokenizer.decode(out[0][inp['input_ids'].shape[1]:], skip_special_tokens=True)
+
+# Prepare data
+dataset = load_dataset("HuggingFaceH4/no_robots", split="train").shuffle(seed=42).select(range(500))
+def format_chat(ex):
+    return {"text": tokenizer.apply_chat_template(ex["messages"], tokenize=False, add_generation_prompt=False)}
+formatted = dataset.map(format_chat)
+
+# Train
+args = SFTConfig(output_dir="./sft-smollm2", num_train_epochs=3, per_device_train_batch_size=4,
+    gradient_accumulation_steps=2, learning_rate=2e-5, logging_steps=10, max_seq_length=512,
+    fp16=True, warmup_ratio=0.1, save_strategy="epoch", report_to="none")
+trainer = SFTTrainer(model=model, args=args, train_dataset=formatted, processing_class=tokenizer)
+trainer.train()
+
+# Plot
+losses = [e['loss'] for e in trainer.state.log_history if 'loss' in e]
+steps = [e['step'] for e in trainer.state.log_history if 'loss' in e]
+plt.figure(figsize=(10,5)); plt.plot(steps, losses, 'b-'); plt.xlabel('Step'); plt.ylabel('Loss')
+plt.title('SFT Loss'); plt.grid(True, alpha=0.3); plt.savefig('sft_loss_curve.png'); plt.show()
+
+# Compare
+for p in base_outputs:
+    msgs = [{"role":"user","content":p}]
+    fmt = tokenizer.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
+    inp = tokenizer(fmt, return_tensors="pt").to(model.device)
+    with torch.no_grad():
+        out = model.generate(**inp, max_new_tokens=200, temperature=0.7, do_sample=True)
+    ft = tokenizer.decode(out[0][inp['input_ids'].shape[1]:], skip_special_tokens=True)
+    print(f"Prompt: {p}\nBASE: {base_outputs[p][:200]}\nFINE-TUNED: {ft[:200]}\n{'='*50}")
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 14.3.11:</strong> This complete solution combines model loading, baseline capture, dataset preparation, SFT training with SFTConfig, loss curve plotting, and post-training generation into a single script. It reproduces the full supervised fine-tuning workflow on SmolLM2-135M-Instruct.</div>
+  </details>
+</div>
+
+
+
+
+
+    <div class="callout research-frontier">
+    <div class="callout-title">Research Frontier</div>
+    <p>Research on <em>selective fine-tuning</em> identifies which layers and <a class="cross-ref" href="../../part-1-foundations/module-04-transformer-architecture/section-4.1.html">attention heads</a> matter most for specific tasks, enabling targeted weight updates that reduce catastrophic forgetting. The NEFTune technique (adding noise to <a href="../../part-1-foundations/module-01-foundations-nlp-text-representation/section-1.3.html" class="cross-ref">embedding</a> vectors during fine-tuning) has shown surprising effectiveness at improving generalization with minimal computational overhead. An active frontier is understanding why SFT on very small, high-quality datasets (as few as 1,000 examples) can produce disproportionately large improvements in model behavior.</p>
+</div>
+
+<section class="exercises">
+    <h2>Exercises</h2>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 14.3.1: SFT training loop <span class="level-badge basic" title="Basic">BASIC</span> <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+        <p>Describe the supervised fine-tuning (SFT) training loop at a high level. What loss function is used, and why is the loss masked to only the assistant's response tokens?</p>
+        <details open><summary>Answer Sketch</summary>
+            <p>SFT uses the standard causal language modeling loss (<a class="cross-ref" href="../../part-1-foundations/module-04-transformer-architecture/section-4.1.html">cross-entropy</a>) on the next token prediction. The loss is masked so that only the assistant response tokens contribute to the gradient. This is because we want the model to learn to generate good responses, not to predict the user's input (which is given). Without masking, the model wastes capacity learning to predict the instruction text, which does not improve generation quality.</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 14.3.2: Hyperparameter selection <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span> <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+        <p>Explain the typical hyperparameter ranges for SFT: learning rate, batch size, number of epochs, and warmup ratio. Why is a lower learning rate preferred for fine-tuning versus pre-training?</p>
+        <details open><summary>Answer Sketch</summary>
+            <p>Typical ranges: learning rate 1e-5 to 5e-5 (vs. 1e-4 to 3e-4 for pretraining), batch size 4 to 32, epochs 1 to 3, warmup ratio 0.03 to 0.1. Lower learning rates are preferred because the pre-trained weights already encode valuable knowledge; large updates would destroy these representations (catastrophic forgetting). The goal is to gently adapt the existing knowledge rather than overwrite it.</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 14.3.3: Training with HuggingFace <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span> <span class="exercise-type coding" title="Coding">Coding</span></div>
+        <p>Write the key code snippets for fine-tuning a model using HuggingFace's SFTTrainer: loading the model, configuring training arguments, and launching training.</p>
+        <details open><summary>Answer Sketch</summary>
+            <p>Load: <code>model = AutoModelForCausalLM.from_pretrained('meta-llama/Llama-3-8B')</code>. Configure: <code>args = SFTConfig(output_dir='./output', num_train_epochs=2, per_device_train_batch_size=4, learning_rate=2e-5, warmup_ratio=0.05)</code>. Train: <code>trainer = SFTTrainer(model=model, args=args, train_dataset=dataset, processing_class=tokenizer); trainer.train()</code>.</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 14.3.4: Overfitting detection <span class="level-badge advanced" title="Advanced">ADVANCED</span> <span class="exercise-type analysis" title="Analysis">Analysis</span></div>
+        <p>During SFT, your training loss decreases to 0.3 but validation loss starts increasing after epoch 1. Diagnose the issue and propose three mitigations.</p>
+        <details open><summary>Answer Sketch</summary>
+            <p>Diagnosis: the model is overfitting to the training data, memorizing examples rather than learning generalizable patterns. Mitigations: (1) Reduce training to 1 epoch (early stopping at the validation loss minimum). (2) Increase dataset size with synthetic data augmentation. (3) Use a lower learning rate or add <a class="cross-ref" href="../../part-1-foundations/module-00-ml-pytorch-foundations/section-0.2.html">weight decay</a> regularization. (4) Switch to <a class="cross-ref" href="../module-14-peft/section-14.1.html">LoRA</a>, which constrains the number of trainable parameters and acts as an implicit regularizer.</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 14.3.5: Sequence packing <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span> <span class="exercise-type coding" title="Coding">Coding</span></div>
+        <p>Explain the concept of sequence packing for SFT efficiency. Why does packing multiple short examples into one sequence improve GPU utilization, and what precaution is needed for attention masking?</p>
+        <details open><summary>Answer Sketch</summary>
+            <p>Without packing, short sequences are padded to the batch's maximum length, wasting compute on padding tokens. Packing concatenates multiple short examples into one sequence up to the maximum length, eliminating padding waste. Precaution: the attention mask must prevent tokens from one example from attending to tokens from another example within the same packed sequence. This requires a block-diagonal attention mask. Packing can improve training throughput by 2 to 5x for datasets with variable-length examples.</p>
+        </details>
+    </div>
+
+</section>
+
+
+
+
+<div class="whats-next">
+    <h2>What Comes Next</h2>
+    <p>In the next section, <a href="section-14.4.html">Section 14.4: Fine-Tuning via Provider APIs</a>, we explore fine-tuning through provider APIs, using hosted services from OpenAI, Anthropic, and others.</p>
+
+    <div class="callout fun-note">
+              <div class="callout-title">Fun Fact</div>
+        <p>The learning rate for fine-tuning is typically 10 to 100 times smaller than for pretraining. If pretraining is learning to speak a language, fine-tuning is learning a regional dialect: you want to refine, not overwrite.</p>
+    </div>
+
+</div>
+
+<section class="bibliography" id="bibliography">
+    <div class="bibliography-title">References and Further Reading</div>
+    <div class="bib-category">Training Infrastructure</div>
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://huggingface.co/docs/trl/sft_trainer" target="_blank" rel="noopener">Hugging Face. (2024). <em>SFTTrainer: Supervised Fine-Tuning with TRL</em>.</a></p>
+        <p class="bib-annotation">The primary API reference for the SFTTrainer class used in all code examples in this section. Covers configuration options, dataset formatting, loss masking, and integration with <a class="cross-ref" href="../module-15-peft/section-15.1.html">PEFT</a> adapters. This should be open in a browser tab while working through the hands-on examples.</p>
+        <span class="bib-meta">Documentation</span>
+    </div>
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://arxiv.org/abs/2205.14135" target="_blank" rel="noopener">Dao, T. et al. (2022). <em>FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness</em>. NeurIPS 2022.</a></p>
+        <p class="bib-annotation">Introduces <a class="cross-ref" href="../../part-1-foundations/module-04-transformer-architecture/section-4.4.html">FlashAttention</a>, which reduces attention computation from quadratic to near-linear memory by tiling and recomputation. FlashAttention is a practical prerequisite for efficient fine-tuning of models with long sequences. Understanding its memory savings is important for the GPU configuration discussed here.</p>
+        <span class="bib-meta">Paper</span>
+    </div>
+    <div class="bib-category">Hyperparameter Selection</div>
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://arxiv.org/abs/1711.05101" target="_blank" rel="noopener">Loshchilov, I. &amp; Hutter, F. (2019). <em>Decoupled Weight Decay Regularization</em>. ICLR 2019.</a></p>
+        <p class="bib-annotation">Introduces AdamW, the optimizer used in virtually all modern fine-tuning workflows. The paper explains why decoupled weight decay outperforms L2 regularization with Adam. Understanding AdamW's behavior is essential for the hyperparameter tuning guidance in this section.</p>
+        <span class="bib-meta">Paper</span>
+    </div>
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://arxiv.org/abs/1711.00489" target="_blank" rel="noopener">Smith, S. L. et al. (2018). <em>Don't Decay the Learning Rate, Increase the Batch Size</em>. ICLR 2018.</a></p>
+        <p class="bib-annotation">Demonstrates the equivalence between learning rate decay and batch size increase, providing theoretical justification for gradient accumulation strategies. This insight directly informs the batch size and learning rate configuration guidance in this section. Useful for teams optimizing training speed on limited hardware.</p>
+        <span class="bib-meta">Paper</span>
+    </div>
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://arxiv.org/abs/2307.09288" target="_blank" rel="noopener">Touvron, H. et al. (2023). <em>Llama 2: Open Foundation and Fine-Tuned Chat Models</em>.</a></p>
+        <p class="bib-annotation">Documents Meta's complete fine-tuning recipe for Llama 2, including hyperparameter choices, training schedules, and safety training methodology. The Llama 2 recipe serves as a practical reference point for the SFT best practices discussed here. Recommended as a case study in production-grade fine-tuning.</p>
+        <span class="bib-meta">Paper</span>
+    </div>
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://wandb.ai/site/articles/fine-tuning-llms" target="_blank" rel="noopener">Weights &amp; Biases. (2024). <em>Fine-Tuning LLMs: Best Practices Guide</em>.</a></p>
+        <p class="bib-annotation">A practical guide covering experiment tracking, hyperparameter sweeps, and training monitoring with W&amp;B. The guide complements the TensorBoard and W&amp;B integration discussed in this section with additional tips for organizing fine-tuning experiments. Useful for teams adopting systematic experiment management.</p>
+        <span class="bib-meta">Guide</span>
+    </div>
+</section>
+
+<nav class="chapter-nav">
+    <a href="section-14.2.html" class="prev">Previous: Data Preparation for Fine-Tuning</a>
+    <a href="section-14.4.html" class="next">Next: Fine-Tuning via Provider APIs </a>
+</nav>
+    <footer><p>Fifth Edition, 2026 &middot; <a href="../../toc.html">Contents</a></p></footer>
+</main>
+</body>
+</html>

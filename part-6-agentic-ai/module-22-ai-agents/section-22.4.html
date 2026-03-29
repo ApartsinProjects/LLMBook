@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Section 22.4: Reasoning Models as Agent Backbones</title>
+    <link rel="stylesheet" href="../../styles/book.css">
+    <link rel="stylesheet" href="../../vendor/katex/katex.min.css">
+    <script defer src="../../vendor/katex/katex.min.js"></script>
+    <script defer src="../../vendor/katex/contrib/auto-render.min.js"
+        onload="renderMathInElement(document.body, {
+            delimiters: [
+                {left: '$$', right: '$$', display: true},
+                {left: '$', right: '$', display: false}
+            ],
+            throwOnError: false
+        });"></script>
+    <link rel="stylesheet" href="../../vendor/prism/prism-theme.css">
+    <script defer src="../../vendor/prism/prism-bundle.min.js"></script>
+</head>
+<body>
+<header class="chapter-header">
+    <nav class="header-nav">
+        <a href="../../index.html" class="book-title-link">Building Conversational AI with LLMs and Agents</a>
+        <a href="../../toc.html" class="toc-link" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+    </nav>
+    <div class="part-label"><a href="../index.html">Part VI: Agentic AI</a></div>
+    <div class="chapter-label"><a href="index.html">Chapter 22: AI Agent Foundations</a></div>
+    <h1>Reasoning Models as Agent Backbones</h1>
+</header>
+
+<main class="content">
+
+    <div class="prerequisites">
+        <h3>Prerequisites</h3>
+        <p>This section builds on agent foundations from <a href="section-22.1.html">Section 22.1</a>, tool use from <a href="section-22.2.html">Section 22.2</a>, and reasoning model concepts from <a class="cross-ref" href="../../part-2-understanding-llms/module-08-reasoning-test-time-compute/index.html">Chapter 08</a>.</p>
+    </div>
+
+
+    <h2>1. The Reasoning Model Revolution <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>
+        Traditional LLMs generate tokens in a single forward pass, committing to an approach with the first few tokens and unable to backtrack. Reasoning models (OpenAI o1/o3, Anthropic Claude with extended thinking, DeepSeek-R1) change this fundamentally by allocating additional compute at inference time. These models produce an internal chain of reasoning before generating their final answer, exploring the problem space, considering alternatives, and checking intermediate results.
+    </p>
+
+    <p>
+        For agent design, reasoning models shift complexity from the scaffolding to the model itself. A standard agent needs explicit ReAct loops, multi-step planning code, and reflection prompts. A reasoning model can internalize much of this within a single generation. The agent loop becomes simpler: provide context and tools, let the model think, execute the resulting action. The model handles decomposition, strategy selection, and self-correction internally rather than requiring the orchestrator to manage these processes.
+    </p>
+
+    <p>
+        The three major reasoning model families each take a different approach. OpenAI's o1/o3 models use reinforcement learning to train an internal <a class="cross-ref" href="../../part-2-understanding-llms/module-08-reasoning-test-time-compute/section-8.1.html">chain-of-thought</a> that is hidden from the user. Anthropic's Claude with extended thinking exposes the reasoning process in a dedicated thinking block, giving developers visibility into the model's deliberation. DeepSeek-R1 was trained using large-scale RL and demonstrates that reasoning capabilities can emerge from open-source training pipelines.
+    </p>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight</div>
+        <p>Reasoning models excel at <strong>planning and strategy selection</strong> but are overkill for <strong>routine tool execution</strong>. The optimal agent architecture uses a reasoning model for the planning phase (decomposing the task, selecting tools, determining execution order) and a faster, cheaper standard model for routine execution steps (making API calls, formatting outputs, simple lookups). This hybrid approach captures the benefits of deep reasoning where it matters while keeping costs and latency manageable for the overall pipeline.</p>
+    </div>
+
+    <h3>Extended Thinking in Practice</h3>
+
+<pre><code class="language-python">import anthropic
+
+client = anthropic.Anthropic()
+
+# Use extended thinking for complex planning
+response = client.messages.create(
+    model="claude-sonnet-4-20250514",
+    max_tokens=16000,
+    thinking={
+        "type": "enabled",
+        "budget_tokens": 10000,  # Allow up to 10K tokens for reasoning
+    },
+    messages=[{
+        "role": "user",
+        "content": (
+            "I need to migrate our authentication system from session-based "
+            "to JWT tokens. The system serves 50K daily active users across "
+            "3 microservices. Create a detailed migration plan that minimizes "
+            "downtime and handles the transition period where both auth "
+            "methods must work simultaneously."
+        ),
+    }],
+)
+
+# The response includes both thinking and final output
+for block in response.content:
+    if block.type == "thinking":
+        print(f"Reasoning ({len(block.thinking)} chars):")
+        print(block.thinking[:500] + "...")
+    elif block.type == "text":
+        print(f"\nFinal plan:\n{block.text}")
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 22.4.1:</strong> This snippet uses the Anthropic SDK with extended thinking enabled (thinking={"type": "enabled", "budget_tokens": 10000}) for complex planning tasks. The response includes both a thinking block with the model's internal reasoning chain and a text block with the final structured plan.</div>
+
+    <h2>2. Thinking Budgets and Cost Management <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>
+        Reasoning models consume significantly more tokens than standard models because of their internal deliberation. A query that costs 500 output tokens with GPT-4o might cost 5,000+ tokens with o3 due to the hidden reasoning chain. For agent systems that make many LLM calls per task, this cost multiplier can make reasoning models prohibitively expensive if used indiscriminately.
+    </p>
+
+    <p>
+        The solution is <strong>thinking budgets</strong>: allocating reasoning compute strategically based on task difficulty. Simple tasks (looking up a fact, formatting output, making a routine API call) get zero or minimal thinking budget. Complex tasks (planning a multi-step migration, debugging a subtle race condition, synthesizing information across many sources) get generous thinking budgets. The agent or orchestrator classifies each step's difficulty and adjusts the reasoning allocation accordingly.
+    </p>
+
+    <p>
+        Anthropic's extended thinking API makes this explicit with the <code>budget_tokens</code> parameter. OpenAI's o-series models offer reasoning effort levels (low, medium, high). In practice, teams often implement a difficulty <a class="cross-ref" href="../../part-3-working-with-llms/module-12-hybrid-ml-llm/section-12.2.html">classifier</a> that routes queries: simple queries go to a fast model (GPT-4o-mini, Claude Haiku), medium queries use standard models, and only genuinely complex reasoning tasks invoke the full reasoning model with a generous budget.
+    </p>
+
+    <div class="callout practical-example">
+    <div class="callout-title">Practical Example: Tiered Reasoning in a Support Agent</div>
+        <p><strong>Setup:</strong> A technical support agent handles queries ranging from password resets to complex infrastructure debugging.</p>
+        <p><strong>Tier 1 (fast model, no reasoning):</strong> FAQ lookups, password resets, account status checks. ~200ms latency, &#36;0.001 per query.</p>
+        <p><strong>Tier 2 (standard model):</strong> Configuration troubleshooting, error diagnosis with known patterns. ~2s latency, &#36;0.01 per query.</p>
+        <p><strong>Tier 3 (reasoning model, high budget):</strong> Novel infrastructure issues, multi-service debugging, migration planning. ~15s latency, &#36;0.10 per query.</p>
+        <p><strong>Result:</strong> 80% of queries resolved at Tier 1, 15% at Tier 2, 5% at Tier 3. Average cost per query dropped 60% compared to using the reasoning model for everything, with no loss in resolution quality.</p>
+    </div>
+
+    <h2>3. Architectural Patterns for Reasoning Agents <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>
+        When building agents around reasoning models, several architectural patterns emerge. The <strong>Think-then-Act</strong> pattern uses a single reasoning call to produce both a plan and the first action, reducing round trips. The <strong>Reasoning Planner + Fast Executor</strong> pattern separates planning (reasoning model) from execution (fast model), optimizing cost and latency. The <strong>Adaptive Depth</strong> pattern starts with shallow reasoning and escalates to deeper reasoning only when initial attempts fail.
+    </p>
+
+    <p>
+        A critical consideration is that reasoning models interact differently with tool use. Standard models interleave tool calls naturally within a ReAct loop. Reasoning models tend to produce better results when given all available information upfront and asked to reason about which tools to use, rather than discovering tool capabilities incrementally. This means the <a class="cross-ref" href="../../part-3-working-with-llms/module-11-prompt-engineering/section-11.1.html">system prompt</a> for a reasoning-based agent should include comprehensive tool documentation and examples rather than relying on the model to explore tools through trial and error.
+    </p>
+
+    <div class="callout warning">
+        <div class="callout-title">Warning</div>
+        <p>Do not over-prompt reasoning models. Unlike standard models that benefit from detailed chain-of-thought instructions, reasoning models already think step by step internally. Adding explicit "think step by step" or "break this into substeps" instructions can actually degrade performance by conflicting with the model's internal reasoning process. Give reasoning models the problem, the context, and the tools. Let them figure out the approach.</p>
+    </div>
+
+<div class="lab">
+    <h3>Hands-On Lab: Build a ReAct Agent</h3>
+    <div class="lab-meta"><span>Duration: 45 to 60 minutes</span><span>Difficulty: Intermediate</span></div>
+
+    <div class="lab-objective">
+        <h3>Objective</h3>
+        <p>Implement a ReAct (Reasoning + Acting) agent loop from scratch. The agent will receive a user question, reason about which tool to call, execute the tool, observe the result, and repeat until it can provide a final answer. You will build the loop, the tool registry, and the <a class="cross-ref" href="../../part-3-working-with-llms/module-11-prompt-engineering/section-11.3.html">prompt template</a> yourself rather than relying on a framework, so you understand exactly how agent orchestration works.</p>
+    </div>
+
+    <div class="lab-skills">
+        <h3>What You'll Practice</h3>
+        <ul>
+            <li>Designing a ReAct prompt template with Thought / Action / Observation structure</li>
+            <li>Implementing a tool registry with callable Python functions</li>
+            <li>Parsing structured LLM output to extract tool names and arguments</li>
+            <li>Building the agent loop with a maximum step limit to prevent runaway execution</li>
+            <li>Handling tool errors gracefully within the agent loop</li>
+        </ul>
+    </div>
+
+    <div class="lab-prereqs">
+        <h3>Setup</h3>
+        <p>You need Python 3.10+ and an API key for either OpenAI or Anthropic. Install the client library of your choice. The lab uses the OpenAI client by default, but the Anthropic alternative is shown in the solution.</p>
+<pre><code class="language-bash">pip install openai
+# or: pip install anthropic
+export OPENAI_API_KEY="your-key-here"</code></pre>
+<div class="code-caption"><strong>Code Fragment 22.4.2:</strong> This command installs the openai client library (with anthropic as an alternative) and sets the API key environment variable needed for the ReAct agent lab exercises below.</div>
+    </div>
+
+    <div class="lab-steps">
+        <h3>Guided Steps</h3>
+
+        <p><strong>Step 1: Define the tools the agent can use.</strong> We create three simple tools: a calculator, a weather lookup (simulated), and a web search (simulated).</p>
+<pre><code class="language-python">import json
+import re
+from openai import OpenAI
+
+client = OpenAI()
+
+# Tool registry: name -> (function, description)
+def calculator(expression: str) -> str:
+    """Evaluate a mathematical expression safely."""
+    try:
+        # Only allow safe math operations
+        allowed = set("0123456789+-*/.() ")
+        if not all(c in allowed for c in expression):
+            return f"Error: unsafe expression '{expression}'"
+        result = eval(expression)
+        return str(result)
+    except Exception as e:
+        return f"Error: {e}"
+
+def weather(city: str) -> str:
+    """Look up current weather for a city (simulated)."""
+    data = {
+        "new york": "72F, partly cloudy",
+        "london": "58F, rainy",
+        "tokyo": "68F, clear",
+        "paris": "63F, overcast",
+    }
+    return data.get(city.lower(), f"No weather data available for '{city}'")
+
+def search(query: str) -> str:
+    """Search the web for information (simulated)."""
+    results = {
+        "population of france": "Approximately 68.4 million (2025 estimate)",
+        "tallest building in the world": "Burj Khalifa in Dubai, 828 meters",
+        "speed of light": "299,792,458 meters per second",
+    }
+    for key, value in results.items():
+        if key in query.lower():
+            return value
+    return f"Search results for '{query}': No relevant results found."
+
+TOOLS = {
+    "calculator": (calculator, "Evaluate a math expression. Input: a math expression string."),
+    "weather": (weather, "Get current weather for a city. Input: city name."),
+    "search": (search, "Search the web for factual information. Input: search query."),
+}
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 22.4.3:</strong> This lab step defines three simulated tools (calculator, weather, search) in a TOOLS registry mapping names to (function, description) pairs. The calculator uses a restricted eval with a character allowlist for safety, while weather and search return hardcoded results from lookup dictionaries.</div>
+
+        <p><strong>Step 2: Build the ReAct prompt template.</strong></p>
+<pre><code class="language-python">def build_system_prompt():
+    tool_descriptions = "\n".join(
+        f"  - {name}: {desc}" for name, (_, desc) in TOOLS.items()
+    )
+    return f"""You are a helpful assistant that answers questions by reasoning step-by-step and using tools when needed.
+
+Available tools:
+{tool_descriptions}
+
+For each step, respond in EXACTLY this format:
+
+Thought: [your reasoning about what to do next]
+Action: [tool_name]
+Action Input: [input to the tool]
+
+When you have enough information to answer, respond with:
+
+Thought: [your final reasoning]
+Final Answer: [your complete answer to the user's question]
+
+Important rules:
+- Always start with a Thought before taking an Action.
+- Use exactly one tool per step.
+- If a tool returns an error, reason about it and try a different approach.
+- Do not make up information. Use tools to find facts."""
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 22.4.4:</strong> This lab step builds the system prompt for the ReAct loop by enumerating available tools and specifying the exact Thought/Action/Action Input response format. The prompt also includes a Final Answer format for when the agent has gathered enough information to respond.</div>
+
+        <p><strong>Step 3: Implement the output parser.</strong> Extract the tool name and input from the LLM response.</p>
+<pre><code class="language-python">def parse_agent_output(text):
+    """Parse the LLM output to extract action or final answer.
+
+    Returns:
+        ("action", tool_name, tool_input) if the model wants to call a tool
+        ("final", answer, None) if the model has a final answer
+        ("error", message, None) if parsing fails
+    """
+    # TODO: check if the response contains "Final Answer:"
+    # If so, extract and return everything after it
+    # Hint: use text.split("Final Answer:", 1)
+    if "Final Answer:" in text:
+        answer = ???
+        return ("final", answer, None)
+
+    # TODO: extract Action and Action Input using string matching or regex
+    # Hint: look for "Action:" and "Action Input:" lines
+    action_match = re.search(r"Action:\s*(.+)", text)
+    input_match = re.search(r"Action Input:\s*(.+)", text)
+
+    if action_match and input_match:
+        tool_name = action_match.group(1).strip()
+        tool_input = input_match.group(1).strip()
+        return ("action", tool_name, tool_input)
+
+    return ("error", "Could not parse response", None)
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 22.4.5:</strong> This lab step implements parse_agent_output, which uses regex to extract Action and Action Input fields from the LLM response, or splits on 'Final Answer:' if the model is ready to respond. The function returns a tuple indicating whether the parsed result is an action, a final answer, or a parse error.</div>
+
+        <p><strong>Step 4: Build the agent loop.</strong></p>
+<pre><code class="language-python">def run_agent(question, max_steps=6, verbose=True):
+    """Run the ReAct agent loop."""
+    messages = [
+        {"role": "system", "content": build_system_prompt()},
+        {"role": "user", "content": question},
+    ]
+
+    for step in range(max_steps):
+        # Call the LLM
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=messages,
+            temperature=0.0,
+            max_tokens=500,
+        )
+        assistant_text = response.choices[0].message.content
+
+        if verbose:
+            print(f"\n--- Step {step + 1} ---")
+            print(assistant_text)
+
+        # Parse the output
+        result_type, value, tool_input = parse_agent_output(assistant_text)
+
+        if result_type == "final":
+            if verbose:
+                print(f"\n=== FINAL ANSWER ===\n{value}")
+            return value
+
+        elif result_type == "action":
+            # TODO: look up the tool in TOOLS and execute it
+            # Handle the case where the tool name is not recognized
+            if value in TOOLS:
+                tool_fn, _ = TOOLS[value]
+                observation = tool_fn(tool_input)
+            else:
+                observation = f"Error: unknown tool '{value}'. Available tools: {list(TOOLS.keys())}"
+
+            if verbose:
+                print(f"Observation: {observation}")
+
+            # Append the assistant message and observation to the conversation
+            messages.append({"role": "assistant", "content": assistant_text})
+            messages.append({"role": "user", "content": f"Observation: {observation}"})
+
+        else:
+            # Parsing error: ask the model to try again
+            messages.append({"role": "assistant", "content": assistant_text})
+            messages.append({"role": "user", "content": "Please respond using the exact Thought/Action/Action Input format."})
+
+    return "Agent reached maximum steps without a final answer."
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 22.4.6:</strong> This lab step implements run_agent, which iterates up to max_steps times, calling the LLM, parsing the output with parse_agent_output, dispatching tool calls from the TOOLS registry, and appending observations to the message history. The loop terminates when parse_agent_output returns a 'final' result.</div>
+
+<div class="callout tip">
+    <div class="callout-title">Production Alternative</div>
+    <p>The implementation above builds a ReAct agent loop from scratch for pedagogical clarity. In production, use <strong><a href="https://huggingface.co/docs/smolagents" target="_blank" rel="noopener">smolagents</a></strong> (install: <code>pip install smolagents</code>), which provides a lightweight ReAct agent with built-in tool management:</p>
+<pre><code class="language-python"># Production equivalent using smolagents
+from smolagents import CodeAgent, DuckDuckGoSearchTool, HfApiModel
+
+agent = CodeAgent(
+    tools=[DuckDuckGoSearchTool()],
+    model=HfApiModel(),
+)
+result = agent.run("What is the weather in Tokyo?")
+</code></pre>
+    <p>For more complex orchestration with state machines, branching, and persistence, use <strong><a href="https://langchain-ai.github.io/langgraph/" target="_blank" rel="noopener">LangGraph</a></strong> (install: <code>pip install langgraph</code>), which provides a graph-based agent framework with built-in ReAct support.</p>
+</div>
+
+        <p><strong>Step 5: Test the agent on multi-step questions.</strong></p>
+<pre><code class="language-python"># Single-tool question
+run_agent("What is the weather in Tokyo?")
+
+# Multi-step question requiring two tools
+run_agent("What is the population of France divided by 2?")
+
+# Question requiring reasoning about which tool to use
+run_agent("I'm packing for London. Should I bring an umbrella? Also, what is 72 - 58?")
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 22.4.7:</strong> This lab step tests the agent on three queries of increasing complexity: a single-tool weather lookup for Tokyo, a two-step question requiring search then calculator (population of France divided by 2), and a multi-tool scenario combining weather and arithmetic for a London packing decision.</div>
+    </div>
+
+    <div class="lab-expected">
+        <h3>Expected Output</h3>
+        <p>For the weather question, the agent should call the weather tool once and return the result. For the population question, the agent should first search for the population, then use the calculator to divide by 2. For the London question, the agent should check the weather, note that it is rainy (umbrella recommended), and use the calculator for the subtraction. Each step should show a clear Thought, Action, and Observation.</p>
+    </div>
+
+    <div class="lab-stretch">
+        <h3>Stretch Goals</h3>
+        <ul>
+            <li>Add a "memory" tool that lets the agent store and retrieve key-value pairs across turns, simulating persistent memory.</li>
+            <li>Implement a token budget tracker that counts tokens used across all LLM calls and stops the agent if it exceeds a budget.</li>
+            <li>Add error recovery: if a tool fails, the agent should try an alternative approach rather than giving up.</li>
+            <li>Replace the simulated tools with real API calls (e.g., a real weather API, a real search API) and handle rate limits and timeouts.</li>
+        </ul>
+    </div>
+
+    <details class="lab-solution">
+        <summary>Solution</summary>
+<pre><code class="language-python">import json
+import re
+from openai import OpenAI
+
+client = OpenAI()
+
+# --- Tools ---
+def calculator(expression: str) -> str:
+    try:
+        allowed = set("0123456789+-*/.() ")
+        if not all(c in allowed for c in expression):
+            return f"Error: unsafe expression '{expression}'"
+        return str(eval(expression))
+    except Exception as e:
+        return f"Error: {e}"
+
+def weather(city: str) -> str:
+    data = {
+        "new york": "72F, partly cloudy",
+        "london": "58F, rainy",
+        "tokyo": "68F, clear",
+        "paris": "63F, overcast",
+    }
+    return data.get(city.lower(), f"No weather data for '{city}'")
+
+def search(query: str) -> str:
+    results = {
+        "population of france": "Approximately 68.4 million (2025 estimate)",
+        "tallest building in the world": "Burj Khalifa in Dubai, 828 meters",
+        "speed of light": "299,792,458 meters per second",
+    }
+    for key, value in results.items():
+        if key in query.lower():
+            return value
+    return f"No relevant results for '{query}'."
+
+TOOLS = {
+    "calculator": (calculator, "Evaluate a math expression. Input: a math expression string."),
+    "weather": (weather, "Get current weather for a city. Input: city name."),
+    "search": (search, "Search the web for factual information. Input: search query."),
+}
+
+# --- System Prompt ---
+def build_system_prompt():
+    tool_descriptions = "\n".join(
+        f"  - {name}: {desc}" for name, (_, desc) in TOOLS.items()
+    )
+    return f"""You are a helpful assistant that answers questions by reasoning step-by-step and using tools when needed.
+
+Available tools:
+{tool_descriptions}
+
+For each step, respond in EXACTLY this format:
+
+Thought: [your reasoning about what to do next]
+Action: [tool_name]
+Action Input: [input to the tool]
+
+When you have enough information to answer, respond with:
+
+Thought: [your final reasoning]
+Final Answer: [your complete answer to the user's question]
+
+Important rules:
+- Always start with a Thought before taking an Action.
+- Use exactly one tool per step.
+- If a tool returns an error, reason about it and try a different approach.
+- Do not make up information. Use tools to find facts."""
+
+# --- Parser ---
+def parse_agent_output(text):
+    if "Final Answer:" in text:
+        answer = text.split("Final Answer:", 1)[1].strip()
+        return ("final", answer, None)
+
+    action_match = re.search(r"Action:\s*(.+)", text)
+    input_match = re.search(r"Action Input:\s*(.+)", text)
+
+    if action_match and input_match:
+        return ("action", action_match.group(1).strip(), input_match.group(1).strip())
+
+    return ("error", "Could not parse response", None)
+
+# --- Agent Loop ---
+def run_agent(question, max_steps=6, verbose=True):
+    messages = [
+        {"role": "system", "content": build_system_prompt()},
+        {"role": "user", "content": question},
+    ]
+
+    for step in range(max_steps):
+        response = client.chat.completions.create(
+            model="gpt-4o-mini", messages=messages, temperature=0.0, max_tokens=500,
+        )
+        text = response.choices[0].message.content
+
+        if verbose:
+            print(f"\n--- Step {step + 1} ---")
+            print(text)
+
+        result_type, value, tool_input = parse_agent_output(text)
+
+        if result_type == "final":
+            if verbose:
+                print(f"\n=== FINAL ANSWER ===\n{value}")
+            return value
+
+        elif result_type == "action":
+            if value in TOOLS:
+                tool_fn, _ = TOOLS[value]
+                observation = tool_fn(tool_input)
+            else:
+                observation = f"Error: unknown tool '{value}'. Available: {list(TOOLS.keys())}"
+
+            if verbose:
+                print(f"Observation: {observation}")
+
+            messages.append({"role": "assistant", "content": text})
+            messages.append({"role": "user", "content": f"Observation: {observation}"})
+        else:
+            messages.append({"role": "assistant", "content": text})
+            messages.append({"role": "user", "content": "Please use the exact Thought/Action/Action Input format."})
+
+    return "Agent reached maximum steps without a final answer."
+
+# --- Test ---
+print("=" * 60)
+print("Test 1: Single tool")
+print("=" * 60)
+run_agent("What is the weather in Tokyo?")
+
+print("\n" + "=" * 60)
+print("Test 2: Multi-step (search + calculate)")
+print("=" * 60)
+run_agent("What is the population of France divided by 2?")
+
+print("\n" + "=" * 60)
+print("Test 3: Multiple tools in sequence")
+print("=" * 60)
+run_agent("I'm packing for London. Should I bring an umbrella? Also, what is 72 - 58?")
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 22.4.8:</strong> This complete solution combines the tool definitions, ReAct system prompt, output parser, and agent loop into a single script. It includes the parse fix (splitting on 'Final Answer:'), proper error handling for unknown tools, and test queries demonstrating single-step and multi-step agent behavior.</div>
+    </details>
+</div>
+
+
+
+    <h2>Exercises</h2>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 22.4.1: Reasoning Model Trade-offs <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span> <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+        <p>Explain why reasoning models are described as 'overkill for routine tool execution.' What specific characteristics of reasoning models make them better suited for planning than for simple API calls?</p>
+        <details open>
+            <summary>Answer Sketch</summary>
+            <p>Reasoning models allocate extra compute for internal chain-of-thought deliberation. For a simple API call (e.g., fetching a weather forecast), this extra compute adds latency and cost without improving accuracy. Planning tasks benefit because they require evaluating multiple strategies, considering dependencies, and anticipating failure modes, all of which leverage the model's extended reasoning capacity.</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 22.4.2: Thinking Budget Configuration <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span> <span class="exercise-type coding" title="Coding">Coding</span></div>
+        <p>Using the Anthropic API with extended thinking, write code that sets a thinking budget of 5000 tokens for a planning task and 500 tokens for a simple lookup task. Print the actual tokens used in each case to demonstrate budget-aware reasoning.</p>
+        <details open>
+            <summary>Answer Sketch</summary>
+            <p>Use <code>anthropic.Anthropic().messages.create()</code> with <code>thinking={'type': 'enabled', 'budget_tokens': N}</code>. For the planning task, send a complex multi-step problem. For the lookup, send a simple factual question. Print <code>block.thinking</code> length for each response to show the model adapts its reasoning depth to the budget.</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 22.4.3: Hybrid Architecture Design <span class="level-badge advanced" title="Advanced">ADVANCED</span> <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+        <p>Design a three-tier agent architecture that routes queries to different model tiers based on complexity. Define the routing criteria, the model used at each tier, and the expected cost and latency profile.</p>
+        <details open>
+            <summary>Answer Sketch</summary>
+            <p>Tier 1 (fast model, no reasoning): FAQ lookups, status checks. ~200ms, &#36;0.001/query. Tier 2 (standard model): troubleshooting with known patterns. ~2s, &#36;0.01/query. Tier 3 (reasoning model): novel multi-step problems. ~15s, &#36;0.10/query. Route based on a lightweight classifier that scores query complexity on factors like number of entities, required reasoning steps, and domain specificity.</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 22.4.4: Over-Prompting Reasoning Models <span class="level-badge basic" title="Basic">BASIC</span> <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+        <p>Why does adding 'think step by step' to a reasoning model prompt sometimes degrade performance? How does this differ from prompting a standard model?</p>
+        <details open>
+            <summary>Answer Sketch</summary>
+            <p>Reasoning models already perform internal chain-of-thought deliberation. Adding explicit step-by-step instructions can conflict with the model's trained reasoning process, causing it to produce a surface-level enumeration rather than its deeper internal reasoning. Standard models lack this built-in reasoning and benefit from explicit step-by-step prompting because it structures their single-pass generation.</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 22.4.5: Reasoning Model Comparison <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span> <span class="exercise-type analysis" title="Analysis">Analysis</span></div>
+        <p>Compare the three major reasoning model families (OpenAI o1/o3, Anthropic Claude with extended thinking, DeepSeek-R1) along these dimensions: visibility of reasoning, cost model, and suitability for agent backbones.</p>
+        <details open>
+            <summary>Answer Sketch</summary>
+            <p>OpenAI o1/o3: hidden reasoning (opaque), charged per reasoning token, good for tasks where you trust the model's process. Claude extended thinking: visible reasoning in a thinking block, budget-controllable, excellent for debugging agent behavior. DeepSeek-R1: open-source, reasoning visible, no API cost for self-hosted, best for teams that need full control. For agent backbones, visible reasoning (Claude, DeepSeek) is preferable because it enables monitoring and debugging.</p>
+        </details>
+    </div>
+
+<div class="whats-next">
+    <h2>What Comes Next</h2>
+    <p>In the next section, <a href="section-22.5.html">Agent Evaluation &amp; Benchmarks</a>, we continue exploring the concepts in this chapter.</p>
+</div>
+
+<nav class="chapter-nav">
+    <a href="section-22.3.html" class="prev">Previous: Planning &amp; Agentic Reasoning</a>
+    <a href="section-22.5.html" class="next">Next: Agent Evaluation &amp; Benchmarks </a>
+</nav>
+
+    <footer><p>Fifth Edition, 2026 &middot; <a href="../../toc.html">Contents</a></p></footer>
+
+    <div class="callout tip">
+        <div class="callout-title">Tip: Give Tools Clear, Specific Descriptions</div>
+        <p>The model selects tools based on their descriptions. Vague descriptions like "processes data" cause misuse. Write descriptions as if explaining to a new team member: what the tool does, what inputs it needs, and when to use it versus alternatives.</p>
+    </div>
+
+</main>
+</body>
+</html>

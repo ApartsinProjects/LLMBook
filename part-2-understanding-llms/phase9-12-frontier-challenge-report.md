@@ -27,8 +27,8 @@ Stanford CS336 (Spring 2025) and Berkeley CS294 both cover model-generated synth
 *Location:* `section-6.4.html`, new subsection after "Data Pruning and Influence Functions"
 
 **3. [MISSING TOPIC] No coverage of distillation in pretraining or inference context.**
-Knowledge distillation is a core technique across all three modules' subject matter: it is used during pretraining (teacher-student training), during post-training (distilling reasoning traces from o1 into smaller models as DeepSeek-R1 demonstrated), and during inference (smaller models as draft models). CMU ANLP covers this extensively. Add a "Paper Spotlight" on the DeepSeek-R1 distillation pipeline in Section 7.3, and cross-reference distillation in Section 8.3 (Speculative Decoding).
-*Location:* `section-7.3.html`, `section-8.3.html`
+Knowledge distillation is a core technique across all three modules' subject matter: it is used during pretraining (teacher-student training), during post-training (distilling reasoning traces from o1 into smaller models as DeepSeek-R1 demonstrated), and during inference (smaller models as draft models). CMU ANLP covers this extensively. Add a "Paper Spotlight" on the DeepSeek-R1 distillation pipeline in Section 7.3, and cross-reference distillation in Section 10.3 (Speculative Decoding).
+*Location:* `section-7.3.html`, `section-10.3.html`
 
 **4. [CONTENT UPDATE] Section 7.2: Missing DeepSeek R1, DeepSeek V3's FP8 training, and Qwen 2.5.**
 While the section mentions DeepSeek V3 and Qwen, it should cover DeepSeek R1's open-weight reasoning model (which triggered massive discussion about open-source competitiveness with o1), Qwen 2.5's strong multilingual performance, and the significance of DeepSeek training V3 entirely in FP8 precision, which connects directly to Module 08's quantization discussion.
@@ -49,13 +49,13 @@ The optimizer section covers AdamW and alternatives but does not discuss the cri
 The section risks reading like a Wikipedia timeline. Add a "What would be different if this model had never been published?" counterfactual framing for each landmark. This transforms passive reading into active reasoning about why each model mattered.
 *Location:* `section-6.1.html`
 
-**8. [MISSING TOPIC] No coverage of GGUF/GGML quantization format (Section 8.1).**
-The quantization section covers GPTQ and AWQ but omits the GGUF format used by llama.cpp, which is the dominant format for local/edge deployment. Given that Section 8.4 discusses llama.cpp as a serving option, the quantization section should explain the GGUF format and its k-quant variants (Q4_K_M, Q5_K_S, etc.).
-*Location:* `section-8.1.html`
+**8. [MISSING TOPIC] No coverage of GGUF/GGML quantization format (Section 10.1).**
+The quantization section covers GPTQ and AWQ but omits the GGUF format used by llama.cpp, which is the dominant format for local/edge deployment. Given that Section 10.4 discusses llama.cpp as a serving option, the quantization section should explain the GGUF format and its k-quant variants (Q4_K_M, Q5_K_S, etc.).
+*Location:* `section-10.1.html`
 
-**9. [CONTENT UPDATE] Section 8.4: SGLang needs more coverage, LMDeploy is in the title but likely underrepresented.**
+**9. [CONTENT UPDATE] Section 10.4: SGLang needs more coverage, LMDeploy is in the title but likely underrepresented.**
 SGLang has emerged as a strong competitor to vLLM in 2025, particularly for structured output and constrained decoding workloads. The RadixAttention approach deserves at least a paragraph. Also verify that LMDeploy (from InternLM team) has meaningful coverage since it appears in the subtitle.
-*Location:* `section-8.4.html`
+*Location:* `section-10.4.html`
 
 **10. [FRONTIER] Section 6.6: No mention of context parallelism or ring attention.**
 The distributed training section covers data, tensor, pipeline, and expert parallelism but misses context parallelism (splitting long sequences across GPUs), which is essential for training with 128K+ context windows. Ring Attention (Liu et al., 2023) and Sequence Parallelism deserve at least a subsection.
@@ -69,9 +69,9 @@ While these are not yet dominant, Mamba (Gu and Dao, 2023), RWKV, and hybrid arc
 The AdamW explanation is technically correct but reads like a standard ML textbook. Missing: (a) the practitioner's perspective on what goes wrong during actual training runs, (b) real training log screenshots showing loss spikes, (c) the WSD (Warmup-Stable-Decay) learning rate schedule now used by many labs instead of cosine decay.
 *Location:* `section-6.5.html`
 
-**13. [MISSING TOPIC] Section 8.2: No treatment of KV cache quantization.**
-KV cache quantization (storing cached keys/values in INT4 or INT8) is now standard in production serving. vLLM supports it natively. This is distinct from weight quantization and directly extends the Section 8.1 material.
-*Location:* `section-8.2.html`
+**13. [MISSING TOPIC] Section 10.2: No treatment of KV cache quantization.**
+KV cache quantization (storing cached keys/values in INT4 or INT8) is now standard in production serving. vLLM supports it natively. This is distinct from weight quantization and directly extends the Section 10.1 material.
+*Location:* `section-10.2.html`
 
 **14. [FRONTIER] Section 7.3: Missing process reward models (PRMs) and outcome reward models (ORMs).**
 The reasoning models section discusses test-time compute and best-of-N but should explicitly cover the distinction between process reward models (which score each reasoning step) and outcome reward models (which score only the final answer). This distinction is central to how o1/o3 and DeepSeek-R1 work. The "Let's Verify Step by Step" paper (Lightman et al., 2023) deserves a Paper Spotlight.
@@ -88,9 +88,9 @@ The ICL theory section is strong but optimistic. When does ICL fail? Research sh
 The FineWeb dataset project is mentioned but deserves a dedicated sidebar explaining why it matters: it is the first fully reproducible, open pipeline that matches proprietary data quality. This paper directly validates the section's teachings about data curation.
 *Location:* `section-6.4.html`
 
-**17. [CONTENT UPDATE] Section 8.3: Mention self-speculative decoding and draft-free approaches.**
+**17. [CONTENT UPDATE] Section 10.3: Mention self-speculative decoding and draft-free approaches.**
 The speculative decoding section covers EAGLE and Medusa but should mention "self-speculative decoding" approaches (LayerSkip, SPEED) where the draft comes from skipping layers of the same model rather than using a separate draft model. These eliminate the need to maintain two models.
-*Location:* `section-8.3.html`
+*Location:* `section-10.3.html`
 
 **18. [WHERE THIS LEADS NEXT] Section 6.3: Add forward pointer to "inference-time scaling laws."**
 Section 6.3 establishes train-time scaling laws beautifully, and Section 7.3 covers test-time compute scaling. But there is no explicit forward reference connecting them. A "Where This Leads Next" note at the end of 6.3 saying "scaling laws also apply to inference compute, as we will see in Section 7.3" would strengthen narrative flow.
@@ -100,9 +100,9 @@ Section 6.3 establishes train-time scaling laws beautifully, and Section 7.3 cov
 The multilingual section discusses cross-lingual transfer but does not cover tokenizer fertility (the number of tokens required to encode equivalent text across languages). This directly affects both training efficiency and inference cost for non-English languages and is a measurable, quantifiable phenomenon.
 *Location:* `section-7.4.html`
 
-**20. [PAPER SPOTLIGHT] Section 8.1: Add "Paper Spotlight" on SqueezeLLM or QuIP# for 2-bit quantization.**
+**20. [PAPER SPOTLIGHT] Section 10.1: Add "Paper Spotlight" on SqueezeLLM or QuIP# for 2-bit quantization.**
 The frontier of quantization research has pushed below 4-bit. SqueezeLLM and QuIP# demonstrate viable 2-bit and 3-bit quantization with acceptable quality loss. This would show the reader where the field is heading.
-*Location:* `section-8.1.html`
+*Location:* `section-10.1.html`
 
 **21. [DISTINCTIVENESS] Section 7.1: Add a decision framework, not just a catalog.**
 The closed-source models section would benefit from a practical decision matrix: "When to use GPT-4o vs. Claude vs. Gemini" based on task type (coding, long-context, multilingual, cost sensitivity). This transforms the section from a landscape overview into an actionable reference.
@@ -116,9 +116,9 @@ Real-world training runs achieve only 30-50% of theoretical GPU FLOP utilization
 The MTP section mentions Meta's 2024 paper but should note that DeepSeek V3 actually deployed MTP at scale and reported concrete gains, providing real-world validation of the theoretical benefits described.
 *Location:* `section-6.2.html`
 
-**24. [WHERE THIS LEADS NEXT] Section 8.2: Forward pointer to disaggregated serving.**
+**24. [WHERE THIS LEADS NEXT] Section 10.2: Forward pointer to disaggregated serving.**
 Prefill-decode disaggregation (separating the compute-heavy prefill phase from the memory-heavy decode phase onto different hardware) is a major emerging trend in serving infrastructure. DistServe and Splitwise from 2024 are notable papers. A "Where This Leads Next" sidebar would be appropriate.
-*Location:* `section-8.2.html`
+*Location:* `section-10.2.html`
 
 
 ### LOWER PRIORITY (Polish)
@@ -143,9 +143,9 @@ A hands-on exercise showing how to evaluate a model's multilingual capability (m
 Reasoning models trained with RL can learn to game the reward model rather than genuinely improve reasoning. This is a known and important failure mode. An "Open Problem" callout would be appropriate.
 *Location:* `section-7.3.html`
 
-**30. [WHERE THIS LEADS NEXT] Section 8.4: Edge deployment and on-device inference.**
+**30. [WHERE THIS LEADS NEXT] Section 10.4: Edge deployment and on-device inference.**
 The serving section focuses on datacenter deployment. A brief "Where This Leads Next" section on edge/on-device inference (Apple MLX, Qualcomm AI Engine, MediaTek NeuroPilot, llama.cpp on phones) would acknowledge an increasingly important deployment target.
-*Location:* `section-8.4.html`
+*Location:* `section-10.4.html`
 
 
 ## Summary of Missing Sidebar/Callout Types Needed

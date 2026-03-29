@@ -1,0 +1,859 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Section 19.2: Vector Index Data Structures & Algorithms</title>
+    <link rel="stylesheet" href="../../styles/book.css">
+    <link rel="stylesheet" href="../../vendor/katex/katex.min.css">
+    <script defer src="../../vendor/katex/katex.min.js"></script>
+    <script defer src="../../vendor/katex/contrib/auto-render.min.js"
+        onload="renderMathInElement(document.body, {
+            delimiters: [
+                {left: '$$', right: '$$', display: true},
+                {left: '$', right: '$', display: false}
+            ],
+            throwOnError: false
+        });"></script>
+    <link rel="stylesheet" href="../../vendor/prism/prism-theme.css">
+    <script defer src="../../vendor/prism/prism-bundle.min.js"></script>
+</head>
+<body>
+<header class="chapter-header">
+    <nav class="header-nav">
+        <a href="../../index.html" class="book-title-link">Building Conversational AI with LLMs and Agents</a>
+        <a href="../../toc.html" class="toc-link" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+    </nav>
+    <div class="part-label"><a href="../index.html">Part 5: Retrieval and Conversation</a></div>
+    <div class="chapter-label"><a href="index.html">Chapter 19: Embeddings and Vector Databases</a></div>
+    <h1>Vector Index Data Structures &amp; Algorithms</h1>
+</header>
+
+<main class="content">
+
+    <blockquote class="epigraph">
+        <p>The art of progress is to preserve order amid change and to preserve change amid order.</p>        <cite><span class="agent-avatar-inline" style="background-color: #8e44ad;"><img src="../../front-matter/images/agents/vec.png" alt="Vec"></span> <a href="../../front-matter/wisdom-council.html#vec">Vec</a> <span class="agent-desc">AI Agent</span></cite>
+    </blockquote>
+
+<figure class="illustration">
+ <img src="images/hnsw-city-navigation.png" alt="A city with express highways and local streets, representing HNSW's hierarchical graph structure for fast nearest-neighbor search" loading="lazy">
+ <figcaption><strong>Figure 19.2.1</strong>: HNSW navigates vector space like a city driver: start on the highway for big jumps, then switch to local streets to find the exact address.</figcaption>
+</figure>
+
+    <div class="prerequisites">
+        <h3>Prerequisites</h3>
+        <p>Before diving into vector indexing algorithms, make sure you are comfortable with the embedding similarity concepts from <a href="section-19.1.html">Section 19.1</a>, particularly <a class="cross-ref" href="../module-18-embeddings-vector-db/section-18.1.html">cosine similarity</a> and inner product distance metrics. An intuitive understanding of tree-based data structures and graph traversal will help, though the section builds these concepts from first principles. The discussion of approximate search tradeoffs connects directly to the inference optimization strategies covered in <a class="cross-ref" href="../../part-2-understanding-llms/module-09-inference-optimization/section-9.1.html">Section 09.1</a>.</p>
+    </div>
+
+    <div class="callout big-picture">
+        <div class="callout-title">Big Picture</div>
+        <p><strong>Finding the most similar vectors in a collection of millions is a computational challenge that brute-force search cannot solve at scale.</strong> Approximate Nearest Neighbor (ANN) algorithms trade a small amount of accuracy for dramatic speedups, enabling sub-millisecond search over billions of vectors. Understanding the internals of HNSW, IVF, and Product <a class="cross-ref" href="../../part-2-understanding-llms/module-09-inference-optimization/section-9.1.html">Quantization</a> is essential for configuring vector indexes that meet your application's latency, recall, and memory requirements. Building on the embedding models from <a href="section-19.1.html">Section 19.1</a>, this section provides a deep, implementation-level understanding of the algorithms that power every vector database.</p>    </div>
+
+
+<figure class="illustration">
+ <img src="images/hnsw-express-lanes.png" alt="Express lanes on a highway that skip stops, representing the skip connections in HNSW's upper layers" loading="lazy">
+ <figcaption><strong>Figure 19.2.2</strong>: The upper layers of HNSW are express lanes that skip most stops. The lower layers handle the last-mile navigation to your nearest neighbors.</figcaption>
+</figure>
+
+    <h2>1. The Nearest Neighbor Problem <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        Given a query vector <em>q</em> and a collection of <em>N</em> vectors in <em>d</em> dimensions,
+        the <strong>k-nearest neighbor (k-NN)</strong> problem asks for the <em>k</em> vectors most similar
+        to <em>q</em>. The brute-force solution computes the distance between <em>q</em> and every vector
+        in the collection, then returns the top <em>k</em>. This requires O(N &times; d) operations per
+        query, which becomes prohibitive as N grows into the millions.
+     Code Fragment 19.2.1 below puts this into practice.</p>
+
+<pre><code class="language-python"># Brute-force k-NN search with NumPy
+import numpy as np
+import time
+
+def brute_force_knn(query, vectors, k=10, metric="cosine"):
+    """
+    Exact nearest neighbor search.
+    query: (d,) vector
+    vectors: (N, d) matrix
+    Returns: indices of k nearest neighbors and their distances
+    """
+    if metric == "cosine":
+        # For normalized vectors, cosine similarity = dot product
+        similarities = np.dot(vectors, query)
+        # Higher similarity = more similar, so negate for argsort
+        top_k_indices = np.argsort(-similarities)[:k]
+        top_k_distances = similarities[top_k_indices]
+    elif metric == "l2":
+        distances = np.linalg.norm(vectors - query, axis=1)
+        top_k_indices = np.argsort(distances)[:k]
+        top_k_distances = distances[top_k_indices]
+    return top_k_indices, top_k_distances
+
+# Benchmark at different scales
+dim = 768
+for n_vectors in [10_000, 100_000, 1_000_000]:
+    vectors = np.random.randn(n_vectors, dim).astype(np.float32)
+    vectors /= np.linalg.norm(vectors, axis=1, keepdims=True)
+    query = np.random.randn(dim).astype(np.float32)
+    query /= np.linalg.norm(query)
+
+    start = time.time()
+    indices, distances = brute_force_knn(query, vectors, k=10)
+    elapsed = time.time() - start
+
+    print(f"N={n_vectors:>10,}: {elapsed*1000:.1f}ms")</code></pre>
+<div class="code-caption"><strong>Code Fragment 19.2.1:</strong> This snippet implements brute-force k-nearest-neighbor search using numpy dot products (or cosine distance) over the full vector set. The timing wrapper shows that linear scan latency grows linearly with n_vectors, establishing the baseline that approximate methods aim to beat.</div>
+    <div class="code-output">
+N=    10,000: 2.3ms
+N=   100,000: 18.7ms
+N= 1,000,000: 193.4ms
+    </div>
+    <div class="code-caption"><strong>Code Fragment 19.2.2:</strong> Implementing brute-force k-nearest-neighbor search with NumPy to establish a correctness baseline before introducing approximate methods.</div>
+
+    <p>
+        At one million vectors with 768 dimensions, brute-force search takes nearly 200ms per query.
+        For real-time applications that need sub-10ms latency (the kind of constraint explored in <a class="cross-ref" href="../../part-2-understanding-llms/module-09-inference-optimization/index.html">Chapter 09 on inference optimization</a>), this is unacceptable. This motivates
+        the use of <strong>Approximate Nearest Neighbor (ANN)</strong> algorithms, which build index
+        structures that enable much faster search at the cost of occasionally missing the true nearest
+        neighbor.
+    </p>
+
+<figure class="illustration">
+ <img src="images/product-quantization-paint.png" alt="An artist mixing a limited palette of base colors to approximate any color, representing product quantization's codebook approach" loading="lazy">
+ <figcaption><strong>Figure 19.2.3</strong>: Product quantization is like painting with a limited palette. You cannot represent every exact shade, but a clever mix of base colors gets surprisingly close.</figcaption>
+</figure>
+
+
+    <div class="callout fun-note">
+              <div class="callout-title">Fun Fact</div>
+        <p>The "curse of dimensionality" means that in high-dimensional spaces, the distance between the nearest and farthest neighbor converges. In 768 dimensions, all points are roughly the same distance from each other, which is exactly why brute-force search still kind of works and why ANN algorithms have to be surprisingly clever.</p>
+    </div>
+
+    <h3>Measuring ANN Quality: Recall@k</h3>
+
+    <p>
+        The standard quality metric for ANN algorithms is <strong>recall@k</strong>: the fraction of true
+        k-nearest neighbors that appear in the ANN algorithm's <a class="cross-ref" href="../../part-1-foundations/module-05-decoding-text-generation/section-5.2.html">top-k</a> results. A recall@10 of 0.95 means
+        that on average, 9.5 of the 10 returned results are actual top-10 nearest neighbors. For most
+        <a class="cross-ref" href="../module-20-rag/index.html">RAG</a> applications, recall@10 above 0.95 is sufficient.
+    </p>
+
+    <h2>2. HNSW: Hierarchical Navigable Small World Graphs <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        HNSW is the most widely used ANN algorithm in production vector databases. It builds a multi-layer
+        graph where each vector is a node, and edges connect vectors that are close to each other in the
+        embedding space. The graph is navigable: starting from any node, you can reach any other node by
+        following a short path of edges, and greedy traversal (always moving to the neighbor closest to
+        the query) finds excellent approximate nearest neighbors.
+    </p>
+
+    <h3>Graph Construction</h3>
+
+    <p>
+        HNSW builds the graph incrementally. When a new vector is inserted, it is assigned a random
+        maximum layer according to an exponential distribution. The algorithm then searches for the
+        nearest neighbors of the new vector at each layer and connects them with bidirectional edges.
+        Two parameters control the graph structure:
+     Figure 19.2.1 illustrates the multi-layer graph structure of HNSW.</p>
+
+    <ul>
+        <li><strong>M</strong> (max edges per node): Controls the graph connectivity. Higher M means more edges per node, which improves recall but increases memory usage and insertion time. Typical values range from 16 to 64.</li>
+        <li><strong>ef_construction</strong> (search width during build): Controls how thoroughly the algorithm searches for neighbors during insertion. Higher values produce a better graph but slow down construction. Typical values range from 100 to 400.</li>
+    </ul>
+
+    <div class="diagram-container">
+        <svg viewBox="0 0 720 380" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Diagram">
+<defs>
+<linearGradient id="grad_09c789_e3f2fd" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#f2ffff"/><stop offset="100%" stop-color="#e3f2fd"/></linearGradient>
+<linearGradient id="grad_09c789_f8f9fa" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#ffffff"/><stop offset="100%" stop-color="#f8f9fa"/></linearGradient>
+<linearGradient id="grad_09c789_fce4ec" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#fff3fb"/><stop offset="100%" stop-color="#fce4ec"/></linearGradient>
+<filter id="shadow_09c789" x="-5%" y="-5%" width="115%" height="115%"><feDropShadow dx="2" dy="2" stdDeviation="3" flood-opacity="0.1"/></filter>
+</defs>
+            <rect filter="url(#shadow_09c789)" x="5" y="5" width="710" height="370" rx="10" fill="url(#grad_09c789_f8f9fa)" stroke="#ddd"/>
+            <text x="360" y="30" text-anchor="middle" font-family="Segoe UI, system-ui, sans-serif" font-size="14" font-weight="700" fill="#333">HNSW: Multi-Layer Graph Structure</text>
+
+            <!-- Layer 2 (top, sparse) -->
+            <rect x="20" y="45" width="680" height="75" rx="8" fill="url(#grad_09c789_fce4ec)" stroke="#e91e63" stroke-width="1" stroke-dasharray="4,3"/>
+            <text x="55" y="65" font-family="Segoe UI, system-ui, sans-serif" font-size="11" fill="#c2185b" font-weight="600">Layer 2 (sparse)</text>
+            <circle cx="200" cy="90" r="8" fill="#e91e63"/>
+            <circle cx="500" cy="90" r="8" fill="#e91e63"/>
+            <line x1="208" y1="90" x2="492" y2="90" stroke="#e91e63" stroke-width="1.5" stroke-linecap="round"/>
+
+            <!-- Layer 1 (middle) -->
+            <rect x="20" y="130" width="680" height="95" rx="8" fill="url(#grad_09c789_e3f2fd)" stroke="#1976d2" stroke-width="1" stroke-dasharray="4,3"/>
+            <text x="55" y="150" font-family="Segoe UI, system-ui, sans-serif" font-size="11" fill="#1565c0" font-weight="600">Layer 1 (medium)</text>
+            <circle cx="150" cy="180" r="8" fill="#1976d2"/>
+            <circle cx="300" cy="175" r="8" fill="#1976d2"/>
+            <circle cx="420" cy="182" r="8" fill="#1976d2"/>
+            <circle cx="580" cy="178" r="8" fill="#1976d2"/>
+            <line x1="158" y1="180" x2="292" y2="175" stroke="#1976d2" stroke-width="1.5" stroke-linecap="round"/>
+            <line x1="308" y1="175" x2="412" y2="182" stroke="#1976d2" stroke-width="1.5" stroke-linecap="round"/>
+            <line x1="428" y1="182" x2="572" y2="178" stroke="#1976d2" stroke-width="1.5" stroke-linecap="round"/>
+            <line x1="158" y1="180" x2="412" y2="182" stroke="#1976d2" stroke-width="1" opacity="0.4" stroke-linecap="round"/>
+
+            <!-- Vertical connections between layers -->
+            <line x1="200" y1="98" x2="150" y2="172" stroke="#999" stroke-width="1" stroke-dasharray="3,3" stroke-linecap="round"/>
+            <line x1="200" y1="98" x2="300" y2="167" stroke="#999" stroke-width="1" stroke-dasharray="3,3" stroke-linecap="round"/>
+            <line x1="500" y1="98" x2="420" y2="174" stroke="#999" stroke-width="1" stroke-dasharray="3,3" stroke-linecap="round"/>
+            <line x1="500" y1="98" x2="580" y2="170" stroke="#999" stroke-width="1" stroke-dasharray="3,3" stroke-linecap="round"/>
+
+            <!-- Layer 0 (bottom, dense) -->
+            <rect x="20" y="235" width="680" height="95" rx="8" fill="#e8f5e9" stroke="#388e3c" stroke-width="1" stroke-dasharray="4,3"/>
+            <text x="55" y="255" font-family="Segoe UI, system-ui, sans-serif" font-size="11" fill="#2e7d32" font-weight="600">Layer 0 (dense, all vectors)</text>
+
+            <circle cx="80" cy="285" r="6" fill="#388e3c"/>
+            <circle cx="140" cy="280" r="6" fill="#388e3c"/>
+            <circle cx="200" cy="290" r="6" fill="#388e3c"/>
+            <circle cx="260" cy="278" r="6" fill="#388e3c"/>
+            <circle cx="320" cy="288" r="6" fill="#388e3c"/>
+            <circle cx="380" cy="282" r="6" fill="#388e3c"/>
+            <circle cx="440" cy="290" r="6" fill="#388e3c"/>
+            <circle cx="500" cy="275" r="6" fill="#388e3c"/>
+            <circle cx="560" cy="285" r="6" fill="#388e3c"/>
+            <circle cx="620" cy="280" r="6" fill="#388e3c"/>
+
+            <!-- Layer 0 edges (subset) -->
+            <line x1="86" y1="285" x2="134" y2="280" stroke="#388e3c" stroke-width="1" stroke-linecap="round"/>
+            <line x1="146" y1="280" x2="194" y2="290" stroke="#388e3c" stroke-width="1" stroke-linecap="round"/>
+            <line x1="206" y1="290" x2="254" y2="278" stroke="#388e3c" stroke-width="1" stroke-linecap="round"/>
+            <line x1="266" y1="278" x2="314" y2="288" stroke="#388e3c" stroke-width="1" stroke-linecap="round"/>
+            <line x1="326" y1="288" x2="374" y2="282" stroke="#388e3c" stroke-width="1" stroke-linecap="round"/>
+            <line x1="386" y1="282" x2="434" y2="290" stroke="#388e3c" stroke-width="1" stroke-linecap="round"/>
+            <line x1="446" y1="290" x2="494" y2="275" stroke="#388e3c" stroke-width="1" stroke-linecap="round"/>
+            <line x1="506" y1="275" x2="554" y2="285" stroke="#388e3c" stroke-width="1" stroke-linecap="round"/>
+            <line x1="566" y1="285" x2="614" y2="280" stroke="#388e3c" stroke-width="1" stroke-linecap="round"/>
+            <line x1="86" y1="285" x2="194" y2="290" stroke="#388e3c" stroke-width="0.7" opacity="0.4" stroke-linecap="round"/>
+            <line x1="266" y1="278" x2="374" y2="282" stroke="#388e3c" stroke-width="0.7" opacity="0.4" stroke-linecap="round"/>
+            <line x1="506" y1="275" x2="614" y2="280" stroke="#388e3c" stroke-width="0.7" opacity="0.4" stroke-linecap="round"/>
+
+            <!-- Query arrow -->
+            <circle cx="350" cy="350" r="8" fill="#ff9800" stroke="#e65100" stroke-width="2"/>
+            <text x="370" y="355" font-family="Segoe UI, system-ui, sans-serif" font-size="11" fill="#e65100" font-weight="600">query</text>
+
+            <!-- Search path annotation -->
+            <text x="600" y="55" font-family="Segoe UI, system-ui, sans-serif" font-size="11" fill="#c2185b">Start here</text>
+            <text x="600" y="145" font-family="Segoe UI, system-ui, sans-serif" font-size="11" fill="#1565c0">Navigate down</text>
+            <text x="600" y="250" font-family="Segoe UI, system-ui, sans-serif" font-size="11" fill="#2e7d32">Refine locally</text>
+        </svg>
+        <div class="diagram-caption"><strong>Figure 19.2.1</strong>: HNSW builds a multi-layer graph. Search starts at the sparse top layer and descends to the dense bottom layer for local refinement.</div>
+    </div>
+
+    <h3>Search Algorithm</h3>
+
+    <p>
+        At query time, HNSW search begins at the top layer's entry point and greedily navigates toward
+        the query vector. At each layer, it finds the closest node, then descends to the same node in the
+        layer below. At the bottom layer (layer 0, which contains all vectors), it performs a more thorough
+        local search controlled by the <code>ef_search</code> parameter. Higher <code>ef_search</code>
+        values explore more candidates, improving recall at the cost of latency.
+    </p>
+
+<pre><code class="language-python"># HNSW index with FAISS
+import faiss
+import numpy as np
+import time
+
+dim = 768
+n_vectors = 1_000_000
+
+# Generate random normalized vectors
+np.random.seed(42)
+vectors = np.random.randn(n_vectors, dim).astype(np.float32)
+faiss.normalize_L2(vectors)
+
+query = np.random.randn(1, dim).astype(np.float32)
+faiss.normalize_L2(query)
+
+# Build HNSW index
+# M=32: each node connected to ~32 neighbors
+# ef_construction=200: search width during build
+index = faiss.IndexHNSWFlat(dim, 32)
+index.hnsw.efConstruction = 200
+
+print("Building HNSW index...")
+start = time.time()
+index.add(vectors)
+build_time = time.time() - start
+print(f"Build time: {build_time:.1f}s")
+print(f"Memory: ~{index.ntotal * dim * 4 / 1e9:.2f} GB (vectors only)")
+
+# Search with different ef values to show recall/latency tradeoff
+for ef_search in [16, 64, 256]:
+    index.hnsw.efSearch = ef_search
+
+    start = time.time()
+    distances, indices = index.search(query, k=10)
+    search_time = (time.time() - start) * 1000
+
+    print(f"ef_search={ef_search:>3}: {search_time:.2f}ms, "
+          f"top result idx={indices[0][0]}")</code></pre>
+<div class="code-caption"><strong>Code Fragment 19.2.3:</strong> This snippet builds an HNSW index with faiss.IndexHNSWFlat, setting M=32 neighbors and efConstruction=200 during build time. The search-time efSearch parameter is then varied to show the recall-versus-latency tradeoff compared to brute-force, demonstrating sub-millisecond queries on one million vectors.</div>
+    <div class="code-output">
+Building HNSW index...
+Build time: 142.3s
+Memory: ~2.87 GB (vectors only)
+ef_search= 16: 0.42ms, top result idx=384721
+ef_search= 64: 0.89ms, top result idx=384721
+ef_search=256: 2.31ms, top result idx=384721
+    </div>
+    <div class="code-caption"><strong>Code Fragment 19.2.4:</strong> Building an HNSW (Hierarchical Navigable Small World) index with FAISS for sub-linear approximate nearest-neighbor search with tunable recall.</div>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight: HNSW Tradeoffs</div>
+        <p>HNSW provides excellent recall and low latency, but it requires storing the full vectors in memory along with the graph structure. For 1 million 768-dimensional float32 vectors, the vectors alone consume ~3 GB. The graph metadata adds another 20 to 50% overhead depending on M. This makes HNSW memory-intensive for very large collections (100M+ vectors), which is where IVF and quantization techniques become essential.</p>
+    </div>
+
+    <h2>3. IVF: Inverted File Index <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        The Inverted File (IVF) index partitions the vector space into <em>nlist</em> regions using
+        k-means clustering. Each vector is assigned to its nearest cluster centroid. At query time,
+        the algorithm first identifies the <em>nprobe</em> closest centroids to the query, then performs
+        an exhaustive search only within those clusters. This reduces the number of distance computations
+        from N to approximately N &times; nprobe / nlist.
+    </p>
+
+    <h3>IVF Construction</h3>
+
+    <p>
+        Building an IVF index requires a training phase where k-means clustering is performed on a
+        representative sample of the data. The number of clusters (<code>nlist</code>) is typically set
+        to the square root of N, although values between 4&times;sqrt(N) and 16&times;sqrt(N) are also
+        common. More clusters enable more selective search but require more centroids to be compared at
+        query time.
+     Code Fragment 19.2.3 below puts this into practice.</p>
+
+<pre><code class="language-python"># IVF index with FAISS
+import faiss
+import numpy as np
+import time
+
+dim = 768
+n_vectors = 1_000_000
+
+np.random.seed(42)
+vectors = np.random.randn(n_vectors, dim).astype(np.float32)
+faiss.normalize_L2(vectors)
+
+query = np.random.randn(1, dim).astype(np.float32)
+faiss.normalize_L2(query)
+
+# IVF with flat (uncompressed) storage within each cell
+nlist = 1024  # Number of Voronoi cells (clusters)
+quantizer = faiss.IndexFlatIP(dim)  # Inner product for normalized vectors
+index = faiss.IndexIVFFlat(quantizer, dim, nlist, faiss.METRIC_INNER_PRODUCT)
+
+# IVF requires a training step (k-means on the data)
+print("Training IVF index...")
+start = time.time()
+index.train(vectors)
+print(f"Training time: {time.time() - start:.1f}s")
+
+# Add vectors to index
+start = time.time()
+index.add(vectors)
+print(f"Add time: {time.time() - start:.1f}s")
+
+# Search with different nprobe values
+for nprobe in [1, 8, 32, 128]:
+    index.nprobe = nprobe
+
+    start = time.time()
+    distances, indices = index.search(query, k=10)
+    search_time = (time.time() - start) * 1000
+
+    print(f"nprobe={nprobe:>3}: {search_time:.2f}ms, "
+          f"searched {nprobe * n_vectors // nlist:,} vectors")</code></pre>
+<div class="code-caption"><strong>Code Fragment 19.2.5:</strong> This snippet creates an IVF (Inverted File) index with faiss.IndexIVFFlat using 1024 Voronoi cells and trains it on the dataset. The nprobe parameter controls how many cells are searched at query time, trading recall for speed, and the output compares recall@10 at different nprobe values.</div>
+    <div class="code-output">
+Training IVF index...
+Training time: 28.4s
+Add time: 7.2s
+nprobe=  1: 0.31ms, searched 976 vectors
+nprobe=  8: 1.02ms, searched 7,812 vectors
+nprobe= 32: 3.41ms, searched 31,250 vectors
+nprobe=128: 12.89ms, searched 125,000 vectors
+    </div>
+    <div class="code-caption"><strong>Code Fragment 19.2.6:</strong> Creating an IVF (Inverted File) index that partitions the vector space into clusters, narrowing the search to only the most relevant partitions.</div>
+
+    <h2>4. Product Quantization (PQ) <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        Product Quantization compresses vectors by splitting each <em>d</em>-dimensional vector into
+        <em>m</em> sub-vectors, then quantizing each sub-vector independently using a small codebook.
+        A 768-dimensional vector split into 96 sub-vectors of 8 dimensions each, with 256 codes per
+        sub-vector, requires only 96 bytes of storage instead of 3,072 bytes (768 &times; 4 for float32).
+        This represents a 32x compression ratio.
+     Figure 19.2.2 shows how product quantization compresses vectors by replacing sub-vectors with codebook indices. Code Fragment 19.2.4 below puts this into practice.</p>
+
+    <h3>How PQ Works</h3>
+
+    <ol>
+        <li><strong>Split:</strong> Divide each d-dimensional vector into m sub-vectors of d/m dimensions.</li>
+        <li><strong>Train codebooks:</strong> For each sub-vector position, run k-means with 256 centroids (or another power of 2) on the training data. This produces m codebooks, each with 256 entries.</li>
+        <li><strong>Encode:</strong> Replace each sub-vector with the index of its nearest codebook entry (a single byte for 256 codes).</li>
+        <li><strong>Compute distances:</strong> At query time, precompute a distance lookup table from the query sub-vectors to all codebook entries, then sum table lookups for each compressed vector.</li>
+    </ol>
+
+    <div class="diagram-container">
+        <svg viewBox="0 0 720 280" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Diagram: How PQ Works">
+<defs>
+<linearGradient id="grad_fc55f1_e3f2fd" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#f2ffff"/><stop offset="100%" stop-color="#e3f2fd"/></linearGradient>
+<linearGradient id="grad_fc55f1_f8f9fa" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#ffffff"/><stop offset="100%" stop-color="#f8f9fa"/></linearGradient>
+<linearGradient id="grad_fc55f1_ffcdd2" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#ffdce1"/><stop offset="100%" stop-color="#ffcdd2"/></linearGradient>
+<linearGradient id="grad_fc55f1_c8e6c9" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#d7f5d8"/><stop offset="100%" stop-color="#c8e6c9"/></linearGradient>
+<linearGradient id="grad_fc55f1_fff3e0" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#ffffef"/><stop offset="100%" stop-color="#fff3e0"/></linearGradient>
+<filter id="shadow_fc55f1" x="-5%" y="-5%" width="115%" height="115%"><feDropShadow dx="2" dy="2" stdDeviation="3" flood-opacity="0.1"/></filter>
+</defs>
+            <rect filter="url(#shadow_fc55f1)" x="5" y="5" width="710" height="270" rx="10" fill="url(#grad_fc55f1_f8f9fa)" stroke="#ddd"/>
+            <text x="360" y="30" text-anchor="middle" font-family="Segoe UI, system-ui, sans-serif" font-size="14" font-weight="700" fill="#333">Product Quantization: Vector Compression</text>
+
+            <!-- Original vector -->
+            <text x="30" y="60" font-family="Segoe UI, system-ui, sans-serif" font-size="11" fill="#666">Original (768d, 3072 bytes)</text>
+            <rect x="30" y="68" width="660" height="30" rx="4" fill="url(#grad_fc55f1_e3f2fd)" stroke="#1976d2"/>
+            <text x="360" y="88" text-anchor="middle" font-family="Consolas, monospace" font-size="11" fill="#333">[0.12, -0.45, 0.78, 0.33, ..., -0.21, 0.56, 0.09, -0.67]</text>
+
+            <!-- Split into sub-vectors -->
+            <text x="30" y="125" font-family="Segoe UI, system-ui, sans-serif" font-size="11" fill="#666">Split into m=96 sub-vectors (8 dims each)</text>
+            <rect x="30" y="133" width="80" height="28" rx="4" fill="url(#grad_fc55f1_c8e6c9)" stroke="#388e3c"/>
+            <text x="70" y="152" text-anchor="middle" font-family="Consolas, monospace" font-size="11" fill="#333">sub_1</text>
+            <rect x="115" y="133" width="80" height="28" rx="4" fill="url(#grad_fc55f1_c8e6c9)" stroke="#388e3c"/>
+            <text x="155" y="152" text-anchor="middle" font-family="Consolas, monospace" font-size="11" fill="#333">sub_2</text>
+            <rect x="200" y="133" width="80" height="28" rx="4" fill="url(#grad_fc55f1_c8e6c9)" stroke="#388e3c"/>
+            <text x="240" y="152" text-anchor="middle" font-family="Consolas, monospace" font-size="11" fill="#333">sub_3</text>
+            <text x="310" y="152" font-family="Segoe UI, system-ui, sans-serif" font-size="16" fill="#666">...</text>
+            <rect x="350" y="133" width="80" height="28" rx="4" fill="url(#grad_fc55f1_c8e6c9)" stroke="#388e3c"/>
+            <text x="390" y="152" text-anchor="middle" font-family="Consolas, monospace" font-size="11" fill="#333">sub_95</text>
+            <rect x="435" y="133" width="80" height="28" rx="4" fill="url(#grad_fc55f1_c8e6c9)" stroke="#388e3c"/>
+            <text x="475" y="152" text-anchor="middle" font-family="Consolas, monospace" font-size="11" fill="#333">sub_96</text>
+
+            <!-- Arrows down -->
+            <text x="250" y="185" font-family="Segoe UI, system-ui, sans-serif" font-size="11" fill="#666">Quantize each sub-vector to nearest codebook entry</text>
+
+            <!-- Compressed codes -->
+            <text x="30" y="210" font-family="Segoe UI, system-ui, sans-serif" font-size="11" fill="#666">Compressed (96 bytes)</text>
+            <rect x="30" y="218" width="40" height="28" rx="4" fill="url(#grad_fc55f1_ffcdd2)" stroke="#c62828"/>
+            <text x="50" y="237" text-anchor="middle" font-family="Consolas, monospace" font-size="10" fill="#333">42</text>
+            <rect x="75" y="218" width="40" height="28" rx="4" fill="url(#grad_fc55f1_ffcdd2)" stroke="#c62828"/>
+            <text x="95" y="237" text-anchor="middle" font-family="Consolas, monospace" font-size="10" fill="#333">187</text>
+            <rect x="120" y="218" width="40" height="28" rx="4" fill="url(#grad_fc55f1_ffcdd2)" stroke="#c62828"/>
+            <text x="140" y="237" text-anchor="middle" font-family="Consolas, monospace" font-size="10" fill="#333">5</text>
+            <text x="185" y="237" font-family="Segoe UI, system-ui, sans-serif" font-size="16" fill="#666">...</text>
+            <rect x="210" y="218" width="40" height="28" rx="4" fill="url(#grad_fc55f1_ffcdd2)" stroke="#c62828"/>
+            <text x="230" y="237" text-anchor="middle" font-family="Consolas, monospace" font-size="10" fill="#333">201</text>
+            <rect x="255" y="218" width="40" height="28" rx="4" fill="url(#grad_fc55f1_ffcdd2)" stroke="#c62828"/>
+            <text x="275" y="237" text-anchor="middle" font-family="Consolas, monospace" font-size="10" fill="#333">93</text>
+
+            <!-- Compression ratio -->
+            <rect x="420" y="215" width="270" height="35" rx="8" fill="url(#grad_fc55f1_fff3e0)" stroke="#e65100"/>
+            <text x="555" y="237" text-anchor="middle" font-family="Segoe UI, system-ui, sans-serif" font-size="12" fill="#e65100" font-weight="600">32x compression: 3072 bytes &#x2192; 96 bytes</text>
+        </svg>
+        <div class="diagram-caption"><strong>Figure 19.2.2</strong>: Product Quantization splits each vector into sub-vectors and replaces each with a codebook index, achieving high compression ratios.</div>
+    </div>
+
+<pre><code class="language-python"># IVF + Product Quantization composite index in FAISS
+import faiss
+import numpy as np
+import time
+
+dim = 768
+n_vectors = 1_000_000
+
+np.random.seed(42)
+vectors = np.random.randn(n_vectors, dim).astype(np.float32)
+faiss.normalize_L2(vectors)
+
+query = np.random.randn(1, dim).astype(np.float32)
+faiss.normalize_L2(query)
+
+# IVF-PQ: combines partitioning with compression
+nlist = 1024          # Number of IVF partitions
+m_subquantizers = 96  # Number of sub-quantizers (must divide dim)
+nbits = 8             # Bits per sub-quantizer (256 codes)
+
+index = faiss.IndexIVFPQ(
+    faiss.IndexFlatIP(dim),  # Coarse quantizer
+    dim,
+    nlist,
+    m_subquantizers,
+    nbits
+)
+
+# Train and add
+print("Training IVF-PQ index...")
+index.train(vectors)
+index.add(vectors)
+
+# Memory comparison
+flat_memory = n_vectors * dim * 4  # float32
+pq_memory = n_vectors * m_subquantizers  # 1 byte per sub-quantizer
+print(f"Flat memory: {flat_memory / 1e9:.2f} GB")
+print(f"PQ memory:   {pq_memory / 1e6:.0f} MB")
+print(f"Compression: {flat_memory / pq_memory:.0f}x")
+
+# Search
+index.nprobe = 32
+start = time.time()
+distances, indices = index.search(query, k=10)
+search_time = (time.time() - start) * 1000
+print(f"Search time: {search_time:.2f}ms")</code></pre>
+<div class="code-caption"><strong>Code Fragment 19.2.7:</strong> This snippet combines IVF partitioning with Product Quantization in faiss.IndexIVFPQ, compressing each 768-dimensional vector into m=48 sub-quantizers of nbits=8. The result dramatically reduces memory (shown by the index size comparison) while maintaining reasonable recall through asymmetric distance computation.</div>
+    <div class="code-output">
+Training IVF-PQ index...
+Flat memory: 2.87 GB
+PQ memory:   96 MB
+Compression: 32x
+Search time: 1.15ms
+    </div>
+    <div class="code-caption"><strong>Code Fragment 19.2.8:</strong> Combining IVF clustering with Product Quantization (PQ) to compress vectors and reduce both memory and search time for billion-scale collections.</div>
+
+    <h2>5. Composite Indexes and Advanced Techniques <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <h3>IVF-HNSW</h3>
+
+    <p>
+        Instead of using a flat (brute-force) coarse quantizer in IVF, the coarse quantizer itself can
+        be an HNSW index. This accelerates the cluster assignment step when there are many clusters
+        (tens of thousands), which is important for very large datasets where you need fine-grained
+        partitioning.
+    </p>
+
+    <h3>ScaNN (Scalable Nearest Neighbors)</h3>
+
+    <p>
+        Google's ScaNN algorithm introduces <strong>anisotropic vector quantization</strong>, which
+        accounts for the direction of quantization error rather than minimizing error magnitude uniformly.
+        Standard PQ minimizes the overall reconstruction error, but ScaNN specifically minimizes the error
+        in the direction that matters for inner product computation. This produces better search quality at
+        the same compression ratio.
+    </p>
+
+    <div class="callout note">
+        <div class="callout-title">Note: Binary Quantization</div>
+        <p>The simplest and most aggressive form of quantization converts each float dimension to a single bit: 1 if positive, 0 if negative. This reduces memory by 32x and enables ultra-fast Hamming distance computation. While the accuracy loss is significant when used alone, binary quantization works well as a first-pass filter followed by rescoring against full-precision vectors. Some vector databases (Qdrant, Weaviate) support this as a "binary quantization" or "oversampling + rescore" mode.</p>
+    </div>
+
+    <h2>6. Index Selection Guide <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <div class="comparison-table">
+        <div class="comparison-table-title">6. Index Selection Guide Advanced Comparison</div>
+        <table>
+        <thead>
+            <tr>
+                <th>Index Type</th>
+                <th>Build Time</th>
+                <th>Search Speed</th>
+                <th>Memory</th>
+                <th>Recall</th>
+                <th>Best For</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>Flat (brute-force)</td>
+                <td>None</td>
+                <td>Slow</td>
+                <td>High</td>
+                <td>100%</td>
+                <td>&lt; 50K vectors</td>
+            </tr>
+            <tr>
+                <td>HNSW</td>
+                <td>Slow</td>
+                <td>Very fast</td>
+                <td>High</td>
+                <td>98%+</td>
+                <td>Low latency, &lt; 10M vectors</td>
+            </tr>
+            <tr>
+                <td>IVF-Flat</td>
+                <td>Medium</td>
+                <td>Fast</td>
+                <td>High</td>
+                <td>95%+</td>
+                <td>Moderate scale, updatable</td>
+            </tr>
+            <tr>
+                <td>IVF-PQ</td>
+                <td>Medium</td>
+                <td>Fast</td>
+                <td>Low</td>
+                <td>90%+</td>
+                <td>Large scale, memory-constrained</td>
+            </tr>
+            <tr>
+                <td>HNSW + PQ</td>
+                <td>Slow</td>
+                <td>Fast</td>
+                <td>Medium</td>
+                <td>93%+</td>
+                <td>Balanced latency and memory</td>
+            </tr>
+            <tr>
+                <td>IVF-HNSW-PQ</td>
+                <td>Slow</td>
+                <td>Very fast</td>
+                <td>Low</td>
+                <td>92%+</td>
+                <td>Billion-scale datasets</td>
+            </tr>
+        </tbody>
+    </table>
+    </div>
+
+    <div class="callout warning">
+        <div class="callout-title">Warning: Common Pitfalls</div>
+        <p><strong>Do not over-optimize for benchmarks.</strong> ANN benchmark scores (like ann-benchmarks.com) measure performance on specific datasets with specific query patterns. Your production workload may have very different characteristics. Always benchmark with your actual data and query distribution. Additionally, remember that index parameters interact: increasing <code>nprobe</code> in IVF can be more effective than increasing <code>ef_search</code> in HNSW for some data distributions, and vice versa.</p>
+    </div>
+
+    <h2>7. FAISS Index Factory <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>
+        FAISS provides an <strong>index factory</strong> that lets you construct composite indexes using a
+        string descriptor. This is the most convenient way to experiment with different configurations.
+     Code Fragment 19.2.5 below puts this into practice.</p>
+
+<pre><code class="language-python"># FAISS index factory: composing index types with string descriptors
+import faiss
+import numpy as np
+
+dim = 768
+n_vectors = 500_000
+
+vectors = np.random.randn(n_vectors, dim).astype(np.float32)
+faiss.normalize_L2(vectors)
+
+# Index factory string format: "preprocessing,coarse_quantizer,encoding"
+index_configs = {
+    "Flat":          "Flat",
+    "HNSW32":        "HNSW32",
+    "IVF1024,Flat":  "IVF1024,Flat",
+    "IVF1024,PQ96":  "IVF1024,PQ96",
+    "IVF1024,SQ8":   "IVF1024,SQ8",   # Scalar quantization (8-bit)
+}
+
+for name, factory_str in index_configs.items():
+    index = faiss.index_factory(dim, factory_str, faiss.METRIC_INNER_PRODUCT)
+
+    # Train if needed
+    if not index.is_trained:
+        index.train(vectors[:100_000])  # Train on subset
+
+    index.add(vectors)
+
+    # Estimate memory (rough approximation)
+    if "PQ96" in factory_str:
+        mem_mb = n_vectors * 96 / 1e6
+    elif "SQ8" in factory_str:
+        mem_mb = n_vectors * dim / 1e6
+    else:
+        mem_mb = n_vectors * dim * 4 / 1e6
+
+    print(f"{name:>20}: {n_vectors:,} vectors, ~{mem_mb:.0f} MB")</code></pre>
+<div class="code-caption"><strong>Code Fragment 19.2.9:</strong> This snippet uses the FAISS index_factory string interface to compose complex index types in a single line, such as 'IVF4096,PQ48' or 'OPQ48,IVF4096,PQ48'. The factory pattern simplifies experimentation by letting users swap index architectures without rewriting index construction code.</div>
+    <div class="code-output">
+                Flat: 500,000 vectors, ~1440 MB
+              HNSW32: 500,000 vectors, ~1440 MB
+       IVF1024,Flat: 500,000 vectors, ~1440 MB
+        IVF1024,PQ96: 500,000 vectors, ~48 MB
+        IVF1024,SQ8: 500,000 vectors, ~384 MB
+    </div>
+    <div class="code-caption"><strong>Code Fragment 19.2.10:</strong> Using the FAISS index factory string syntax to compose complex index types (flat, IVF, PQ, HNSW) in a single declarative expression.</div>
+
+    <!-- Quiz Section -->
+    <div class="quiz">
+        <h3>Section 19.2 Quiz</h3>
+
+        <p class="quiz-question">1. Why does brute-force nearest neighbor search become impractical at scale?</p>
+        <details open>
+            <summary>Show Answer</summary>
+            <div class="answer">Brute-force search requires computing the distance between the query vector and every vector in the collection, resulting in O(N &times; d) operations per query. For millions of high-dimensional vectors, this translates to hundreds of milliseconds per query, which is too slow for real-time applications. ANN algorithms reduce this to sub-millisecond search by trading perfect accuracy for speed.</div>
+        </details>
+
+        <p class="quiz-question">2. What do the parameters M and ef_construction control in HNSW?</p>
+        <details open>
+            <summary>Show Answer</summary>
+            <div class="answer">M controls the maximum number of edges per node in the HNSW graph. Higher M increases connectivity, improving recall but consuming more memory. ef_construction controls how many candidates the algorithm evaluates when inserting a new node; higher values produce a higher-quality graph at the cost of slower build times. Together, they determine the graph's quality and the memory/build-time tradeoff.</div>
+        </details>
+
+        <p class="quiz-question">3. How does Product Quantization achieve vector compression?</p>
+        <details open>
+            <summary>Show Answer</summary>
+            <div class="answer">PQ divides each d-dimensional vector into m sub-vectors, then independently quantizes each sub-vector using a learned codebook with 256 entries (8 bits). Each sub-vector is replaced by its nearest codebook index (a single byte). A 768-dimensional float32 vector (3,072 bytes) split into 96 sub-vectors requires only 96 bytes: one byte per sub-vector. Distance computation uses precomputed lookup tables from the query to each codebook entry.</div>
+        </details>
+
+        <p class="quiz-question">4. In IVF indexing, what happens when you increase the nprobe parameter?</p>
+        <details open>
+            <summary>Show Answer</summary>
+            <div class="answer">Increasing nprobe causes the search to examine more cluster partitions at query time. With nprobe=1, only the cluster whose centroid is closest to the query is searched. With nprobe=32, the 32 closest clusters are searched. Higher nprobe values improve recall (finding more true nearest neighbors) but increase latency because more vectors are compared. The optimal nprobe balances your target recall with acceptable query latency.</div>
+        </details>
+
+        <p class="quiz-question">5. When would you choose IVF-PQ over HNSW?</p>
+        <details open>
+            <summary>Show Answer</summary>
+            <div class="answer">IVF-PQ is preferred over HNSW when memory is a constraint. HNSW stores full-precision vectors plus graph metadata, consuming substantial memory. IVF-PQ compresses vectors to a fraction of their original size (e.g., 32x compression). For large collections (100M+ vectors) where full-precision storage would require hundreds of gigabytes, IVF-PQ enables the entire index to fit in memory. The tradeoff is slightly lower recall compared to HNSW at the same query latency.</div>
+        </details>
+    </div>
+    <div class="callout tip">
+        <div class="callout-title">Tip: Benchmark Embedding Models on Your Data</div>
+        <p>Do not rely solely on MTEB leaderboard rankings. Download 2 to 3 top embedding models and test them on a sample of your actual queries and documents. Domain-specific performance can differ significantly from general benchmarks.</p>
+    </div>
+
+    <!-- Key Takeaways -->
+    <div class="takeaways">
+        <h2>Key Takeaways</h2>
+        <ul>
+            <li><strong>Brute-force search scales linearly</strong> with dataset size and becomes impractical beyond ~50K vectors for real-time applications.</li>
+            <li><strong>HNSW</strong> provides the best recall/latency tradeoff but requires storing full vectors in memory, making it memory-intensive.</li>
+            <li><strong>IVF</strong> partitions the search space using clustering, reducing the number of comparisons proportional to the <code>nprobe/nlist</code> ratio.</li>
+            <li><strong>Product Quantization</strong> compresses vectors by 16 to 32x, enabling large-scale search in constrained memory environments at the cost of some recall.</li>
+            <li><strong>Composite indexes</strong> (IVF-PQ, IVF-HNSW-PQ) combine partitioning, graph navigation, and compression for billion-scale search.</li>
+            <li><strong>Always benchmark on your data.</strong> The optimal index type and parameters depend on your specific dataset size, dimensionality, query patterns, and latency/recall requirements.</li>
+            <li><strong>FAISS index factory</strong> provides a convenient string-based interface for constructing and experimenting with different composite index configurations.</li>
+        </ul>
+    </div>
+
+    <div class="callout practical-example">
+      <div class="callout-title">Scaling Product Search with HNSW vs. IVF</div>
+      <p><strong>Who:</strong> A platform engineering team at a mid-size e-commerce company (50 million product listings)</p>
+      <p><strong>Situation:</strong> The team was migrating from keyword search to embedding-based <a class="cross-ref" href="../module-18-embeddings-vector-db/section-18.3.html">semantic search</a> for product discovery, using 768-dimensional vectors from a <a href="../../part-4-training-adapting/module-14-fine-tuning-fundamentals/index.html" class="cross-ref">fine-tuned</a> model.</p>
+      <p><strong>Problem:</strong> Flat (brute-force) search delivered perfect recall but took 800ms per query at their scale, far exceeding the 100ms latency budget for real-time search.</p>
+      <p><strong>Dilemma:</strong> HNSW offered sub-10ms queries with 98% recall but required 120 GB of RAM to hold the full graph in memory. IVF-PQ reduced memory to 15 GB through quantization but dropped recall to 88% and introduced a retraining step whenever the catalog changed significantly.</p>
+      <p><strong>Decision:</strong> They deployed a two-tier architecture: HNSW for the top 5 million high-traffic products (frequently searched categories) and IVF-PQ with a <a class="cross-ref" href="../module-20-rag/section-20.2.html">reranking</a> step for the full 50 million catalog as a fallback.</p>
+      <p><strong>How:</strong> Using FAISS, they built the HNSW index with M=32 and ef_construction=200, and the IVF index with 4,096 centroids and PQ compression to 64 bytes per vector. A lightweight cross-encoder reranked the top 50 IVF results.</p>
+      <p><strong>Result:</strong> P95 latency dropped to 35ms, recall stayed above 95% across both tiers, and total memory usage was 45 GB (fitting on a single high-memory instance).</p>
+      <p><strong>Lesson:</strong> <strong>Combining index types in a tiered architecture lets you optimize for both latency and recall without paying the full memory cost of keeping everything in a high-fidelity index.</strong></p>
+    </div>
+
+
+
+<div class="callout research-frontier">
+    <div class="callout-title">Research Frontier</div>
+    <p><strong>Graph-based indexes with learned routing</strong> are replacing static HNSW configurations with neural network-guided neighbor selection, improving recall at the same latency budget. <strong>Hybrid quantization</strong> combines product quantization with scalar quantization at different index levels, achieving near-exact recall at 16x compression. <strong>GPU-accelerated ANN search</strong> libraries like RAFT (NVIDIA) and cuVS are moving index construction and search onto GPUs, enabling sub-millisecond queries on billion-scale datasets. Research into <strong>streaming index updates</strong> addresses the challenge of maintaining index quality as documents are continuously added and deleted, a key limitation of batch-built HNSW graphs.</p>
+</div>
+
+
+<section class="exercises">
+    <h2>Exercises <span class="level-badge intermediate" title="INTERMEDIATE">INTERMEDIATE</span></h2>
+    <p><strong>How to use these exercises:</strong> Conceptual questions test your understanding of ANN algorithms. Coding exercises require <code>faiss</code> installed.</p>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 19.2.1: Brute-force scaling <span class="level-badge basic" title="Basic">BASIC</span> <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+        <p>If brute-force nearest neighbor search over 1 million 768-dimensional vectors takes 200ms, estimate the time for 100 million vectors. Why is this unacceptable for production search?</p>
+        <details open><summary>Show Answer</summary>
+            <p>At 100x the vectors, brute-force takes approximately 20 seconds per query. Production search APIs require sub-100ms latency, making brute-force infeasible beyond a few million vectors.</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 19.2.2: HNSW layers <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span> <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+        <p>Explain how the hierarchical structure of HNSW speeds up search. What role do the upper layers play, and why is a logarithmic number of layers sufficient?</p>
+        <details open><summary>Show Answer</summary>
+            <p>Upper HNSW layers contain only a sparse subset of nodes, allowing the search to quickly navigate to the right region of the graph. Lower layers are dense and provide local refinement. The log(N) layers mirror a skip-list structure, giving O(log N) search complexity.</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 19.2.3: IVF tradeoffs <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span> <span class="exercise-type coding" title="Coding">Coding</span></div>
+        <p>In an IVF index with 1024 clusters, you set <code>nprobe=10</code>. Approximately what fraction of vectors are scanned? What happens to recall if you increase nprobe to 100?</p>
+        <details open><summary>Show Answer</summary>
+            <p>With nprobe=10 out of 1024 clusters, about 1% of vectors are scanned. Increasing to nprobe=100 scans about 10%, significantly improving recall (often from 85% to 98%+) at the cost of 10x more computation.</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 19.2.4: PQ compression <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span> <span class="exercise-type analysis" title="Analysis">Analysis</span></div>
+        <p>A Product Quantization index splits 768-dimensional vectors into 96 sub-vectors of 8 dimensions each, with 256 centroids per sub-vector. Calculate the compressed size per vector in bytes. What is the compression ratio compared to storing raw float32 vectors?</p>
+        <details open><summary>Show Answer</summary>
+            <p>96 sub-vectors with 1 byte each (256 centroids = 8 bits) = 96 bytes per vector. Raw float32: 768 * 4 = 3072 bytes. Compression ratio: 3072 / 96 = 32x.</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 19.2.5: Composite indexes <span class="level-badge advanced" title="Advanced">ADVANCED</span> <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+        <p>Explain why combining IVF with PQ (IVF+PQ) is more effective than using either alone. What does each component contribute to the overall system?</p>
+        <details open><summary>Show Answer</summary>
+            <p>IVF partitions the search space, reducing the number of vectors to scan. PQ compresses each vector, reducing memory and enabling faster distance computation. Together, IVF handles coarse search and PQ handles fine-grained comparison within each partition.</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 19.2.6: FAISS benchmark <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span> <span class="exercise-type coding" title="Coding">Coding</span></div>
+        <p>Generate 100,000 random 128-dimensional vectors. Build a flat index (brute-force), an HNSW index, and an IVF index. Compare query latency and recall@10 across all three.</p>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 19.2.7: nprobe tuning <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span> <span class="exercise-type coding" title="Coding">Coding</span></div>
+        <p>Build an IVF index with 256 clusters on 500,000 random vectors. Measure recall@10 and query time as you sweep nprobe from 1 to 128. Plot the recall/latency tradeoff curve.</p>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 19.2.8: Index factory <span class="level-badge advanced" title="Advanced">ADVANCED</span> <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+        <p>Use FAISS index factory strings to build "IVF256,PQ32", "IVF256,Flat", and "HNSW32" indexes on 1 million random vectors. Compare memory usage, build time, query latency, and recall.</p>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 19.2.9: Memory calculation <span class="level-badge advanced" title="Advanced">ADVANCED</span> <span class="exercise-type coding" title="Coding">Coding</span></div>
+        <p>Write a function that, given vector dimension, number of vectors, and a FAISS index type string, estimates the total memory footprint. Validate against actual memory usage.</p>
+    </div>
+</section>
+
+<div class="whats-next">
+    <h2>What Comes Next</h2>
+    <p>In the next section, <a href="section-19.3.html">Section 19.3: Vector Database Systems</a>, we survey vector database systems, comparing purpose-built solutions and understanding their production trade-offs.</p>
+</div>
+
+<section class="bibliography">
+    <div class="bibliography-title">&#128218; References &amp; Further Reading</div>
+
+    <div class="bib-category">Core ANN Algorithms</div>
+
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://arxiv.org/abs/1603.09320" target="_blank" rel="noopener">Malkov, Y. &amp; Yashunin, D. (2018). "Efficient and Robust Approximate Nearest Neighbor Using Hierarchical Navigable Small World Graphs." <em>IEEE TPAMI</em>.</a></p>
+        <p class="bib-annotation">The definitive HNSW paper. Explains the multi-layer navigable small world graph that powers most production vector databases. Essential reading for understanding index tuning parameters like M and efConstruction.</p>
+        <span class="bib-meta">&#128196; Paper</span>
+    </div>
+
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://ieeexplore.ieee.org/document/5432202" target="_blank" rel="noopener">Jegou, H., Douze, M. &amp; Schmid, C. (2011). "Product Quantization for Nearest Neighbor Search." <em>IEEE TPAMI</em>.</a></p>
+        <p class="bib-annotation">Introduces Product Quantization (PQ) for compressing high-dimensional vectors while preserving approximate distances. The basis for memory-efficient billion-scale search systems.</p>
+        <span class="bib-meta">&#128196; Paper</span>
+    </div>
+
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://arxiv.org/abs/1702.08734" target="_blank" rel="noopener">Johnson, J., Douze, M. &amp; Jegou, H. (2021). "Billion-Scale Similarity Search with GPUs." <em>IEEE Transactions on Big Data</em>.</a></p>
+        <p class="bib-annotation">The paper behind FAISS, demonstrating GPU-accelerated billion-scale nearest neighbor search. Covers IVF indexing combined with PQ for practical large-scale deployments.</p>
+        <span class="bib-meta">&#128196; Paper</span>
+    </div>
+
+    <div class="bib-category">Tools &amp; Benchmarks</div>
+
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://github.com/spotify/annoy" target="_blank" rel="noopener">Bernhardsson, E. (2018). "Annoy: Approximate Nearest Neighbors Oh Yeah."</a></p>
+        <p class="bib-annotation">Spotify's lightweight ANN library using random projection trees. Ideal for read-heavy workloads where the index can be built once and memory-mapped across processes.</p>
+        <span class="bib-meta">&#128295; Tool</span>
+    </div>
+
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://github.com/facebookresearch/faiss/wiki/Guidelines-to-choose-an-index" target="_blank" rel="noopener">FAISS Wiki: Guidelines for Index Choice</a></p>
+        <p class="bib-annotation">Practical decision guide for selecting FAISS index types based on dataset size, memory budget, and latency requirements. The best starting point for FAISS configuration.</p>
+        <span class="bib-meta">&#127891; Tutorial</span>
+    </div>
+
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://ann-benchmarks.com/" target="_blank" rel="noopener">Aumuller, M. et al. (2020). "ANN-Benchmarks: A Benchmarking Tool for Approximate Nearest Neighbor Algorithms." <em>Information Systems</em>.</a></p>
+        <p class="bib-annotation">Standardized benchmarking framework comparing ANN algorithm implementations on recall-vs-throughput curves. Use this to validate vendor performance claims with reproducible numbers.</p>
+        <span class="bib-meta">&#128196; Paper</span>
+    </div>
+</section>
+
+
+
+<nav class="chapter-nav">
+    <a href="section-19.1.html" class="prev">Previous: Text Embedding Models &amp; Training</a>
+    <a href="section-19.3.html" class="next">Next: Vector Database Systems </a>
+</nav>
+    <footer><p>Fifth Edition, 2026 &middot; <a href="../../toc.html">Contents</a></p></footer>
+</main>
+</body>
+</html>

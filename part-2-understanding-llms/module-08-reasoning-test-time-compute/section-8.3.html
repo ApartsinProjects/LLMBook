@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Section 8.3: Training Reasoning Models: RLVR, GRPO, PRM</title>
+    <link rel="stylesheet" href="../../styles/book.css">
+    <link rel="stylesheet" href="../../vendor/katex/katex.min.css">
+    <script defer src="../../vendor/katex/katex.min.js"></script>
+    <script defer src="../../vendor/katex/contrib/auto-render.min.js"
+        onload="renderMathInElement(document.body, {
+            delimiters: [
+                {left: '$$', right: '$$', display: true},
+                {left: '$', right: '$', display: false}
+            ],
+            throwOnError: false
+        });"></script>
+    <link rel="stylesheet" href="../../vendor/prism/prism-theme.css">
+    <script defer src="../../vendor/prism/prism-bundle.min.js"></script>
+</head>
+<body>
+<header class="chapter-header">
+    <nav class="header-nav">
+        <a href="../../index.html" class="book-title-link">Building Conversational AI with LLMs and Agents</a>
+        <a href="../../toc.html" class="toc-link" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+    </nav>
+    <div class="part-label"><a href="../index.html">Part 2: Understanding LLMs</a></div>
+    <div class="chapter-label"><a href="index.html">Chapter 8: Reasoning Models &amp; Test-Time Compute</a></div>
+    <h1>Training Reasoning Models: RLVR, GRPO, PRM</h1>
+</header>
+
+<main class="content">
+
+    <blockquote class="epigraph">
+        <p>You do not teach a child to think by giving them a textbook of thoughts. You give them problems and let them struggle.</p>
+        <cite><span class="agent-avatar-inline" style="background-color: #8e44ad;"><img src="../../front-matter/images/agents/chinchilla.png" alt="Chinchilla"></span> <a href="../../front-matter/wisdom-council.html#chinchilla">Chinchilla</a> <span class="agent-desc">AI Agent</span></cite>
+    </blockquote>
+
+    <div class="prerequisites">
+        <h3>Prerequisites</h3>
+        <p>This section assumes familiarity with the reasoning model architectures from <a href="section-8.2.html">Section 8.2</a>, reinforcement learning fundamentals (policy, reward, optimization), and ideally the <a class="cross-ref" href="../../part-4-training-adapting/module-17-alignment-rlhf-dpo/section-17.1.html">RLHF</a>/<a class="cross-ref" href="../../part-4-training-adapting/module-16-alignment-rlhf-dpo/section-16.1.html">PPO</a> framework from <a class="cross-ref" href="../../part-4-training-adapting/module-17-alignment-rlhf-dpo/section-17.1.html">Section 17.1</a>. Understanding of <a class="cross-ref" href="../../part-4-training-adapting/module-13-synthetic-data/section-13.1.html">synthetic data</a> generation from <a class="cross-ref" href="../../part-4-training-adapting/module-13-synthetic-data/index.html">Chapter 13</a> provides additional context for the bootstrapping approaches discussed here.</p>
+    </div>
+
+    <div class="callout big-picture">
+        <div class="callout-title">Big Picture</div>
+        <p><strong>How do you train a model to reason?</strong> Standard supervised <a href="../../part-4-training-adapting/module-14-fine-tuning-fundamentals/index.html" class="cross-ref">fine-tuning</a> teaches a model to imitate human-written answers. But reasoning models need something more: they need to discover effective reasoning strategies, not just copy existing ones. The solution is reinforcement learning with verifiable rewards (RLVR), where the model is rewarded for getting the right answer regardless of how it reasons. This section covers the training algorithms (GRPO, PPO), the reward models (PRM, ORM) that guide training, and the bootstrapping approaches (STaR) that generate training data. These methods connect directly to the RLHF framework in <a class="cross-ref" href="../../part-4-training-adapting/module-17-alignment-rlhf-dpo/index.html">Chapter 17</a>, extending alignment techniques to the reasoning domain. For the complementary topic of generating synthetic reasoning data (rejection sampling pipelines, <a class="cross-ref" href="../../part-4-training-adapting/module-16-distillation-merging/section-16.1.html">distillation</a> traces, and quality filtering), see <a class="cross-ref" href="../../part-4-training-adapting/module-13-synthetic-data/section-13.7.html">Section 13.7: Synthetic Reasoning Data</a>.</p>
+    </div>
+
+
+    <h2>1. Reinforcement Learning with Verifiable Rewards (RLVR) <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>The standard RLHF pipeline (covered in <a href="../../part-4-training-adapting/module-17-alignment-rlhf-dpo/section-17.1.html" class="cross-ref">Section 17.1</a>) trains models using human preference data: annotators compare two model outputs and the model learns to produce outputs that humans prefer. This works well for alignment (making models helpful and harmless) but has a fundamental limitation for reasoning: human annotators cannot easily verify whether a 10,000-token mathematical proof is correct.</p>
+
+    <p><strong>Reinforcement Learning with Verifiable Rewards (RLVR)</strong> sidesteps this problem entirely. Instead of relying on human judgments, RLVR uses tasks where correctness can be verified automatically:</p>
+
+    <ul>
+        <li><strong>Mathematics:</strong> Compare the model's final numerical answer against the ground truth. The answer is either correct or incorrect, with no ambiguity.</li>
+        <li><strong><a class="cross-ref" href="../../part-7-multimodal-applications/module-28-llm-applications/section-28.1.html">Code generation</a>:</strong> Execute the model's code against a test suite. It either passes all tests or it does not.</li>
+        <li><strong>Formal proofs:</strong> Check the proof in a formal verification system (Lean, Coq). The proof either compiles or it does not.</li>
+        <li><strong>Constraint satisfaction:</strong> Verify that the output meets explicit constraints (e.g., "use exactly 100 words" or "include all specified keywords").</li>
+    </ul>
+
+    <p>The key insight is that verifiable tasks provide a <strong>free, scalable, perfectly accurate reward signal</strong>. There is no need for human annotators, no inter-annotator disagreement, and no label noise. This allows RL training at a scale that would be impractical with human feedback.</p>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight</div>
+        <p>RLVR inverts the traditional supervised learning paradigm. In supervised <a class="cross-ref" href="../../part-4-training-adapting/module-14-fine-tuning-fundamentals/section-14.1.html">fine-tuning</a>, you show the model <em>how</em> to reason (by providing example reasoning traces). In RLVR, you only tell the model <em>what</em> the right answer is and let it discover its own reasoning strategies. This is why R1-Zero could develop chain-of-thought reasoning without ever seeing a chain-of-thought example: the RL reward signal only checked the final answer, and the model independently discovered that step-by-step reasoning was the most reliable way to arrive at correct answers.</p>
+    </div>
+
+    <h3>1.1 The RLVR Training Loop</h3>
+
+    <p>Algorithm 1 formalizes the RLVR training loop. The critical difference from standard RLHF is step 3: rewards come from automatic verification rather than a learned reward model.</p>
+
+<div class="callout algorithm">
+    <div class="callout-title">Algorithm: Reinforcement Learning with Verifiable Rewards (RLVR)</div>
+    <pre><code class="language-python">
+<span class="algo-line-keyword">Input:</span> policy model pi, problem dataset D, verifier V, num_iterations T
+<span class="algo-line-keyword">Output:</span> trained policy pi*
+
+1. <span class="algo-line-keyword">for</span> iteration = 1 to T:
+   a. Sample a batch of problems {p_1, ..., p_B} from D
+   b. <span class="algo-line-keyword">for</span> each problem p_i:
+      Generate solution s_i (reasoning trace + final answer) using pi
+   c. <span class="algo-line-keyword">for</span> each solution s_i:
+      r_i = V(s_i, ground_truth_i)    <span class="algo-line-comment">// automatic verification</span>
+      (e.g., r_i = 1 if answer matches, 0 otherwise)
+   d. Optionally add format rewards (e.g., +0.1 for using &lt;think&gt; tags)
+   e. Update pi using policy optimizer (PPO or GRPO) to maximize
+      expected reward while staying close to reference policy
+2. <span class="algo-line-keyword">return</span> pi* (the final policy)
+    </code></pre>
+</div>
+
+    <p>The power of RLVR lies in the verifier: because correctness checking is automatic, the system can generate millions of training signals without human annotators. This enables RL training at a scale that would be impractical with human feedback.</p>
+
+    <h2>2. Group Relative Policy Optimization (GRPO) <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>GRPO is the RL algorithm developed by DeepSeek for training R1. Its primary advantage over PPO (the algorithm used in standard RLHF) is that <strong>it does not require a separate critic (value) model</strong>, which halves the <a href="../../appendices/appendix-g-hardware-compute/index.html" class="cross-ref">GPU memory</a> requirement during training.</p>
+
+    <h3>2.1 How GRPO Works</h3>
+
+    <p>In standard PPO, a critic model estimates the expected reward for each state (partial generation), and the advantage function is computed as the difference between the actual reward and the critic's estimate. Training the critic model requires additional GPU memory and compute roughly equal to training the policy model itself.</p>
+
+    <p>GRPO eliminates the critic by computing advantages <strong>relative to a group of samples</strong>. Algorithm 2 formalizes the procedure for a single problem within the training loop.</p>
+
+<div class="callout algorithm">
+    <div class="callout-title">Algorithm: Group Relative Policy Optimization (GRPO)</div>
+    <pre><code class="language-python">
+<span class="algo-line-keyword">Input:</span> problem p, policy pi, reference policy pi_ref, group size G, KL weight beta
+<span class="algo-line-keyword">Output:</span> policy gradient update for pi
+
+1. Generate G solutions {s_1, ..., s_G} from pi for problem p
+2. Compute rewards: r_i = verify(s_i) <span class="algo-line-keyword">for</span> i = 1 to G
+3. Normalize rewards within the group:
+      A_i = (r_i - mean(r_1..r_G)) / std(r_1..r_G)
+4. <span class="algo-line-keyword">for</span> each solution s_i with advantage A_i:
+   a. Compute ratio: rho_i = pi(s_i|p) / pi_old(s_i|p)
+   b. Clip ratio: rho_clipped = clip(rho_i, 1-eps, 1+eps)
+   c. L_i = min(rho_i * A_i, rho_clipped * A_i)
+5. Add KL penalty: L_total = mean(L_i) - beta * KL(pi || pi_ref)
+6. Update pi by gradient ascent on L_total
+    </code></pre>
+</div>
+
+    <p>The key insight is in step 3: by normalizing rewards within each group, GRPO converts absolute rewards into relative comparisons. A solution that scores 1.0 in a group where all others also score 1.0 receives zero advantage (nothing to learn from), while the same score in a group of mostly failures receives high positive advantage. This eliminates the need for a separate critic model to estimate expected reward, halving the GPU memory requirement.</p>
+
+    <h3>2.2 GRPO vs. PPO</h3>
+
+    <div class="comparison-table">
+        <div class="comparison-table-title">2.2 GRPO vs. PPO</div>
+        <table>
+        <thead>
+            <tr>
+                <th>Property</th>
+                <th>PPO</th>
+                <th>GRPO</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>Critic model required?</td>
+                <td>Yes (same size as policy)</td>
+                <td>No</td>
+            </tr>
+            <tr>
+                <td>GPU memory</td>
+                <td>~2x policy model size</td>
+                <td>~1x policy model size + samples</td>
+            </tr>
+            <tr>
+                <td>Advantage estimation</td>
+                <td>Critic-based (GAE)</td>
+                <td>Group-relative normalization</td>
+            </tr>
+            <tr>
+                <td>Samples per problem</td>
+                <td>1 to 4 (typical)</td>
+                <td>8 to 64 (required for good statistics)</td>
+            </tr>
+            <tr>
+                <td>Bias</td>
+                <td>Critic model introduces bias</td>
+                <td>Group mean is unbiased estimator</td>
+            </tr>
+            <tr>
+                <td>Variance</td>
+                <td>Lower (critic smooths estimates)</td>
+                <td>Higher (depends on group size)</td>
+            </tr>
+            <tr>
+                <td>Training stability</td>
+                <td>Moderate (critic training can lag)</td>
+                <td>Good with sufficient group size</td>
+            </tr>
+        </tbody>
+    </table>
+    </div>
+
+    <p>The key trade-off visible in this table is memory versus samples: PPO needs a large critic model but few samples per problem, while GRPO eliminates the critic at the cost of generating many more samples. For models at the scale of DeepSeek V3 (671B parameters), the memory savings from eliminating the critic model are decisive.</p>
+
+    <p><strong>Why group normalization works intuitively.</strong> Consider grading on a curve: if a professor does not know how hard an exam was, they can still assign fair grades by comparing students to each other. GRPO does the same thing. It does not need to predict how hard a problem is (which the critic model attempts); it simply observes how the current policy performs on each problem across multiple attempts and rewards the above-average attempts. This is why GRPO needs more samples: with only two "students," the curve is meaningless. With 16 or more, the relative rankings become informative. The same principle applies when you are building <a class="cross-ref" href="../../part-4-training-adapting/module-14-fine-tuning-fundamentals/section-14.6.html">reward-based fine-tuning</a> pipelines: relative comparisons are often more robust than absolute scores.</p>
+
+    <div class="callout note">
+        <div class="callout-title">Connection to RLHF</div>
+        <p>GRPO is a direct descendant of the PPO-based RLHF pipeline described in <a href="../../part-4-training-adapting/module-17-alignment-rlhf-dpo/section-17.1.html" class="cross-ref">Section 17.1</a>. The key difference is the source of rewards: RLHF uses a learned reward model trained on human preferences, while RLVR uses automatic verification. The policy optimization math is similar, but the elimination of both the critic model and the human-trained reward model makes RLVR with GRPO substantially simpler and cheaper to implement.</p>
+    </div>
+
+    <h2>3. Process Reward Models vs. Outcome Reward Models <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>Reward models play a central role in both training and deploying reasoning models. They serve two purposes: (1) providing reward signals during RL training, and (2) scoring candidate solutions during inference (best-of-N selection, tree search). There are two fundamental types:</p>
+
+    <h3>3.1 Outcome Reward Models (ORM)</h3>
+
+    <p>An ORM evaluates the <strong>complete solution</strong> and produces a single score. It answers the question: "How likely is this solution to be correct?" ORMs are trained on (problem, solution, correctness_label) triples, where the correctness label is a binary indicator of whether the solution produced the right final answer.</p>
+
+    <p>Advantages of ORMs:</p>
+    <ul>
+        <li>Easy to train (binary classification on complete solutions)</li>
+        <li>Easy to label (just check if the final answer is correct)</li>
+        <li>No need for step-level annotations</li>
+    </ul>
+
+    <p>Limitations of ORMs:</p>
+    <ul>
+        <li>Cannot distinguish "right answer, wrong reasoning" from "right answer, right reasoning." A solution that arrives at the correct answer through a lucky error is scored the same as a logically sound derivation.</li>
+        <li>Cannot provide feedback on where a wrong solution went astray. The ORM only says "wrong" without indicating which step caused the failure.</li>
+        <li>Less effective for guiding tree search, since it can only score complete solutions, not partial reasoning paths.</li>
+    </ul>
+
+    <h3>3.2 Process Reward Models (PRM)</h3>
+
+    <p>A PRM evaluates <strong>each reasoning step individually</strong>, producing a score for every step in the chain. It answers the question: "Is this step logically valid given the previous steps?" PRMs are trained on step-level annotations where human annotators (or automated systems) label each reasoning step as correct or incorrect.</p>
+
+    <p>The landmark dataset for PRM training is <strong>PRM800K</strong> (Lightman et al., 2023), which contains 800,000 step-level annotations of mathematical reasoning solutions. Each step is labeled as "positive" (correct), "negative" (incorrect), or "neutral" (valid but not helpful). Math-Shepherd (Wang et al., 2024) later provided an automated alternative to human annotation, using outcome verification to automatically label steps.</p>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight</div>
+        <p>PRMs solve roughly 15% more problems than ORMs when used for best-of-N selection with the same compute budget (Lightman et al., 2023). The advantage comes from PRMs' ability to distinguish solutions where every step is logically sound from solutions that happen to reach the right answer through faulty reasoning. For tree search, the advantage is even larger, because PRMs can evaluate partial solutions at each branch point.</p>
+    </div>
+
+    <p>To make the PRM concept concrete, the following code fragment shows a simplified implementation that scores each reasoning step using a linear <a class="cross-ref" href="../../part-3-working-with-llms/module-12-hybrid-ml-llm/section-12.2.html">classifier</a> on top of a pretrained language model backbone.</p>
+
+<pre><code class="language-python"># Simplified PRM scoring of reasoning steps
+import torch
+import torch.nn as nn
+
+class ProcessRewardModel(nn.Module):
+    """
+    A simplified Process Reward Model that scores each
+    reasoning step in a chain-of-thought solution.
+
+    In practice, PRMs are typically built by adding a
+    classification head on top of a pretrained language model.
+    """
+    def __init__(self, base_model, hidden_size=4096):
+        super().__init__()
+        self.base_model = base_model  # Pretrained LM backbone
+        self.step_scorer = nn.Linear(hidden_size, 1)  # Step-level score
+
+    def forward(self, input_ids, step_boundaries):
+        """
+        Args:
+            input_ids: Tokenized [problem + solution] sequence
+            step_boundaries: List of token positions where each
+                           reasoning step ends (e.g., at newlines)
+        Returns:
+            step_scores: Score for each reasoning step (0 to 1)
+        """
+        # Get hidden states from base model
+        hidden_states = self.base_model(
+            input_ids, output_hidden_states=True
+        ).last_hidden_state  # [1, seq_len, hidden_size]
+
+        # Extract hidden state at each step boundary
+        step_scores = []
+        for boundary_pos in step_boundaries:
+            step_hidden = hidden_states[0, boundary_pos, :]
+            score = torch.sigmoid(self.step_scorer(step_hidden))
+            step_scores.append(score.item())
+
+        return step_scores
+
+# Example usage (pseudocode)
+def score_solution_with_prm(prm, tokenizer, problem, solution_text):
+    """Score each step in a reasoning solution."""
+    full_text = f"Problem: {problem}\nSolution:\n{solution_text}"
+    tokens = tokenizer(full_text, return_tensors="pt")
+
+    # Identify step boundaries (e.g., at newline characters)
+    step_boundaries = [
+        i for i, tok in enumerate(tokens.input_ids[0])
+        if tokenizer.decode([tok]) == "\n"
+    ]
+
+    step_scores = prm(tokens.input_ids, step_boundaries)
+
+    # Print step-level scores
+    steps = solution_text.split("\n")
+    for i, (step, score) in enumerate(zip(steps, step_scores)):
+        status = "PASS" if score > 0.5 else "FAIL"
+        print(f"  Step {i+1} [{status}] (score={score:.3f}): {step[:60]}...")
+
+    # Overall solution score: product of step scores
+    # (all steps must be correct for the solution to be correct)
+    overall_score = 1.0
+    for s in step_scores:
+        overall_score *= s
+
+    return overall_score, step_scores
+
+# Example output:
+#   Step 1 [PASS] (score=0.97): Let x be the number of apples. We know...
+#   Step 2 [PASS] (score=0.94): Setting up the equation: 3x + 7 = 22...
+#   Step 3 [FAIL] (score=0.12): Dividing both sides by 3: x = 22/3 = 7...
+#   Step 4 [PASS] (score=0.89): Therefore, there are 7 apples.
+#   Overall score: 0.097
+#   Note: Step 3 is flagged as incorrect (should be (22-7)/3 = 5)</code></pre>
+    <div class="code-caption"><strong>Code Fragment 8.3.1:</strong> Simplified PRM that scores each reasoning step. In practice, PRMs use the full hidden state of a large language model backbone, and step boundaries are identified by special delimiter tokens rather than newlines.</div>
+
+    <h3>3.3 PRM Training Methods</h3>
+
+    <p>There are three main approaches to training PRMs:</p>
+
+    <ol>
+        <li><strong>Human annotation (PRM800K):</strong> Human annotators read each reasoning step and label it as correct, incorrect, or neutral. This produces high-quality labels but is expensive and slow. Lightman et al. (2023) employed mathematics graduate students for annotation, at a cost of roughly &#36;12 per fully-annotated solution.</li>
+        <li><strong>Automated step verification (Math-Shepherd):</strong> Wang et al. (2024) proposed automatically labeling steps by checking whether completing the solution from each step leads to the correct final answer. If completing from step <span class="math">k</span> yields the correct answer with high probability (across many completions), step <span class="math">k</span> is labeled as correct. If completions from step <span class="math">k</span> almost never reach the correct answer, step <span class="math">k</span> is labeled as incorrect.</li>
+        <li><strong>Monte Carlo estimation:</strong> Similar to Math-Shepherd but using rollout statistics from MCTS. Each step's value is estimated by the fraction of rollouts from that step that eventually reach a correct solution.</li>
+    </ol>
+
+    <h2>4. STaR and Bootstrapping Approaches <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>Self-Taught Reasoner (STaR), proposed by Zelikman et al. (2022), is an iterative bootstrapping method that was an important precursor to modern RL-based reasoning training. The core idea is simple: use the model's own correct reasoning traces as training data for the next iteration.</p>
+
+    <h3>4.1 The STaR Algorithm</h3>
+
+    <ol>
+        <li><strong>Generate:</strong> For each problem in the training set, generate a reasoning trace and answer using the current model.</li>
+        <li><strong>Filter:</strong> Keep only the traces that produced the correct final answer.</li>
+        <li><strong>Rationalize:</strong> For problems where the model failed, provide the correct answer as a hint and ask the model to generate a reasoning trace that arrives at that answer. This "rationalization" step generates correct traces for problems the model could not solve unaided.</li>
+        <li><strong>Train:</strong> Fine-tune the model on the combined set of correct traces (from step 2) and rationalized traces (from step 3).</li>
+        <li><strong>Repeat:</strong> Use the improved model as the starting point for the next iteration.</li>
+    </ol>
+
+    <p>Each iteration produces a model that can solve more problems correctly, which in turn generates more training data for the next iteration. This creates a positive feedback loop where the model gradually bootstraps its way to stronger reasoning.</p>
+
+    <p><strong>Why bootstrapping converges instead of amplifying errors.</strong> The key safeguard is the filter in step 2: only traces that produce verifiably correct answers are kept. This means errors cannot propagate across iterations because they are removed before training. The rationalization step (step 3) is what prevents the model from plateauing: by giving the model the answer as a hint, you let it practice reasoning about problems just beyond its current ability, similar to how a student learns more from working a problem with the answer key than from skipping it entirely. This same principle underlies the rejection sampling pipelines used in practical <a class="cross-ref" href="../../part-4-training-adapting/module-13-synthetic-data/section-13.4.html">synthetic data generation</a>.</p>
+
+    <div class="callout note">
+        <div class="callout-title">STaR vs. RLVR</div>
+        <p>STaR and RLVR share the same core principle: using the correctness of the final answer as the training signal. The difference is in the optimization method. STaR uses <a class="cross-ref" href="../../part-4-training-adapting/module-14-fine-tuning-fundamentals/section-14.4.html">supervised fine-tuning</a> on filtered correct traces (a form of rejection sampling). RLVR uses policy gradient optimization (PPO or GRPO) to directly maximize expected reward. In practice, RLVR has proven more effective at scale, likely because policy gradient methods can more efficiently explore the space of reasoning strategies. STaR's contribution was demonstrating that the bootstrapping principle works at all.</p>
+    </div>
+
+    <h3>4.2 Quiet-STaR</h3>
+
+    <p>Quiet-STaR (Zelikman et al., 2024) extends the STaR idea by training the model to generate internal "thoughts" at every token position, not just in response to explicit reasoning prompts. The model learns to insert hidden reasoning before generating each token, essentially making chain-of-thought a continuous, always-on process rather than something triggered by a specific prompt. This is conceptually closer to how reasoning models like o1 operate, where thinking is built into the generation process rather than being prompt-elicited.</p>
+
+    <h2>5. Synthetic Reasoning Data Generation <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>Both the RL-based approaches (GRPO, PPO) and the bootstrapping methods (STaR) share a common dependency: they need large quantities of problems with verifiable answers. Training reasoning models requires large quantities of problems with verifiable answers. While math competition archives and code challenge repositories provide some data, the demand far exceeds the supply of naturally occurring verifiable problems. This creates a need for synthetic data generation (building on the techniques in <a href="../../part-4-training-adapting/module-13-synthetic-data/index.html" class="cross-ref">Chapter 13</a>).</p>
+
+    <h3>5.1 Problem Synthesis Strategies</h3>
+
+    <ul>
+        <li><strong>Template-based generation:</strong> Create parameterized problem templates and fill in different values. For example, "If a train travels at {speed} km/h for {time} hours, how far does it go?" This is simple but produces limited diversity.</li>
+        <li><strong>LLM-generated problems:</strong> Use a strong model to generate novel math/code problems, then verify the ground truth answers automatically. This produces more diverse problems but requires careful filtering for solvability and difficulty.</li>
+        <li><strong><a class="cross-ref" href="../../part-4-training-adapting/module-13-synthetic-data/section-13.3.html">Evol-Instruct</a> for reasoning:</strong> Adapt the Evol-Instruct methodology (see <a href="../../part-4-training-adapting/module-13-synthetic-data/section-13.2.html" class="cross-ref">Section 13.2</a>) to progressively increase problem difficulty: take an existing problem and ask a model to make it harder by adding constraints, increasing the number of steps, or combining multiple concepts.</li>
+        <li><strong>Backward generation:</strong> Start with an answer and generate a problem that has that answer. This guarantees a verifiable ground truth and can produce creative, non-standard problems.</li>
+    </ul>
+
+    <h3>5.2 Quality Filtering</h3>
+
+    <p>Not all synthetically generated problems are useful for training. Common quality filters include:</p>
+    <ul>
+        <li><strong>Solvability check:</strong> Verify that the problem has a unique, correct answer by solving it with multiple models and checking for agreement.</li>
+        <li><strong>Difficulty calibration:</strong> Estimate problem difficulty by measuring what fraction of a baseline model's attempts produce the correct answer. Problems that are too easy (>95% accuracy) or too hard (<1% accuracy) provide limited training signal.</li>
+        <li><strong>Deduplication:</strong> Remove problems that are semantically similar to existing training examples, to maintain diversity.</li>
+    </ul>
+
+    <!-- Exercises -->
+    <div class="quiz">
+        <h3>Exercises</h3>
+
+        <div class="quiz-question">
+            <strong>Exercise 1 (Level 2):</strong> Explain why GRPO requires more samples per problem than PPO (typically 8 to 64 vs. 1 to 4), and describe the trade-off between group size and advantage estimation quality.
+        </div>
+        <details open>
+            <summary>Show Answer</summary>
+            <div class="answer">
+                <p>GRPO computes advantages by normalizing rewards within a group of samples for the same problem. The group mean and standard deviation serve as the baseline (replacing the critic model in PPO). With too few samples, these statistics are noisy:</p>
+                <ul>
+                    <li>With G=2, the "mean" is just the average of two samples. If both happen to be correct (or both incorrect), the advantage estimates are meaningless (all zeros after normalization).</li>
+                    <li>With G=8, the statistics are more reliable. If 3 out of 8 are correct, the correct solutions get positive advantages and incorrect ones get negative advantages.</li>
+                    <li>With G=64, the statistics are very accurate, but you are generating 64 solutions per problem, which is expensive.</li>
+                </ul>
+                <p>The trade-off: larger G gives more accurate advantage estimates (lower variance in gradient updates) but costs more compute per training step. PPO avoids this by using a critic model to estimate the baseline, so it needs fewer samples. But the critic itself costs memory and compute, and it introduces bias if the critic is inaccurate. In practice, G=16 to 32 is a common sweet spot for GRPO, providing reasonably accurate advantage estimates without excessive per-step cost.</p>
+            </div>
+        </details>
+
+        <div class="quiz-question">
+            <strong>Exercise 2 (Level 2):</strong> A colleague proposes training a reasoning model using <a class="cross-ref" href="../../part-4-training-adapting/module-17-alignment-rlhf-dpo/section-17.2.html">DPO</a> (Direct Preference Optimization, see <a class="cross-ref" href="../../part-4-training-adapting/module-17-alignment-rlhf-dpo/section-17.3.html">Section 17.3</a>) instead of GRPO. They would create preference pairs by labeling solutions with correct answers as "preferred" and solutions with incorrect answers as "rejected." Analyze the strengths and weaknesses of this approach compared to GRPO.
+        </div>
+        <details open>
+            <summary>Show Answer</summary>
+            <div class="answer">
+                <p><strong>Strengths of the DPO approach:</strong></p>
+                <ul>
+                    <li>Simpler implementation. DPO requires no reward model and no online generation during training. You generate a dataset of (problem, correct_solution, incorrect_solution) triples once, then train offline.</li>
+                    <li>More memory-efficient. DPO trains a single model with a reference model, similar to SFT. No need for multiple samples per problem during training.</li>
+                    <li>Well-tested infrastructure. DPO has been widely adopted and many implementations exist.</li>
+                </ul>
+                <p><strong>Weaknesses:</strong></p>
+                <ul>
+                    <li>DPO is an offline method: it learns from a fixed dataset of preference pairs. As the model improves during training, the preference pairs (generated by the initial model) become less informative. GRPO generates fresh samples from the current policy at each iteration, keeping the training data on-policy.</li>
+                    <li>Binary preference pairs lose information. If you have 8 solutions and 3 are correct, GRPO uses all 8 to compute advantages. DPO would create pairs from the 3 correct vs. 5 incorrect, discarding the relative quality differences among the 3 correct solutions.</li>
+                    <li>DPO cannot discover new reasoning strategies beyond what is in the initial generation. GRPO's online sampling allows the model to explore novel reasoning paths during training.</li>
+                </ul>
+                <p>In practice, some researchers have used DPO successfully for reasoning training (e.g., in the Kimi k1.5 pipeline), but it is typically used in combination with RL rather than as a replacement.</p>
+            </div>
+        </details>
+
+        <div class="quiz-question">
+            <strong>Exercise 3 (Level 3, Research):</strong> Process reward models require step-level labels, which are expensive to obtain. Math-Shepherd automates this by checking whether completing the solution from each step leads to the correct answer. Identify two potential failure modes of this automated labeling approach and propose mitigations for each.
+        </div>
+        <details open>
+            <summary>Show Answer</summary>
+            <div class="answer">
+                <p><strong>Failure mode 1: Correct step, incorrect continuation.</strong> A step might be mathematically correct, but the completion model might fail to solve the remaining steps. Math-Shepherd would label this correct step as "incorrect" because completions from it fail. This is especially likely for hard intermediate steps where the remaining problem is still difficult.</p>
+                <p><strong>Mitigation:</strong> Use a large number of completions (N=100+) per step and set a lenient threshold. If even 5% of completions from step k reach the correct answer, label step k as correct. The key insight is that a correct step should lead to at least some correct completions, while a genuinely wrong step should lead to almost zero.</p>
+                <p><strong>Failure mode 2: Lucky error compensation.</strong> A step might contain an error, but the completion model might make a compensating error later that produces the correct final answer. Math-Shepherd would label this incorrect step as "correct" because completions succeed. This is more likely in problems where multiple error paths can coincidentally lead to the right numerical answer.</p>
+                <p><strong>Mitigation:</strong> Instead of binary labeling, use the completion success rate as a soft label. A step where 90% of completions succeed is likely correct; a step where 10% succeed might have a subtle error. Additionally, cross-validate by checking whether the step is consistent with multiple different correct solution paths (not just whether it leads to the right numerical answer).</p>
+            </div>
+        </details>
+    </div>
+    <div class="callout tip">
+        <div class="callout-title">Tip: Verify Reasoning Chains Programmatically</div>
+        <p>When using chain-of-thought in production, do not just check the final answer. Parse intermediate steps and validate them where possible (for example, re-execute any arithmetic). This catches plausible-sounding but wrong reasoning before it reaches users.</p>
+    </div>
+
+    <div class="takeaways">
+        <h2>Key Takeaways</h2>
+        <ul>
+            <li><strong>RLVR</strong> uses automatically verifiable tasks (math, code) to provide free, scalable reward signals for training reasoning models, eliminating the need for human annotators.</li>
+            <li><strong>GRPO</strong> eliminates the critic model required by PPO, halving GPU memory requirements at the cost of needing more samples per problem for accurate advantage estimation.</li>
+            <li><strong>Process Reward Models (PRMs)</strong> score individual reasoning steps and outperform Outcome Reward Models (ORMs) by ~15% on best-of-N selection, because they can distinguish sound reasoning from lucky guesses.</li>
+            <li><strong>STaR</strong> demonstrated that models can bootstrap reasoning ability by iteratively training on their own correct solutions, a precursor to the RL-based approaches used in modern reasoning models.</li>
+            <li><strong>Synthetic data generation</strong> is essential for scaling reasoning training beyond the limited supply of naturally occurring verifiable problems.</li>
+        </ul>
+    </div>
+
+    <div class="callout research-frontier">
+        <div class="callout-title">Research Frontier</div>
+        <p>Training reasoning models is one of the most active areas in LLM research. DeepSeek's GRPO algorithm (2025) showed that critic-free RL can produce world-class reasoning, and several groups are extending this approach with improved reward signals. Generative Reward Models (GenRM), proposed by Zhang et al. (2025), use a language model to generate verification chains rather than outputting a single scalar score, improving reward accuracy on multi-step problems. The OpenR framework (Wang et al., 2024) provides an open-source platform for reproducing reasoning model training with both PRM and ORM reward signals. Meanwhile, research on scaling synthetic data for reasoning training is accelerating: NuminaMath (Li et al., 2024) curated 860K competition-grade math problems with verified solutions, directly addressing the data bottleneck for RLVR training.</p>
+    </div>
+
+    <h2>Exercises</h2>
+
+<div class="callout exercise">
+    <div class="callout-title">Exercise 8.3.1: Tool use for reasoning <span class="level-badge basic" title="Basic">BASIC</span> <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+    <p>LLMs make arithmetic errors even with chain-of-thought. How does tool use (e.g., calling a calculator or code interpreter) address this limitation? Give two examples of tools that complement LLM reasoning.</p>
+    <details open>
+        <summary>Answer Sketch</summary>
+        <p>Tool use offloads tasks the LLM is unreliable at to specialized systems that are guaranteed correct. Calculator: the LLM sets up the computation correctly (its strength) and delegates the arithmetic (its weakness) to a calculator. Code interpreter: the LLM writes Python code to solve the problem, then executes it, getting exact results for numerical computations, data manipulation, and logical operations. Other examples: web search for factual verification, database queries for data retrieval, and symbolic math solvers for algebraic manipulation.</p>
+    </details>
+</div>
+
+<div class="callout exercise">
+    <div class="callout-title">Exercise 8.3.2: Code as reasoning medium <span class="level-badge basic" title="Basic">BASIC</span> <span class="exercise-type coding" title="Coding">Coding</span></div>
+    <p>Take a complex word problem and solve it two ways: (1) using chain-of-thought natural language reasoning, and (2) by asking the LLM to write and execute Python code. Compare accuracy on 10 problems. Which approach is more reliable?</p>
+    <details open>
+        <summary>Answer Sketch</summary>
+        <p>Code-based reasoning is typically more reliable for quantitative problems because: (1) Python performs exact arithmetic, eliminating calculation errors. (2) Variables make it easy to track intermediate values. (3) The code can be executed and verified. For 10 multi-step math problems, expect code-based accuracy of 80 to 90% vs. 50 to 70% for natural language CoT. However, natural language CoT is better for conceptual reasoning that does not involve computation (ethics, interpretation, creative thinking).</p>
+    </details>
+</div>
+
+<div class="callout exercise">
+    <div class="callout-title">Exercise 8.3.3: Self-reflection and correction <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span> <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+    <p>Some reasoning frameworks include a self-reflection step where the model critiques its own output. Under what conditions does self-reflection reliably improve output quality, and when does it fail or even make things worse?</p>
+    <details open>
+        <summary>Answer Sketch</summary>
+        <p>Self-reflection works when: (1) the task has objectively verifiable answers (math, code with tests). (2) The errors are surface-level (typos, calculation mistakes) rather than deep conceptual misunderstandings. (3) The model is asked to check specific aspects (e.g., 'verify each arithmetic step'). Self-reflection fails when: (1) the model's confidence is well-calibrated but wrong (it doubles down on incorrect reasoning). (2) The error requires knowledge the model lacks. (3) Sycophantic behavior causes the model to agree with the user's wrong suggestion. Research shows that without external feedback (tool output, test results), self-reflection improves results only marginally and sometimes degrades them.</p>
+    </details>
+</div>
+
+<div class="callout exercise">
+    <div class="callout-title">Exercise 8.3.4: Reasoning benchmark analysis <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span> <span class="exercise-type analysis" title="Analysis">Analysis</span></div>
+    <p>Compare model performance on GSM8K (grade-school math), MATH (competition math), and ARC-Challenge (science reasoning). Why do models that ace GSM8K often struggle on MATH? What does this tell us about reasoning difficulty?</p>
+    <details open>
+        <summary>Answer Sketch</summary>
+        <p>GSM8K requires basic arithmetic and 2 to 5 reasoning steps using everyday concepts. MATH requires advanced mathematical concepts (algebra, geometry, number theory), creative problem-solving, and 5 to 15 steps. Models ace GSM8K (&gt;95% with CoT) but struggle on MATH (~50 to 70%) because MATH requires: (1) domain knowledge (mathematical concepts). (2) Longer reasoning chains with more opportunities for error accumulation. (3) Creative insight rather than formulaic approaches. This tells us that 'reasoning' is not a single skill: simple multi-step reasoning saturates quickly with scale, while complex reasoning requiring domain knowledge and creativity remains challenging.</p>
+    </details>
+</div>
+
+<div class="callout exercise">
+    <div class="callout-title">Exercise 8.3.5: Designing reasoning evaluations <span class="level-badge advanced" title="Advanced">ADVANCED</span> <span class="exercise-type coding" title="Coding">Coding</span></div>
+    <p>Create a small evaluation suite of 20 reasoning problems across four categories: arithmetic (5), logical deduction (5), spatial reasoning (5), and common sense (5). Test an LLM with and without CoT, and compute accuracy per category. Which category benefits most from CoT?</p>
+    <details open>
+        <summary>Answer Sketch</summary>
+        <p>Expected results: arithmetic benefits most from CoT (30+ point improvement) because step-by-step computation prevents error accumulation. Logical deduction also benefits significantly (20+ points) as explicit tracking of premises helps. Spatial reasoning shows modest improvement (5 to 15 points) because verbal descriptions of spatial relationships are inherently limited. Common sense shows the least improvement (0 to 10 points) because common sense reasoning is often intuitive rather than step-by-step. This exercise demonstrates that CoT is not universally helpful and its benefit varies by reasoning type.</p>
+    </details>
+</div>
+
+<div class="whats-next">
+        <h2>What Comes Next</h2>
+        <p>Now that we understand how reasoning models are trained, <a href="section-8.4.html">Section 8.4</a> covers the practical side: how to prompt reasoning models effectively, control reasoning budgets, and avoid common pitfalls.</p>
+    </div>
+
+    <section class="bibliography">
+        <div class="bibliography-title">References &amp; Further Reading</div>
+
+        <div class="bib-category">Training Algorithms</div>
+
+        <div class="bib-entry-card">
+            <p class="bib-ref">DeepSeek-AI (2025). <a href="https://arxiv.org/abs/2501.12948" target="_blank" rel="noopener">"DeepSeek-R1: Incentivizing Reasoning Capability in LLMs via Reinforcement Learning."</a> <em>arXiv preprint arXiv:2501.12948</em>.</p>
+            <p class="bib-annotation">Introduces GRPO and provides the most detailed public account of reasoning model training, including the R1-Zero emergent reasoning experiment.</p>
+        </div>
+
+        <div class="bib-entry-card">
+            <p class="bib-ref">Schulman, J. et al. (2017). <a href="https://arxiv.org/abs/1707.06347" target="_blank" rel="noopener">"Proximal Policy Optimization Algorithms."</a> <em>arXiv preprint arXiv:1707.06347</em>.</p>
+            <p class="bib-annotation">The PPO algorithm that GRPO builds upon and simplifies. Understanding PPO helps clarify what GRPO changes and why.</p>
+        </div>
+
+        <div class="bib-category">Reward Models</div>
+
+        <div class="bib-entry-card">
+            <p class="bib-ref">Lightman, H. et al. (2023). <a href="https://arxiv.org/abs/2305.20050" target="_blank" rel="noopener">"Let's Verify Step by Step."</a> <em>arXiv preprint arXiv:2305.20050</em>.</p>
+            <p class="bib-annotation">Introduces PRM800K and demonstrates that process supervision outperforms outcome supervision for mathematical reasoning. The foundational paper for process reward models.</p>
+        </div>
+
+        <div class="bib-entry-card">
+            <p class="bib-ref">Wang, P. et al. (2024). <a href="https://arxiv.org/abs/2312.08935" target="_blank" rel="noopener">"Math-Shepherd: Verify and Reinforce LLMs Step-by-step without Human Annotations."</a> <em>ACL 2024</em>.</p>
+            <p class="bib-annotation">Proposes automated step-level annotation using completion-based verification, reducing the cost of PRM training.</p>
+        </div>
+
+        <div class="bib-entry-card">
+            <p class="bib-ref">Cobbe, K. et al. (2021). <a href="https://arxiv.org/abs/2110.14168" target="_blank" rel="noopener">"Training Verifiers to Solve Math Word Problems."</a> <em>arXiv preprint arXiv:2110.14168</em>.</p>
+            <p class="bib-annotation">Introduces the GSM8K benchmark and the concept of training verifiers (ORMs) for mathematical reasoning.</p>
+        </div>
+
+        <div class="bib-category">Bootstrapping Approaches</div>
+
+        <div class="bib-entry-card">
+            <p class="bib-ref">Zelikman, E. et al. (2022). <a href="https://arxiv.org/abs/2203.14465" target="_blank" rel="noopener">"STaR: Bootstrapping Reasoning With Reasoning."</a> <em>NeurIPS 2022</em>.</p>
+            <p class="bib-annotation">The original self-taught reasoning paper, demonstrating iterative bootstrapping of reasoning ability through filtered self-generation.</p>
+        </div>
+
+        <div class="bib-entry-card">
+            <p class="bib-ref">Zelikman, E. et al. (2024). <a href="https://arxiv.org/abs/2403.09629" target="_blank" rel="noopener">"Quiet-STaR: Language Models Can Teach Themselves to Think Before Speaking."</a> <em>arXiv preprint arXiv:2403.09629</em>.</p>
+            <p class="bib-annotation">Extends STaR to continuous internal reasoning at every token position, bridging toward always-on reasoning models.</p>
+        </div>
+    </section>
+
+
+
+<nav class="chapter-nav">
+    <a href="section-8.2.html" class="prev">Previous: Reasoning Model Architectures: o1, o3, R1, QwQ</a>
+    <a href="section-8.4.html" class="next">Next: Prompting and Using Reasoning Models </a>
+</nav>
+    <footer><p>Fifth Edition, 2026 &middot; <a href="../../toc.html">Contents</a></p></footer>
+</main>
+</body>
+</html>

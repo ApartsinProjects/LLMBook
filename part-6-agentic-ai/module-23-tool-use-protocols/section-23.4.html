@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Section 23.4: Custom Tool Design: Validation, Error Handling & Security</title>
+    <link rel="stylesheet" href="../../styles/book.css">
+    <link rel="stylesheet" href="../../vendor/katex/katex.min.css">
+    <script defer src="../../vendor/katex/katex.min.js"></script>
+    <script defer src="../../vendor/katex/contrib/auto-render.min.js"
+        onload="renderMathInElement(document.body, {
+            delimiters: [
+                {left: '$$', right: '$$', display: true},
+                {left: '$', right: '$', display: false}
+            ],
+            throwOnError: false
+        });"></script>
+    <link rel="stylesheet" href="../../vendor/prism/prism-theme.css">
+    <script defer src="../../vendor/prism/prism-bundle.min.js"></script>
+</head>
+<body>
+<header class="chapter-header">
+    <nav class="header-nav">
+        <a href="../../index.html" class="book-title-link">Building Conversational AI with LLMs and Agents</a>
+        <a href="../../toc.html" class="toc-link" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+    </nav>
+    <div class="part-label"><a href="../index.html">Part VI: Agentic AI</a></div>
+    <div class="chapter-label"><a href="index.html">Chapter 23: Tool Use, Function Calling &amp; Protocols</a></div>
+    <h1>Custom Tool Design: Validation, Error Handling &amp; Security</h1>
+</header>
+
+<main class="content">
+
+    <div class="prerequisites">
+        <h3>Prerequisites</h3>
+        <p>This section builds on agent foundations from <a class="cross-ref" href="../module-22-ai-agents/index.html">Chapter 22</a> and <a class="cross-ref" href="../../part-3-working-with-llms/module-10-llm-apis/section-10.1.html">LLM API</a> basics from <a class="cross-ref" href="../../part-3-working-with-llms/module-10-llm-apis/index.html">Chapter 10</a>.</p>
+    </div>
+
+
+    <h2>1. Principles of Tool Design <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        A tool is only as good as its interface. The model decides whether and how to call your tool based entirely on its name, description, and parameter schema. Poorly designed tools lead to incorrect calls, wasted tokens on retries, and frustrated users. Well-designed tools guide the model toward correct usage through clear naming, comprehensive descriptions, strict input validation, and informative error messages.
+    </p>
+
+    <p>
+        The first principle is <strong>atomicity</strong>: each tool should do one thing well. A tool called <code>manage_database</code> that handles creates, reads, updates, and deletes through a single "action" parameter forces the model to understand a complex interface. Four separate tools (<code>create_record</code>, <code>get_record</code>, <code>update_record</code>, <code>delete_record</code>) are clearer and less error-prone. The model can select the right tool based on the user's intent without parsing a multi-purpose interface.
+    </p>
+
+    <p>
+        The second principle is <strong>defensive design</strong>: assume the model will provide invalid input and handle it gracefully. Validate all parameters against expected types, ranges, and formats. Return clear error messages that explain what went wrong and what the correct input should look like. The model can learn from error messages and self-correct, but only if the error message is informative. "Invalid input" is useless; "Expected 'date' in ISO 8601 format (YYYY-MM-DD), received '12/25/2025'" enables self-correction.
+    </p>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight</div>
+        <p>Include <strong>examples in your tool descriptions</strong>. Instead of just "A SQL query to execute", write "A read-only SQL query to execute against the analytics database. Example: SELECT customer_id, SUM(amount) FROM orders WHERE date > '2025-01-01' GROUP BY customer_id LIMIT 100." Models that see examples in the description produce more accurate tool calls because they have a concrete template to follow.</p>
+    </div>
+
+    <h3>Input Validation Patterns</h3>
+
+<pre><code class="language-python">from pydantic import BaseModel, Field, validator
+from typing import Optional
+from datetime import date
+
+class SearchOrdersInput(BaseModel):
+    """Search customer orders with filters."""
+
+    customer_id: str = Field(
+        description="Customer ID in format 'CUST-XXXXX'",
+        pattern=r"^CUST-\d{5}$",
+    )
+    start_date: Optional[date] = Field(
+        default=None,
+        description="Start date for the search range (ISO 8601: YYYY-MM-DD)",
+    )
+    end_date: Optional[date] = Field(
+        default=None,
+        description="End date for the search range (ISO 8601: YYYY-MM-DD)",
+    )
+    status: Optional[str] = Field(
+        default=None,
+        description="Order status filter",
+        enum=["pending", "processing", "shipped", "delivered", "cancelled"],
+    )
+    limit: int = Field(
+        default=20,
+        ge=1,
+        le=100,
+        description="Maximum number of results to return (1 to 100, default 20)",
+    )
+
+    @validator("end_date")
+    def end_after_start(cls, v, values):
+        if v and values.get("start_date") and v < values["start_date"]:
+            raise ValueError("end_date must be after start_date")
+        return v
+
+def search_orders_tool(arguments: dict) -> str:
+    """Execute the search with validated inputs."""
+    try:
+        params = SearchOrdersInput(**arguments)
+    except Exception as e:
+        return f"Validation error: {str(e)}. Please fix the input and try again."
+
+    results = database.search_orders(
+        customer_id=params.customer_id,
+        start_date=params.start_date,
+        end_date=params.end_date,
+        status=params.status,
+        limit=params.limit,
+    )
+    return format_results(results)
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 23.4.1:</strong> This snippet uses Pydantic models with Field validators to define structured tool input and output schemas, including parameter constraints like ge=0 for amounts and regex patterns for account IDs. The @validator decorators enforce business rules (e.g., transfer amount limits) before the tool function executes.</div>
+
+    <h2>2. Error Handling and Recovery <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        Tools fail. APIs return 500 errors, databases time out, rate limits are hit, authentication tokens expire. How your tool handles these failures determines whether the agent can recover gracefully or gets stuck in an error loop. The key principle is: <strong>return actionable error information, not stack traces</strong>. The model needs to understand what happened and what it can do about it.
+    </p>
+
+    <p>
+        Implement a structured error response format that includes the error type (transient vs. permanent), a human-readable explanation, and suggested next steps. Transient errors (timeout, <a class="cross-ref" href="../../part-8-evaluation-production/module-31-production-engineering/section-31.2.html">rate limit</a>) should suggest waiting and retrying. Permanent errors (invalid API key, resource not found) should suggest alternative approaches. Include the original parameters in the error response so the model can modify and retry without re-deriving them from the conversation history.
+    </p>
+
+    <p>
+        Rate limiting requires special attention in <a class="cross-ref" href="../module-22-ai-agents/section-22.1.html">agent systems</a> because agents can make many tool calls in rapid succession. Implement client-side rate limiting in your tool wrapper rather than relying on the agent to pace itself. When a rate limit is hit, return a clear message with the retry-after time rather than an opaque error. Some teams implement automatic backoff within the tool, sleeping and retrying transparently before returning an error to the model.
+    </p>
+
+    <p>
+        Think of tool error handling as a conversation with a junior developer. When something goes wrong, you would not dump a stack trace and walk away. You would say: "The database connection timed out after 5 seconds. This usually means the database is under heavy load. You could try again in a moment, or use the cached results from the last successful query." This is exactly what your tool should return. The model is your junior developer: smart enough to handle problems when given clear guidance, but unable to extract meaning from raw error dumps. Good error messages turn tool failures from dead ends into recoverable situations.
+    </p>
+
+    <div class="callout warning">
+        <div class="callout-title">Warning</div>
+        <p>Never return raw API responses or stack traces as tool results. A 2,000-character stack trace consumes context window tokens without helping the model reason about the error. Wrap all tool implementations in error handlers that produce concise, structured error messages. Log the full error details server-side for debugging, and return only what the model needs to decide its next action.</p>
+    </div>
+
+    <h2>3. Security Considerations <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        Tool access is the primary attack surface for agent systems. A <a class="cross-ref" href="../../part-3-working-with-llms/module-11-prompt-engineering/section-11.4.html">prompt injection</a> that tricks the model into calling <code>delete_all_records</code> or <code>send_email</code> with attacker-controlled content can cause real damage. Defense requires multiple layers: input validation (already covered), output filtering (check tool results before returning them to the model), permission scoping (tools should have minimum necessary access), and action classification (distinguish read-only operations from state-changing ones).
+    </p>
+
+    <p>
+        Implement a permission model for your tools. Read-only tools (search, lookup, describe) can be called freely. Write tools (create, update) should require confirmation for sensitive operations. Destructive tools (delete, revoke) should require explicit human approval in the agent loop. This graduated permission model limits the blast radius of prompt injection attacks without crippling the agent's ability to act. See <a class="cross-ref" href="../module-26-agent-safety-production/section-26.1.html">Section 26.1</a> for a deeper treatment of <a class="cross-ref" href="../module-26-agent-safety-production/section-26.1.html">agent safety</a>.
+    </p>
+
+    <div class="callout practical-example">
+    <div class="callout-title">Practical Example: Permission Tiers for a DevOps Agent</div>
+        <p><strong>Tier 1 (auto-approve):</strong> Read logs, check deployment status, list pods, describe services.</p>
+        <p><strong>Tier 2 (log and proceed):</strong> Restart individual pods, scale replicas up (not down), update non-critical config.</p>
+        <p><strong>Tier 3 (require human approval):</strong> Scale down services, modify network policies, update secrets, rollback deployments.</p>
+        <p><strong>Tier 4 (never allow via agent):</strong> Delete namespaces, modify RBAC, access production databases directly.</p>
+    </div>
+
+
+
+
+    <h2>Exercises</h2>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 23.4.1: Tool Naming Conventions <span class="level-badge basic" title="Basic">BASIC</span> <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+        <p>Why is it important that tool names be descriptive and follow consistent naming conventions? Give an example of a poorly named tool and its improved version, explaining why the improvement helps the LLM.</p>
+        <details open>
+            <summary>Answer Sketch</summary>
+            <p>LLMs use tool names and descriptions to decide which tool to call. A tool named <code>fn1</code> gives the model no information. Renamed to <code>search_customer_orders</code> with a clear description, the model can match user intents to tools reliably. Consistent naming (verb_noun pattern) also helps the model distinguish between similar tools like <code>search_orders</code> vs. <code>create_order</code>.</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 23.4.2: Input Validation Layer <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span> <span class="exercise-type coding" title="Coding">Coding</span></div>
+        <p>Write a Python decorator <code>@validate_tool_input</code> that validates tool arguments against a JSON schema before execution. If validation fails, return a structured error message that helps the LLM correct its call.</p>
+        <details open>
+            <summary>Answer Sketch</summary>
+            <p>Use the <code>jsonschema</code> library. The decorator receives the schema as a parameter, validates the incoming arguments, and on failure returns a message like: 'Validation error: field "email" must be a valid email address. You provided: "not-an-email". Please retry with a valid email.' This feedback loop helps the LLM self-correct.</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 23.4.3: Graceful Error Messages <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span> <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+        <p>Compare two approaches to returning tool errors to an LLM: (a) returning raw stack traces and (b) returning structured error messages with suggested fixes. Which approach leads to better agent behavior, and why?</p>
+        <details open>
+            <summary>Answer Sketch</summary>
+            <p>Structured error messages are far better. Raw stack traces contain implementation details (file paths, line numbers) that are meaningless to the LLM and waste tokens. A structured message like 'Error: user_id 12345 not found. Suggestion: verify the user_id with the search_users tool before retrying' gives the model actionable information to recover. This reduces retry loops and improves task completion rates.</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 23.4.4: SQL Injection Prevention <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span> <span class="exercise-type coding" title="Coding">Coding</span></div>
+        <p>An agent has a <code>query_database</code> tool. Write a safe implementation that uses parameterized queries and prevents the LLM from executing arbitrary SQL. Include an allowlist of permitted query patterns.</p>
+        <details open>
+            <summary>Answer Sketch</summary>
+            <p>Define allowed query templates (e.g., 'SELECT {columns} FROM orders WHERE customer_id = ?'). The tool parses the LLM's intent, matches it to a template, extracts parameters, and executes the parameterized query. Reject any input that does not match an allowed template. Never pass raw LLM output directly to a SQL engine.</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 23.4.5: Rate Limiting Tools <span class="level-badge basic" title="Basic">BASIC</span> <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+        <p>Why should agent tools implement rate limiting? Describe a scenario where an agent without rate-limited tools could cause problems, and propose a solution.</p>
+        <details open>
+            <summary>Answer Sketch</summary>
+            <p>An agent in a loop might call an external API hundreds of times if it misinterprets the task or gets stuck. Without rate limiting, this could exhaust API quotas, incur large costs, or trigger IP blocks. Solution: implement per-tool rate limits (e.g., max 10 calls per minute) with a token bucket algorithm. When the limit is reached, return a message telling the agent to wait or use cached results.</p>
+        </details>
+    </div>
+
+<div class="whats-next">
+    <h2>What Comes Next</h2>
+    <p>In the next section, <a href="section-23.5.html">Agentic RAG: Retrieval-Augmented Agents</a>, we continue exploring the concepts in this chapter.</p>
+</div>
+
+<nav class="chapter-nav">
+    <a href="section-23.3.html" class="prev">Previous: Agent-to-Agent Protocol (A2A)</a>
+    <a href="section-23.5.html" class="next">Next: Agentic RAG : Retrieval-Augmented Agents </a>
+</nav>
+
+    <footer><p>Fifth Edition, 2026 &middot; <a href="../../toc.html">Contents</a></p></footer>
+</main>
+</body>
+</html>

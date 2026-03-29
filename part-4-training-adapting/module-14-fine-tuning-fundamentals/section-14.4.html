@@ -1,0 +1,946 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Section 14.4: Fine-Tuning via Provider APIs</title>
+    <link rel="stylesheet" href="../../styles/book.css">
+    <link rel="stylesheet" href="../../vendor/katex/katex.min.css">
+    <script defer src="../../vendor/katex/katex.min.js"></script>
+    <script defer src="../../vendor/katex/contrib/auto-render.min.js"
+        onload="renderMathInElement(document.body, {
+            delimiters: [
+                {left: '$$', right: '$$', display: true},
+                {left: '$', right: '$', display: false}
+            ],
+            throwOnError: false
+        });"></script>
+    <link rel="stylesheet" href="../../vendor/prism/prism-theme.css">
+    <script defer src="../../vendor/prism/prism-bundle.min.js"></script>
+</head>
+<body>
+<header class="chapter-header">
+    <nav class="header-nav">
+        <a href="../../index.html" class="book-title-link">Building Conversational AI with LLMs and Agents</a>
+        <a href="../../toc.html" class="toc-link" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+    </nav>
+    <div class="part-label"><a href="../index.html">Part 4: Training and Adapting</a></div>
+    <div class="chapter-label"><a href="index.html">Chapter 14: Fine-Tuning Fundamentals</a></div>
+    <h1>Fine-Tuning via Provider APIs</h1>
+</header>
+
+<main class="content">
+
+<blockquote class="epigraph">
+    <p>"Upload JSONL. Click train. Wait. Download model. It really is that simple, until you need to debug why it is not working."</p>
+    <cite><span class="agent-avatar-inline" style="background-color: #27ae60;"><img src="../../front-matter/images/agents/finetune.png" alt="Finetune"></span> <a href="../../front-matter/wisdom-council.html#finetune">Finetune</a> <span class="agent-desc">AI Agent</span></cite>
+</blockquote>
+
+
+<div class="prerequisites">
+    <h3>Prerequisites</h3>
+    <p>Before starting, make sure you are familiar with fine-tuning concepts as covered in <a href="section-14.1.html">Section 14.1: When and Why to Fine-Tune</a>.</p>
+</div>
+
+    <div class="callout big-picture">
+        <div class="callout-title">Big Picture</div>
+        <p><strong>Not every team needs to manage their own GPU cluster.</strong> Provider APIs offer a managed fine-tuning experience where you upload your data, configure a few parameters, and receive a fine-tuned model endpoint. This approach trades control and flexibility for simplicity and speed. Building on the API patterns from <a class="cross-ref" href="../../part-3-working-with-llms/module-10-llm-apis/section-10.1.html">Section 10.1</a>, this section covers the two most widely used provider APIs (OpenAI and Google Vertex AI), walks through complete workflows for each, and provides a framework for deciding when managed fine-tuning is the right choice versus self-hosted training.</p>
+    </div>
+
+<figure class="illustration">
+ <img loading="lazy" src="images/cloud-fine-tuning-factory.png"
+ alt="A person dropping off a package of ingredients at a cloud-shaped factory in the sky then relaxing in a hammock while a finished gourmet dish descends on a small parachute">
+ <figcaption><strong>Figure 14.4.1</strong>: Provider APIs handle the heavy lifting of fine-tuning; you supply the data and receive a trained model.</figcaption>
+</figure>
+
+    <h2>1. OpenAI Fine-Tuning API <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>OpenAI's fine-tuning API (building on the <a class="cross-ref" href="../../part-3-working-with-llms/module-10-llm-apis/index.html">API foundations</a> from <a class="cross-ref" href="../../part-3-working-with-llms/module-10-llm-apis/index.html">Chapter 10</a>) is the most accessible entry point for teams new to fine-tuning. It supports GPT-4o, GPT-4o-mini, and <a href="../../part-2-understanding-llms/module-07-modern-llm-landscape/section-7.1.html" class="cross-ref">GPT-3</a>.5-turbo models with a straightforward workflow: prepare data in JSONL format, upload the file, create a fine-tuning job, and use the resulting model through the standard chat completions API.</p>
+
+    <h3>1.1 Data Preparation for OpenAI</h3>
+
+    <p>OpenAI requires training data in JSONL format with the ChatML messages structure. Each line contains a JSON object with a <code>messages</code> array. The system message is optional but recommended for consistent behavior.</p>
+
+
+<div class="callout key-insight">
+    <div class="callout-title">Key Insight</div>
+    <p><strong>Mental Model: The Cloud Workshop.</strong> Think of provider fine-tuning APIs as a cloud workshop where you send raw materials (your dataset) and receive a finished product (a fine-tuned model). You do not need to own the machinery (GPUs) or understand every step of the manufacturing process (training loop details). The trade-off is control: you cannot inspect every step, adjust obscure hyperparameters, or see exactly what happened during training. For many practical applications, this convenience outweighs the loss of control, much like ordering custom furniture instead of building it yourself. Code Fragment 14.4.1 shows this approach in practice.</p>
+</div>
+<pre><code class="language-python"># Format training data as JSONL for the OpenAI fine-tuning API
+# Each line contains a messages array with system, user, and assistant turns
+import json
+from typing import List, Dict
+
+def prepare_openai_training_file(
+    examples: List[Dict],
+    output_path: str,
+    validate: bool = True
+) -> dict:
+    """Prepare and validate a JSONL file for OpenAI fine-tuning."""
+    stats = {"total": 0, "valid": 0, "errors": [], "token_estimates": []}
+
+    with open(output_path, "w") as f:
+        for i, example in enumerate(examples):
+            stats["total"] += 1
+            messages = example.get("messages", [])
+
+            if validate:
+                # Validate message structure
+                if not messages:
+                    stats["errors"].append(f"Example {i}: empty messages")
+                    continue
+
+                roles = [m["role"] for m in messages]
+
+                # Must end with assistant message
+                if roles[-1] != "assistant":
+                    stats["errors"].append(
+                        f"Example {i}: last message must be 'assistant'"
+                    )
+                    continue
+
+                # Check for valid roles
+                valid_roles = {"system", "user", "assistant"}
+                invalid = set(roles) - valid_roles
+                if invalid:
+                    stats["errors"].append(
+                        f"Example {i}: invalid roles {invalid}"
+                    )
+                    continue
+
+                # Rough token estimate (4 chars per token)
+                total_chars = sum(len(m["content"]) for m in messages)
+                estimated_tokens = total_chars // 4
+                stats["token_estimates"].append(estimated_tokens)
+
+            f.write(json.dumps(example) + "\n")
+            stats["valid"] += 1
+
+    if stats["token_estimates"]:
+        import numpy as np
+        tokens = np.array(stats["token_estimates"])
+        stats["token_summary"] = {
+            "mean": int(tokens.mean()),
+            "median": int(np.median(tokens)),
+            "p95": int(np.percentile(tokens, 95)),
+            "total_training_tokens": int(tokens.sum()),
+        }
+
+    print(f"Prepared {stats['valid']}/{stats['total']} examples")
+    if stats["errors"]:
+        print(f"Errors: {len(stats['errors'])}")
+        for err in stats["errors"][:5]:
+            print(f"  {err}")
+
+    return stats
+
+# Example usage
+examples = [
+    {
+        "messages": [
+            {"role": "system", "content": "You are a helpful customer support agent."},
+            {"role": "user", "content": "How do I reset my password?"},
+            {"role": "assistant", "content": "To reset your password, go to Settings, "
+                "then Security, and click 'Reset Password'. You will receive an email "
+                "with a reset link within 5 minutes."}
+        ]
+    },
+    # ... more examples
+]
+
+stats = prepare_openai_training_file(examples, "train.jsonl")</code></pre>
+<div class="code-caption"><strong>Code Fragment 14.4.1:</strong> Training data preparation and validation for OpenAI fine-tuning. The function writes a JSONL file, validates message structure, estimates token counts, and reports statistics.</div>
+
+    <h3>1.2 Creating and Monitoring a Fine-Tuning Job</h3>
+
+    <p>Code Fragment 14.4.2 demonstrates the full fine-tuning job lifecycle: uploading files, creating a job, and monitoring progress.</p>
+
+<pre><code class="language-python"># Format training data as JSONL for the OpenAI fine-tuning API
+# Each line contains a messages array with system, user, and assistant turns
+from openai import OpenAI
+import time
+
+client = OpenAI()  # Uses OPENAI_API_KEY env var
+
+# Step 1: Upload training file
+with open("train.jsonl", "rb") as f:
+    training_file = client.files.create(file=f, purpose="fine-tune")
+print(f"Uploaded file: {training_file.id}")
+
+# Step 2: (Optional) Upload validation file
+with open("val.jsonl", "rb") as f:
+    validation_file = client.files.create(file=f, purpose="fine-tune")
+
+# Step 3: Create fine-tuning job
+job = client.fine_tuning.jobs.create(
+    training_file=training_file.id,
+    validation_file=validation_file.id,
+    model="gpt-4o-mini-2024-07-18",
+    hyperparameters={
+        "n_epochs": 3,                    # Number of epochs
+        "learning_rate_multiplier": 1.8,  # Relative to default
+        "batch_size": 4,                  # Auto if not specified
+    },
+    suffix="customer-support-v1",  # Custom model name suffix
+)
+print(f"Job created: {job.id}")
+print(f"Status: {job.status}")
+
+# Step 4: Monitor training progress
+def monitor_fine_tuning(job_id: str, poll_interval: int = 60):
+    """Poll a fine-tuning job until completion."""
+    while True:
+        job = client.fine_tuning.jobs.retrieve(job_id)
+        print(f"Status: {job.status}")
+
+        # Check for events (training metrics)
+        events = client.fine_tuning.jobs.list_events(
+            fine_tuning_job_id=job_id, limit=5
+        )
+        for event in events.data:
+            print(f"  [{event.created_at}] {event.message}")
+
+        if job.status in ("succeeded", "failed", "cancelled"):
+            break
+
+        time.sleep(poll_interval)
+
+    if job.status == "succeeded":
+        print(f"\nFine-tuned model: {job.fine_tuned_model}")
+        return job.fine_tuned_model
+    else:
+        print(f"\nJob {job.status}: {job.error}")
+        return None
+
+model_name = monitor_fine_tuning(job.id)</code></pre>
+<div class="code-caption"><strong>Code Fragment 14.4.2:</strong> This snippet formats training examples as JSONL for the OpenAI fine-tuning API, where each line contains a messages array with system, user, and assistant roles. The format_for_openai function validates message structure and writes one JSON object per line to the output file.</div>
+
+    <div class="code-output">
+Uploaded file: file-abc123
+Job created: ftjob-xyz789
+Status: validating_files
+Status: running
+  [1711234567] Step 100/300: training loss=1.234
+  [1711234600] Step 200/300: training loss=0.876
+Status: running
+  [1711234633] Step 300/300: training loss=0.654
+Status: succeeded
+
+Fine-tuned model: ft:gpt-4o-mini-2024-07-18:my-org:customer-support-v1:9abc123
+    </div>
+
+<div class="code-caption"><strong>Code Fragment 14.4.3:</strong> End-to-end OpenAI fine-tuning job lifecycle. The script uploads training and validation files, creates a fine-tuning job with custom hyperparameters, polls for completion, and retrieves the resulting model ID.</div>
+
+    <h3>1.3 Using the Fine-Tuned Model</h3>
+
+    <p>Code Fragment 14.4.3 shows how to call the fine-tuned model using the standard chat completions API.</p>
+
+<pre><code class="language-json"># Step 5: Use the fine-tuned model (identical to standard API calls)
+response = client.chat.completions.create(
+    model="ft:gpt-4o-mini-2024-07-18:my-org:customer-support-v1:9abc123",
+    messages=[
+        {"role": "system", "content": "You are a helpful customer support agent."},
+        {"role": "user", "content": "I can't find my order confirmation email."},
+    ],
+    temperature=0.7,
+    max_tokens=200,
+)
+
+# Extract the generated message from the API response
+print(response.choices[0].message.content)</code></pre>
+<div class="code-caption"><strong>Code Fragment 14.4.4:</strong> Using a fine-tuned OpenAI model for inference. The fine-tuned model ID replaces the base model name; the API call is otherwise identical to standard chat completions.</div>
+
+    <div class="callout note">
+        <div class="callout-title">Note</div>
+        <p><strong>OpenAI fine-tuning pricing.</strong> You pay for training tokens (the number of tokens in your dataset multiplied by the number of epochs) and for inference on the fine-tuned model (which is more expensive per token than the base model). For GPT-4o-mini, training costs approximately &#36;3.00 per million tokens and inference costs &#36;0.30/&#36;1.20 per million input/output tokens. Always estimate total cost before starting a job, especially with large datasets.</p>
+    </div>
+
+    <h2>2. Google Vertex AI Fine-Tuning <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>Google Vertex AI provides fine-tuning for Gemini models with a similar managed experience. The workflow uses the Google Cloud SDK and supports both supervised fine-tuning and <a class="cross-ref" href="../module-17-alignment-rlhf-dpo/section-17.1.html">RLHF</a>-style tuning. Vertex AI gives you slightly more control over hyperparameters compared to OpenAI. Code Fragment 14.4.4 shows this in practice.</p>
+
+    <h3>2.1 Vertex AI Workflow</h3>
+
+<pre><code class="language-python"># Upload training data to GCS and launch a Vertex AI SFT job
+# Vertex AI fine-tunes Gemini models with LoRA adapter configuration
+import vertexai
+from vertexai.tuning import sft as vertex_sft
+from google.cloud import storage
+
+# Initialize Vertex AI
+vertexai.init(project="my-project-id", location="us-central1")
+
+# Step 1: Upload training data to GCS
+# Vertex AI expects data in GCS (Google Cloud Storage)
+# Format: JSONL with same messages structure as OpenAI
+
+def upload_to_gcs(local_path: str, bucket_name: str, blob_name: str) -> str:
+    """Upload training data to Google Cloud Storage."""
+    client = storage.Client()
+    bucket = client.bucket(bucket_name)
+    blob = bucket.blob(blob_name)
+    blob.upload_from_filename(local_path)
+    gcs_uri = f"gs://{bucket_name}/{blob_name}"
+    print(f"Uploaded to {gcs_uri}")
+    return gcs_uri
+
+train_uri = upload_to_gcs(
+    "train.jsonl",
+    "my-training-bucket",
+    "fine-tuning/medical-qa/train.jsonl"
+)
+val_uri = upload_to_gcs(
+    "val.jsonl",
+    "my-training-bucket",
+    "fine-tuning/medical-qa/val.jsonl"
+)
+
+# Step 2: Create supervised fine-tuning job
+sft_tuning_job = vertex_sft.train(
+    source_model="gemini-1.5-flash-002",
+    train_dataset=train_uri,
+    validation_dataset=val_uri,
+    epochs=3,
+    adapter_size=4,        # LoRA rank (1, 4, 8, or 16)
+    learning_rate_multiplier=1.0,
+    tuned_model_display_name="medical-qa-gemini-v1",
+)
+
+# Step 3: Monitor (blocking call)
+print(f"Job resource: {sft_tuning_job.resource_name}")
+
+# Poll for completion
+while not sft_tuning_job.has_ended:
+    time.sleep(60)
+    sft_tuning_job.refresh()
+    print(f"State: {sft_tuning_job.state}")
+
+# Step 4: Get the tuned model endpoint
+tuned_model = sft_tuning_job.tuned_model_endpoint_name
+print(f"Tuned model endpoint: {tuned_model}")</code></pre>
+<div class="code-caption"><strong>Code Fragment 14.4.5:</strong> Google Vertex AI supervised fine-tuning workflow. The script uploads training data to GCS, creates an SFT job for a Gemini model with <a href="../module-15-peft/index.html" class="cross-ref">LoRA</a> <a class="cross-ref" href="../module-15-peft/section-15.1.html">adapter</a> configuration, polls for completion, and retrieves the tuned model endpoint.</div>
+
+    <h3>2.2 Using the Vertex AI Fine-Tuned Model</h3>
+
+    <p>Code Fragment 14.4.5 demonstrates using the tuned Gemini model for inference.</p>
+
+<pre><code class="language-python"># Use the fine-tuned Gemini model for inference via Vertex AI
+# The tuned model endpoint is returned by the completed SFT job
+from vertexai.generative_models import GenerativeModel
+
+# Load the fine-tuned model
+model = GenerativeModel(
+    model_name=tuned_model,  # Endpoint from training
+)
+
+# Generate responses
+response = model.generate_content(
+    "Patient presents with recurring headaches and blurred vision. "
+    "Suggest differential diagnoses.",
+    generation_config={
+        "temperature": 0.3,
+        "max_output_tokens": 500,
+    }
+)
+
+print(response.text)</code></pre>
+<div class="code-caption"><strong>Code Fragment 14.4.6:</strong> Using a Vertex AI fine-tuned Gemini model for inference. The tuned model endpoint is loaded as a GenerativeModel, and the API call uses the same generate_content interface as the base model.</div>
+
+    <h2>3. Provider Comparison <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>Figure 14.4.1 compares the key decision factors between API fine-tuning and self-hosted approaches.</p>
+
+    <div class="diagram-container">
+        <svg viewBox="0 0 750 320" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Diagram: 3. Provider Comparison Intermediate">
+<defs>
+<linearGradient id="grad_5c62ad_e3f2fd" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#f2ffff"/><stop offset="100%" stop-color="#E3F2FD"/></linearGradient>
+<linearGradient id="grad_5c62ad_f3e5f5" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#fff4ff"/><stop offset="100%" stop-color="#F3E5F5"/></linearGradient>
+<filter id="shadow_5c62ad" x="-5%" y="-5%" width="115%" height="115%"><feDropShadow dx="2" dy="2" stdDeviation="3" flood-opacity="0.1"/></filter>
+</defs>
+            <text x="375" y="25" font-family="Segoe UI, system-ui, sans-serif" font-size="14" font-weight="bold" fill="#1a1a2e" text-anchor="middle">API Fine-Tuning vs. Self-Hosted: Decision Factors</text>
+            <!-- API side -->
+            <rect filter="url(#shadow_5c62ad)" x="30" y="50" width="320" height="250" rx="12" fill="url(#grad_5c62ad_e3f2fd)" stroke="#1976D2" stroke-width="2"/>
+            <text x="190" y="78" font-family="Segoe UI, system-ui, sans-serif" font-size="15" font-weight="bold" fill="#1565C0" text-anchor="middle">Provider API Fine-Tuning</text>
+            <text x="50" y="108" font-family="Segoe UI, system-ui, sans-serif" font-size="12" fill="#333">&#10004; No GPU infrastructure needed</text>
+            <text x="50" y="130" font-family="Segoe UI, system-ui, sans-serif" font-size="12" fill="#333">&#10004; Minutes to start training</text>
+            <text x="50" y="152" font-family="Segoe UI, system-ui, sans-serif" font-size="12" fill="#333">&#10004; Automatic scaling and serving</text>
+            <text x="50" y="174" font-family="Segoe UI, system-ui, sans-serif" font-size="12" fill="#333">&#10004; Built-in monitoring dashboard</text>
+            <text x="50" y="204" font-family="Segoe UI, system-ui, sans-serif" font-size="12" fill="#C62828">&#10008; Limited hyperparameter control</text>
+            <text x="50" y="226" font-family="Segoe UI, system-ui, sans-serif" font-size="12" fill="#C62828">&#10008; Data sent to third party</text>
+            <text x="50" y="248" font-family="Segoe UI, system-ui, sans-serif" font-size="12" fill="#C62828">&#10008; Vendor lock-in risk</text>
+            <text x="50" y="270" font-family="Segoe UI, system-ui, sans-serif" font-size="12" fill="#C62828">&#10008; Higher per-token inference cost</text>
+            <!-- Self-hosted side -->
+            <rect x="400" y="50" width="320" height="250" rx="12" fill="url(#grad_5c62ad_f3e5f5)" stroke="#7B1FA2" stroke-width="2"/>
+            <text x="560" y="78" font-family="Segoe UI, system-ui, sans-serif" font-size="15" font-weight="bold" fill="#6A1B9A" text-anchor="middle">Self-Hosted Fine-Tuning</text>
+            <text x="420" y="108" font-family="Segoe UI, system-ui, sans-serif" font-size="12" fill="#333">&#10004; Full hyperparameter control</text>
+            <text x="420" y="130" font-family="Segoe UI, system-ui, sans-serif" font-size="12" fill="#333">&#10004; Data stays on your infrastructure</text>
+            <text x="420" y="152" font-family="Segoe UI, system-ui, sans-serif" font-size="12" fill="#333">&#10004; Any model (open-weight)</text>
+            <text x="420" y="174" font-family="Segoe UI, system-ui, sans-serif" font-size="12" fill="#333">&#10004; Lower cost at scale</text>
+            <text x="420" y="204" font-family="Segoe UI, system-ui, sans-serif" font-size="12" fill="#C62828">&#10008; GPU procurement and management</text>
+            <text x="420" y="226" font-family="Segoe UI, system-ui, sans-serif" font-size="12" fill="#C62828">&#10008; ML engineering expertise required</text>
+            <text x="420" y="248" font-family="Segoe UI, system-ui, sans-serif" font-size="12" fill="#C62828">&#10008; Serving infrastructure needed</text>
+            <text x="420" y="270" font-family="Segoe UI, system-ui, sans-serif" font-size="12" fill="#C62828">&#10008; Days to weeks for setup</text>
+        </svg>
+        <div class="diagram-caption"><strong>Figure 14.4.1</strong>: Provider API fine-tuning vs. self-hosted: each approach has distinct advantages and limitations</div>
+    </div>
+
+    <div class="comparison-table">
+        <div class="comparison-table-title">Aspect Comparison</div>
+        <table>
+        <tr><th>Aspect</th><th>OpenAI</th><th>Google Vertex AI</th><th>Self-Hosted (TRL)</th></tr>
+        <tr><td>Available models</td><td>GPT-4o, GPT-4o-mini, GPT-3.5</td><td>Gemini 1.5 Flash, Gemini 1.5 Pro</td><td>Any <a class="cross-ref" href="../../part-2-understanding-llms/module-07-modern-llm-landscape/section-7.1.html">open-weight model</a></td></tr>
+        <tr><td>Data format</td><td>JSONL (ChatML)</td><td>JSONL (ChatML)</td><td>Any (ChatML, Alpaca, ShareGPT)</td></tr>
+        <tr><td>Max training examples</td><td>50 million tokens</td><td>10,000 examples</td><td>Unlimited</td></tr>
+        <tr><td>Hyperparameter control</td><td>Epochs, LR multiplier, batch size</td><td>Epochs, LR multiplier, adapter size</td><td>Full control over all parameters</td></tr>
+        <tr><td>Training cost (10K examples)</td><td>~&#36;15 to &#36;50 (GPT-4o-mini)</td><td>~&#36;10 to &#36;40 (Gemini Flash)</td><td>&#36;5 to &#36;20 (cloud GPU rental)</td></tr>
+        <tr><td>Time to first result</td><td>30 min to 2 hours</td><td>1 to 3 hours</td><td>Hours to days (setup + training)</td></tr>
+        <tr><td>Data privacy</td><td>Data processed by OpenAI</td><td>Data processed by Google</td><td>Data stays on your servers</td></tr>
+        <tr><td>Model weights access</td><td>No (API only)</td><td>No (API only)</td><td>Full access</td></tr>
+        <tr><td>Serving</td><td>Included (pay per token)</td><td>Included (pay per token)</td><td>Self-managed (<a class="cross-ref" href="../../part-2-understanding-llms/module-09-inference-optimization/section-9.4.html">vLLM</a>, TGI)</td></tr>
+    </table>
+    </div>
+
+    <h2>4. Anthropic Claude Fine-Tuning <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>Anthropic offers fine-tuning for Claude models through its API, enabling teams to customize Claude's behavior on domain-specific tasks. The workflow follows a similar pattern to OpenAI and Vertex AI: prepare data in JSONL format, submit a fine-tuning job, and use the resulting model through the Messages API. Claude fine-tuning supports models including Claude 3.5 Haiku and Claude 3 Haiku, with data formatted as conversational message pairs.</p>
+
+    <h3>4.1 Data Format and Job Submission</h3>
+
+    <p>Anthropic's fine-tuning data format mirrors the Messages API structure. Each training example is a JSON object with a <code>messages</code> array (alternating <code>user</code> and <code>assistant</code> turns) and an optional <code>system</code> field. The training data must be uploaded as a JSONL file. Code Fragment 14.4.6 shows this approach in practice.</p>
+<pre><code class="language-python"># Fine-tune a Claude model via the Anthropic API
+# Anthropic uses a different message format: system is a top-level field
+import anthropic
+import json
+
+# Step 1: Prepare training data in Anthropic's format
+training_examples = [
+    {
+        "system": "You are a medical triage assistant.",
+        "messages": [
+            {"role": "user", "content": "Patient reports chest pain radiating to left arm."},
+            {"role": "assistant", "content": "Priority: URGENT. Recommend immediate ECG and "
+                "troponin levels. Differential includes acute coronary syndrome, "
+                "musculoskeletal pain, and anxiety. Escalate to attending physician."}
+        ]
+    },
+    # ... more examples in the same format
+]
+
+# Write JSONL file
+with open("anthropic_train.jsonl", "w") as f:
+    for ex in training_examples:
+        f.write(json.dumps(ex) + "\n")
+
+# Step 2: Create the fine-tuning job via the Anthropic SDK
+client = anthropic.Anthropic()  # Uses ANTHROPIC_API_KEY env var
+
+# Upload the training file
+with open("anthropic_train.jsonl", "rb") as f:
+    training_file = client.files.create(
+        file=f,
+        purpose="fine-tune"
+    )
+
+# Create the fine-tuning job
+job = client.fine_tuning.jobs.create(
+    model="claude-3-5-haiku-20241022",
+    training_file=training_file.id,
+    hyperparameters={
+        "n_epochs": 4,
+        "learning_rate": 1e-5,
+        "batch_size": 8,
+    },
+)
+print(f"Fine-tuning job created: {job.id}")
+print(f"Status: {job.status}")
+
+# Step 3: Poll for completion
+import time
+while job.status not in ("succeeded", "failed", "cancelled"):
+    time.sleep(60)
+    job = client.fine_tuning.jobs.retrieve(job.id)
+    print(f"Status: {job.status}")
+
+# Step 4: Use the fine-tuned model
+if job.status == "succeeded":
+    response = client.messages.create(
+        model=job.fine_tuned_model,
+        max_tokens=300,
+        system="You are a medical triage assistant.",
+        messages=[
+            {"role": "user", "content": "Patient has sudden onset severe headache."}
+        ],
+    )
+    print(response.content[0].text)</code></pre>
+<div class="code-caption"><strong>Code Fragment 14.4.7:</strong> Anthropic fine-tuning workflow. The script converts training data to Anthropic's format (<a class="cross-ref" href="../../part-3-working-with-llms/module-11-prompt-engineering/section-11.1.html">system prompt</a> as top-level field, strict user/assistant alternation), uploads it, creates a fine-tuning job, and uses the resulting model for inference.</div>
+
+    <div class="callout note">
+        <div class="callout-title">Note</div>
+        <p><strong>Key differences from OpenAI fine-tuning.</strong> Anthropic's fine-tuning places the <code>system</code> prompt as a top-level field rather than inside the messages array. Anthropic also enforces strict alternation between user and assistant turns within the messages array. Check the latest Anthropic documentation for supported models and pricing, as the fine-tuning offering has been expanding through 2025 and 2026.</p>
+    </div>
+
+
+<p><strong>Why this matters:</strong> Provider API fine-tuning represents a fundamental tradeoff: you sacrifice control and customization in exchange for dramatically lower operational complexity. For teams without dedicated ML infrastructure engineers, API fine-tuning eliminates GPU procurement, distributed training configuration, and model deployment entirely. The practical implication is that your first fine-tuning experiment should almost always start with a provider API (as covered in <a class="cross-ref" href="../../part-3-working-with-llms/module-10-llm-apis/section-10.1.html">Chapter 9</a>), and you should only move to self-hosted training once you have validated that fine-tuning actually improves your use case and you need capabilities the API does not expose.</p>
+
+    <h2>5. Third-Party Fine-Tuning Platforms <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>Beyond the major model providers, several third-party platforms offer managed fine-tuning with additional flexibility. These platforms are particularly valuable when you need to fine-tune open-weight models (Llama, Mistral, Qwen) with more hyperparameter control than provider APIs allow, but without managing your own GPU infrastructure.</p>
+
+    <div class="comparison-table">
+        <div class="comparison-table-title">5. Third-Party Fine-Tuning Platforms Advanced Comparison</div>
+        <table>
+        <tr><th>Platform</th><th>Supported Models</th><th>Key Differentiators</th><th>Hyperparameter Control</th></tr>
+        <tr><td><strong>Together AI</strong></td><td>Llama 3.x, Mistral, Qwen, Code Llama, custom uploads</td><td>Broad open-model catalog; integrated serverless inference; competitive training pricing</td><td>Full: LR, epochs, batch size, warmup, LoRA rank, <a class="cross-ref" href="../../part-1-foundations/module-00-ml-pytorch-foundations/section-0.2.html">weight decay</a></td></tr>
+        <tr><td><strong>Fireworks AI</strong></td><td>Llama 3.x, Mistral, Mixtral, Gemma, custom uploads</td><td>Optimized inference engine (FireAttention); sub-second cold starts; model composition (combining base + adapters at serving time)</td><td>Full: LR, epochs, batch size, LoRA config, sequence length</td></tr>
+        <tr><td><strong>Anyscale</strong></td><td>Llama 3.x, Mistral, custom models via Ray</td><td>Built on Ray for distributed training; seamless scale from fine-tuning to multi-node training; enterprise MLOps integration</td><td>Full: all training parameters, distributed training config, custom training scripts</td></tr>
+    </table>
+    </div>
+
+    <p>These platforms fill an important gap in the fine-tuning ecosystem. Provider APIs (OpenAI, Google, Anthropic) offer simplicity but limit you to their proprietary models with restricted hyperparameter access. Self-hosted training (using TRL or Axolotl) gives full control but requires GPU procurement and ML engineering expertise. Third-party platforms provide a middle path: you get access to open-weight models with extensive hyperparameter control, while the platform handles GPU provisioning, distributed training orchestration, and serving infrastructure.</p>
+
+    <h3>5.1 Together AI: Fine-Tuning Open-Weight Models</h3>
+
+    <p>Together AI provides a Python SDK and REST API for fine-tuning open-weight models on managed infrastructure. The workflow resembles the OpenAI pattern (upload data, create job, poll for completion), but you choose from a catalog of <a class="cross-ref" href="../../part-2-understanding-llms/module-07-modern-llm-landscape/index.html">open-weight base models</a> and have access to a richer set of hyperparameters including <a class="cross-ref" href="../module-15-peft/section-15.1.html">LoRA</a> rank, warmup ratio, and weight decay. Once training completes, the fine-tuned model is automatically available for inference through Together's serverless endpoint, or you can download the weights for self-hosted deployment. Code Fragment 14.4.7 shows this in practice.</p>
+
+<pre><code class="language-python"># Fine-tune an open-weight model on Together AI with full LoRA control
+# Together supports Llama, Mistral, Qwen, and custom model uploads
+import together
+import json
+
+# Step 1: Upload training data (same JSONL/ChatML format)
+train_file = together.Files.upload(file="train.jsonl")
+print(f"Uploaded: {train_file.id}")
+
+# Step 2: Create a fine-tuning job with full hyperparameter control
+job = together.Fine_tuning.create(
+    training_file=train_file.id,
+    model="meta-llama/Meta-Llama-3.1-8B-Instruct",
+    n_epochs=3,
+    learning_rate=2e-5,
+    batch_size=8,
+    lora=True,
+    lora_r=16,              # LoRA rank
+    lora_alpha=32,          # LoRA scaling factor
+    lora_dropout=0.05,
+    warmup_ratio=0.1,
+    suffix="customer-support-v1",
+)
+print(f"Job: {job.id}, Status: {job.status}")
+
+# Step 3: Poll for completion
+import time
+while job.status not in ("completed", "failed", "cancelled"):
+    time.sleep(30)
+    job = together.Fine_tuning.retrieve(job.id)
+    print(f"Status: {job.status}")
+
+# Step 4: Inference via Together's serverless endpoint
+if job.status == "completed":
+    response = together.Complete.create(
+        model=job.output_name,
+        prompt="&lt;|user|&gt;\nHow do I reset my password?\n&lt;|assistant|&gt;\n",
+        max_tokens=200,
+        temperature=0.7,
+    )
+    print(response.choices[0].text)</code></pre>
+<div class="code-caption"><strong>Code Fragment 14.4.8:</strong> Together AI fine-tuning workflow for open-weight models. The script uploads training data, creates a LoRA fine-tuning job on Llama 3.1 with full hyperparameter control (rank, alpha, <a class="cross-ref" href="../../part-1-foundations/module-00-ml-pytorch-foundations/section-0.2.html">dropout</a>, warmup), and runs inference through Together's serverless endpoint.</div>
+
+    <h3>5.2 Fireworks AI: Adapter Composition and Fast Inference</h3>
+
+    <p>Fireworks AI differentiates itself through its optimized inference engine (FireAttention) and its support for <strong>adapter composition</strong>: you can train multiple LoRA adapters against the same base model and combine them at serving time without retraining. This is particularly useful when you need different behavioral specializations (tone, domain expertise, format) that can be mixed and matched per request. Fine-tuning through Fireworks follows a similar API pattern, with the addition of serving configuration that specifies how the adapter should be loaded. Code Fragment 14.4.8 shows this in practice.</p>
+
+<pre><code class="language-python"># Fine-tune a LoRA adapter on Fireworks AI with composable deployment
+# Fireworks supports adapter composition: mix adapters at serving time
+import fireworks.client as fw
+
+# Configure the client
+fw.client.api_key = "your-api-key"
+
+# Step 1: Upload dataset
+dataset = fw.Datasets.create(
+    file=open("train.jsonl", "rb"),
+    name="support-training-data",
+)
+
+# Step 2: Create fine-tuning job
+job = fw.FineTuning.create(
+    model="accounts/fireworks/models/llama-v3p1-8b-instruct",
+    dataset=dataset.id,
+    epochs=3,
+    learning_rate=1e-4,
+    lora_rank=16,
+    max_seq_length=2048,
+    output_model_name="support-adapter-v1",
+)
+
+# Step 3: Deploy the adapter (composable with base model)
+# Fireworks serves the adapter on top of the base model at inference time
+deployment = fw.Deployments.create(
+    model=job.output_model,
+    min_replicas=1,
+    max_replicas=4,    # auto-scales based on traffic
+)
+
+# Step 4: Inference (adapter applied at serving time)
+response = fw.ChatCompletion.create(
+    model=f"accounts/my-org/models/support-adapter-v1",
+    messages=[
+        {"role": "user", "content": "I can't find my order confirmation."}
+    ],
+    temperature=0.7,
+)
+print(response.choices[0].message.content)</code></pre>
+<div class="code-caption"><strong>Code Fragment 14.4.9:</strong> Fireworks AI fine-tuning with adapter composition. The script trains a LoRA adapter on Llama 3.1, deploys it with auto-scaling, and serves inference requests. The adapter is composable: multiple adapters can be combined at serving time.</div>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight</div>
+        <p><strong>Adapter composition is a powerful pattern.</strong> With Fireworks (and increasingly with other platforms), you can train separate LoRA adapters for different capabilities: one for medical terminology, one for formal tone, one for JSON output formatting. At serving time, you select which adapters to apply per request. This avoids the combinatorial explosion of training separate models for every combination of behaviors and allows rapid iteration on individual capabilities without retraining the others.</p>
+    </div>
+
+    <div class="callout fun-note">
+              <div class="callout-title">Fun Fact</div>
+        <p>OpenAI's fine-tuning API distills the entire training process into a single API call with a JSONL file. What used to require a GPU cluster and a PhD now requires a credit card and a JSON formatter.</p>
+    </div>
+
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight</div>
+        <p><strong>Choose your fine-tuning platform based on your model requirements, not just convenience.</strong> If you need a proprietary model (GPT-4o, Claude, Gemini), use the provider's API. If you need an open-weight model with managed infrastructure, use Together AI, Fireworks, or Anyscale. If you need maximum control or have strict data residency requirements, self-host with TRL. Many production systems use a combination: fine-tune on a third-party platform, then deploy the resulting weights on your own infrastructure.</p>
+    </div>
+
+    <h2>6. Cost Analysis Framework <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>The true cost of API fine-tuning depends on your training data size, the number of epochs, and your expected inference volume. The following calculator helps you estimate and compare costs across providers and approaches.</p>
+
+
+    <p>Code Fragment 14.4.9 provides a cost comparison calculator that estimates expenses across providers.</p>
+
+<pre><code class="language-python"># Compare fine-tuning costs across API providers and self-hosted options
+# Estimates training cost, monthly inference cost, and annual totals
+from dataclasses import dataclass
+
+@dataclass
+class FineTuningCostEstimate:
+    """Compare fine-tuning costs across providers."""
+
+    # Dataset parameters
+    num_examples: int = 10_000
+    avg_tokens_per_example: int = 500
+    num_epochs: int = 3
+
+    # Inference parameters (monthly)
+    monthly_requests: int = 100_000
+    avg_input_tokens: int = 300
+    avg_output_tokens: int = 150
+
+    def openai_cost(self, model: str = "gpt-4o-mini") -> dict:
+        """Estimate OpenAI fine-tuning + inference costs."""
+        # Training pricing (per 1M tokens)
+        training_prices = {
+            "gpt-4o-mini": {"train": 3.00},
+            "gpt-4o": {"train": 25.00},
+        }
+        # Inference pricing (per 1M tokens, fine-tuned models)
+        inference_prices = {
+            "gpt-4o-mini": {"input": 0.30, "output": 1.20},
+            "gpt-4o": {"input": 3.75, "output": 15.00},
+        }
+
+        train_price = training_prices[model]
+        infer_price = inference_prices[model]
+
+        # Training cost
+        total_training_tokens = (
+            self.num_examples * self.avg_tokens_per_example * self.num_epochs
+        )
+        training_cost = (total_training_tokens / 1_000_000) * train_price["train"]
+
+        # Monthly inference cost
+        monthly_input_tokens = self.monthly_requests * self.avg_input_tokens
+        monthly_output_tokens = self.monthly_requests * self.avg_output_tokens
+        monthly_inference = (
+            (monthly_input_tokens / 1_000_000) * infer_price["input"] +
+            (monthly_output_tokens / 1_000_000) * infer_price["output"]
+        )
+
+        return {
+            "provider": f"OpenAI ({model})",
+            "training_cost": f"${training_cost:.2f}",
+            "monthly_inference": f"${monthly_{inference}:.2f}",
+            "annual_{total}": f"${training_cost + monthly_inference * 12:.2f}",
+            "training_tokens": f"{total_training_tokens:,}",
+        }
+
+    def self_hosted_cost(self, gpu_hourly: float = 2.50) -> dict:
+        """Estimate self-hosted fine-tuning costs."""
+        # Rough estimate: ~10K tokens/second on A100
+        total_training_tokens = (
+            self.num_examples * self.avg_tokens_per_example * self.num_epochs
+        )
+        training_hours = total_training_tokens / (10_000 * 3600)
+        training_cost = training_hours * gpu_hourly
+
+        # Serving: dedicated GPU instance
+        serving_monthly = gpu_hourly * 24 * 30  # Always-on
+
+        return {
+            "provider": "Self-hosted (A100)",
+            "training_cost": f"${training_{cost}:.2f}",
+            "monthly_{inference}": f"${serving_monthly:.2f}",
+            "annual_total": f"${training_cost + serving_monthly * 12:.2f}",
+            "training_tokens": f"{total_training_tokens:,}",
+        }
+
+# Compare costs
+estimator = FineTuningCostEstimate(
+    num_examples=10_000,
+    monthly_requests=100_000,
+)
+
+for result in [
+    estimator.openai_cost("gpt-4o-mini"),
+    estimator.openai_cost("gpt-4o"),
+    estimator.self_hosted_cost(),
+]:
+    print(f"\n{result['provider']}:")
+    for k, v in result.items():
+        if k != "provider":
+            print(f"  {k}: {v}")</code></pre>
+<div class="code-caption"><strong>Code Fragment 14.4.10:</strong> This snippet compares fine-tuning costs across API providers (OpenAI, Anthropic) and self-hosted GPU options by computing training cost, monthly inference spend, and break-even points. The CostEstimator class returns a ranked DataFrame sorted by total_6mo_cost.</div>
+
+    <div class="code-output">
+OpenAI (gpt-4o-mini):
+  training_cost: &#36;45.00
+  monthly_inference: &#36;27.00
+  annual_{total}: &#36;369.00
+  training_tokens: 15,000,000
+
+OpenAI (gpt-4o):
+  training_cost: &#36;375.00
+  monthly_{inference}: &#36;337.50
+  annual_total: &#36;4,425.00
+  training_{tokens}: 15,000,000
+
+Self-hosted (A100):
+  training_{cost}: &#36;1.04
+  monthly_inference: &#36;1,800.00
+  annual_{total}: &#36;21,601.04
+  training_tokens: 15,000,000
+    </div>
+
+<div class="code-caption"><strong>Code Fragment 14.4.11:</strong> Fine-tuning cost comparison calculator. The dataclass estimates training and monthly inference costs for OpenAI models (GPT-4o-mini, GPT-4o) and self-hosted A100 deployments, helping identify the breakeven point between API and self-hosted approaches.</div>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight</div>
+        <p><strong>The breakeven point is about volume.</strong> API fine-tuning is cheaper at low to moderate inference volumes (under 500K requests per month for GPT-4o-mini). Self-hosted becomes cheaper at high volumes because you pay a fixed infrastructure cost regardless of how many requests you serve. For most startups and early-stage projects, API fine-tuning is the right starting point. Transition to self-hosted when your monthly API bill consistently exceeds the cost of a dedicated GPU instance.</p>
+    </div>
+
+    <div class="callout warning">
+        <div class="callout-title">Warning</div>
+        <p><strong>Data privacy is non-negotiable for some industries.</strong> If you work in healthcare (HIPAA), finance (SOC 2), or government (FedRAMP), sending training data to a third-party API may violate compliance requirements. Always verify that your provider's data handling policies meet your regulatory obligations before uploading any data. When in doubt, use self-hosted fine-tuning to keep data within your controlled environment.</p>
+    </div>
+
+    <h2>5. Best Practices for API Fine-Tuning <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <h3>5.1 Iterative Refinement Workflow</h3>
+
+    <p>Figure 14.4.2 outlines the iterative workflow: start small, evaluate, identify failure patterns, and refine.</p>
+
+    <div class="diagram-container">
+        <svg viewBox="0 0 700 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Diagram: 5.1 Iterative Refinement Workflow">
+            <text x="350" y="22" font-family="Segoe UI, system-ui, sans-serif" font-size="13" font-weight="bold" fill="#1a1a2e" text-anchor="middle">Iterative API Fine-Tuning Workflow</text>
+            <!-- Step boxes -->
+            <rect filter="url(#shadow_e379f1)" x="20" y="50" width="120" height="60" rx="8" fill="#E8F5E9" stroke="#4CAF50" stroke-width="2"/>
+            <text x="80" y="75" font-family="Segoe UI, system-ui, sans-serif" font-size="11" font-weight="bold" fill="#2E7D32" text-anchor="middle">1. Start Small</text>
+            <text x="80" y="95" font-family="Segoe UI, system-ui, sans-serif" font-size="10" fill="#555" text-anchor="middle">100 to 500 examples</text>
+
+            <path d="M 145 80 L 170 80" stroke="#888" stroke-width="1.5" marker-end="url(#a4)" stroke-linecap="round"/>
+
+            <rect x="175" y="50" width="120" height="60" rx="8" fill="url(#grad_e379f1_e3f2fd)" stroke="#1976D2" stroke-width="2"/>
+            <text x="235" y="75" font-family="Segoe UI, system-ui, sans-serif" font-size="11" font-weight="bold" fill="#1565C0" text-anchor="middle">2. Train &amp; Eval</text>
+            <text x="235" y="95" font-family="Segoe UI, system-ui, sans-serif" font-size="10" fill="#555" text-anchor="middle">1 to 2 epochs first</text>
+
+            <path d="M 300 80 L 325 80" stroke="#888" stroke-width="1.5" marker-end="url(#a4)" stroke-linecap="round"/>
+
+            <rect x="330" y="50" width="120" height="60" rx="8" fill="url(#grad_e379f1_fff3e0)" stroke="#FF9800" stroke-width="2"/>
+            <text x="390" y="75" font-family="Segoe UI, system-ui, sans-serif" font-size="11" font-weight="bold" fill="#E65100" text-anchor="middle">3. Error Analysis</text>
+            <text x="390" y="95" font-family="Segoe UI, system-ui, sans-serif" font-size="10" fill="#555" text-anchor="middle">Review failures</text>
+
+            <path d="M 455 80 L 480 80" stroke="#888" stroke-width="1.5" marker-end="url(#a4)" stroke-linecap="round"/>
+
+            <rect x="485" y="50" width="120" height="60" rx="8" fill="url(#grad_e379f1_f3e5f5)" stroke="#7B1FA2" stroke-width="2"/>
+            <text x="545" y="75" font-family="Segoe UI, system-ui, sans-serif" font-size="11" font-weight="bold" fill="#6A1B9A" text-anchor="middle">4. Improve Data</text>
+            <text x="545" y="95" font-family="Segoe UI, system-ui, sans-serif" font-size="10" fill="#555" text-anchor="middle">Fix + add examples</text>
+
+            <!-- Loop back arrow -->
+            <path d="M 545 115 L 545 155 L 235 155 L 235 115" fill="none" stroke="#888" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#a4)" stroke-linecap="round"/>
+            <text x="390" y="172" font-family="Segoe UI, system-ui, sans-serif" font-size="10" fill="#888" text-anchor="middle">Repeat until quality target met</text>
+
+            <defs>
+<linearGradient id="grad_e379f1_f3e5f5" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#fff4ff"/><stop offset="100%" stop-color="#F3E5F5"/></linearGradient>
+<linearGradient id="grad_e379f1_e3f2fd" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#f2ffff"/><stop offset="100%" stop-color="#E3F2FD"/></linearGradient>
+<linearGradient id="grad_e379f1_fff3e0" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#ffffef"/><stop offset="100%" stop-color="#FFF3E0"/></linearGradient>
+<filter id="shadow_e379f1" x="-5%" y="-5%" width="115%" height="115%"><feDropShadow dx="2" dy="2" stdDeviation="3" flood-opacity="0.1"/></filter>
+<marker id="a4" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#888"/></marker></defs>
+        </svg>
+        <div class="diagram-caption"><strong>Figure 14.4.2</strong>: Start with a small dataset, evaluate, identify failure patterns, and iteratively improve</div>
+    </div>
+
+    <div class="callout note">
+        <div class="callout-title">Note</div>
+        <p><strong>Start with 100 to 500 examples.</strong> Many teams over-invest in data collection before validating that fine-tuning will work for their use case. Begin with a small, high-quality dataset and run a quick fine-tuning job. If the results are promising, scale up the data. If the model does not improve, the problem may be with your task framing, data quality, or prompt design rather than data quantity.</p>
+    </div>
+
+    <div class="quiz">
+        <h3>Section 14.4 Quiz</h3>
+
+        <div class="quiz-question">1. What data format does OpenAI's fine-tuning API require?</div>
+        <details open><summary>Show Answer</summary><div class="answer">OpenAI requires JSONL (JSON Lines) format where each line is a JSON object containing a <code>messages</code> array with role/content pairs. The roles must be "system" (optional), "user", and "assistant". The last message in each example must have the "assistant" role, as this is the response the model will learn to generate.</div></details>
+
+        <div class="quiz-question">2. At what monthly request volume does self-hosted fine-tuning typically become cheaper than API fine-tuning with GPT-4o-mini?</div>
+        <details open><summary>Show Answer</summary><div class="answer">Self-hosted becomes cheaper at approximately 500,000+ requests per month. Below this volume, the fixed cost of a dedicated GPU instance (roughly &#36;1,800/month for an A100) exceeds the variable API costs. Above this threshold, the per-token savings from self-hosting accumulate enough to offset the infrastructure overhead. The exact breakeven depends on average sequence length and GPU utilization.</div></details>
+
+        <div class="quiz-question">3. Why might a team choose Google Vertex AI fine-tuning over OpenAI for the same task?</div>
+        <details open><summary>Show Answer</summary><div class="answer">Key reasons include: (1) The team already uses Google Cloud infrastructure and wants to keep data within their GCP environment. (2) Vertex AI supports adapter size selection (LoRA rank), giving more control over the efficiency/quality tradeoff. (3) Gemini models may perform better on certain multilingual or multimodal tasks. (4) Regulatory requirements mandate using a specific cloud provider. (5) Pricing may be more favorable for their specific usage pattern.</div></details>
+
+        <div class="quiz-question">4. What is the recommended approach when starting API fine-tuning for a new use case?</div>
+        <details open><summary>Show Answer</summary><div class="answer">Start with a small dataset of 100 to 500 high-quality examples and run a quick 1 to 2 epoch training job. Evaluate the results against your quality targets. If the results are promising, perform error analysis on the failures, add targeted examples to address the failure patterns, and retrain. Repeat this iterative cycle, gradually scaling up the dataset. This approach avoids investing weeks in data collection before validating that fine-tuning is viable for the task.</div></details>
+
+        <div class="quiz-question">5. What are two key limitations of API-based fine-tuning compared to self-hosted training?</div>
+        <details open><summary>Show Answer</summary><div class="answer">(1) <strong>Limited hyperparameter control:</strong> API providers expose only a few hyperparameters (epochs, learning rate multiplier, batch size), while self-hosted training gives you full control over the optimizer, scheduler, gradient accumulation, PEFT configuration, data collation, and more. (2) <strong>No access to model weights:</strong> with API fine-tuning, you can only use the model through the provider's API. You cannot export the weights, run the model locally, apply further techniques like <a href="../../part-2-understanding-llms/module-09-inference-optimization/section-9.1.html" class="cross-ref">quantization</a>, or switch serving infrastructure.</div></details>
+    </div>
+
+    <div class="takeaways">
+        <h2>Key Takeaways</h2>
+        <ul>
+            <li><strong>API fine-tuning is the fastest path</strong> from data to a deployed fine-tuned model, requiring no GPU infrastructure or ML engineering expertise beyond data preparation.</li>
+            <li><strong>OpenAI and Vertex AI</strong> both use the ChatML/messages JSONL format, making it easy to prepare data that works across providers.</li>
+            <li><strong>Start small</strong> (100 to 500 examples) and iterate. Do not invest weeks in data collection before validating that fine-tuning improves your specific task.</li>
+            <li><strong>API fine-tuning is cost-effective</strong> at low to moderate volumes (under 500K requests/month); self-hosted becomes cheaper at higher volumes.</li>
+            <li><strong>Data privacy requirements</strong> may mandate self-hosted fine-tuning in regulated industries (healthcare, finance, government).</li>
+            <li><strong>You trade control for convenience</strong>: API fine-tuning limits hyperparameter access and locks you into the provider's serving infrastructure.</li>
+        </ul>
+    </div>
+
+    <div class="callout practical-example">
+      <div class="callout-title">Fine-Tuning GPT-4o-mini via <a class="cross-ref" href="../../part-3-working-with-llms/module-10-llm-apis/section-10.1.html">OpenAI API</a> for Structured Report Generation</div>
+      <p><strong>Who:</strong> A two-person data team at a real estate analytics company that needed to generate standardized property valuation reports from raw listing data.</p>
+      <p><strong>Situation:</strong> They used GPT-4 with detailed prompting to generate reports, achieving 88% format compliance. Each report cost &#36;0.12 in API fees, and they processed 5,000 reports per month (&#36;600/month).</p>
+      <p><strong>Problem:</strong> The remaining 12% of reports had formatting issues (missing sections, inconsistent currency formatting, incomplete comparable property analysis) that required manual correction, consuming 15 hours per month of analyst time.</p>
+      <p><strong>Dilemma:</strong> They could add more examples to the prompt (approaching context window limits), build a post-processing pipeline to fix formatting (complex, fragile), or fine-tune a smaller model to consistently produce the exact report format.</p>
+      <p><strong>Decision:</strong> They fine-tuned GPT-4o-mini through the OpenAI API using 400 manually verified report examples (input: raw listing data, output: correctly formatted report). The fine-tuning job cost &#36;45 and completed in 2 hours.</p>
+      <p><strong>How:</strong> They exported 400 of their best reports as JSONL in the ChatML format, validated the file with OpenAI's data preparation tool, submitted the fine-tuning job with default hyperparameters (3 epochs, auto batch size), and evaluated on a 50-report holdout set.</p>
+      <p><strong>Result:</strong> Format compliance rose from 88% to 99.2%. Per-report cost dropped from &#36;0.12 (GPT-4) to &#36;0.008 (fine-tuned GPT-4o-mini), reducing monthly API costs from &#36;600 to &#36;40. Manual correction time fell from 15 hours to 1 hour per month. Total ROI was achieved in the first month.</p>
+      <p><strong>Lesson:</strong> <strong>API fine-tuning is the fastest path from problem to solution when your goal is format consistency and style adaptation; even 300 to 500 high-quality examples can produce dramatic improvements, especially when moving from a large model to a fine-tuned smaller one.</strong></p>
+    </div>
+
+
+
+    <div class="callout research-frontier">
+    <div class="callout-title">Research Frontier</div>
+    <p>Provider fine-tuning APIs are evolving toward <em>continuous fine-tuning</em> workflows where models are incrementally updated as new data arrives, rather than retrained from scratch each time. Emerging research on <em>federated fine-tuning</em> enables organizations to collaboratively train shared adapters without exposing their private data to the API provider. A key open challenge is developing standardized <a class="cross-ref" href="../../part-8-evaluation-production/module-29-evaluation-observability/section-29.2.html">benchmarks</a> for comparing fine-tuning quality across different providers, since model architectures, base weights, and hyperparameter ranges differ significantly.</p>
+</div>
+
+<section class="exercises">
+    <h2>Exercises</h2>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 14.4.1: Provider API comparison <span class="level-badge basic" title="Basic">BASIC</span> <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+        <p>Compare OpenAI and Google Vertex AI fine-tuning APIs on three dimensions: supported models, data format requirements, and hyperparameter control.</p>
+        <details open><summary>Answer Sketch</summary>
+            <p>OpenAI: supports GPT-4o-mini and GPT-4o fine-tuning; requires JSONL with messages format; limited hyperparameters (epochs, learning rate multiplier, batch size). Google Vertex AI: supports Gemini models; accepts JSONL or BigQuery; offers more hyperparameter control including adapter size and learning rate schedule. Both handle infrastructure automatically but OpenAI provides less visibility into training progress.</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 14.4.2: API fine-tuning workflow <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span> <span class="exercise-type coding" title="Coding">Coding</span></div>
+        <p>Write the complete Python code to fine-tune a GPT-4o-mini model via the OpenAI API: upload the training file, create the fine-tuning job, and poll for completion.</p>
+        <details open><summary>Answer Sketch</summary>
+            <p>Upload: <code>file = client.files.create(file=open('train.jsonl','rb'), purpose='fine-tune')</code>. Create job: <code>job = client.fine_tuning.jobs.create(training_file=file.id, model='gpt-4o-mini-2024-07-18', hyperparameters={'n_epochs':2})</code>. Poll: <code>while job.status not in ['succeeded','failed']: time.sleep(60); job = client.fine_tuning.jobs.retrieve(job.id)</code>. Use the resulting <code>job.fine_tuned_model</code> name for inference.</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 14.4.3: When to use managed vs. self-hosted <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span> <span class="exercise-type analysis" title="Analysis">Analysis</span></div>
+        <p>A healthcare company needs to fine-tune an LLM on patient data that cannot leave their infrastructure. Can they use OpenAI's fine-tuning API? What alternatives should they consider?</p>
+        <details open><summary>Answer Sketch</summary>
+            <p>No, OpenAI's fine-tuning API sends data to OpenAI's servers, which violates data residency requirements for protected health information. Alternatives: (1) Self-hosted fine-tuning using an open-source model (Llama, Mistral) on their own GPU infrastructure. (2) Azure OpenAI with a private endpoint in their own Azure subscription (data stays in their tenant). (3) Google Vertex AI with VPC Service Controls. The key requirement is that training data never leaves their controlled environment.</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 14.4.4: Evaluation of fine-tuned models <span class="level-badge advanced" title="Advanced">ADVANCED</span> <span class="exercise-type coding" title="Coding">Coding</span></div>
+        <p>Write a Python evaluation script that compares a base model and a fine-tuned model on a held-out test set. Compute accuracy, response length, and latency for each. Use the same prompts for both.</p>
+        <details open><summary>Answer Sketch</summary>
+            <p>For each test example: call both <code>client.chat.completions.create(model=base_model, ...)</code> and <code>client.chat.completions.create(model=ft_model, ...)</code>. Measure: (1) accuracy by comparing to ground truth (exact match or LLM-judge), (2) response length in tokens, (3) wall-clock latency. Aggregate into a comparison table. Plot accuracy and latency distributions as histograms. A good fine-tune should improve accuracy without significantly increasing latency.</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 14.4.5: Cost estimation <span class="level-badge basic" title="Basic">BASIC</span> <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+        <p>OpenAI charges &#36;25 per million training tokens for GPT-4o-mini fine-tuning. You have 2,000 training examples averaging 500 tokens each. Estimate the fine-tuning cost for 3 epochs.</p>
+        <details open><summary>Answer Sketch</summary>
+            <p>Total tokens per epoch: 2,000 * 500 = 1,000,000 tokens. Over 3 epochs: 3,000,000 tokens. Cost: 3 * &#36;25 = &#36;75. Note: this is the training cost only. Inference on the fine-tuned model is also more expensive than the base model (typically 2 to 3x the base per-token price). Factor in the higher inference cost when computing the total ROI of fine-tuning.</p>
+        </details>
+    </div>
+
+</section>
+
+
+
+
+<div class="whats-next">
+    <h2>What Comes Next</h2>
+    <p>In the next section, <a href="section-14.5.html">Section 14.5: Fine-Tuning for Representation Learning</a>, we examine fine-tuning for representation learning, adapting models to produce better <a href="../../part-1-foundations/module-01-foundations-nlp-text-representation/section-1.3.html" class="cross-ref">embeddings</a> for downstream tasks. The <a class="cross-ref" href="../../part-3-working-with-llms/module-10-llm-apis/section-10.3.html">structured output</a> formats discussed here connect to the <a class="cross-ref" href="../../part-3-working-with-llms/module-10-llm-apis/section-10.2.html">API parameter handling in Section 10.2</a>.</p>
+
+    <div class="callout fun-note">
+              <div class="callout-title">Fun Fact</div>
+        <p>Provider fine-tuning APIs deliberately hide most hyperparameters from you, which feels limiting until you realize that 90% of fine-tuning failures come from bad data, not bad hyperparameters. They are protecting you from yourself.</p>
+    </div>
+
+</div>
+
+<section class="bibliography" id="bibliography">
+    <div class="bibliography-title">References and Further Reading</div>
+    <div class="bib-category">Provider Documentation</div>
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://platform.openai.com/docs/guides/fine-tuning" target="_blank" rel="noopener">OpenAI. (2024). <em>Fine-Tuning Guide</em>.</a></p>
+        <p class="bib-annotation">The official OpenAI fine-tuning documentation covering data format requirements, model selection, hyperparameter options, and cost estimation. This is the primary reference for the OpenAI workflow covered in this section. Essential for anyone planning to use OpenAI's managed fine-tuning service.</p>
+        <span class="bib-meta">Documentation</span>
+    </div>
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://cloud.google.com/vertex-ai/docs/generative-ai/models/tune-models" target="_blank" rel="noopener">Google Cloud. (2024). <em>Vertex AI Model Tuning</em>.</a></p>
+        <p class="bib-annotation">Google's guide to fine-tuning Gemini and PaLM models through Vertex AI, including supervised tuning and <a href="../module-17-alignment-rlhf-dpo/index.html" class="cross-ref">RLHF</a> options. Covers the Google-specific workflow discussed in this section, including data formatting differences from OpenAI. Recommended for teams in the Google Cloud ecosystem.</p>
+        <span class="bib-meta">Documentation</span>
+    </div>
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://docs.anthropic.com/en/docs/build-with-claude/fine-tuning" target="_blank" rel="noopener">Anthropic. (2024). <em>Fine-Tuning Claude</em>.</a></p>
+        <p class="bib-annotation">Anthropic's documentation for Claude fine-tuning, covering eligibility requirements, data preparation, and the managed training process. Useful as a comparison point for teams evaluating multiple providers, and for understanding Anthropic's approach to safety during fine-tuning.</p>
+        <span class="bib-meta">Documentation</span>
+    </div>
+    <div class="bib-category">Alternative Providers and Research</div>
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://docs.together.ai/docs/fine-tuning" target="_blank" rel="noopener">Together AI. (2024). <em>Fine-Tuning API Documentation</em>.</a></p>
+        <p class="bib-annotation">Together AI's fine-tuning documentation, which supports open-source models like Llama and Mistral through a managed API. Together AI offers more model choice and lower prices than closed-model providers at the cost of some convenience. Useful for teams wanting API simplicity with open-source model flexibility.</p>
+        <span class="bib-meta">Documentation</span>
+    </div>
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://www.anyscale.com/blog/fine-tuning-llms" target="_blank" rel="noopener">Anyscale. (2024). <em>Fine-Tuning LLMs: A Comprehensive Guide</em>.</a></p>
+        <p class="bib-annotation">A practical guide from Anyscale covering fine-tuning best practices, common pitfalls, and performance optimization tips. Includes benchmarks comparing managed fine-tuning across providers. Helpful for teams evaluating the cost-quality tradeoffs between different managed fine-tuning options.</p>
+        <span class="bib-meta">Guide</span>
+    </div>
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://arxiv.org/abs/2305.11206" target="_blank" rel="noopener">Zhou, C. et al. (2023). <em>LIMA: Less Is More for Alignment</em>. NeurIPS 2023.</a></p>
+        <p class="bib-annotation">Demonstrates that fine-tuning on just 1,000 carefully curated examples can produce a highly capable model, challenging the assumption that more data is always better. LIMA's findings directly support the "quality over quantity" principle emphasized in the data preparation guidance for API fine-tuning.</p>
+        <span class="bib-meta">Paper</span>
+    </div>
+</section>
+
+<nav class="chapter-nav">
+    <a href="section-14.3.html" class="prev">Previous: Supervised Fine-Tuning (SFT)</a>
+    <a href="section-14.5.html" class="next">Next: Fine-Tuning for Representation Learning </a>
+</nav>
+    <footer><p>Fifth Edition, 2026 &middot; <a href="../../toc.html">Contents</a></p></footer>
+</main>
+</body>
+</html>
