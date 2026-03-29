@@ -34,6 +34,10 @@ def process_file(html_path: Path) -> bool:
     if "prism-theme.css" in text or "prism-bundle" in text:
         return False
 
+    # Only add Prism to files that contain code blocks
+    if '<code class="language-' not in text and "<code class='language-" not in text:
+        return False
+
     prefix = get_relative_prefix(html_path)
     tags = build_prism_tags(prefix)
 
