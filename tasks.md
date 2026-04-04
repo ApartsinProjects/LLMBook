@@ -189,8 +189,11 @@
 - [x] Add annotated bibliography to Module 24 (12 refs)
 
 ### Agent: exercise-designer (07) - lab format standardization
-- [ ] Standardize hands-on lab format across book (consistent callout exercise with Lab title)
-- [ ] Audit sections for lab opportunities (FM.4 promises 30-90 min labs per chapter)
+- [x] Create LAB_COVERAGE audit check (p2_lab_coverage.py)
+- [x] Lab gap analysis: 16/36 modules have labs, 20 need labs created
+  - Missing labs: Modules 0-12, 27-31, 34-35
+  - Existing labs: Modules 13-26, 32-33 (Parts 4-6, 9)
+- [ ] Create 20 hands-on labs for modules without labs (Phase 7 content generation)
 
 ## Phase 7: Full Agent Passes
 
