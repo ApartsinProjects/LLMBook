@@ -96,7 +96,7 @@
 
 ## Phase 5: Low Priority / Optional
 
-- [ ] Grammar-constrained Decoding Expansion (LMQL, SGLang deeper coverage)
+- [x] Grammar-constrained Decoding Expansion (LMQL, SGLang, Outlines FSM, jsonformer, Guidance, comparison table, 5 bib entries)
 
 ## Phase 6: Pre-commit Tasks
 
@@ -124,6 +124,14 @@
   - [x] Fix double bibliography icons (51 files)
   - [x] Fix unclosed callout divs (8 files)
   - [x] New audit checks: FM4_PROMISE, SECTION_STRUCTURE, SVG_OVERLAP
+  - [x] Fix 360 double-encoded ampersands across 190 files
+  - [x] Remove 46 fun-notes from 25 module index files
+  - [x] Fix element ordering in 8 chapter indexes (prereqs before objectives)
+  - [x] Fix Part 2 missing chapter cards (Modules 08, 18)
+  - [x] Add audit checks: CHAPTER_STARTER, INDEX_ORDER, PART_INDEX, SECTION_CALLOUT
+  - [x] Fix PART_LABEL_FORMAT check (accept Roman numerals, 148 false positives eliminated)
+  - [x] Fix P0 duplicate Code Fragment 5.3.3 (renumbered to 5.3.3-8)
+  - [~] Fix remaining P1 issues (4 agents running: PLACEHOLDER_CONTENT, UNCLOSED_P, BARE_CODE, misc)
   - [ ] Consolidate agent results and run final full audit
 - [x] Create CONTENT_GUIDELINES.md (prevention guide for content-generating agents)
 - [x] Audit appendices vs book content for duplication (5 critical, 390 missing cross-refs)
@@ -150,6 +158,8 @@
 - [x] Fix 22 broken figure refs across 12 files
 - [x] Fix P0 audit issues (broken xrefs, dup figures, SVG title)
 - [x] Update front matter to reflect current 10-part structure and appendices A-V
+- [x] Standardize .part-overview CSS to match .overview (accent border-left, max-width 750px)
+- [x] Remove non-canonical content from indexes (bare fun-notes, time-estimate, stray h2)
 - [ ] Commit and push all changes
 
 ## Phase 6b: Depth and Cross-referencing
@@ -162,17 +172,17 @@
 ## Phase 6c: Missing Features (from FM4_PROMISE + SECTION_STRUCTURE audit)
 
 ### Agent: exercise-designer (07) + writing agents
-- [ ] Add level badges to Modules 0-5 (Part 1) and Module 7 (classify each h2 section as basic/intermediate/advanced/research)
-- [ ] Add Warning callout to Module 35 (AI and Society)
+- [x] Add level badges to Modules 0-5 (Part 1) and Module 7 (199 badges across 27 files)
+- [x] Add Warning callout to Module 35 (AI and Society)
 
 ### Agent: research-scientist (18) + writing agents
-- [ ] Add Research Frontier section to Module 23 (Tool Use and Protocols)
-- [ ] Add Research Frontier section to Module 24 (Multi-Agent Systems)
-- [ ] Add Research Frontier section to Module 26 (Agent Safety and Production)
+- [x] Add Research Frontier section to Module 23 (Tool Use and Protocols)
+- [x] Add Research Frontier section to Module 24 (Multi-Agent Systems)
+- [x] Add Research Frontier section to Module 26 (Agent Safety and Production)
 
 ### Agent: chapter-lead (00) + writing agents
-- [ ] Add annotated bibliography to Module 23 (Tool Use and Protocols)
-- [ ] Add annotated bibliography to Module 24 (Multi-Agent Systems)
+- [x] Add annotated bibliography to Module 23 (11 refs)
+- [x] Add annotated bibliography to Module 24 (12 refs)
 
 ### Agent: exercise-designer (07) - lab format standardization
 - [ ] Standardize hands-on lab format across book (consistent callout exercise with Lab title)
