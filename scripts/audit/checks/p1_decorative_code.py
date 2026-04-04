@@ -67,7 +67,7 @@ def run(filepath, html, context):
     issues = []
 
     # Only flag in non-engineering chapters (broadest signal)
-    is_non_eng = any(d in filepath.replace("\\", "/") for d in NON_ENGINEERING_DIRS)
+    is_non_eng = any(d in str(filepath).replace("\\", "/") for d in NON_ENGINEERING_DIRS)
 
     for m in CODE_BLOCK_RE.finditer(html):
         code = m.group(1)

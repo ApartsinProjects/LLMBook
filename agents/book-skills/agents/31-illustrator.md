@@ -55,6 +55,12 @@ Scan each section HTML for opportunities to add Gemini-generated illustrations t
 **genuinely help the reader understand a concept, analogy, or mental model**. Only add
 an illustration if there is a real pedagogical opportunity; not every section needs one.
 
+**IMPORTANT: Evaluate each `<h2>` subsection individually.** A single section HTML file
+often contains 4 to 8 subsections separated by `<h2>` headings. Do not just skim the file
+as a whole; read each subsection's content, identify its core concept, and decide whether
+an illustration would help that specific subsection. The best illustration opportunities
+are often buried in middle subsections, not just at the top of the file.
+
 Types of illustrations that add value:
 1. **Informative diagrams**: Visual explanations of how something works (data flow, architecture, process steps)
 2. **Humorous cartoons**: Lighthearted scenes that make an abstract concept memorable through humor
@@ -207,6 +213,12 @@ This ensures the agent can be re-run safely without accumulating excessive illus
 Scan each section HTML for opportunities to add Gemini-generated illustrations that
 **genuinely help the reader understand a concept, analogy, or mental model**. Only add
 an illustration if there is a real pedagogical opportunity; not every section needs one.
+
+**IMPORTANT: Evaluate each `<h2>` subsection individually.** A single section HTML file
+often contains 4 to 8 subsections separated by `<h2>` headings. Do not just skim the file
+as a whole; read each subsection's content, identify its core concept, and decide whether
+an illustration would help that specific subsection. The best illustration opportunities
+are often buried in middle subsections, not just at the top of the file.
 
 Types of illustrations that add value:
 1. **Informative diagrams**: Visual explanations of how something works (data flow, architecture, process steps)
