@@ -131,8 +131,12 @@
   - [x] Add audit checks: CHAPTER_STARTER, INDEX_ORDER, PART_INDEX, SECTION_CALLOUT
   - [x] Fix PART_LABEL_FORMAT check (accept Roman numerals, 148 false positives eliminated)
   - [x] Fix P0 duplicate Code Fragment 5.3.3 (renumbered to 5.3.3-8)
-  - [~] Fix remaining P1 issues (4 agents running: PLACEHOLDER_CONTENT, UNCLOSED_P, BARE_CODE, misc)
-  - [ ] Consolidate agent results and run final full audit
+  - [x] Fix remaining P1 issues (PLACEHOLDER_CONTENT, UNCLOSED_P, BARE_CODE, misc agents completed)
+  - [x] Fix 227 unclosed callout divs via SECTION_STRUCTURE nesting checker (depth-tracking stack)
+  - [x] Fix SECTION_STRUCTURE nesting checker false positives (1015 reduced to 227 real issues, then 0)
+  - [x] Fix 6 UNUSED_VENDOR issues (unused KaTeX/Prism removed from 6 files)
+  - [x] Refine PLACEHOLDER_CONTENT check (72 false positives eliminated)
+  - [x] Final P0+P1 audit: 0 P0, 0 P1 remaining (207 P2 cosmetic issues)
 - [x] Create CONTENT_GUIDELINES.md (prevention guide for content-generating agents)
 - [x] Audit appendices vs book content for duplication (5 critical, 390 missing cross-refs)
   - [x] Add cross-reference callouts (Appendix K/S/G already cross-referenced in relevant chapters)
