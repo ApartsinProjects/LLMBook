@@ -49,7 +49,9 @@ ELEMENT_PATTERNS = [
 ]
 
 DISALLOWED_IN_INDEX = [
-    ("fun-note", re.compile(r'class="callout fun-note"')),
+    ("callout fun-note", re.compile(r'class="callout fun-note"')),
+    ("bare fun-note", re.compile(r'class="fun-note"')),
+    ("time-estimate", re.compile(r'class="time-estimate"')),
 ]
 
 
