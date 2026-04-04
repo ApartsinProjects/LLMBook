@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Section 35.5: Reliability Engineering for Agents Under Production Stress. Failure modes, circuit breakers, chaos engineering, and SLOs for agentic systems.">
+    <title>Section 35.5: Reliability Engineering for Agents Under Production Stress</title>
+    <link rel="stylesheet" href="../../styles/book.css">
+<link rel="stylesheet" href="../../vendor/prism/prism-theme.css">
+    <script defer src="../../vendor/prism/prism-bundle.min.js"></script>
+</head>
+<body>
+<header class="chapter-header">
+    <nav class="header-nav">
+        <a href="../../index.html" class="book-title-link">Building Conversational AI with LLMs and Agents</a>
+        <a href="../../toc.html" class="toc-link" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+    </nav>
+    <div class="part-label"><a href="../index.html">Part X: Frontiers</a></div>
+    <div class="chapter-label"><a href="index.html">Chapter 35: AI and Society</a></div>
+    <h1>Reliability Engineering for Agents Under Production Stress</h1>
+</header>
+
+<main class="content">
+
+    <blockquote class="epigraph">
+        <p>"An unreliable agent is worse than no agent at all, because it erodes trust in automation itself."</p>
+        <cite><span class="agent-avatar-inline" style="background-color: #7f8c8d;"><img src="../../front-matter/images/agents/sage.png" alt="Sage"></span> <a href="../../front-matter/wisdom-council.html#sage">Sage</a> <span class="agent-desc">AI Agent</span></cite>
+    </blockquote>
+
+    <div class="prerequisites">
+        <h3>Prerequisites</h3>
+        <p>This section builds on the agent architecture patterns from <a class="cross-ref" href="../../part-6-agentic-ai/module-23-tool-use-protocols/index.html">Chapter 24 (Tool Use and Function Calling)</a> and <a class="cross-ref" href="../../part-6-agentic-ai/module-22-ai-agents/index.html">Chapter 25 (Agent Architectures)</a>. Familiarity with production deployment concepts from <a class="cross-ref" href="../../part-8-evaluation-production/module-30-observability-monitoring/index.html">Chapter 30 (Observability and Monitoring)</a> is also important.</p>
+    </div>
+
+    <div class="callout big-picture">
+        <div class="callout-title">Big Picture</div>
+        <p><strong>Traditional software fails in predictable ways: null pointers, network timeouts, resource exhaustion.</strong> Agentic systems introduce an entirely new class of failure modes rooted in the non-deterministic nature of LLM reasoning. An agent can enter infinite loops, hallucinate tool calls that corrupt data, cascade errors across multi-step workflows, or silently degrade in quality without triggering any conventional error signal. Reliability engineering for agents requires adapting proven distributed systems techniques (circuit breakers, retry budgets, graceful degradation) while inventing new approaches for the unique challenges of autonomous AI workflows. This section provides the engineering patterns needed to build agents that fail safely and recover gracefully under production stress.</p>
+    </div>
+
+    <h2>1. Failure Modes Unique to Agentic Systems <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>
+        Before designing reliability patterns, you must understand how agents fail. The failure taxonomy for agentic systems differs substantially from traditional microservice architectures because the "logic" driving execution is a probabilistic language model rather than deterministic code.
+    </p>
+
+    <h3>1.1 Infinite Loops and Reasoning Cycles</h3>
+
+    <p>
+        The most common agentic failure mode is the infinite loop. Unlike a traditional while-loop bug, agent loops arise from the model's reasoning. The agent attempts an action, observes the result, determines it needs to try again, and repeats indefinitely. This pattern is especially common when the agent encounters an ambiguous error message from a tool and keeps retrying with slight prompt variations that never resolve the underlying issue.
+    </p>
+
+    <p>
+        Loop detection is non-trivial because the agent's actions are not identical on each iteration. The model may change its phrasing, try slightly different parameters, or insert "reasoning" steps that make each iteration appear unique to simple string-matching detectors. Effective loop detection requires semantic similarity comparison across recent action sequences, not just exact-match deduplication.
+    </p>
+
+    <h3>1.2 Hallucinated Actions and Data Corruption</h3>
+
+    <p>
+        When an LLM hallucinates a function name that does not exist, the tool router returns an error and the agent can recover. The more dangerous case is when the LLM hallucinates valid-looking parameters for a real tool. Consider an agent with database write access that generates a plausible but incorrect SQL UPDATE statement. The tool executes successfully (from the system's perspective), but the data is now corrupted. This failure mode is invisible to conventional health checks because no error was raised.
+    </p>
+
+    <p>
+        Hallucinated actions become more dangerous in multi-agent systems (see <a class="cross-ref" href="../../part-6-agentic-ai/module-25-specialized-agents/section-25.3.html">Section 25.3</a>), where one agent's hallucinated output becomes another agent's trusted input. The cascading effect can propagate through an entire workflow before any agent detects the anomaly.
+    </p>
+
+    <h3>1.3 Cascading Errors in Multi-Step Workflows</h3>
+
+    <p>
+        Agent workflows often consist of sequential steps where each step's output feeds the next step's input. A subtle error in step two (perhaps a slightly incorrect data extraction) can compound through steps three, four, and five, producing a final result that is confidently wrong. Unlike traditional pipeline errors that produce stack traces, agent cascading errors produce plausible-looking outputs because the LLM generates fluent, confident text regardless of whether its reasoning is correct.
+    </p>
+
+    <h3>1.4 Context Window Exhaustion</h3>
+
+    <p>
+        Long-running agents accumulate conversation history, tool outputs, and intermediate reasoning. When this context approaches or exceeds the model's context window, behavior degrades unpredictably. The model may "forget" earlier instructions, lose track of its goal, or begin contradicting its own prior reasoning. Context exhaustion is a slow-onset failure that is difficult to detect in real time because the model does not report that it has lost context. It simply becomes less reliable.
+    </p>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight</div>
+        <p><strong>The fundamental reliability challenge for agents is that failures are semantic, not syntactic.</strong> Traditional monitoring catches crashes, timeouts, and error codes. Agent failures produce HTTP 200 responses containing confidently stated incorrect information. Reliability engineering for agents must therefore monitor output quality, not just system health. This requires a different instrumentation philosophy than conventional SRE practices.</p>
+    </div>
+
+    <h2>2. Circuit Breakers, Retry Budgets, and Graceful Degradation <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>
+        The circuit breaker pattern, borrowed from electrical engineering and popularized in distributed systems by Michael Nygard, prevents a failing component from consuming resources indefinitely. For agentic systems, circuit breakers must be adapted to handle semantic failures in addition to infrastructure failures.
+    </p>
+
+    <h3>2.1 Agent Circuit Breakers</h3>
+
+    <p>
+        An agent circuit breaker monitors the agent's execution trajectory and trips when it detects pathological behavior. The following implementation demonstrates a circuit breaker that tracks multiple failure signals.
+    </p>
+
+<pre><code class="language-python">
+from dataclasses import dataclass, field
+from enum import Enum
+import time
+from collections import deque
+from difflib import SequenceMatcher
+
+class CircuitState(Enum):
+    CLOSED = "closed"      # normal operation
+    OPEN = "open"          # failures detected, agent halted
+    HALF_OPEN = "half_open"  # testing if agent has recovered
+
+@dataclass
+class AgentCircuitBreaker:
+    """Circuit breaker for agentic workflows.
+
+    Monitors step count, error rate, loop detection,
+    and latency to determine when to halt an agent.
+    """
+    max_steps: int = 25
+    max_consecutive_errors: int = 3
+    similarity_threshold: float = 0.85
+    loop_window: int = 5
+    max_step_latency_seconds: float = 60.0
+    cooldown_seconds: float = 30.0
+
+    state: CircuitState = field(default=CircuitState.CLOSED)
+    step_count: int = field(default=0)
+    consecutive_errors: int = field(default=0)
+    recent_actions: deque = field(default_factory=lambda: deque(maxlen=10))
+    last_trip_time: float = field(default=0.0)
+    trip_reason: str = field(default="")
+
+    def before_step(self, action_description: str) -> bool:
+        """Call before each agent step. Returns False if circuit is open."""
+        if self.state == CircuitState.OPEN:
+            if time.time() - self.last_trip_time > self.cooldown_seconds:
+                self.state = CircuitState.HALF_OPEN
+            else:
+                return False
+
+        self.step_count += 1
+
+        # Check step budget
+        if self.step_count > self.max_steps:
+            self._trip(f"Step budget exhausted ({self.max_steps} steps)")
+            return False
+
+        # Check for loops via semantic similarity
+        if self._detect_loop(action_description):
+            self._trip("Loop detected in recent actions")
+            return False
+
+        self.recent_actions.append(action_description)
+        return True
+
+    def after_step(self, success: bool, latency: float):
+        """Call after each agent step with outcome."""
+        if not success:
+            self.consecutive_errors += 1
+            if self.consecutive_errors >= self.max_consecutive_errors:
+                self._trip(
+                    f"{self.consecutive_errors} consecutive errors"
+                )
+        else:
+            self.consecutive_errors = 0
+            if self.state == CircuitState.HALF_OPEN:
+                self.state = CircuitState.CLOSED
+
+        if latency > self.max_step_latency_seconds:
+            self._trip(f"Step latency {latency:.1f}s exceeds limit")
+
+    def _detect_loop(self, new_action: str) -> bool:
+        if len(self.recent_actions) < self.loop_window:
+            return False
+        recent = list(self.recent_actions)[-self.loop_window:]
+        similarities = [
+            SequenceMatcher(None, new_action, prev).ratio()
+            for prev in recent
+        ]
+        high_similarity_count = sum(
+            1 for s in similarities if s > self.similarity_threshold
+        )
+        return high_similarity_count >= self.loop_window // 2
+
+    def _trip(self, reason: str):
+        self.state = CircuitState.OPEN
+        self.last_trip_time = time.time()
+        self.trip_reason = reason
+</code></pre>
+
+    <h3>2.2 Retry Budgets for Tool Calls</h3>
+
+    <p>
+        Standard retry logic (exponential backoff with jitter) applies to transient infrastructure failures such as API rate limits or network timeouts. For agentic systems, you also need semantic retry budgets that limit how many times the agent can attempt the same logical operation, even if the exact parameters differ each time.
+    </p>
+
+    <p>
+        A practical approach assigns each tool a per-invocation retry budget. The agent can retry a failed database query up to three times, but after that, it must either escalate to a human operator or use a fallback strategy. This prevents the agent from burning through API credits and time on a fundamentally broken operation.
+    </p>
+
+    <h3>2.3 Graceful Degradation Strategies</h3>
+
+    <p>
+        When the circuit breaker trips, the system should not simply return an error. Instead, it should degrade gracefully. Effective degradation strategies for agent systems include: returning a partial result with a clear indication of what was completed and what was not; falling back to a simpler, more reliable agent (perhaps one with fewer tools or a more constrained action space); caching and returning the last known good result for read-only operations; and escalating to a human operator with the full execution trace for review.
+    </p>
+
+    <h2>3. Chaos Engineering for LLM Agents <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>
+        Chaos engineering, pioneered by Netflix, deliberately injects failures into production systems to verify that resilience mechanisms work correctly. For agent systems, chaos engineering extends beyond infrastructure faults to include semantic perturbations that test the agent's reasoning robustness.
+    </p>
+
+    <h3>3.1 Fault Injection Categories</h3>
+
+    <p>
+        Agent chaos experiments fall into three categories. Infrastructure faults include tool API latency injection, rate limit simulation, and partial network failures. These test whether the agent's retry logic and circuit breakers function correctly. Semantic faults include injecting contradictory information into tool responses, returning slightly corrupted data, or providing ambiguous error messages. These test whether the agent can detect and handle unreliable inputs. Adversarial faults include prompt injection attempts via tool outputs (see <a class="cross-ref" href="../../part-6-agentic-ai/module-26-agent-safety-production/section-26.2.html">Section 31.2</a>), where a tool response contains text that attempts to hijack the agent's instructions.
+    </p>
+
+<pre><code class="language-python">
+import random
+from typing import Any, Callable
+from functools import wraps
+
+def chaos_monkey(
+    latency_range: tuple[float, float] = (0.0, 0.0),
+    error_rate: float = 0.0,
+    corruption_rate: float = 0.0,
+    corruption_fn: Callable[[Any], Any] | None = None,
+):
+    """Decorator that injects chaos into tool functions.
+
+    Args:
+        latency_range: Min/max additional latency in seconds.
+        error_rate: Probability of raising an exception (0.0 to 1.0).
+        corruption_rate: Probability of corrupting the return value.
+        corruption_fn: Function to corrupt the return value.
+    """
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            # Inject latency
+            if latency_range[1] > 0:
+                delay = random.uniform(*latency_range)
+                import time
+                time.sleep(delay)
+
+            # Inject errors
+            if random.random() < error_rate:
+                raise ConnectionError(
+                    f"Chaos monkey: simulated failure in {func.__name__}"
+                )
+
+            result = func(*args, **kwargs)
+
+            # Inject data corruption
+            if random.random() < corruption_rate and corruption_fn:
+                result = corruption_fn(result)
+
+            return result
+        return wrapper
+    return decorator
+
+# Example: wrapping a database lookup tool for chaos testing
+@chaos_monkey(
+    latency_range=(0.5, 3.0),
+    error_rate=0.1,
+    corruption_rate=0.05,
+    corruption_fn=lambda r: {**r, "status": "unknown"},
+)
+def lookup_order(order_id: str) -> dict:
+    """Look up an order by ID from the database."""
+    # Real implementation here
+    return {"order_id": order_id, "status": "shipped", "eta": "2026-04-10"}
+</code></pre>
+
+    <h3>3.2 Designing Chaos Experiments</h3>
+
+    <p>
+        A well-designed chaos experiment follows a structured process. First, define a steady-state hypothesis: "The agent should complete customer refund requests within 30 seconds with a success rate above 95%." Second, introduce a specific perturbation: inject 2-second latency into the payment API. Third, measure the deviation from steady state. Fourth, determine whether the system's resilience mechanisms (circuit breakers, retries, fallbacks) maintained acceptable behavior.
+    </p>
+
+    <p>
+        Run chaos experiments in a staging environment first, then gradually introduce them into production with narrow blast radius. Start with a single tool and a single fault type. As confidence grows, combine multiple faults to test the agent's behavior under compounding stress.
+    </p>
+
+    <h2>4. SLOs and SLIs for Agent-Based Systems <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        Service Level Objectives (SLOs) and Service Level Indicators (SLIs) are foundational to site reliability engineering (see <a class="cross-ref" href="../../part-8-evaluation-production/module-30-observability-monitoring/section-30.1.html">Section 30.1</a> for monitoring fundamentals). For agent-based systems, standard latency and availability SLIs are necessary but insufficient. You also need SLIs that capture the quality and correctness of agent behavior.
+    </p>
+
+    <h3>4.1 Agent-Specific SLIs</h3>
+
+    <p>
+        The following table defines SLIs that are specific to agentic workflows, organized by the dimension they measure.
+    </p>
+
+    <table>
+        <thead>
+            <tr>
+                <th scope="col">Dimension</th>
+                <th scope="col">SLI</th>
+                <th scope="col">Measurement Method</th>
+                <th scope="col">Typical SLO Target</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <th scope="row">Task Completion</th>
+                <td>Percentage of tasks completed without human intervention</td>
+                <td>Count of tasks reaching terminal state / total tasks</td>
+                <td>Greater than 90%</td>
+            </tr>
+            <tr>
+                <th scope="row">Correctness</th>
+                <td>Percentage of completed tasks with verified correct outcomes</td>
+                <td>Sampled human review or automated verification</td>
+                <td>Greater than 95%</td>
+            </tr>
+            <tr>
+                <th scope="row">Step Efficiency</th>
+                <td>Median number of steps to complete a task type</td>
+                <td>Step counter per task, segmented by task category</td>
+                <td>Within 2x of optimal path</td>
+            </tr>
+            <tr>
+                <th scope="row">Cost per Task</th>
+                <td>Total token cost (input + output) per completed task</td>
+                <td>Token usage tracking per task ID</td>
+                <td>Below budget threshold</td>
+            </tr>
+            <tr>
+                <th scope="row">Safety</th>
+                <td>Percentage of tasks with zero safety violations</td>
+                <td>Guardrail trigger rate from safety classifiers</td>
+                <td>Greater than 99.9%</td>
+            </tr>
+            <tr>
+                <th scope="row">Escalation Rate</th>
+                <td>Percentage of tasks requiring human escalation</td>
+                <td>Count of escalation events / total tasks</td>
+                <td>Less than 10%</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <h3>4.2 Error Budgets for Agents</h3>
+
+    <p>
+        The error budget model from SRE applies directly to agent systems. If your task correctness SLO is 95%, you have a 5% error budget. When correctness drops below 95% over the measurement window, you stop deploying new agent capabilities and focus on reliability improvements. This creates a natural tension between feature velocity and reliability that forces engineering teams to invest in resilience.
+    </p>
+
+    <p>
+        Agent error budgets should be segmented by task type and risk level. A customer-facing agent that processes financial transactions needs a much tighter error budget than an internal agent that drafts email summaries. The consequence of a correctness failure varies enormously between these contexts, and the SLOs should reflect that variance.
+    </p>
+
+    <h2>5. Production Case Studies and Lessons Learned <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        The following patterns emerge repeatedly from production agent deployments across industries.
+    </p>
+
+    <h3>5.1 The Silent Degradation Pattern</h3>
+
+    <p>
+        A common failure pattern involves gradual quality degradation that goes undetected for weeks. A coding assistant agent that was initially producing correct refactors began introducing subtle bugs after a model version update. Because the agent's outputs compiled and passed unit tests, the degradation was invisible to automated checks. It was only detected when a developer noticed an unusual pattern during code review. The lesson: automated quality checks for agents must go beyond surface-level validation. Invest in semantic evaluation that compares agent outputs against golden examples, and run these evaluations continuously, not just at deployment time.
+    </p>
+
+    <h3>5.2 The Thundering Herd Pattern</h3>
+
+    <p>
+        When a tool API experiences a brief outage, all active agents retry simultaneously when service resumes. This "thundering herd" can overwhelm the recovered service and cause a secondary outage. The solution is familiar from distributed systems: jittered backoff with per-agent randomization. For agent systems, add a global concurrency limiter that caps the total number of in-flight tool calls across all agents, preventing any single tool endpoint from receiving a burst that exceeds its capacity.
+    </p>
+
+    <h3>5.3 The Context Poisoning Pattern</h3>
+
+    <p>
+        In a customer support deployment, an agent's conversation history accumulated an error message from a failed tool call early in the interaction. For the remainder of the conversation, the agent repeatedly referenced this error, even when subsequent tool calls succeeded. The stale error in the context "poisoned" the agent's reasoning. The fix involved implementing context summarization checkpoints: at regular intervals, the agent's accumulated context is summarized and compressed, dropping transient error states while preserving essential information.
+    </p>
+
+    <div class="callout tip">
+        <div class="callout-title">Tip</div>
+        <p><strong>Start with kill switches, not sophistication.</strong> Before building elaborate circuit breakers and chaos experiments, ensure that every agent in production has a manual kill switch that immediately halts execution and returns a safe default response. The ability to stop a misbehaving agent within seconds is more valuable than any automated recovery mechanism. Automate resilience incrementally after the manual controls are in place.</p>
+    </div>
+
+    <h2>Exercises <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 35.5.1: Designing an Agent Circuit Breaker (Coding) <span class="exercise-type coding" title="Coding">Coding</span></div>
+        <p>
+            Extend the <code>AgentCircuitBreaker</code> class from this section to include a token budget tracker. The breaker should trip when the cumulative token usage (input + output tokens) exceeds a configurable maximum. Add a method <code>record_tokens(input_tokens: int, output_tokens: int)</code> and integrate it with the <code>before_step</code> / <code>after_step</code> lifecycle. Test your implementation with a simulated agent that makes 20 tool calls with varying token costs.
+        </p>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 35.5.2: Chaos Experiment Design (Analysis) <span class="exercise-type analysis" title="Analysis">Analysis</span></div>
+        <p>
+            Design three chaos experiments for an agent that handles employee expense report approvals. The agent reads submitted reports, validates receipts against a database, checks policy compliance, and either approves or flags the report for human review. For each experiment: (a) state the steady-state hypothesis, (b) describe the perturbation to inject, (c) explain what outcome would indicate a reliability gap, and (d) propose the resilience mechanism needed to handle the fault.
+        </p>
+    </div>
+
+<div class="whats-next">
+    <h2>What Comes Next</h2>
+    <p>In the next section, <a href="section-35.6.html" class="cross-ref">Section 35.6: Observability, Testing, and CI/CD for Agent Workflows</a>, we explore how to trace, test, and continuously deploy agent systems with confidence.</p>
+</div>
+
+    <div class="bibliography">
+        <h2>Bibliography</h2>
+        <ul>
+            <li>Nygard, M. (2018). <em>Release It! Design and Deploy Production-Ready Software</em>, 2nd ed. Pragmatic Bookshelf.</li>
+            <li>Basiri, A. et al. (2016). "Chaos Engineering." <em>IEEE Software</em>, 33(3), 35-41.</li>
+            <li>Beyer, B. et al. (2016). <em>Site Reliability Engineering: How Google Runs Production Systems</em>. O'Reilly.</li>
+            <li>Yao, S. et al. (2023). "ReAct: Synergizing Reasoning and Acting in Language Models." <em>ICLR 2023</em>.</li>
+            <li>Significant Gravitas. (2023). "AutoGPT: An Autonomous GPT-4 Experiment." <em>GitHub Repository</em>.</li>
+            <li>Wang, L. et al. (2024). "A Survey on Large Language Model Based Autonomous Agents." <em>Frontiers of Computer Science</em>, 18(6).</li>
+        </ul>
+    </div>
+
+<nav class="chapter-nav">
+    <a class="prev" href="section-35.4.html">Open Research Problems &amp; Future Directions</a>
+    <a class="up" href="index.html">Chapter 35: AI, Society &amp; Open Problems</a>
+    <a class="next" href="section-35.6.html">Observability, Testing, and CI/CD for Agent Workflows</a>
+</nav>
+
+    <footer>
+        <p class="footer-title">Building Conversational AI with LLMs and Agents, Fifth Edition</p>
+        <p>&copy; 2026 Alexander Apartsin &amp; Yehudit Aperstein &middot; <a href="../../toc.html">Contents</a></p>
+        <p class="footer-updated">Last updated: <script>document.write(new Date(document.lastModified).toLocaleDateString('en-US', {year:'numeric', month:'long', day:'numeric'}))</script></p>
+    </footer>
+</main>
+</body>
+</html>

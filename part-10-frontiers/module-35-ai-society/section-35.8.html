@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Section 35.8: Self-Improving and Adaptive Agents in Deployment Loops. Online learning, prompt evolution, experience replay, and safety guardrails for self-modifying agents.">
+    <title>Section 35.8: Self-Improving and Adaptive Agents in Deployment Loops</title>
+    <link rel="stylesheet" href="../../styles/book.css">
+<link rel="stylesheet" href="../../vendor/prism/prism-theme.css">
+    <script defer src="../../vendor/prism/prism-bundle.min.js"></script>
+</head>
+<body>
+<header class="chapter-header">
+    <nav class="header-nav">
+        <a href="../../index.html" class="book-title-link">Building Conversational AI with LLMs and Agents</a>
+        <a href="../../toc.html" class="toc-link" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+    </nav>
+    <div class="part-label"><a href="../index.html">Part X: Frontiers</a></div>
+    <div class="chapter-label"><a href="index.html">Chapter 35: AI and Society</a></div>
+    <h1>Self-Improving and Adaptive Agents in Deployment Loops</h1>
+</header>
+
+<main class="content">
+
+    <blockquote class="epigraph">
+        <p>"The best agent is not the one that starts perfect, but the one that gets better every day."</p>
+        <cite><span class="agent-avatar-inline" style="background-color: #7f8c8d;"><img src="../../front-matter/images/agents/sage.png" alt="Sage"></span> <a href="../../front-matter/wisdom-council.html#sage">Sage</a> <span class="agent-desc">AI Agent</span></cite>
+    </blockquote>
+
+    <div class="prerequisites">
+        <h3>Prerequisites</h3>
+        <p>This section builds on the memory architectures from <a class="cross-ref" href="section-35.7.html">Section 35.7</a>, the agent patterns from <a class="cross-ref" href="../../part-6-agents-tool-use/module-25-agent-architectures/index.html">Chapter 25</a>, and the alignment fundamentals from <a class="cross-ref" href="../../part-4-training-adapting/module-17-alignment-rlhf-dpo/index.html">Chapter 17</a>. Familiarity with prompt engineering (<a class="cross-ref" href="../../part-3-prompt-engineering/module-09-prompt-engineering-basics/index.html">Chapter 9</a>) is essential for understanding prompt optimization techniques.</p>
+    </div>
+
+    <div class="callout big-picture">
+        <div class="callout-title">Big Picture</div>
+        <p><strong>Most deployed agents are static: they use the same prompt, the same tools, and the same strategies from the day they are deployed until the day they are replaced.</strong> But the tasks they encounter change, user expectations evolve, and the agent accumulates execution experience that could inform better strategies. Self-improving agents use feedback signals from their own execution to adapt their behavior over time, whether by evolving their prompts, learning new procedures, or adjusting their decision-making strategies. This section covers the mechanisms, safety considerations, and production patterns for building agents that learn from deployment. The central tension throughout is between adaptation (getting better) and stability (not getting worse), and the guardrails required to navigate that tension safely.</p>
+    </div>
+
+    <h2>1. Online Learning from Execution Feedback <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>
+        Every agent execution produces feedback signals, even when explicit user feedback is absent. Tool calls that succeed or fail provide binary reward signals. Task completion times indicate efficiency. User follow-up messages reveal whether the agent's response was sufficient (no follow-up) or inadequate (immediate correction or rephrasing). Escalation to a human operator signals task failure. These implicit signals form a continuous stream of reward data that can drive agent improvement.
+    </p>
+
+    <h3>1.1 Reward Signals from Tool Outcomes</h3>
+
+    <p>
+        The simplest form of online learning maps tool outcomes to reward signals. A database query that returns results is a positive signal; one that raises an exception is a negative signal. An API call that returns a 200 status code is positive; a 400 or 500 is negative. Over many executions, patterns emerge: certain tool call sequences have higher success rates for certain task types. The agent can use this statistical evidence to prefer strategies with historically higher success rates.
+    </p>
+
+<pre><code class="language-python">
+from dataclasses import dataclass, field
+from collections import defaultdict
+import math
+
+
+@dataclass
+class StrategyStats:
+    """Track success statistics for an action strategy."""
+    successes: int = 0
+    failures: int = 0
+
+    @property
+    def total(self) -> int:
+        return self.successes + self.failures
+
+    @property
+    def success_rate(self) -> float:
+        if self.total == 0:
+            return 0.5  # prior: assume 50% before data
+        return self.successes / self.total
+
+    def ucb_score(self, total_trials: int, c: float = 1.41) -> float:
+        """Upper confidence bound score for exploration/exploitation."""
+        if self.total == 0:
+            return float("inf")  # always try untested strategies
+        exploitation = self.success_rate
+        exploration = c * math.sqrt(
+            math.log(total_trials) / self.total
+        )
+        return exploitation + exploration
+
+
+class AdaptiveStrategySelector:
+    """Selects among agent strategies using multi-armed bandit logic.
+
+    Each 'strategy' is a prompt template or tool sequence
+    that the agent can use for a given task type.
+    """
+
+    def __init__(self):
+        self.stats: dict[str, dict[str, StrategyStats]] = defaultdict(
+            lambda: defaultdict(StrategyStats)
+        )
+
+    def select_strategy(
+        self, task_type: str, available_strategies: list[str]
+    ) -> str:
+        """Select the best strategy for a task type using UCB1."""
+        task_stats = self.stats[task_type]
+        total = sum(
+            task_stats[s].total for s in available_strategies
+        )
+
+        best_strategy = max(
+            available_strategies,
+            key=lambda s: task_stats[s].ucb_score(max(total, 1)),
+        )
+        return best_strategy
+
+    def record_outcome(
+        self, task_type: str, strategy: str, success: bool
+    ):
+        """Record the outcome of using a strategy."""
+        if success:
+            self.stats[task_type][strategy].successes += 1
+        else:
+            self.stats[task_type][strategy].failures += 1
+
+
+# Example usage
+selector = AdaptiveStrategySelector()
+
+# Over time, the selector learns which strategies work best
+strategies = ["direct_query", "decompose_then_query", "search_first"]
+
+for _ in range(100):
+    chosen = selector.select_strategy("data_lookup", strategies)
+    # Agent executes with chosen strategy...
+    # outcome determined by execution
+    success = True  # placeholder
+    selector.record_outcome("data_lookup", chosen, success)
+</code></pre>
+
+    <h3>1.2 Implicit Feedback from User Behavior</h3>
+
+    <p>
+        User behavior provides rich implicit feedback. If the user accepts the agent's output without modification, that is a strong positive signal. If the user immediately asks a follow-up question that restates the original request, the agent's response was likely inadequate. If the user edits the agent's output before using it, the edits reveal exactly where the agent's output was deficient. Collecting and analyzing these signals at scale creates a continuous improvement loop without requiring explicit user ratings.
+    </p>
+
+    <h2>2. Prompt Evolution and Self-Optimization <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>
+        Prompt engineering (covered in <a class="cross-ref" href="../../part-3-prompt-engineering/module-09-prompt-engineering-basics/index.html">Chapter 9</a>) is typically a manual, iterative process. Self-optimizing agents automate this process by using execution feedback to modify their own prompts. Two frameworks have emerged as leading approaches to automated prompt optimization.
+    </p>
+
+    <h3>2.1 DSPy: Programmatic Prompt Optimization</h3>
+
+    <p>
+        DSPy (Khattab et al., 2023) treats prompts as learnable programs rather than static text. A DSPy program defines a series of LLM calls with typed inputs and outputs, and DSPy's optimizer adjusts the prompt templates, few-shot examples, and instruction phrasing to maximize a user-defined metric. The optimization process runs offline: it takes a dataset of labeled examples, tries many prompt variants, and selects the combination that produces the highest score.
+    </p>
+
+    <p>
+        In a deployment context, DSPy enables a workflow where production execution traces are collected, scored by a quality metric (see the eval-driven CI approach from <a class="cross-ref" href="section-35.6.html">Section 35.6</a>), and periodically fed into a DSPy optimization run. The optimized prompts are then deployed through the canary release process. This creates a closed-loop improvement cycle: production data improves prompts, which improve production performance, which generates better training data.
+    </p>
+
+    <h3>2.2 TextGrad: Gradient-Based Prompt Refinement</h3>
+
+    <p>
+        TextGrad (Yuksekgonul et al., 2024) applies the conceptual framework of gradient descent to text optimization. Given a loss function that evaluates the quality of an LLM's output, TextGrad uses a separate LLM to compute "textual gradients": natural language descriptions of how the prompt should be modified to improve the output. These gradients are then applied to the prompt, producing an updated version. The process iterates until the loss function converges.
+    </p>
+
+    <p>
+        TextGrad is particularly effective for refining system prompts and instructions because it can identify subtle phrasing issues that a human might miss. For example, it might discover that adding "Think step by step before calling any tool" to a system prompt reduces error rates by 15%, or that reordering the tool descriptions in a specific way improves tool selection accuracy.
+    </p>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight</div>
+        <p><strong>Prompt optimization is not model fine-tuning.</strong> Fine-tuning (covered in <a class="cross-ref" href="../../part-4-training-adapting/module-14-fine-tuning-fundamentals/index.html">Chapter 14</a>) modifies the model's weights. Prompt optimization modifies only the input text. This means prompt optimization is cheaper, faster, reversible, and does not require access to model internals. For most production agent systems, prompt optimization provides a better return on investment than fine-tuning, especially when the underlying model is a hosted API where fine-tuning is expensive or unavailable.</p>
+    </div>
+
+    <h2>3. Experience Replay and Reflection Mechanisms <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>
+        Experience replay, borrowed from reinforcement learning, involves storing past execution episodes and periodically reviewing them to extract improvements. In the agent context, this means logging complete execution traces (inputs, reasoning steps, tool calls, outcomes) and using a reflection process to identify patterns of success and failure.
+    </p>
+
+    <h3>3.1 The Reflection Pattern</h3>
+
+    <p>
+        The reflection pattern, introduced by Shinn et al. (2023) in the Reflexion framework, gives the agent an explicit reflection step after task completion. The agent reviews its execution trace and generates a natural language critique: "I called the search tool three times with similar queries when I should have refined my search terms after the first result. Next time, I should analyze search results before repeating the query." These reflections are stored in episodic memory (see <a class="cross-ref" href="section-35.7.html">Section 35.7</a>) and retrieved in future episodes when the agent encounters similar situations.
+    </p>
+
+    <h3>3.2 Batch Reflection for Pattern Discovery</h3>
+
+    <p>
+        Individual reflections capture lesson from single episodes. Batch reflection analyzes multiple episodes to discover systemic patterns. A weekly batch reflection job might analyze all failed tasks from the past week and identify that 40% of failures involved a specific tool returning unexpected formats. This insight can drive a targeted fix (adding output validation for that tool) rather than relying on the agent to learn the workaround independently.
+    </p>
+
+<pre><code class="language-python">
+def batch_reflect(
+    traces: list[dict],
+    llm_client,
+    model: str = "gpt-4o",
+) -> list[dict]:
+    """Analyze a batch of execution traces to find systemic patterns.
+
+    Args:
+        traces: List of execution trace dictionaries, each containing
+            'task', 'steps', 'outcome', and 'error' fields.
+        llm_client: Client for the reflection LLM.
+        model: Model to use for reflection.
+
+    Returns:
+        List of identified patterns with suggested improvements.
+    """
+    # Separate successes and failures
+    failures = [t for t in traces if t["outcome"] == "failed"]
+    successes = [t for t in traces if t["outcome"] == "completed"]
+
+    # Summarize failure patterns
+    failure_summary = "\n".join(
+        f"Task: {t['task'][:100]}\nError: {t.get('error', 'none')}\n"
+        f"Steps: {len(t['steps'])}"
+        for t in failures[:20]  # limit context size
+    )
+
+    prompt = f"""Analyze these {len(failures)} agent execution failures
+and identify the top 3 systemic patterns. For each pattern:
+1. Describe the failure mode
+2. Estimate what percentage of failures match this pattern
+3. Suggest a concrete engineering fix (prompt change, tool
+   modification, or guardrail addition)
+
+Failures:
+{failure_summary}
+
+Success rate context: {len(successes)}/{len(traces)} tasks succeeded.
+"""
+
+    response = llm_client.chat.completions.create(
+        model=model,
+        messages=[{"role": "user", "content": prompt}],
+    )
+
+    # Parse and return structured patterns
+    return parse_reflection_patterns(response.choices[0].message.content)
+</code></pre>
+
+    <h2>4. Safety Guardrails for Self-Modification <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>
+        Self-improving agents introduce a unique safety concern: if the agent can modify its own behavior, it might modify away the safety constraints that were originally imposed. This is not speculative; prompt injection attacks (see <a class="cross-ref" href="../../part-9-safety-strategy/module-31-security-adversarial/section-31.2.html">Section 31.2</a>) demonstrate that adversarial inputs can cause models to ignore their instructions. A self-modifying agent that optimizes its prompt for task performance might inadvertently remove safety instructions that reduce performance on the optimization metric but are essential for safe deployment.
+    </p>
+
+    <h3>4.1 Bounded Optimization</h3>
+
+    <p>
+        The safest approach to self-improvement constrains the space of modifications the agent can make. Rather than allowing the agent to rewrite its entire system prompt, restrict modifications to specific sections (e.g., the few-shot examples or the tool selection hints) while keeping safety-critical instructions in a frozen, immutable section that the optimization process cannot touch.
+    </p>
+
+    <h3>4.2 Human-in-the-Loop Approval</h3>
+
+    <p>
+        For high-stakes deployments, require human approval before any self-optimized prompt is deployed to production. The optimization process proposes changes; a human reviewer evaluates them against safety criteria and approves, modifies, or rejects each proposal. This slows the improvement cycle but prevents unsafe modifications from reaching production. The review process can be assisted by automated safety checks that flag any prompt modifications that alter safety-relevant instructions.
+    </p>
+
+    <h3>4.3 Rollback and Version Control</h3>
+
+    <p>
+        Every prompt version that enters production should be stored in version control with a complete audit trail. If a self-optimized prompt causes a regression (detected by the SLI monitoring from <a class="cross-ref" href="section-35.5.html">Section 35.5</a>), the system should automatically roll back to the previous known-good version. Rollback should be instantaneous and should not require a new deployment. This is best implemented as a prompt configuration that can be switched via a feature flag without restarting the agent service.
+    </p>
+
+    <div class="callout warning">
+        <div class="callout-title">Warning</div>
+        <p><strong>Self-improvement without safety constraints is a recipe for prompt drift.</strong> Production systems have documented cases where automated prompt optimization gradually removed politeness instructions, disclaimer language, and uncertainty expressions because they reduced performance on task completion metrics. The optimized agent was more "efficient" but also more likely to produce overconfident, brusque responses that harmed user trust. Always include safety and quality criteria in the optimization objective, not just task performance.</p>
+    </div>
+
+    <h2>5. Production Patterns for Adaptive Agents <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        The following patterns have proven effective in production deployments of self-improving agent systems.
+    </p>
+
+    <h3>5.1 A/B Testing Evolved Prompts</h3>
+
+    <p>
+        Never deploy a self-optimized prompt to 100% of traffic without A/B testing. Run the optimized prompt against the current production prompt for a statistically significant sample. Measure not just task performance but also safety metrics, user satisfaction, and cost. Promote the optimized prompt only if it improves the primary metric without regressing on any safety or quality metric.
+    </p>
+
+    <h3>5.2 The Improvement Cadence</h3>
+
+    <p>
+        Continuous self-improvement sounds appealing but creates instability. In practice, the most effective pattern is a periodic improvement cadence: collect feedback for one to two weeks, run an optimization batch, A/B test the result, and deploy if it passes. This cadence provides enough data for statistically meaningful optimization, allows time for thorough safety review, and limits the rate of change that users experience.
+    </p>
+
+    <h3>5.3 Capability Envelopes</h3>
+
+    <p>
+        Define a capability envelope for the agent: the set of task types it is authorized to handle. Self-improvement should optimize performance within this envelope, not expand it. An agent that handles customer support should get better at handling customer support, not start attempting financial analysis because its optimization process discovered that users sometimes ask financial questions. Envelope enforcement can be implemented through task classifiers that route out-of-envelope requests to human operators or specialized agents.
+    </p>
+
+    <h2>Exercises <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 35.8.1: Building an Adaptive Strategy Selector (Coding) <span class="exercise-type coding" title="Coding">Coding</span></div>
+        <p>
+            Extend the <code>AdaptiveStrategySelector</code> from this section to support contextual bandits: instead of selecting strategies based only on task type, incorporate features of the specific task (e.g., query length, number of entities mentioned, urgency level). Use a simple linear model to predict strategy success given task features. Compare the contextual bandit's cumulative reward against the non-contextual UCB1 approach over 500 simulated tasks.
+        </p>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 35.8.2: Designing Safety Guardrails for Prompt Optimization (Analysis) <span class="exercise-type analysis" title="Analysis">Analysis</span></div>
+        <p>
+            A customer service agent uses DSPy to optimize its system prompt weekly based on task completion rates. After three optimization cycles, you notice that the agent has stopped including disclaimers like "I may be mistaken" and "Please verify this information." Design a guardrail system that: (a) defines which parts of the prompt are mutable vs. immutable, (b) automatically detects when optimization removes safety-relevant language, (c) implements a review workflow for flagged changes, and (d) provides metrics to track the trade-off between task performance and safety compliance over time.
+        </p>
+    </div>
+
+<div class="whats-next">
+    <h2>What Comes Next</h2>
+    <p>In the next section, <a href="section-35.9.html" class="cross-ref">Section 35.9: The Future of Human-AI Collaboration</a>, we step back from engineering specifics to examine the broader question of how humans and AI systems will work together in the years ahead.</p>
+</div>
+
+    <div class="bibliography">
+        <h2>Bibliography</h2>
+        <ul>
+            <li>Khattab, O. et al. (2023). "DSPy: Compiling Declarative Language Model Calls into Self-Improving Pipelines." <em>arXiv:2310.03714</em>.</li>
+            <li>Yuksekgonul, M. et al. (2024). "TextGrad: Automatic Differentiation via Text." <em>arXiv:2406.07496</em>.</li>
+            <li>Shinn, N. et al. (2023). "Reflexion: Language Agents with Verbal Reinforcement Learning." <em>NeurIPS 2023</em>.</li>
+            <li>Madaan, A. et al. (2023). "Self-Refine: Iterative Refinement with Self-Feedback." <em>NeurIPS 2023</em>.</li>
+            <li>Fernando, C. et al. (2023). "Promptbreeder: Self-Referential Self-Improvement via Prompt Evolution." <em>arXiv:2309.16797</em>.</li>
+            <li>Pryzant, R. et al. (2023). "Automatic Prompt Optimization with Gradient Descent and Beam Search." <em>EMNLP 2023</em>.</li>
+        </ul>
+    </div>
+
+<nav class="chapter-nav">
+    <a class="prev" href="section-35.7.html">Memory Architectures That Improve Execution</a>
+    <a class="up" href="index.html">Chapter 35: AI, Society &amp; Open Problems</a>
+    <a class="next" href="section-35.9.html">The Future of Human-AI Collaboration</a>
+</nav>
+
+    <footer>
+        <p class="footer-title">Building Conversational AI with LLMs and Agents, Fifth Edition</p>
+        <p>&copy; 2026 Alexander Apartsin &amp; Yehudit Aperstein &middot; <a href="../../toc.html">Contents</a></p>
+        <p class="footer-updated">Last updated: <script>document.write(new Date(document.lastModified).toLocaleDateString('en-US', {year:'numeric', month:'long', day:'numeric'}))</script></p>
+    </footer>
+</main>
+</body>
+</html>
