@@ -118,13 +118,18 @@
   - [x] Fix 937 th scope mismatch issues (fix_th_scope.py, 161 files)
   - [x] Fix 91 unclosed p-in-div issues (fix_unclosed_p.py, 32 files)
   - [x] Fix 1439 manual highlight spans in code blocks (fix_manual_highlights.py, 31 files)
-  - [~] Fix remaining 29 broken figure refs, 148 figure sequence issues
+  - [x] Fix remaining broken figure refs (0 remaining after current audit)
+  - [x] Consolidate callout system: 13 types, quiz->self-check, key-takeaway->key-insight, practical-tip/best-practice->tip
+  - [x] Fix Knowledge Check h3 -> callout-title Self-Check (62 files)
+  - [x] Fix double bibliography icons (51 files)
+  - [x] Fix unclosed callout divs (8 files)
+  - [x] New audit checks: FM4_PROMISE, SECTION_STRUCTURE, SVG_OVERLAP
   - [ ] Consolidate agent results and run final full audit
 - [x] Create CONTENT_GUIDELINES.md (prevention guide for content-generating agents)
 - [x] Audit appendices vs book content for duplication (5 critical, 390 missing cross-refs)
-  - [ ] Add cross-reference callouts to top chapters (Appendix K in Part 4, Appendix S in Module 9, Appendix G in hardware sections)
-  - [ ] Deduplicate Appendix B vs Module 0 (ML Essentials overlap)
-  - [ ] Deduplicate Appendix S vs Module 9.2/9.4 (inference serving overlap)
+  - [x] Add cross-reference callouts (Appendix K/S/G already cross-referenced in relevant chapters)
+  - [x] Deduplicate Appendix B vs Module 0 (reframed as companion, cross-refs added)
+  - [x] Deduplicate Appendix S vs Module 9.2/9.4 (residual dupes removed, bidirectional links)
 - [x] Split FM.1 into FM.1a (What This Book Covers) + FM.1b (Who Should Read This Book)
 - [x] Renumber front matter index (FM.1 through FM.9)
 - [x] Fix appendix header font color in CSS (#5a6672 to #ffffff)
@@ -153,6 +158,25 @@
 - [~] Model internals depth pass, Parts 5-10 (RAG, agents, multimodal, evaluation, safety)
 - [~] Cross-reference hyperlinks pass across all HTML (agent completed, needs review)
 - [ ] Update MetaAgent skills for depth/inner working requirements
+
+## Phase 6c: Missing Features (from FM4_PROMISE + SECTION_STRUCTURE audit)
+
+### Agent: exercise-designer (07) + writing agents
+- [ ] Add level badges to Modules 0-5 (Part 1) and Module 7 (classify each h2 section as basic/intermediate/advanced/research)
+- [ ] Add Warning callout to Module 35 (AI and Society)
+
+### Agent: research-scientist (18) + writing agents
+- [ ] Add Research Frontier section to Module 23 (Tool Use and Protocols)
+- [ ] Add Research Frontier section to Module 24 (Multi-Agent Systems)
+- [ ] Add Research Frontier section to Module 26 (Agent Safety and Production)
+
+### Agent: chapter-lead (00) + writing agents
+- [ ] Add annotated bibliography to Module 23 (Tool Use and Protocols)
+- [ ] Add annotated bibliography to Module 24 (Multi-Agent Systems)
+
+### Agent: exercise-designer (07) - lab format standardization
+- [ ] Standardize hands-on lab format across book (consistent callout exercise with Lab title)
+- [ ] Audit sections for lab opportunities (FM.4 promises 30-90 min labs per chapter)
 
 ## Phase 7: Full Agent Passes
 

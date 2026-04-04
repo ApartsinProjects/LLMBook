@@ -27,7 +27,7 @@ Issue = namedtuple("Issue", ["priority", "check_id", "filepath", "line", "messag
 
 # --- Configuration (override per-book via env or CLI) ---
 BOOK_ROOT = Path(r"E:\Projects\LLMCourse")
-SKIP_DIRS = {"vendor", "node_modules", ".git", "deprecated", "__pycache__", "agents", "_archive"}
+SKIP_DIRS = {"vendor", "node_modules", ".git", "deprecated", "__pycache__", "agents", "_archive", "templates"}
 CHECKS_DIR = Path(__file__).parent / "checks"
 
 
