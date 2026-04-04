@@ -47,41 +47,39 @@ MODULE_REQUIRED = {
 
 
 def _check_nesting(html, filepath):
-    """Detect callout divs that contain other callouts or structural divs (unclosed tag)."""
+    """Detect truly unclosed callout divs by tracking full div depth."""
     issues = []
-    # Find callout opening tags and track nesting
-    callout_re = re.compile(r'<div class="callout [^"]*">')
-    structural_re = re.compile(r'<div class="(takeaways|whats-next|prerequisites|objectives)">')
+    callout_open_re = re.compile(r'<div\s+class="callout\s+[^"]*"')
+    structural_re = re.compile(r'<div\s+class="(takeaways|whats-next|prerequisites|objectives)"')
+    div_open_re = re.compile(r'<div[\s>]')
+    div_close_re = re.compile(r'</div>')
 
     lines = html.split('\n')
-    in_callout = False
-    callout_start_line = 0
-    callout_depth = 0
+    callout_stack = []  # stack of (start_line, depth_at_open)
+    global_depth = 0
 
     for i, line in enumerate(lines, 1):
-        if callout_re.search(line):
-            if in_callout:
-                issues.append(Issue(
-                    PRIORITY, CHECK_ID, filepath, i,
-                    f"Nested callout at line {i} (outer callout opened at line {callout_start_line}). Likely unclosed </div>."
-                ))
-            else:
-                in_callout = True
-                callout_start_line = i
-                callout_depth = 0
+        opens = len(div_open_re.findall(line))
+        closes = len(div_close_re.findall(line))
 
-        if in_callout and structural_re.search(line):
+        # Check if this line opens a callout
+        if callout_open_re.search(line):
+            callout_stack.append((i, global_depth))
+
+        # Check if structural div appears while inside a callout
+        if callout_stack and structural_re.search(line):
             m = structural_re.search(line)
+            start_line, _ = callout_stack[-1]
             issues.append(Issue(
                 PRIORITY, CHECK_ID, filepath, i,
-                f"Structural div .{m.group(1)} inside callout (opened line {callout_start_line}). Missing </div> before it."
+                f"Structural div .{m.group(1)} inside callout (opened line {start_line}). Missing </div>."
             ))
 
-        if in_callout:
-            callout_depth += line.count('<div')
-            callout_depth -= line.count('</div')
-            if callout_depth <= 0:
-                in_callout = False
+        global_depth += opens - closes
+
+        # Pop callouts that have closed
+        while callout_stack and global_depth <= callout_stack[-1][1]:
+            callout_stack.pop()
 
     return issues
 
