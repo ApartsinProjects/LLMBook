@@ -3,19 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Section M.3: Human-in-the-Loop and Interrupts. A comprehensive chapter from the Building Conversational AI textbook.">
     <title>Section M.3: Human-in-the-Loop and Interrupts | Building Conversational AI with LLMs and Agents</title>
     <link rel="stylesheet" href="../../styles/book.css">
-    <link rel="stylesheet" href="../../vendor/katex/katex.min.css">
-    <script defer src="../../vendor/katex/katex.min.js"></script>
-    <script defer src="../../vendor/katex/contrib/auto-render.min.js"
-        onload="renderMathInElement(document.body, {
-            delimiters: [
-                {left: '$$', right: '$$', display: true},
-                {left: '$', right: '$', display: false}
-            ],
-            throwOnError: false
-        });"></script>
-    <link rel="stylesheet" href="../../vendor/prism/prism-theme.css">
+<link rel="stylesheet" href="../../vendor/prism/prism-theme.css">
     <script defer src="../../vendor/prism/prism-bundle.min.js"></script>
 </head>
 <body>
@@ -33,10 +24,263 @@
 
     <div class="callout big-picture">
         <div class="callout-title">Big Picture</div>
-        <p>This section covers human-in-the-Loop and Interrupts. Content will be generated using the book production pipeline.</p>
+        <p>Fully autonomous agents are powerful, but many production workflows require human oversight at critical decision points. LangGraph's <strong>interrupt</strong> mechanism lets you pause graph execution before or after a node, present intermediate results to a human, and resume execution with the human's input. This section covers interrupt configuration, approval workflows, tool-call confirmation, and techniques for injecting dynamic human input into a running graph.</p>
     </div>
 
-    <p><em>Content pending: this section will be produced by the book-writers agent pipeline.</em></p>
+    <h2>1. Why Human-in-the-Loop?</h2>
+
+    <p>Even the best LLMs make mistakes. When an agent is about to send an email, execute a database query, or make a purchase, a human checkpoint can prevent costly errors. LangGraph supports this natively through its interrupt system, which works hand-in-hand with the checkpointing mechanism described in <a href="section-m.4.html">Section M.4</a>.</p>
+
+    <p>Common use cases include approving tool calls before execution, reviewing generated content before sending, correcting agent reasoning mid-workflow, and providing additional context that the agent cannot access on its own.</p>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight: Interrupts Require Checkpointing</div>
+        <p>The interrupt mechanism relies on checkpointing to persist the graph's state at the moment of interruption. When the graph resumes, it loads state from the checkpoint rather than re-executing all previous nodes. You must provide a <code>checkpointer</code> when compiling the graph. See <a href="section-m.4.html">Section M.4</a> for detailed coverage of checkpointing backends.</p>
+    </div>
+
+    <h2>2. Using <code>interrupt_before</code></h2>
+
+    <p>The simplest way to add human oversight is to interrupt <em>before</em> a sensitive node runs. The graph pauses, you inspect the state, and then resume to let the node execute.</p>
+
+    <pre><code class="language-python">from typing import TypedDict, Annotated
+from langgraph.graph import StateGraph, START, END
+from langgraph.graph.message import add_messages
+from langgraph.checkpoint.memory import MemorySaver
+from langchain_core.messages import HumanMessage
+
+class ApprovalState(TypedDict):
+    messages: Annotated[list, add_messages]
+    approved: bool
+
+def draft_email(state: ApprovalState) -> dict:
+    return {"messages": [("assistant", "Draft: Dear client, here is the report...")]}
+
+def send_email(state: ApprovalState) -> dict:
+    # In production, this would call an email API
+    return {"messages": [("assistant", "Email sent successfully.")]}
+
+builder = StateGraph(ApprovalState)
+builder.add_node("draft", draft_email)
+builder.add_node("send", send_email)
+builder.add_edge(START, "draft")
+builder.add_edge("draft", "send")
+builder.add_edge("send", END)
+
+# Compile with interrupt_before on the send node
+checkpointer = MemorySaver()
+graph = builder.compile(
+    checkpointer=checkpointer,
+    interrupt_before=["send"]
+)</code></pre>
+    <div class="code-caption"><strong>Code Fragment M.3.1:</strong> Compiling a graph with <code>interrupt_before=["send"]</code>. Execution will pause after the <code>draft</code> node completes and before <code>send</code> begins, giving a human the chance to review the draft.</div>
+
+    <p>When you invoke this graph, it runs the <code>draft</code> node and then stops. The following code shows how to inspect the paused state and resume execution.</p>
+
+    <pre><code class="language-python">thread_config = {"configurable": {"thread_id": "email-review-1"}}
+
+# First invocation: runs "draft", then pauses before "send"
+result = graph.invoke(
+    {"messages": [HumanMessage(content="Send the quarterly report.")]},
+    config=thread_config
+)
+print("Paused state:", result["messages"][-1])
+
+# Inspect the state
+snapshot = graph.get_state(thread_config)
+print("Next node to run:", snapshot.next)
+
+# Resume execution (the "send" node will now run)
+final = graph.invoke(None, config=thread_config)
+print("Final:", final["messages"][-1])</code></pre>
+    <div class="code-caption"><strong>Code Fragment M.3.2:</strong> Invoking a graph that pauses at an interrupt. The first <code>invoke</code> runs until the interrupt; the second <code>invoke</code> with <code>None</code> resumes from the checkpoint.</div>
+
+    <h2>3. Using <code>interrupt_after</code></h2>
+
+    <p>Sometimes you want the sensitive node to run first and then pause so the human can review its output. The <code>interrupt_after</code> parameter works identically to <code>interrupt_before</code> but pauses after the specified node completes.</p>
+
+    <pre><code class="language-python">graph_after = builder.compile(
+    checkpointer=checkpointer,
+    interrupt_after=["draft"]
+)</code></pre>
+    <div class="code-caption"><strong>Code Fragment M.3.3:</strong> Using <code>interrupt_after</code> to pause after the <code>draft</code> node. This produces the same pause point as the earlier example but makes the intent clearer: the draft is complete and ready for review.</div>
+
+    <h2>4. Tool Call Confirmation</h2>
+
+    <p>A common pattern in agent systems is to let the LLM decide which tools to call, but require human approval before any tool actually executes. This combines the agent loop from <a href="section-m.2.html">Section M.2</a> with an interrupt on the tool node.</p>
+
+    <pre><code class="language-python">from langgraph.graph import StateGraph, START, END
+from langgraph.prebuilt import ToolNode
+from langgraph.checkpoint.memory import MemorySaver
+from langchain_openai import ChatOpenAI
+from langchain_core.tools import tool
+from langchain_core.messages import HumanMessage
+
+@tool
+def delete_file(path: str) -> str:
+    """Delete a file from the filesystem."""
+    # Dangerous operation: requires approval
+    return f"Deleted {path}"
+
+@tool
+def read_file(path: str) -> str:
+    """Read a file from the filesystem."""
+    return f"Contents of {path}: ..."
+
+tools = [delete_file, read_file]
+llm = ChatOpenAI(model="gpt-4o-mini").bind_tools(tools)
+
+class ToolApprovalState(TypedDict):
+    messages: Annotated[list, add_messages]
+
+def agent(state: ToolApprovalState) -> dict:
+    return {"messages": [llm.invoke(state["messages"])]}
+
+def should_continue(state: ToolApprovalState) -> str:
+    if state["messages"][-1].tool_calls:
+        return "tools"
+    return END
+
+builder = StateGraph(ToolApprovalState)
+builder.add_node("agent", agent)
+builder.add_node("tools", ToolNode(tools))
+builder.add_edge(START, "agent")
+builder.add_conditional_edges("agent", should_continue)
+builder.add_edge("tools", "agent")
+
+# Interrupt before any tool execution
+approved_agent = builder.compile(
+    checkpointer=MemorySaver(),
+    interrupt_before=["tools"]
+)</code></pre>
+    <div class="code-caption"><strong>Code Fragment M.3.4:</strong> A tool-calling agent that pauses for human approval before executing any tool. The human can inspect which tools the LLM wants to call and decide whether to proceed.</div>
+
+    <div class="callout warning">
+        <div class="callout-title">Warning: Approve or Reject, Never Ignore</div>
+        <p>When a graph pauses at an interrupt, you must either resume it (approve) or update the state to reject the action and redirect flow. Leaving a paused graph without resuming it will consume memory in the checkpointer. In production systems, implement a timeout that automatically rejects pending approvals after a configurable period.</p>
+    </div>
+
+    <h2>5. Modifying State Before Resuming</h2>
+
+    <p>The human reviewing an interrupted graph is not limited to a binary approve/reject decision. You can <strong>update the state</strong> before resuming, which lets the human correct tool arguments, add context messages, or change any channel value.</p>
+
+    <pre><code class="language-python">thread_config = {"configurable": {"thread_id": "approval-demo-1"}}
+
+# Run the agent (it will pause before tools)
+result = approved_agent.invoke(
+    {"messages": [HumanMessage(content="Delete the file /tmp/old_data.csv")]},
+    config=thread_config
+)
+
+# Inspect what the agent wants to do
+snapshot = approved_agent.get_state(thread_config)
+pending_calls = snapshot.values["messages"][-1].tool_calls
+print("Pending tool calls:", pending_calls)
+
+# Option A: Approve by resuming as-is
+# final = approved_agent.invoke(None, config=thread_config)
+
+# Option B: Modify the tool arguments before resuming
+from langchain_core.messages import AIMessage, ToolMessage
+
+# Replace the last message with corrected tool calls
+corrected_msg = AIMessage(
+    content="",
+    tool_calls=[{
+        "id": pending_calls[0]["id"],
+        "name": "read_file",           # downgrade to read instead of delete
+        "args": {"path": "/tmp/old_data.csv"}
+    }]
+)
+approved_agent.update_state(
+    thread_config,
+    {"messages": [corrected_msg]},
+    as_node="agent"  # pretend this came from the agent node
+)
+
+# Resume with the corrected state
+final = approved_agent.invoke(None, config=thread_config)
+print(final["messages"][-1].content)</code></pre>
+    <div class="code-caption"><strong>Code Fragment M.3.5:</strong> Modifying the state before resuming. The human replaces a dangerous <code>delete_file</code> call with a safer <code>read_file</code> call. The <code>as_node</code> parameter tells LangGraph which node "produced" the updated state, so the graph resumes from the correct point.</div>
+
+    <h2>6. Dynamic Human Input with the <code>interrupt</code> Function</h2>
+
+    <p>For even more flexibility, you can call the <code>interrupt()</code> function directly inside a node. This pauses execution at that exact point and returns a value to the caller. When the graph resumes, the <code>interrupt()</code> call receives the human's response.</p>
+
+    <pre><code class="language-python">from langgraph.types import interrupt, Command
+
+class InteractiveState(TypedDict):
+    messages: Annotated[list, add_messages]
+    user_feedback: str
+
+def generate_plan(state: InteractiveState) -> dict:
+    return {"messages": [("assistant", "Plan: Step 1, Step 2, Step 3")]}
+
+def review_plan(state: InteractiveState) -> dict:
+    """Pause and ask the human for feedback on the plan."""
+    feedback = interrupt(
+        "Please review the plan above and provide feedback or type 'approve'."
+    )
+    return {"user_feedback": feedback}
+
+def execute_plan(state: InteractiveState) -> dict:
+    fb = state.get("user_feedback", "")
+    if "approve" in fb.lower():
+        return {"messages": [("assistant", "Executing the plan now.")]}
+    return {"messages": [("assistant", f"Revising plan based on: {fb}")]}
+
+builder = StateGraph(InteractiveState)
+builder.add_node("generate", generate_plan)
+builder.add_node("review", review_plan)
+builder.add_node("execute", execute_plan)
+builder.add_edge(START, "generate")
+builder.add_edge("generate", "review")
+builder.add_edge("review", "execute")
+builder.add_edge("execute", END)
+
+interactive_graph = builder.compile(checkpointer=MemorySaver())</code></pre>
+    <div class="code-caption"><strong>Code Fragment M.3.6:</strong> Using the <code>interrupt()</code> function inside a node for inline human interaction. The value passed to <code>interrupt()</code> is displayed to the human; the value provided at resume time becomes the return value of <code>interrupt()</code>.</div>
+
+    <div class="callout note">
+        <div class="callout-title">Note: Resuming with the Command Object</div>
+        <p>When resuming from an <code>interrupt()</code> call, you pass a <code>Command(resume=value)</code> to the graph's <code>invoke</code> method. The <code>value</code> becomes the return value of the <code>interrupt()</code> function inside the paused node, allowing seamless two-way communication between the human and the graph.</p>
+    </div>
+
+    <figure>
+        <pre class="figure-text">
+   ┌──────────┐    ┌──────────┐    ┌──────────┐
+   │ generate │───▶│  review  │───▶│ execute  │
+   └──────────┘    └──────────┘    └──────────┘
+                         │
+                    ⏸ interrupt()
+                         │
+                   Human provides
+                    feedback
+                         │
+                    ▼ resumes
+        </pre>
+        <figcaption>Figure M.3.1: Execution flow with an inline <code>interrupt()</code>. The graph pauses inside the <code>review</code> node, waits for human feedback, and then continues to the <code>execute</code> node.</figcaption>
+    </figure>
+
+    <h2>7. Best Practices for Human-in-the-Loop Workflows</h2>
+
+    <p>When designing systems with human checkpoints, consider the following guidelines:</p>
+
+    <ul>
+        <li><strong>Minimize interrupt frequency.</strong> Too many pauses create a frustrating user experience. Reserve interrupts for high-stakes decisions where errors are costly or irreversible.</li>
+        <li><strong>Provide clear context.</strong> The value you pass to <code>interrupt()</code> or the state visible at the pause point should give the human everything they need to make a decision.</li>
+        <li><strong>Implement timeouts.</strong> In production, set a maximum wait time for human responses. If the timeout expires, either reject the action or escalate to a different handler.</li>
+        <li><strong>Log all decisions.</strong> Record whether the human approved, rejected, or modified the action. This audit trail is valuable for debugging and compliance.</li>
+        <li><strong>Use persistent checkpointers.</strong> In-memory checkpointing (<code>MemorySaver</code>) loses state when the process restarts. For production workflows that may wait hours for human input, use a database-backed checkpointer such as <code>PostgresSaver</code> (see <a href="section-m.4.html">Section M.4</a>).</li>
+    </ul>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight: Human-in-the-Loop as a Spectrum</div>
+        <p>Human oversight exists on a spectrum. At one end, every action requires approval. At the other end, the agent runs fully autonomously. Most production systems fall somewhere in between: the agent handles routine tasks independently but escalates risky or ambiguous situations to a human. LangGraph's interrupt system makes it easy to move along this spectrum by adding or removing interrupt points without restructuring the graph.</p>
+    </div>
+
+    <h2>8. Summary</h2>
+
+    <p>This section showed how to weave human decisions into LangGraph workflows. You learned to use <code>interrupt_before</code> and <code>interrupt_after</code> for pause points around nodes, build tool-call approval workflows, modify graph state before resuming, and use the inline <code>interrupt()</code> function for two-way human interaction. In <a href="section-m.4.html">Section M.4</a>, you will explore the checkpointing system that makes all of this possible, along with persistence backends for production deployment.</p>
 
     <nav class="chapter-nav">
     <a class="prev" href="section-m.2.html">Conditional Routing and Cycles</a>

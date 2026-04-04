@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Section R.4: Model Registry and Deployment Workflows. A comprehensive chapter from the Building Conversational AI textbook.">
     <title>Section R.4: Model Registry and Deployment Workflows | Building Conversational AI with LLMs and Agents</title>
     <link rel="stylesheet" href="../../styles/book.css">
     <link rel="stylesheet" href="../../vendor/katex/katex.min.css">
@@ -33,10 +34,323 @@
 
     <div class="callout big-picture">
         <div class="callout-title">Big Picture</div>
-        <p>This section covers model Registry and Deployment Workflows. Content will be generated using the book production pipeline.</p>
+        <p>A model registry bridges the gap between experimentation and production. It provides a centralized catalog of trained models, each with version history, metadata, lineage back to training runs, and a promotion workflow that controls which model version serves live traffic. This section covers registry patterns in both W&amp;B and MLflow, automated validation gates, CI/CD integration for model deployment, and strategies for managing the full lifecycle of LLM artifacts.</p>
     </div>
 
-    <p><em>Content pending: this section will be produced by the book-writers agent pipeline.</em></p>
+    <h2>R.4.1 Why a Model Registry Matters</h2>
+
+    <p>During experimentation, models live as checkpoint files scattered across training runs. That works for research, but production systems need a single source of truth: which model is currently serving, which version it replaced, who approved the transition, and what evaluation results justified the promotion. A model registry answers all of these questions.</p>
+
+    <p>Without a registry, teams fall into common failure modes. Engineers copy checkpoint paths into deployment configs by hand. Nobody knows which training run produced the model currently in production. Rollbacks require digging through experiment logs to find the previous best checkpoint. A registry eliminates these problems by formalizing the path from training to serving.</p>
+
+    <h2>R.4.2 W&amp;B Model Registry</h2>
+
+    <p>W&amp;B provides a model registry built on top of its Artifacts system (see <a href="section-r.1.html">Section R.1</a>). You register a model by linking an artifact to a named collection, then promote versions through aliases that indicate readiness.</p>
+
+<pre><code class="language-python">import wandb
+
+# Step 1: Log the model artifact during training
+run = wandb.init(project="llm-fine-tuning", job_type="training")
+
+model_artifact = wandb.Artifact(
+    name="chatbot-lora-v2",
+    type="model",
+    description="LoRA-tuned Llama-3 for customer support",
+    metadata={
+        "base_model": "meta-llama/Llama-3-8B",
+        "lora_rank": 16,
+        "val_loss": 0.342,
+        "val_accuracy": 0.918,
+        "training_tokens": 12_500_000,
+    },
+)
+model_artifact.add_dir("checkpoints/best/")
+run.log_artifact(model_artifact)
+
+# Step 2: Link the artifact to a registered model collection
+run.link_artifact(
+    artifact=model_artifact,
+    target_path="my-team/model-registry/chatbot-production",
+)
+
+run.finish()
+</code></pre>
+
+    <p>Once linked, the model appears in the W&amp;B Model Registry UI. Each version inherits the metadata and lineage from the original artifact, so you can trace any registered version back to the exact training run, dataset, and hyperparameters that produced it.</p>
+
+    <h2>R.4.3 W&amp;B Aliases and Promotion</h2>
+
+    <p>W&amp;B uses <strong>aliases</strong> to mark the status of model versions. Common aliases include <code>staging</code>, <code>production</code>, and <code>candidate</code>. Unlike fixed stages, aliases are flexible: you can define any naming scheme that fits your workflow.</p>
+
+<pre><code class="language-python">import wandb
+
+api = wandb.Api()
+
+# Fetch the registered model collection
+collection = api.artifact_collection(
+    type_name="model",
+    name="my-team/model-registry/chatbot-production",
+)
+
+# Get a specific version and add the "staging" alias
+artifact = api.artifact("my-team/model-registry/chatbot-production:v7")
+artifact.aliases.append("staging")
+artifact.save()
+
+# Later, after validation passes, promote to production
+artifact.aliases.append("production")
+artifact.save()
+
+# Load the production model by alias
+prod_artifact = api.artifact(
+    "my-team/model-registry/chatbot-production:production"
+)
+model_dir = prod_artifact.download()
+print(f"Production model downloaded to: {model_dir}")
+</code></pre>
+
+    <div class="callout tip">
+        <div class="callout-title">Tip</div>
+        <p>Use a "champion/challenger" pattern for safe model transitions. The current production model keeps the <code>champion</code> alias while the new candidate receives <code>challenger</code>. Run both in parallel with shadow traffic (see <a href="../appendix-s-inference-serving/index.html">Appendix S</a> on inference serving), and only swap aliases after the challenger proves itself on live data.</p>
+    </div>
+
+    <h2>R.4.4 MLflow Model Registry in Depth</h2>
+
+    <p>MLflow's model registry (introduced in <a href="section-r.2.html">Section R.2</a>) provides version management with either stage-based transitions or the newer alias system. The registry stores models in MLflow's standard model format, which bundles the model weights, a signature describing input/output schemas, and a <code>conda.yaml</code> or <code>requirements.txt</code> for environment reproduction.</p>
+
+<pre><code class="language-python">import mlflow
+from mlflow import MlflowClient
+
+client = MlflowClient()
+
+# Register a model from an existing run
+model_uri = "runs:/abc123def456/model"
+result = mlflow.register_model(
+    model_uri=model_uri,
+    name="chatbot-lora-production",
+    tags={
+        "task": "customer-support",
+        "base_model": "llama-3-8b",
+        "framework": "transformers",
+    },
+)
+print(f"Registered version: {result.version}")
+
+# Set a model alias (MLflow 2.9+)
+client.set_registered_model_alias(
+    name="chatbot-lora-production",
+    alias="champion",
+    version=result.version,
+)
+
+# Load the model by alias
+champion_uri = "models:/chatbot-lora-production@champion"
+model = mlflow.transformers.load_model(champion_uri)
+</code></pre>
+
+    <p>The alias-based approach is more flexible than fixed stages. You can define aliases like <code>champion</code>, <code>challenger</code>, <code>rollback-target</code>, or <code>ab-test-variant-b</code>, each pointing to a specific version number. Moving an alias to a new version is an atomic operation, which makes deployment transitions safe.</p>
+
+    <div class="callout warning">
+        <div class="callout-title">Warning</div>
+        <p>MLflow's legacy stage transitions (<code>Staging</code>, <code>Production</code>, <code>Archived</code>) are deprecated as of MLflow 2.9 and will be removed in a future release. Migrate to the alias-based API now to avoid breaking changes. If your existing pipelines depend on <code>transition_model_version_stage()</code>, plan the migration before upgrading.</p>
+    </div>
+
+    <h2>R.4.5 Automated Validation Gates</h2>
+
+    <p>Promoting a model to production should not be a manual decision. Instead, build automated validation gates that verify the model meets quality, safety, and performance thresholds before promotion proceeds.</p>
+
+<pre><code class="language-python">import mlflow
+from mlflow import MlflowClient
+
+client = MlflowClient()
+
+def validate_and_promote(model_name: str, candidate_version: int):
+    """Run validation checks and promote if all pass."""
+    model_uri = f"models:/{model_name}/{candidate_version}"
+    model = mlflow.transformers.load_model(model_uri)
+
+    # Gate 1: Core accuracy threshold
+    accuracy = run_eval_suite(model, dataset="eval_golden_set")
+    assert accuracy >= 0.90, f"Accuracy {accuracy:.3f} below threshold 0.90"
+
+    # Gate 2: Safety evaluation
+    safety_score = run_safety_checks(model, dataset="safety_test_cases")
+    assert safety_score >= 0.95, f"Safety score {safety_score:.3f} below 0.95"
+
+    # Gate 3: Latency benchmark
+    p99_latency_ms = run_latency_benchmark(model, num_requests=1000)
+    assert p99_latency_ms <= 500, f"P99 latency {p99_latency_ms}ms exceeds 500ms"
+
+    # Gate 4: Regression check against current champion
+    champion_uri = f"models:/{model_name}@champion"
+    champion_accuracy = run_eval_suite(
+        mlflow.transformers.load_model(champion_uri),
+        dataset="eval_golden_set",
+    )
+    assert accuracy >= champion_accuracy - 0.01, (
+        f"Candidate {accuracy:.3f} regresses vs champion {champion_accuracy:.3f}"
+    )
+
+    # All gates passed: promote
+    client.set_registered_model_alias(
+        name=model_name, alias="champion", version=candidate_version,
+    )
+    print(f"Version {candidate_version} promoted to champion")
+
+validate_and_promote("chatbot-lora-production", candidate_version=12)
+</code></pre>
+
+    <p>Each gate checks a different dimension. Accuracy validates the model's core capability. Safety checks guard against harmful outputs (see Chapter 18 on safety and alignment). Latency benchmarks ensure the model meets serving SLAs. The regression check prevents promoting a model that is worse than the current production version. If any gate fails, the promotion halts and the team is notified.</p>
+
+    <h2>R.4.6 CI/CD Integration</h2>
+
+    <p>Model deployment should be integrated into your existing CI/CD pipeline. When a new model version is registered, an automated pipeline runs validation, builds a serving container, and deploys to staging or production.</p>
+
+<pre><code class="language-python"># Example GitHub Actions workflow (YAML) for model deployment
+# .github/workflows/model-deploy.yml
+#
+# on:
+#   workflow_dispatch:
+#     inputs:
+#       model_name:
+#         description: "Registered model name"
+#         required: true
+#       model_version:
+#         description: "Version to deploy"
+#         required: true
+#
+# jobs:
+#   validate-and-deploy:
+#     runs-on: ubuntu-latest
+#     steps:
+#       - uses: actions/checkout@v4
+#       - name: Install dependencies
+#         run: pip install mlflow boto3
+#       - name: Run validation gates
+#         run: |
+#           python scripts/validate_model.py \
+#             --model-name ${{ inputs.model_name }} \
+#             --version ${{ inputs.model_version }}
+#       - name: Build serving container
+#         run: |
+#           mlflow models build-docker \
+#             -m "models:/${{ inputs.model_name }}/${{ inputs.model_version }}" \
+#             -n "llm-serving:${{ inputs.model_version }}"
+#       - name: Deploy to staging
+#         run: |
+#           python scripts/deploy_to_k8s.py \
+#             --image "llm-serving:${{ inputs.model_version }}" \
+#             --environment staging
+
+# Python script: scripts/validate_model.py
+import argparse
+import mlflow
+import sys
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model-name", required=True)
+    parser.add_argument("--version", type=int, required=True)
+    args = parser.parse_args()
+
+    model_uri = f"models:/{args.model_name}/{args.version}"
+    model = mlflow.transformers.load_model(model_uri)
+
+    accuracy = run_eval_suite(model)
+    if accuracy < 0.90:
+        print(f"FAIL: accuracy {accuracy:.3f} < 0.90")
+        sys.exit(1)
+
+    print(f"PASS: accuracy {accuracy:.3f}")
+
+if __name__ == "__main__":
+    main()
+</code></pre>
+
+    <p>The CI/CD pipeline treats model deployment like software deployment. Each model version is validated, containerized, and promoted through environments (staging, then production). Rollbacks are straightforward: point the alias back to the previous version and redeploy.</p>
+
+    <div class="callout note">
+        <div class="callout-title">Note</div>
+        <p>MLflow's <code>mlflow models build-docker</code> command creates a self-contained Docker image with the model, dependencies, and a REST API endpoint. For LLMs that require GPU inference, you will typically use a custom serving image based on vLLM or TGI instead (see <a href="../appendix-s-inference-serving/index.html">Appendix S</a>). The registry still manages version tracking and promotion; only the serving infrastructure differs.</p>
+    </div>
+
+    <h2>R.4.7 LLM-Specific Registry Considerations</h2>
+
+    <p>Large language models introduce challenges that traditional ML model registries were not designed for. A fine-tuned LLM checkpoint can be 15 GB or more, adapter weights add another layer of versioning on top of the base model, and prompt templates are part of the model's effective behavior but live outside the weights.</p>
+
+    <p>To handle these challenges, adopt a layered versioning strategy. Register the base model once as a shared artifact. Register adapter weights (LoRA, QLoRA) as separate, lightweight artifacts that reference the base model version. Store prompt templates and system instructions alongside the adapter weights so that the complete "model" (base + adapter + prompts) is versioned as a unit.</p>
+
+<pre><code class="language-python">import wandb
+
+run = wandb.init(project="llm-registry", job_type="register")
+
+# Register adapter weights separately from the base model
+adapter_artifact = wandb.Artifact(
+    name="customer-support-adapter",
+    type="model-adapter",
+    metadata={
+        "base_model": "meta-llama/Llama-3-8B",
+        "base_model_version": "v1.0",
+        "adapter_type": "lora",
+        "rank": 16,
+        "target_modules": ["q_proj", "v_proj", "k_proj", "o_proj"],
+        "val_loss": 0.298,
+    },
+)
+adapter_artifact.add_dir("adapters/customer-support/")
+
+# Include the prompt template as part of the artifact
+adapter_artifact.add_file("prompts/system_prompt.txt")
+adapter_artifact.add_file("prompts/few_shot_examples.json")
+
+run.log_artifact(adapter_artifact)
+run.link_artifact(
+    artifact=adapter_artifact,
+    target_path="my-team/model-registry/cs-adapter-prod",
+)
+
+run.finish()
+</code></pre>
+
+    <p>This layered approach keeps artifact sizes manageable. When you update the prompt template without retraining, you create a new adapter artifact version that bundles the same weights with the updated prompts. When you retrain the adapter, the new version references the same base model. The registry tracks the full lineage in both cases.</p>
+
+    <h2>R.4.8 Deployment Patterns Summary</h2>
+
+    <p>The table below summarizes common deployment patterns and when to use each one. The right choice depends on your risk tolerance, traffic volume, and how quickly you need to detect regressions.</p>
+
+    <table>
+        <thead>
+            <tr>
+                <th scope="col">Pattern</th>
+                <th scope="col">Description</th>
+                <th scope="col">Best For</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><strong>Blue/Green</strong></td>
+                <td>Two identical environments; switch traffic atomically</td>
+                <td>Low-risk transitions with instant rollback</td>
+            </tr>
+            <tr>
+                <td><strong>Canary</strong></td>
+                <td>Route a small percentage of traffic to the new model</td>
+                <td>Gradual rollouts with real-time monitoring</td>
+            </tr>
+            <tr>
+                <td><strong>Shadow</strong></td>
+                <td>New model receives live traffic but responses are discarded</td>
+                <td>Validating latency and output quality before any user impact</td>
+            </tr>
+            <tr>
+                <td><strong>A/B Test</strong></td>
+                <td>Split traffic between models and measure business metrics</td>
+                <td>Comparing user-facing impact of different model versions</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <p>Regardless of the deployment pattern, the model registry remains the single source of truth. The serving infrastructure reads the current alias (e.g., <code>champion</code>) from the registry and loads the corresponding model version. Changing the alias triggers a redeployment, and the full history of alias transitions provides an audit trail.</p>
 
     <nav class="chapter-nav">
     <a class="prev" href="section-r.3.html">Experiment Comparison and Hyperparameter Optimization</a>

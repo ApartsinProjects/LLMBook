@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Section 20.7: GraphRAG: Knowledge Graph-Augmented Retrieval. A comprehensive chapter from the Building Conversational AI textbook.">
+    <title>Section 20.7: GraphRAG: Knowledge Graph-Augmented Retrieval</title>
+    <link rel="stylesheet" href="../../styles/book.css">
+    <link rel="stylesheet" href="../../vendor/katex/katex.min.css">
+    <script defer src="../../vendor/katex/katex.min.js"></script>
+    <script defer src="../../vendor/katex/contrib/auto-render.min.js"
+        onload="renderMathInElement(document.body, {
+            delimiters: [
+                {left: '$$', right: '$$', display: true},
+                {left: '$', right: '$', display: false}
+            ],
+            throwOnError: false
+        });"></script>
+    <link rel="stylesheet" href="../../vendor/prism/prism-theme.css">
+    <script defer src="../../vendor/prism/prism-bundle.min.js"></script>
+</head>
+<body>
+<header class="chapter-header">
+    <nav class="header-nav">
+        <a href="../../index.html" class="book-title-link">Building Conversational AI with LLMs and Agents</a>
+        <a href="../../toc.html" class="toc-link" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+    </nav>
+    <div class="part-label"><a href="../index.html">Part V: Retrieval and Conversation</a></div>
+    <div class="chapter-label"><a href="index.html">Chapter 20: Retrieval-Augmented Generation</a></div>
+    <h1>GraphRAG: Knowledge Graph-Augmented Retrieval</h1>
+</header>
+
+<main class="content">
+
+    <blockquote class="epigraph">
+        <p>A single fact is a lonely thing. Connect it to other facts and you have understanding. Connect enough facts and you have wisdom.</p>
+        <cite><span class="agent-avatar-inline" style="background-color: #2980b9;"><img src="../../front-matter/images/agents/rag.png" alt="RAG"></span> <a href="../../front-matter/wisdom-council.html#rag">RAG</a> <span class="agent-desc">AI Agent</span></cite>
+    </blockquote>
+
+    <div class="prerequisites">
+        <h3>Prerequisites</h3>
+        <p>This section builds on the knowledge graph fundamentals introduced in <a href="section-20.3.html">Section 20.3</a>, including triples, property graphs, and graph embeddings. Familiarity with the <a class="cross-ref" href="section-20.2.html">advanced RAG techniques</a> from Section 20.2 (re-ranking, fusion retrieval) will help you understand how graph traversal complements vector search. You should also be comfortable with <a class="cross-ref" href="../../part-3-working-with-llms/module-10-llm-apis/index.html">LLM API calls</a> for the entity extraction examples.</p>
+    </div>
+
+    <div class="callout big-picture">
+        <div class="callout-title">Big Picture</div>
+        <p><strong>Vector retrieval excels at finding semantically similar passages, but it fundamentally cannot perform multi-hop reasoning or synthesize corpus-level themes.</strong> GraphRAG addresses these gaps by constructing knowledge graphs from document corpora, detecting entity communities, and generating hierarchical summaries that enable both local (entity-centric) and global (theme-level) queries. This section provides a deep, implementation-focused treatment of the Microsoft GraphRAG pipeline, the Neo4j GraphRAG Python library, and hybrid retrieval strategies that combine graph traversal with vector similarity and full-text search. Where <a href="section-20.3.html">Section 20.3</a> introduced knowledge graph concepts, this section focuses on production-grade GraphRAG systems and their evaluation.</p>
+    </div>
+
+    <h2>1. Why Vector-Only Retrieval Falls Short <span class="level-badge basic" title="Basic">Basic</span></h2>
+
+    <p>
+        Standard vector retrieval maps queries and documents into embedding space and returns the top-$k$ most
+        similar chunks. This works well for single-hop factual questions where the answer lives in one passage.
+        However, three classes of queries expose its limitations:
+    </p>
+
+    <ul>
+        <li><strong>Multi-hop reasoning:</strong> "Which drugs that inhibit CYP3A4 are also contraindicated with warfarin?" requires chaining facts across multiple documents. Vector search retrieves passages about CYP3A4 inhibitors or warfarin individually, but cannot join the results through shared entities.</li>
+        <li><strong>Global queries:</strong> "What are the main research themes in this corpus?" requires synthesizing information from thousands of documents. No single chunk contains the answer, so top-$k$ retrieval returns an arbitrary, incomplete subset.</li>
+        <li><strong>Entity disambiguation:</strong> A query about "Jordan" could refer to the country, the basketball player, or the river. Vector similarity conflates these, while a knowledge graph maintains distinct entity nodes with typed relationships.</li>
+    </ul>
+
+    <p>
+        These failure modes motivate GraphRAG: a retrieval paradigm that builds structured knowledge
+        representations from documents and leverages graph algorithms to answer queries that require
+        relational reasoning.
+    </p>
+
+    <h2>2. The Microsoft GraphRAG Pipeline <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        Microsoft's GraphRAG (Edge et al., 2024) introduced a four-stage pipeline that transforms an unstructured
+        corpus into a queryable knowledge graph with hierarchical community summaries. The pipeline proceeds as follows:
+    </p>
+
+    <ol>
+        <li><strong>Entity and relation extraction:</strong> An LLM processes each text chunk to extract entities (persons, organizations, concepts) and the relationships between them, producing triples like <code>(Einstein, developed, General Relativity)</code>.</li>
+        <li><strong>Graph construction and merging:</strong> Extracted entities undergo coreference resolution (merging "Einstein" and "Albert Einstein" into a single node) and are assembled into a unified knowledge graph.</li>
+        <li><strong>Community detection:</strong> The Leiden algorithm partitions the graph into communities of densely connected entities at multiple hierarchical levels.</li>
+        <li><strong>Community summarization:</strong> An LLM generates a natural language summary for each community, capturing the key themes, entities, and relationships within that cluster.</li>
+    </ol>
+
+    <p>
+        At query time, GraphRAG supports two search modes. <strong>Local search</strong> starts from entities
+        mentioned in the query, retrieves their graph neighborhood and associated text chunks, and generates
+        an answer grounded in that local context. <strong>Global search</strong> distributes the query across
+        all community summaries using a map-reduce pattern: each summary is scored for relevance, the most
+        relevant summaries are aggregated, and the LLM synthesizes a final answer from the combined context.
+    </p>
+
+    <h3>2.1 Running the Microsoft GraphRAG Pipeline</h3>
+
+<pre><code class="language-python"># Code Fragment 20.7.1: Microsoft GraphRAG indexing pipeline
+# Key operations: config, indexing, entity extraction, community detection
+import graphrag
+from graphrag.config import GraphRagConfig
+from graphrag.index import run_pipeline
+
+# Configure the pipeline
+config = GraphRagConfig(
+    root_dir="./ragtest",
+    input_dir="./ragtest/input",
+    llm={
+        "type": "openai_chat",
+        "model": "gpt-4o",
+        "api_key": os.environ["OPENAI_API_KEY"],
+    },
+    embeddings={
+        "llm": {
+            "type": "openai_embedding",
+            "model": "text-embedding-3-small",
+        }
+    },
+    chunks={"size": 1200, "overlap": 100},
+    entity_extraction={
+        "max_gleanings": 1,  # additional extraction passes
+        "prompt": None,       # use default extraction prompt
+    },
+    community_reports={
+        "max_length": 2000,   # max tokens per community summary
+    },
+    claim_extraction={"enabled": False},
+)
+
+# Run the full indexing pipeline
+# This extracts entities, builds the graph, runs Leiden
+# community detection, and generates community summaries
+import asyncio
+result = asyncio.run(run_pipeline(config))
+print(f"Indexed {result.entities} entities, "
+      f"{result.relationships} relationships, "
+      f"{result.communities} communities")
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 20.7.1:</strong> Configuring and running the Microsoft GraphRAG indexing pipeline. Entity extraction, community detection, and summary generation are orchestrated as a single workflow.</div>
+
+<pre><code class="language-python"># Code Fragment 20.7.2: Querying with local and global search
+# Key operations: query routing, local search, global search
+from graphrag.query import LocalSearch, GlobalSearch
+
+# Local search: entity-centric queries
+local_search = LocalSearch(
+    config=config,
+    llm=config.llm,
+    context_builder_params={
+        "text_unit_prop": 0.5,     # weight for text chunks
+        "community_prop": 0.1,     # weight for community info
+        "conversation_history_prop": 0.1,
+        "top_k_entities": 10,
+        "top_k_relationships": 10,
+    }
+)
+
+local_result = await local_search.asearch(
+    "What side effects does metformin cause?"
+)
+print(local_result.response)
+print(f"Sources: {len(local_result.context_data['sources'])}")
+
+# Global search: corpus-level thematic queries
+global_search = GlobalSearch(
+    config=config,
+    llm=config.llm,
+    map_reduce_params={
+        "map_max_tokens": 1000,
+        "reduce_max_tokens": 2000,
+    }
+)
+
+global_result = await global_search.asearch(
+    "What are the major drug safety concerns across all reports?"
+)
+print(global_result.response)
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 20.7.2:</strong> Local search retrieves entity neighborhoods for specific questions; global search aggregates community summaries using map-reduce for corpus-wide thematic queries.</div>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight</div>
+        <p>GraphRAG's global search is its most distinctive capability. Traditional RAG systems, including those with knowledge graphs, answer questions by retrieving relevant fragments. GraphRAG's community summaries pre-compute corpus-level understanding at index time, making it possible to answer "What are the main themes?" without retrieving every document. The trade-off is indexing cost: because every chunk requires LLM calls for entity extraction and every community requires a summary, indexing a 10,000-document corpus can cost $50 to $500 in API fees. This is a one-time investment that unlocks query capabilities impossible with vector-only approaches.</p>
+    </div>
+
+    <h2>3. Neo4j GraphRAG Python <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        While Microsoft's GraphRAG focuses on the full pipeline from documents to community summaries,
+        Neo4j's GraphRAG Python library provides a complementary approach centered on property graph
+        construction and Cypher-based retrieval. Neo4j stores entities as nodes with properties and
+        relationships as typed edges, enabling expressive graph queries that combine structural
+        traversal with property filtering.
+    </p>
+
+    <h3>3.1 Property Graph Construction with Neo4j</h3>
+
+<pre><code class="language-python"># Code Fragment 20.7.3: Building a property graph with Neo4j GraphRAG
+# Key operations: graph construction, entity storage, relationship creation
+from neo4j import GraphDatabase
+from neo4j_graphrag.experimental.pipeline.kg_builder import SimpleKGPipeline
+from neo4j_graphrag.llm import OpenAILLM
+
+# Connect to Neo4j
+driver = GraphDatabase.driver(
+    "bolt://localhost:7687",
+    auth=("neo4j", "password")
+)
+
+# Configure the KG builder
+llm = OpenAILLM(model_name="gpt-4o")
+kg_builder = SimpleKGPipeline(
+    llm=llm,
+    driver=driver,
+    entities=["Drug", "Disease", "SideEffect", "Gene"],
+    relations=["TREATS", "CAUSES", "INHIBITS", "TARGETS"],
+    on_error="IGNORE",  # skip extraction failures
+)
+
+# Process documents into the knowledge graph
+documents = [
+    "Metformin treats type 2 diabetes by reducing hepatic "
+    "glucose production. Common side effects include nausea "
+    "and gastrointestinal discomfort.",
+    "Metformin targets the AMPK gene pathway. It inhibits "
+    "mitochondrial complex I, which activates AMPK signaling.",
+]
+
+for doc in documents:
+    await kg_builder.run_async(text=doc)
+
+# Verify the graph
+with driver.session() as session:
+    result = session.run(
+        "MATCH (n)-[r]->(m) RETURN n.name, type(r), m.name LIMIT 10"
+    )
+    for record in result:
+        print(f"({record[0]}) -[{record[1]}]-> ({record[2]})")
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 20.7.3:</strong> Neo4j's SimpleKGPipeline extracts typed entities and relationships from text, storing them as a property graph that supports Cypher queries.</div>
+
+    <h3>3.2 Cypher-Based Retrieval</h3>
+
+    <p>
+        Once the graph is populated, Cypher queries enable precise, multi-hop retrieval that vector search
+        cannot replicate. The following example demonstrates retrieving a two-hop path: from a drug to the
+        gene it targets to the disease that gene is associated with.
+    </p>
+
+<pre><code class="language-python"># Code Fragment 20.7.4: Cypher-based multi-hop retrieval
+# Key operations: Cypher query, multi-hop traversal, context assembly
+from neo4j_graphrag.retrievers import CypherRetriever
+
+retriever = CypherRetriever(
+    driver=driver,
+    llm=llm,
+    neo4j_schema="""
+    Node labels: Drug, Disease, SideEffect, Gene
+    Relationships: TREATS, CAUSES, INHIBITS, TARGETS
+    """,
+)
+
+# The retriever translates natural language to Cypher
+result = retriever.search(
+    query_text="What genes does metformin target, and what diseases "
+               "are those genes associated with?"
+)
+
+# Behind the scenes, this generates Cypher like:
+# MATCH (d:Drug {name: 'Metformin'})-[:TARGETS]->(g:Gene)
+#       -[:ASSOCIATED_WITH]->(dis:Disease)
+# RETURN d.name, g.name, dis.name
+
+for item in result.items:
+    print(item.content)
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 20.7.4:</strong> The CypherRetriever translates natural language questions into Cypher graph queries, enabling multi-hop retrieval across entity relationships.</div>
+
+    <h2>4. Graph Construction Strategies <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        The quality of a GraphRAG system depends critically on the quality of its knowledge graph. Two
+        primary challenges arise during construction: extracting accurate entities and relations from text,
+        and resolving coreferences so that the same real-world entity maps to a single graph node.
+    </p>
+
+    <h3>4.1 LLM-Based Entity and Relation Extraction</h3>
+
+    <p>
+        Modern GraphRAG systems use LLMs as the primary extraction engine, replacing traditional NER
+        pipelines. The LLM receives a text chunk along with a schema definition (allowed entity types
+        and relation types) and returns structured triples. Key design decisions include:
+    </p>
+
+    <ul>
+        <li><strong>Schema-guided extraction:</strong> Providing explicit entity and relation types reduces hallucinated triples. An open-ended "extract all entities" prompt produces noisier results than "extract Drug, Gene, and Disease entities with TREATS, TARGETS, and CAUSES relations."</li>
+        <li><strong>Multi-pass gleaning:</strong> Running extraction multiple times on the same chunk and taking the union captures entities missed in a single pass. Microsoft GraphRAG calls this "gleanings" and typically uses 1 to 2 additional passes.</li>
+        <li><strong>Confidence scoring:</strong> Asking the LLM to assign confidence scores to each extracted triple enables filtering low-confidence extractions before graph construction.</li>
+    </ul>
+
+    <h3>4.2 Coreference Resolution</h3>
+
+    <p>
+        Without coreference resolution, the graph fragments into disconnected clusters of duplicate nodes.
+        "Einstein," "Albert Einstein," "A. Einstein," and "the physicist" may all refer to the same entity
+        but appear as separate nodes. Resolution strategies include:
+    </p>
+
+    <ul>
+        <li><strong>Embedding-based clustering:</strong> Compute embeddings for all entity mentions and cluster similar ones, then merge clusters into canonical nodes.</li>
+        <li><strong>LLM-based resolution:</strong> Present candidate entity pairs to an LLM and ask whether they refer to the same real-world entity. This is accurate but expensive at scale.</li>
+        <li><strong>Rule-based normalization:</strong> Apply string normalization (lowercasing, removing titles, expanding abbreviations) as a fast first pass before more expensive methods.</li>
+    </ul>
+
+    <h2>5. Hybrid Retrieval: Graph + Vector + Full-Text <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>
+        Production GraphRAG systems rarely rely on graph traversal alone. The most effective architectures
+        combine three retrieval modalities, each contributing distinct strengths:
+    </p>
+
+    <ul>
+        <li><strong>Graph traversal:</strong> Follows typed relationships between entities for structured multi-hop reasoning.</li>
+        <li><strong>Vector similarity:</strong> Retrieves semantically relevant text chunks that may not be directly connected in the graph.</li>
+        <li><strong>Full-text search (BM25):</strong> Matches specific keywords, identifiers, and technical terms that embeddings may not capture precisely.</li>
+    </ul>
+
+<pre><code class="language-python"># Code Fragment 20.7.5: Hybrid graph + vector + full-text retrieval
+# Key operations: multi-modal retrieval, result fusion, context assembly
+from neo4j_graphrag.retrievers import HybridCypherRetriever
+from neo4j_graphrag.embeddings import OpenAIEmbeddings
+
+embedder = OpenAIEmbeddings(model="text-embedding-3-small")
+
+hybrid_retriever = HybridCypherRetriever(
+    driver=driver,
+    llm=llm,
+    embedder=embedder,
+    # Vector index for semantic similarity
+    index_name="entity_embeddings",
+    # Full-text index for keyword matching
+    fulltext_index_name="entity_fulltext",
+    # Cypher for graph traversal after initial retrieval
+    retrieval_query="""
+    // Start from vector/fulltext matched nodes
+    MATCH (node)-[r*1..2]-(neighbor)
+    WITH node, neighbor, r,
+         // Combine graph distance with vector similarity
+         1.0 / (1.0 + size(r)) AS graph_score
+    RETURN neighbor.name AS name,
+           neighbor.description AS description,
+           graph_score,
+           labels(neighbor) AS labels
+    ORDER BY graph_score DESC
+    LIMIT 20
+    """,
+)
+
+result = hybrid_retriever.search(
+    query_text="What are the downstream effects of AMPK activation?",
+    top_k=10,
+)
+
+# Each result includes graph context and vector similarity
+for item in result.items:
+    print(f"[{item.metadata.get('score', 'N/A'):.3f}] {item.content}")
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 20.7.5:</strong> Hybrid retrieval combines vector similarity for initial candidate selection, full-text matching for keyword precision, and Cypher graph traversal for multi-hop context expansion.</div>
+
+    <div class="callout fun-note">
+        <div class="callout-title">Fun Fact</div>
+        <p>The Leiden algorithm used in GraphRAG for community detection was developed at Leiden University in the Netherlands and published in 2019 as an improvement over the Louvain algorithm. The key innovation is that Leiden guarantees connected communities, while Louvain can produce disconnected communities that violate the definition of a proper cluster. In GraphRAG, this matters because a disconnected "community" would produce incoherent summaries mixing unrelated entity groups.</p>
+    </div>
+
+    <h2>6. Evaluation: Faithfulness and Completeness <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        Evaluating GraphRAG requires metrics that capture both the faithfulness of generated answers
+        (are claims supported by retrieved evidence?) and the completeness of retrieval (did the system
+        find all relevant information?). The original GraphRAG paper evaluates on query-focused summarization
+        (QFS) tasks, where the goal is to produce comprehensive summaries that address a specific question
+        across an entire corpus.
+    </p>
+
+    <h3>6.1 Evaluation Metrics</h3>
+
+    <div class="comparison-table">
+        <div class="comparison-table-title">GraphRAG Evaluation Dimensions</div>
+        <table>
+        <tr>
+            <th scope="col">Metric</th>
+            <th scope="col">What It Measures</th>
+            <th scope="col">How to Compute</th>
+        </tr>
+        <tr>
+            <td>Comprehensiveness</td>
+            <td>Does the answer cover all relevant aspects?</td>
+            <td>LLM-as-judge pairwise comparison against baseline</td>
+        </tr>
+        <tr>
+            <td>Diversity</td>
+            <td>Does the answer surface varied perspectives?</td>
+            <td>LLM-as-judge scoring for range of topics covered</td>
+        </tr>
+        <tr>
+            <td>Empowerment</td>
+            <td>Does the answer help the user understand and act?</td>
+            <td>LLM-as-judge scoring for actionability</td>
+        </tr>
+        <tr>
+            <td>Faithfulness</td>
+            <td>Are all claims supported by retrieved context?</td>
+            <td>RAGAS faithfulness metric (<a class="cross-ref" href="../../part-8-evaluation-production/module-29-evaluation-observability/section-29.3.html">Section 29.3</a>)</td>
+        </tr>
+        <tr>
+            <td>Context relevance</td>
+            <td>Is the retrieved context pertinent to the query?</td>
+            <td>Proportion of retrieved content used in the answer</td>
+        </tr>
+        </table>
+    </div>
+
+    <h3>6.2 Benchmarking Datasets</h3>
+
+    <p>
+        Microsoft released the <code>graphrag-benchmarking-datasets</code> collection, which provides
+        standardized corpora for evaluating GraphRAG systems. These datasets include pre-annotated entities,
+        communities, and reference summaries. The <strong>AP News</strong> and <strong>Podcast Transcripts</strong>
+        datasets are commonly used for benchmarking, with queries spanning both local factual questions and
+        global thematic questions.
+    </p>
+
+<pre><code class="language-python"># Code Fragment 20.7.6: Evaluating GraphRAG with LLM-as-judge
+# Key operations: pairwise comparison, evaluation scoring, metric computation
+from openai import OpenAI
+
+client = OpenAI()
+
+def evaluate_comprehensiveness(query, answer_a, answer_b):
+    """Pairwise LLM-as-judge evaluation for comprehensiveness."""
+    prompt = f"""You are evaluating two answers to the following question.
+
+Question: {query}
+
+Answer A:
+{answer_a}
+
+Answer B:
+{answer_b}
+
+Which answer is more comprehensive? Consider:
+1. Coverage of all relevant aspects of the question
+2. Depth of detail for each aspect
+3. Inclusion of supporting evidence
+
+Respond with a JSON object:
+{{"winner": "A" or "B" or "tie",
+  "explanation": "brief reasoning",
+  "score_a": 1-5,
+  "score_b": 1-5}}"""
+
+    response = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[{"role": "user", "content": prompt}],
+        response_format={"type": "json_object"},
+    )
+    return json.loads(response.choices[0].message.content)
+
+# Compare GraphRAG global search vs. naive RAG
+graphrag_answer = global_result.response
+naive_rag_answer = naive_rag_pipeline.query(query)
+
+eval_result = evaluate_comprehensiveness(
+    query="What are the major drug safety themes?",
+    answer_a=graphrag_answer,
+    answer_b=naive_rag_answer,
+)
+print(f"Winner: {eval_result['winner']}")
+print(f"GraphRAG: {eval_result['score_a']}/5, "
+      f"Naive RAG: {eval_result['score_b']}/5")
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 20.7.6:</strong> Pairwise LLM-as-judge evaluation comparing GraphRAG global search against naive RAG on comprehensiveness, following the evaluation methodology from the original GraphRAG paper.</div>
+
+    <div class="callout research-frontier">
+        <div class="callout-title">Research Frontier</div>
+        <p><strong>Temporal GraphRAG</strong> systems are extending knowledge graphs with time-stamped relationships, enabling queries like "How has the treatment landscape for diabetes changed since 2020?" by filtering graph edges by temporal validity. <strong>LazyGraphRAG</strong> (Microsoft, 2024) reduces indexing costs by deferring community summarization to query time, using a best-first search over the graph that generates summaries on demand. <strong>Multi-modal GraphRAG</strong> extends entity extraction to images, tables, and diagrams, building graphs that span modalities. Research into <strong>incremental graph updates</strong> addresses the challenge of adding new documents without reindexing the entire corpus, which is critical for production systems where data arrives continuously. The <strong>DRIFT search</strong> method adds a follow-up question mechanism to local search, expanding the retrieved context by generating and answering decomposed sub-questions.</p>
+    </div>
+
+    <!-- Quiz -->
+    <div class="quiz">
+        <h3>Section 20.7 Quiz</h3>
+
+        <div class="quiz-question">1. Why does vector-only retrieval fail on global queries like "What are the main themes in this corpus?"</div>
+        <details open>
+            <summary>Show Answer</summary>
+            <div class="answer">Vector retrieval returns the top-$k$ most similar chunks to the query, but no single chunk contains a corpus-wide thematic summary. The returned chunks represent an arbitrary subset of themes based on embedding similarity to the query phrasing. GraphRAG solves this by pre-computing community summaries that capture themes across entity clusters, then aggregating relevant summaries at query time via map-reduce.</div>
+        </details>
+
+        <div class="quiz-question">2. What is the difference between local search and global search in Microsoft GraphRAG?</div>
+        <details open>
+            <summary>Show Answer</summary>
+            <div class="answer">Local search starts from entities mentioned in the query, retrieves their graph neighborhood (neighboring entities, relationships, and associated text chunks), and generates an answer from that local context. Global search distributes the query across all community summaries, scores each for relevance, aggregates the top summaries, and synthesizes a final answer. Local search is suited for specific factual questions; global search handles broad thematic queries.</div>
+        </details>
+
+        <div class="quiz-question">3. Why is coreference resolution important for GraphRAG quality?</div>
+        <details open>
+            <summary>Show Answer</summary>
+            <div class="answer">Without coreference resolution, the same real-world entity appears as multiple disconnected nodes (e.g., "Einstein," "Albert Einstein," "A. Einstein"). This fragments the graph, breaking multi-hop traversal paths that should connect through a single canonical entity. Community detection also suffers because related facts are split across disconnected components, producing incomplete community summaries.</div>
+        </details>
+
+        <div class="quiz-question">4. How does hybrid retrieval (graph + vector + full-text) improve over any single modality?</div>
+        <details open>
+            <summary>Show Answer</summary>
+            <div class="answer">Graph traversal provides structured multi-hop reasoning through typed relationships. Vector similarity captures semantic relevance for passages not directly connected in the graph. Full-text search (BM25) handles exact keyword and identifier matching that embeddings may miss. Combining all three covers the full spectrum from structured relational queries to fuzzy semantic matching to precise lexical lookup.</div>
+        </details>
+    </div>
+
+    <!-- Key Takeaways -->
+    <div class="takeaways">
+        <h2>Key Takeaways</h2>
+        <ul>
+            <li><strong>Vector retrieval has structural blind spots:</strong> Multi-hop reasoning, global queries, and entity disambiguation require structured knowledge representations that embedding similarity cannot provide.</li>
+            <li><strong>Microsoft GraphRAG enables corpus-level queries:</strong> The four-stage pipeline (extract, build, detect communities, summarize) pre-computes thematic understanding that powers global search through map-reduce over community summaries.</li>
+            <li><strong>Neo4j GraphRAG provides production graph infrastructure:</strong> Property graphs with Cypher queries enable precise, multi-hop retrieval with filtering and aggregation capabilities beyond what embedding search offers.</li>
+            <li><strong>Graph construction quality determines system quality:</strong> Schema-guided extraction, multi-pass gleaning, and robust coreference resolution are essential for building knowledge graphs that support accurate retrieval.</li>
+            <li><strong>Hybrid retrieval combines the best of all modalities:</strong> Production systems should fuse graph traversal, vector similarity, and full-text search to handle the full range of query types.</li>
+            <li><strong>Evaluation requires task-specific metrics:</strong> Comprehensiveness and diversity metrics, evaluated via LLM-as-judge pairwise comparisons, capture GraphRAG's advantages on global queries that traditional metrics miss.</li>
+        </ul>
+    </div>
+
+    <div class="callout practical-example">
+        <div class="callout-title">Building a GraphRAG System for Legal Document Analysis</div>
+        <p><strong>Who:</strong> An NLP engineer at a law firm building a research assistant for 50,000 case documents.</p>
+        <p><strong>Situation:</strong> Attorneys needed to answer questions spanning multiple cases, such as "What precedents have courts cited when overturning non-compete agreements in the technology sector?"</p>
+        <p><strong>Problem:</strong> Vector-only RAG retrieved individual case excerpts but could not follow citation chains or synthesize patterns across cases. Attorneys still had to manually trace precedent relationships.</p>
+        <p><strong>Dilemma:</strong> Full GraphRAG indexing of 50,000 documents would cost approximately $2,000 in LLM API calls and take 48 hours. The team debated whether the investment was justified compared to improving their vector RAG pipeline.</p>
+        <p><strong>Decision:</strong> They ran a pilot on 5,000 documents from the non-compete domain, using Neo4j for graph storage and Microsoft GraphRAG for community detection. The pilot cost $200 and took 6 hours.</p>
+        <p><strong>How:</strong> Entity types included Case, Judge, Statute, Legal Principle, and Company. Relationship types included CITES, OVERTURNS, APPLIES, and DISTINGUISHES. Hybrid retrieval used graph traversal for citation chain queries and vector search for topical questions.</p>
+        <p><strong>Result:</strong> Multi-hop citation queries improved from 35% accuracy (vector RAG) to 82% accuracy (GraphRAG). Global queries like "What trends are emerging in non-compete enforcement?" produced comprehensive summaries that previously required days of manual research.</p>
+        <p><strong>Lesson:</strong> <strong>GraphRAG's value scales with the relational complexity of the domain. Legal, biomedical, and financial corpora with dense entity relationships benefit most from graph-augmented retrieval.</strong></p>
+    </div>
+
+<section class="bibliography">
+    <div class="bibliography-title">References &amp; Further Reading</div>
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://arxiv.org/abs/2404.16130" target="_blank" rel="noopener">Edge, D. et al. (2024). "From Local to Global: A Graph RAG Approach to Query-Focused Summarization." <em>arXiv preprint arXiv:2404.16130</em>.</a></p>
+        <p class="bib-annotation">The foundational GraphRAG paper introducing community detection and hierarchical summarization for corpus-level queries. Demonstrates significant improvements over naive RAG on global questions. Essential reading for anyone building graph-augmented retrieval systems.</p>
+        <span class="bib-meta">Paper</span>
+    </div>
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://github.com/microsoft/graphrag" target="_blank" rel="noopener">Microsoft GraphRAG: Open-source implementation.</a></p>
+        <p class="bib-annotation">The official Microsoft implementation of the GraphRAG pipeline, including entity extraction, Leiden community detection, summary generation, and local/global search. Actively maintained with regular updates and new features.</p>
+        <span class="bib-meta">Tool</span>
+    </div>
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://neo4j.com/docs/neo4j-graphrag-python/current/" target="_blank" rel="noopener">Neo4j GraphRAG Python Library Documentation.</a></p>
+        <p class="bib-annotation">Official documentation for Neo4j's GraphRAG library, covering property graph construction, Cypher-based retrieval, hybrid search, and integration with LLM providers. Provides production-grade graph infrastructure for RAG systems.</p>
+        <span class="bib-meta">Tool</span>
+    </div>
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://github.com/microsoft/graphrag-benchmarking-datasets" target="_blank" rel="noopener">Microsoft GraphRAG Benchmarking Datasets.</a></p>
+        <p class="bib-annotation">Standardized datasets for evaluating GraphRAG systems, including AP News articles and podcast transcripts with pre-annotated entities and reference summaries. Essential for reproducible evaluation of graph-augmented retrieval.</p>
+        <span class="bib-meta">Dataset</span>
+    </div>
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://arxiv.org/abs/2306.08302" target="_blank" rel="noopener">Pan, S. et al. (2024). "Unifying Large Language Models and Knowledge Graphs: A Roadmap." <em>IEEE TKDE</em>.</a></p>
+        <p class="bib-annotation">A comprehensive survey of how LLMs and knowledge graphs can enhance each other. Covers KG-enhanced LLM pre-training, LLM-augmented KG construction, and joint reasoning. Provides broader context for the GraphRAG paradigm.</p>
+        <span class="bib-meta">Paper</span>
+    </div>
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://neo4j.com/docs/" target="_blank" rel="noopener">Neo4j Graph Database Documentation.</a></p>
+        <p class="bib-annotation">Comprehensive documentation for the Neo4j graph database, including Cypher query language reference, graph data science algorithms, and deployment guides. The standard graph database for production GraphRAG systems.</p>
+        <span class="bib-meta">Tool</span>
+    </div>
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://arxiv.org/abs/1810.00826" target="_blank" rel="noopener">Traag, V.A. et al. (2019). "From Louvain to Leiden: Guaranteeing Well-Connected Communities." <em>Scientific Reports</em>.</a></p>
+        <p class="bib-annotation">The paper introducing the Leiden algorithm for community detection, which guarantees connected communities unlike its Louvain predecessor. Used by Microsoft GraphRAG for partitioning knowledge graphs into entity clusters.</p>
+        <span class="bib-meta">Paper</span>
+    </div>
+</section>
+
+<div class="whats-next">
+    <h2>What Comes Next</h2>
+    <p>This section completes the RAG chapter's coverage of knowledge graph-augmented retrieval. For evaluation of RAG systems including GraphRAG, see <a class="cross-ref" href="../../part-8-evaluation-production/module-29-evaluation-observability/section-29.3.html">Section 29.3: RAG &amp; Agent Evaluation</a>. For agentic patterns that can orchestrate GraphRAG queries as part of multi-step research workflows, see <a href="section-20.4.html">Section 20.4: Deep Research &amp; Agentic RAG</a>.</p>
+</div>
+
+<nav class="chapter-nav">
+    <a class="prev" href="section-20.6.html">RAG Frameworks &amp; Orchestration</a>
+    <a class="up" href="index.html">Chapter 20: Retrieval-Augmented Generation (RAG)</a>
+    <a class="next" href="../module-21-conversational-ai/index.html">Chapter 21: Building Conversational AI Systems</a>
+</nav>
+    <footer>
+        <p class="footer-title">Building Conversational AI with LLMs and Agents, Fifth Edition</p>
+        <p>&copy; 2026 Alexander Apartsin &amp; Yehudit Aperstein &middot; <a href="../../toc.html">Contents</a></p>
+        <p class="footer-updated">Last updated: <script>document.write(new Date(document.lastModified).toLocaleDateString('en-US', {year:'numeric', month:'long', day:'numeric'}))</script></p>
+    </footer>
+</main>
+</body>
+</html>

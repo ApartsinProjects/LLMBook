@@ -3,19 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Section S.3: SGLang: Structured Generation and RadixAttention. A comprehensive chapter from the Building Conversational AI textbook.">
     <title>Section S.3: SGLang: Structured Generation and RadixAttention | Building Conversational AI with LLMs and Agents</title>
     <link rel="stylesheet" href="../../styles/book.css">
-    <link rel="stylesheet" href="../../vendor/katex/katex.min.css">
-    <script defer src="../../vendor/katex/katex.min.js"></script>
-    <script defer src="../../vendor/katex/contrib/auto-render.min.js"
-        onload="renderMathInElement(document.body, {
-            delimiters: [
-                {left: '$$', right: '$$', display: true},
-                {left: '$', right: '$', display: false}
-            ],
-            throwOnError: false
-        });"></script>
-    <link rel="stylesheet" href="../../vendor/prism/prism-theme.css">
+<link rel="stylesheet" href="../../vendor/prism/prism-theme.css">
     <script defer src="../../vendor/prism/prism-bundle.min.js"></script>
 </head>
 <body>
@@ -33,10 +24,257 @@
 
     <div class="callout big-picture">
         <div class="callout-title">Big Picture</div>
-        <p>This section covers sGLang: Structured Generation and RadixAttention. Content will be generated using the book production pipeline.</p>
+        <p>SGLang (Structured Generation Language) is a serving framework and programming DSL developed at UC Berkeley that introduces two powerful ideas: a <strong>frontend language</strong> for composing complex LLM programs with control flow, branching, and constraints; and <strong>RadixAttention</strong>, a backend optimization that automatically reuses KV cache across requests sharing common prefixes. Together, these make SGLang particularly well-suited for agentic workflows, structured JSON extraction, and any workload involving repeated prompts with varying suffixes.</p>
     </div>
 
-    <p><em>Content pending: this section will be produced by the book-writers agent pipeline.</em></p>
+    <h2>1. Why Another Serving Framework?</h2>
+
+    <p>
+        vLLM and TGI excel at serving single-turn completions efficiently. However, many real-world LLM
+        applications involve multi-turn interactions, branching logic (generate multiple candidates and pick
+        the best), and structured output constraints (the model must produce valid JSON matching a schema).
+        These patterns require sending many related requests to the server, and traditional serving frameworks
+        treat each request independently, recomputing the KV cache from scratch even when requests share long
+        common prefixes.
+    </p>
+
+    <p>
+        SGLang addresses this with two innovations. The <strong>frontend DSL</strong> lets you express complex
+        LLM programs as Python functions with primitives for generation, selection, branching, and constraints.
+        The <strong>RadixAttention backend</strong> maintains a radix tree of cached KV states, automatically
+        detecting and reusing shared prefixes across requests. For workloads with high prefix overlap (such as
+        few-shot prompting, retrieval-augmented generation, or multi-turn chat), this can yield 3x to 5x
+        speedups.
+    </p>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight</div>
+        <p>A radix tree (also called a prefix tree or trie) is a data structure that compresses shared prefixes into single nodes. SGLang applies this concept to KV cache management: if 100 requests all start with the same system prompt, the KV cache for that prompt is computed once and shared across all 100 requests. This is fundamentally different from vLLM's block-level sharing, because RadixAttention operates at the token-sequence level and detects prefix overlap automatically.</p>
+    </div>
+
+    <h2>2. Installing SGLang</h2>
+
+    <p>
+        SGLang can be installed from pip. It requires a CUDA-capable GPU and Python 3.9 or later.
+    </p>
+
+    <pre><code class="language-bash"># Install SGLang with all dependencies
+pip install "sglang[all]"
+
+# Or install just the frontend (for connecting to a remote SGLang server)
+pip install sglang</code></pre>
+
+    <h2>3. The SGLang Frontend DSL</h2>
+
+    <p>
+        The SGLang frontend provides Python primitives for constructing LLM programs. The key building blocks
+        are <code>gen()</code> for text generation, <code>select()</code> for constrained choice among options,
+        and <code>fork()</code> for parallel branching. The following example demonstrates a structured
+        extraction task.
+    </p>
+
+    <pre><code class="language-python">import sglang as sgl
+
+@sgl.function
+def extract_entity(s, text):
+    s += sgl.system("You are a precise entity extraction system.")
+    s += sgl.user(f"Extract information from this text: {text}")
+    s += sgl.assistant(
+        "Entity name: " + sgl.gen("name", max_tokens=50, stop="\n")
+        + "\nEntity type: " + sgl.select("type", [
+            "Person", "Organization", "Location", "Product", "Event"
+        ])
+        + "\nConfidence: " + sgl.select("confidence", [
+            "High", "Medium", "Low"
+        ])
+    )
+
+# Run the function
+runtime = sgl.Runtime(model_path="meta-llama/Llama-3.1-8B-Instruct")
+sgl.set_default_backend(runtime)
+
+state = extract_entity.run(text="Apple Inc. announced the new iPhone 16 at their Cupertino headquarters.")
+
+print(f"Name: {state['name']}")
+print(f"Type: {state['type']}")
+print(f"Confidence: {state['confidence']}")
+
+runtime.shutdown()</code></pre>
+
+    <p>
+        Notice how <code>sgl.select()</code> constrains the model to choose from a predefined list rather
+        than generating free-form text. SGLang implements this efficiently by evaluating the log-probabilities
+        of each option in parallel, choosing the one with the highest likelihood. This is both faster and more
+        reliable than prompting the model to pick from a list and then parsing the output.
+    </p>
+
+    <h3>3.1 Branching with fork()</h3>
+
+    <p>
+        The <code>fork()</code> primitive creates parallel branches that share the same prefix KV cache. This
+        is useful for generating multiple candidates and selecting the best one, implementing tree-of-thought
+        reasoning, or running A/B tests on different continuations.
+    </p>
+
+    <pre><code class="language-python">@sgl.function
+def best_of_n(s, question, n=3):
+    s += sgl.system("You are a helpful assistant. Think step by step.")
+    s += sgl.user(question)
+
+    # Fork into n parallel branches (all share the prefix KV cache)
+    forks = s.fork(n)
+    for i, f in enumerate(forks):
+        f += sgl.assistant(sgl.gen(f"answer_{i}", max_tokens=300, temperature=0.8))
+
+    # Collect all answers
+    answers = [forks[i][f"answer_{i}"] for i in range(n)]
+    return answers</code></pre>
+
+    <h2>4. Structured Output with Constraints</h2>
+
+    <p>
+        One of SGLang's strongest features is its ability to constrain generation to match a regular expression
+        or JSON schema. This guarantees that the model output is syntactically valid, eliminating the need for
+        retry loops or post-processing. The constraint is applied at the token level during decoding using
+        a finite-state machine.
+    </p>
+
+    <pre><code class="language-python">@sgl.function
+def generate_json_record(s, description):
+    s += sgl.system("You extract structured data as JSON.")
+    s += sgl.user(f"Extract a person record from: {description}")
+    s += sgl.assistant(
+        sgl.gen(
+            "json_output",
+            max_tokens=200,
+            regex=r'\{"name": "[^"]+", "age": \d+, "city": "[^"]+"\}',
+        )
+    )
+
+state = generate_json_record.run(
+    description="John Smith is a 34-year-old software engineer living in Seattle."
+)
+
+import json
+record = json.loads(state["json_output"])
+print(record)
+# Output: {"name": "John Smith", "age": 34, "city": "Seattle"}</code></pre>
+
+    <div class="callout tip">
+        <div class="callout-title">Tip</div>
+        <p>For complex JSON schemas, use SGLang's <code>json_schema</code> parameter instead of writing regexes by hand. Pass a Pydantic model or a JSON Schema dictionary, and SGLang will compile it into an efficient token-level constraint automatically.</p>
+    </div>
+
+    <h2>5. RadixAttention: KV Cache Reuse via Prefix Trees</h2>
+
+    <p>
+        RadixAttention is the backend optimization that makes SGLang's frontend primitives fast. It maintains
+        a radix tree where each edge represents a sequence of tokens and each node stores the corresponding
+        KV cache tensors. When a new request arrives, the server walks the radix tree to find the longest
+        matching prefix and reuses those cached KV states.
+    </p>
+
+    <figure class="illustration">
+        <pre>
+                    [System Prompt: "You are a helpful..."]
+                    /                                    \
+        [User: "What is Python?"]          [User: "What is Rust?"]
+              |                                    |
+        [Assistant: ...]                   [Assistant: ...]
+        </pre>
+        <figcaption><strong>Figure S.3.1</strong>: A simplified radix tree for KV cache. Two requests sharing the same system prompt reuse the root node's KV cache. Only the divergent suffixes require new computation.</figcaption>
+    </figure>
+
+    <p>
+        The radix tree uses a least-recently-used (LRU) eviction policy. When GPU memory fills up, the least
+        recently accessed leaf nodes are evicted first, preserving the most commonly shared prefixes. This
+        makes RadixAttention particularly effective for chat applications where many conversations share the
+        same system prompt and few-shot examples.
+    </p>
+
+    <div class="callout practical-example">
+        <div class="callout-title">Practical Example</div>
+        <p>Consider a customer support chatbot that includes a 500-token system prompt with company policies and 5 few-shot examples. Without RadixAttention, each of 100 concurrent users would need their own copy of the system prompt's KV cache (50,000 tokens worth of KV state). With RadixAttention, a single copy is shared, freeing GPU memory for 3x more concurrent users.</p>
+    </div>
+
+    <h2>6. Server Deployment</h2>
+
+    <p>
+        SGLang provides a server mode that exposes both its native API and an OpenAI-compatible API. The
+        server can be launched from the command line.
+    </p>
+
+    <pre><code class="language-bash"># Launch the SGLang server
+python -m sglang.launch_server \
+    --model-path meta-llama/Llama-3.1-8B-Instruct \
+    --port 30000 \
+    --tp 1 \
+    --mem-fraction-static 0.85</code></pre>
+
+    <p>
+        Once the server is running, you can connect to it using the SGLang client or any OpenAI-compatible
+        client library.
+    </p>
+
+    <pre><code class="language-python">from openai import OpenAI
+
+# Connect to SGLang's OpenAI-compatible endpoint
+client = OpenAI(base_url="http://localhost:30000/v1", api_key="none")
+
+response = client.chat.completions.create(
+    model="meta-llama/Llama-3.1-8B-Instruct",
+    messages=[
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": "Explain RadixAttention in two sentences."},
+    ],
+    temperature=0.3,
+    max_tokens=100,
+)
+print(response.choices[0].message.content)</code></pre>
+
+    <h2>7. Batch Inference with SGLang</h2>
+
+    <p>
+        For offline batch processing, SGLang provides efficient parallel execution that automatically exploits
+        prefix sharing across the batch. The following example processes a batch of classification tasks.
+    </p>
+
+    <pre><code class="language-python">@sgl.function
+def classify_sentiment(s, review):
+    s += sgl.system("Classify the sentiment of the following review.")
+    s += sgl.user(review)
+    s += sgl.assistant(
+        "Sentiment: " + sgl.select("sentiment", ["Positive", "Negative", "Neutral"])
+    )
+
+# Process a batch of reviews
+reviews = [
+    "This product exceeded my expectations! Highly recommend.",
+    "Terrible quality. Broke after one day.",
+    "It works fine. Nothing special, nothing terrible.",
+    "Best purchase I've made all year!",
+    "Would not buy again. Very disappointing.",
+]
+
+# Run batch (SGLang automatically shares the system prompt KV cache)
+states = classify_sentiment.run_batch(
+    [{"review": r} for r in reviews],
+    progress_bar=True,
+)
+
+for review, state in zip(reviews, states):
+    print(f"{state['sentiment']:>10} | {review[:60]}")</code></pre>
+
+    <h2>Summary</h2>
+
+    <p>
+        SGLang bridges the gap between serving infrastructure and application logic by providing a Python DSL
+        for composing complex LLM programs. Its RadixAttention backend automatically detects and reuses shared
+        prefixes across requests, delivering significant speedups for workloads with prefix overlap. The
+        constrained generation features (regex, JSON schema, select) guarantee structurally valid outputs
+        without post-processing. In the next section, we examine the quantization techniques that reduce
+        model size and increase throughput across all three serving frameworks.
+    </p>
 
     <nav class="chapter-nav">
     <a class="prev" href="section-s.2.html">Text Generation Inference (TGI): Deployment and Configura...</a>

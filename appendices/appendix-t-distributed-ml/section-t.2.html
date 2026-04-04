@@ -3,19 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Section T.2: Delta Lake and Lakehouse Architecture. A comprehensive chapter from the Building Conversational AI textbook.">
     <title>Section T.2: Delta Lake and Lakehouse Architecture | Building Conversational AI with LLMs and Agents</title>
     <link rel="stylesheet" href="../../styles/book.css">
-    <link rel="stylesheet" href="../../vendor/katex/katex.min.css">
-    <script defer src="../../vendor/katex/katex.min.js"></script>
-    <script defer src="../../vendor/katex/contrib/auto-render.min.js"
-        onload="renderMathInElement(document.body, {
-            delimiters: [
-                {left: '$$', right: '$$', display: true},
-                {left: '$', right: '$', display: false}
-            ],
-            throwOnError: false
-        });"></script>
-    <link rel="stylesheet" href="../../vendor/prism/prism-theme.css">
+<link rel="stylesheet" href="../../vendor/prism/prism-theme.css">
     <script defer src="../../vendor/prism/prism-bundle.min.js"></script>
 </head>
 <body>
@@ -33,10 +24,222 @@
 
     <div class="callout big-picture">
         <div class="callout-title">Big Picture</div>
-        <p>This section covers delta Lake and Lakehouse Architecture. Content will be generated using the book production pipeline.</p>
+        <p>Delta Lake is an open-source storage layer that brings ACID transactions, schema enforcement, and time travel to data lakes built on Parquet files. The Lakehouse architecture combines the low-cost scalability of data lakes with the reliability and performance features of data warehouses, creating a single platform for both analytics and ML. For LLM teams, Delta Lake provides versioned, auditable training datasets, efficient streaming ingestion of user feedback, and the foundation for reproducible training pipelines.</p>
     </div>
 
-    <p><em>Content pending: this section will be produced by the book-writers agent pipeline.</em></p>
+    <h2>T.2.1 Why Data Lakes Alone Are Not Enough</h2>
+
+    <p>
+        Traditional data lakes store files (CSV, JSON, Parquet) in object storage like S3 or ADLS. While
+        cheap and scalable, they lack the guarantees that ML pipelines demand. Without transactions, a
+        concurrent write can corrupt a dataset mid-training. Without schema enforcement, an upstream change
+        can silently add a column that breaks your tokenizer. Without versioning, you cannot answer the
+        question "what exact data did we use to train model v2.3?"
+    </p>
+
+    <p>
+        Delta Lake solves these problems by adding a transaction log (the <code>_delta_log</code> directory)
+        on top of Parquet files. Every write operation, whether an insert, update, delete, or schema change,
+        is recorded as a JSON commit in this log. Readers consult the log to determine which Parquet files
+        constitute the current version of the table, providing snapshot isolation without a database server.
+    </p>
+
+    <figure class="illustration">
+        <pre>
+my_table/
+  _delta_log/
+    00000000000000000000.json   # Initial commit: added file-001.parquet
+    00000000000000000001.json   # Added file-002.parquet, file-003.parquet
+    00000000000000000002.json   # Deleted file-001.parquet (compaction)
+    00000000000000000010.checkpoint.parquet  # Checkpoint for fast reads
+  file-002.parquet
+  file-003.parquet
+  file-004.parquet
+        </pre>
+        <figcaption><strong>Figure T.2.1</strong>: Delta Lake table structure. The <code>_delta_log</code> directory contains ordered JSON commits that track every mutation. Checkpoint files accelerate log replay for tables with many commits.</figcaption>
+    </figure>
+
+    <h2>T.2.2 ACID Transactions and Concurrent Writes</h2>
+
+    <p>
+        Delta Lake uses optimistic concurrency control. When two writers attempt to modify the same table
+        simultaneously, the first to commit wins, and the second must retry against the updated state. This
+        guarantees that readers always see a consistent snapshot, even during active writes. For ML teams,
+        this means a data engineer can append new training examples while a training job reads the table,
+        without either operation blocking or corrupting the other.
+    </p>
+
+    <pre><code class="language-python">from delta import DeltaTable
+from pyspark.sql import SparkSession
+
+spark = (SparkSession.builder
+    .config("spark.jars.packages", "io.delta:delta-spark_2.12:3.1.0")
+    .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
+    .config("spark.sql.catalog.spark_catalog",
+            "org.apache.spark.sql.delta.catalog.DeltaCatalog")
+    .getOrCreate())
+
+# Write a DataFrame as a Delta table
+training_data = spark.read.json("s3://bucket/raw/instruction_pairs/")
+training_data.write.format("delta").mode("overwrite").save(
+    "s3://bucket/delta/instruction_pairs"
+)
+
+# Append new data (transactional, safe with concurrent readers)
+new_examples = spark.read.json("s3://bucket/raw/new_batch_2024_03/")
+new_examples.write.format("delta").mode("append").save(
+    "s3://bucket/delta/instruction_pairs"
+)</code></pre>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight</div>
+        <p>Delta Lake's ACID transactions solve the "training data corruption" problem that plagues raw data lakes. Without transactions, a crash during a multi-file write can leave the dataset in an inconsistent state, which produces silent data quality issues that surface only as degraded model performance weeks later.</p>
+    </div>
+
+    <h2>T.2.3 Time Travel for Reproducible Training</h2>
+
+    <p>
+        Every commit in the Delta log creates a new version of the table. You can query any historical
+        version by specifying a version number or a timestamp. This feature, called time travel, is
+        indispensable for ML reproducibility. When you log the Delta table version alongside your MLflow
+        run (see <a href="section-t.1.html">Section T.1</a>), you can reconstruct the exact training
+        dataset months or years later.
+    </p>
+
+    <pre><code class="language-python"># Read a specific version of the Delta table
+df_v5 = (spark.read.format("delta")
+    .option("versionAsOf", 5)
+    .load("s3://bucket/delta/instruction_pairs"))
+
+# Read the table as it existed at a specific timestamp
+df_historical = (spark.read.format("delta")
+    .option("timestampAsOf", "2025-01-15T00:00:00Z")
+    .load("s3://bucket/delta/instruction_pairs"))
+
+# View the full commit history
+delta_table = DeltaTable.forPath(spark, "s3://bucket/delta/instruction_pairs")
+history = delta_table.history()
+history.select("version", "timestamp", "operation", "operationMetrics").show(10)
+
+# Restore the table to a previous version (useful for rollbacks)
+delta_table.restoreToVersion(5)</code></pre>
+
+    <div class="callout tip">
+        <div class="callout-title">Tip</div>
+        <p>In your training scripts, always log the Delta table version alongside your model artifacts. A simple <code>mlflow.log_param("delta_version", delta_table.history(1).first()["version"])</code> creates a permanent link between the model and its training data, enabling full reproducibility.</p>
+    </div>
+
+    <h2>T.2.4 Schema Evolution and Enforcement</h2>
+
+    <p>
+        Delta Lake enforces schemas by default: if you attempt to write data with columns that do not match
+        the table schema, the write fails with a clear error. This prevents the subtle bugs that occur when
+        an upstream data source adds or renames a field. When schema changes are intentional, you can enable
+        <strong>schema evolution</strong> with a single option, allowing new columns to be added automatically.
+    </p>
+
+    <pre><code class="language-python"># Schema enforcement: this will FAIL because "quality_label" is not in the schema
+try:
+    bad_data = spark.createDataFrame([
+        {"instruction": "test", "response": "test", "quality_label": "good"}
+    ])
+    bad_data.write.format("delta").mode("append").save(
+        "s3://bucket/delta/instruction_pairs"
+    )
+except Exception as e:
+    print(f"Schema enforcement caught: {e}")
+
+# Schema evolution: allow the new column to be added
+new_data_with_extra_col = spark.createDataFrame([
+    {"instruction": "test", "response": "test", "category": "general"}
+])
+(new_data_with_extra_col.write.format("delta")
+    .mode("append")
+    .option("mergeSchema", "true")
+    .save("s3://bucket/delta/instruction_pairs"))</code></pre>
+
+    <h2>T.2.5 The Lakehouse Architecture</h2>
+
+    <p>
+        The Lakehouse architecture, popularized by Databricks, layers structured metadata and governance
+        on top of open file formats in object storage. Unlike a traditional data warehouse (which copies
+        data into a proprietary format), the Lakehouse keeps all data in open formats (Parquet via Delta
+        Lake) while providing warehouse features: ACID transactions, indexing, caching, and SQL access.
+    </p>
+
+    <p>
+        For LLM teams, the Lakehouse pattern has three practical advantages. First, training data and
+        analytics data live in the same platform, eliminating ETL between systems. Second, the open format
+        means any tool (Spark, pandas, DuckDB, PyArrow) can read the data directly. Third, the governance
+        layer (Unity Catalog) applies consistently across all access patterns, whether a data scientist
+        reads data from a notebook or a training pipeline reads it from a scheduled job.
+    </p>
+
+    <figure class="illustration">
+        <pre>
+┌──────────────────────────────────────────────────────────┐
+│                    Unity Catalog                          │
+│          (Governance, Access Control, Lineage)           │
+├──────────────────────────────────────────────────────────┤
+│                      Delta Lake                           │
+│     (ACID Transactions, Schema, Time Travel, Z-Order)    │
+├──────────────────────────────────────────────────────────┤
+│                   Object Storage                          │
+│          (S3 / ADLS / GCS, Parquet Files)                │
+└──────────────────────────────────────────────────────────┘
+        </pre>
+        <figcaption><strong>Figure T.2.2</strong>: The Lakehouse architecture stack. Unity Catalog governs access, Delta Lake provides transactional semantics, and object storage provides durable, low-cost persistence.</figcaption>
+    </figure>
+
+    <h2>T.2.6 Optimizing Delta Tables for ML Workloads</h2>
+
+    <p>
+        Delta Lake includes several optimization features that improve read performance for large training
+        datasets. <strong>Z-ordering</strong> co-locates related data in the same Parquet files based on
+        column values, which accelerates filtered reads. <strong>Compaction</strong> (the OPTIMIZE command)
+        merges small files into larger ones, reducing the overhead of reading thousands of tiny files.
+        <strong>Liquid clustering</strong>, a newer feature, automatically manages data layout without
+        manual Z-order specifications.
+    </p>
+
+    <pre><code class="language-sql">-- Compact small files into larger ones (target ~1 GB per file)
+OPTIMIZE delta.`s3://bucket/delta/instruction_pairs`;
+
+-- Z-order by columns commonly used for filtering
+OPTIMIZE delta.`s3://bucket/delta/instruction_pairs`
+  ZORDER BY (source, quality_score);
+
+-- Enable liquid clustering on a new table (Databricks Runtime 13.3+)
+CREATE TABLE ml_catalog.llm_data.embeddings (
+  doc_id BIGINT,
+  chunk_id INT,
+  embedding ARRAY&lt;FLOAT&gt;,
+  source STRING,
+  created_at TIMESTAMP
+)
+USING DELTA
+CLUSTER BY (source, created_at);
+
+-- Vacuum old files (default retention: 7 days)
+VACUUM delta.`s3://bucket/delta/instruction_pairs` RETAIN 168 HOURS;</code></pre>
+
+    <div class="callout warning">
+        <div class="callout-title">Warning</div>
+        <p>The VACUUM command permanently deletes old Parquet files that are no longer referenced by the Delta log. After vacuuming, time travel queries to versions older than the retention period will fail. Always set the retention period longer than your longest-running training job, and keep MLflow logs that record the exact Delta version used for each training run.</p>
+    </div>
+
+    <h2>Summary</h2>
+
+    <p>
+        Delta Lake transforms raw object storage into a reliable, versioned data platform suitable for
+        production ML. ACID transactions prevent data corruption during concurrent reads and writes, time
+        travel enables reproducible training by pinning exact dataset versions, and schema enforcement
+        catches upstream data drift before it reaches your model. Combined with Unity Catalog's governance
+        layer, the Lakehouse architecture provides a single source of truth for both analytics and ML
+        workloads. In the next section, we explore Ray, which complements Databricks by providing
+        distributed compute for training and serving workloads that extend beyond Spark's data-parallel
+        paradigm.
+    </p>
 
     <nav class="chapter-nav">
     <a class="prev" href="section-t.1.html">Databricks: Workspace, Notebooks, and Unity Catalog</a>

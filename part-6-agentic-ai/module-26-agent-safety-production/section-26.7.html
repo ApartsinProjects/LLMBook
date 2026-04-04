@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Section 26.7: Supply-Chain Security for Agent Sandboxes. A comprehensive chapter from the Building Conversational AI textbook.">
+    <title>Section 26.7: Supply-Chain Security for Agent Sandboxes</title>
+    <link rel="stylesheet" href="../../styles/book.css">
+<link rel="stylesheet" href="../../vendor/prism/prism-theme.css">
+    <script defer src="../../vendor/prism/prism-bundle.min.js"></script>
+</head>
+<body>
+<header class="chapter-header">
+    <nav class="header-nav">
+        <a href="../../index.html" class="book-title-link">Building Conversational AI with LLMs and Agents</a>
+        <a href="../../toc.html" class="toc-link" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+    </nav>
+    <div class="part-label"><a href="../index.html">Part VI: Agentic AI</a></div>
+    <div class="chapter-label"><a href="index.html">Chapter 26: Agent Safety, Production &amp; Operations</a></div>
+    <h1>Supply-Chain Security for Agent Sandboxes</h1>
+</header>
+
+<main class="content">
+
+    <div class="prerequisites">
+        <h3>Prerequisites</h3>
+        <p>This section builds on the sandboxed execution environments from <a href="section-26.2.html">Section 26.2</a> and the agent safety foundations in <a href="section-26.1.html">Section 26.1</a>. Familiarity with Docker, container images, and basic CI/CD pipeline concepts is assumed. Understanding of <a class="cross-ref" href="../module-22-ai-agents/section-22.3.html">tool use</a> patterns from Chapter 22 provides helpful context for why agents need to install and execute arbitrary code.</p>
+    </div>
+
+    <div class="callout big-picture">
+        <div class="callout-title">Big Picture</div>
+        <p><strong>Agent sandboxes are only as secure as the software running inside them.</strong> <a href="section-26.2.html">Section 26.2</a> covered how to isolate agent execution with containers and microVMs. This section addresses a complementary threat: the software supply chain within those sandboxes. When an agent installs packages, pulls base images, or executes code from external sources, it inherits every vulnerability and backdoor in those dependencies. Supply-chain security tools (SBOM generation, vulnerability scanning, image signing, provenance attestation) provide the verification layer that ensures sandbox contents are trustworthy, not just isolated.</p>
+    </div>
+
+    <h2>1. Why Agent Sandboxes Need Supply-Chain Hardening <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        Agentic AI systems differ from traditional software in a critical way: the agent decides at runtime which packages to install, which APIs to call, and which code to execute. A coding agent asked to "build a data visualization" might install matplotlib, pandas, seaborn, and a dozen transitive dependencies. A research agent might pull a specialized NLP library the developer never anticipated. Each installed package is an attack surface: it might contain a known vulnerability (CVE), a malicious post-install script, or a dependency confusion payload that hijacks a private package name.
+    </p>
+
+    <p>
+        Traditional applications lock their dependencies at build time, audit them once, and deploy a fixed artifact. Agent sandboxes, by contrast, assemble their dependency set dynamically. This means the security posture of an agent sandbox can change between one task and the next. A sandbox that was safe for yesterday's task might be compromised by today's task if the agent installs a package with a newly disclosed vulnerability. Supply-chain hardening provides the tooling to detect, prevent, and recover from these risks.
+    </p>
+
+    <p>
+        The threat is not theoretical. In 2024, the Trivy project itself experienced a CI compromise where a malicious pull request attempted to inject code into the build pipeline. Dependency confusion attacks (where an attacker publishes a malicious package to PyPI or npm using the same name as a private internal package) have targeted organizations including Apple, Microsoft, and Tesla. For agent systems that install packages on behalf of users, these attacks are especially dangerous because the agent, not the developer, is making the installation decision.
+    </p>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight</div>
+        <p>The fundamental tension in agent sandbox security is between flexibility and control. Agents need to install packages to accomplish tasks. But every installed package is a potential vector for supply-chain attacks. The solution is not to prohibit package installation (that would cripple the agent) but to verify, scan, and attest every component that enters the sandbox. Think of supply-chain security as the "immigration checkpoint" for your sandbox: everything that enters gets inspected, documented, and verified before it is allowed to execute.</p>
+    </div>
+
+    <h2>2. SBOM Generation with Syft <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        A <strong>Software Bill of Materials (SBOM)</strong> is a complete inventory of every software component in a container image or filesystem. It lists each package, its version, its source, and its license. SBOMs serve two purposes in agent security: (1) they provide the input for vulnerability scanners (you cannot scan what you have not inventoried), and (2) they create an audit trail of exactly what software was present in the sandbox when a task executed.
+    </p>
+
+    <p>
+        <strong>Syft</strong> (from Anchore) is the standard open-source tool for generating SBOMs. It supports multiple output formats (SPDX, CycloneDX, Syft JSON) and can scan container images, directories, and archives. Syft detects packages from multiple ecosystems: APK (Alpine), APT (Debian/Ubuntu), RPM (RHEL/Fedora), pip (Python), npm (Node.js), Go modules, Rust crates, and Java JARs.
+    </p>
+
+<pre><code class="language-bash">#!/usr/bin/env bash
+# Generate an SBOM for the agent-runner container image
+
+# Install Syft (one-time setup)
+curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+
+# Scan the container image and produce a CycloneDX JSON SBOM
+syft packages registry.example.com/agent-runner:latest \
+    -o cyclonedx-json \
+    > sbom-agent-runner.cdx.json
+
+# Inspect the SBOM: count packages by ecosystem
+echo "Package counts by type:"
+cat sbom-agent-runner.cdx.json | \
+    python3 -c "
+import json, sys, collections
+bom = json.load(sys.stdin)
+types = collections.Counter(
+    c.get('purl', '').split('/')[0].replace('pkg:', '')
+    for c in bom.get('components', [])
+    if c.get('purl')
+)
+for t, count in types.most_common():
+    print(f'  {t}: {count}')
+"
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 26.7.1:</strong> Generating a CycloneDX SBOM for an agent-runner container image using Syft. The SBOM enumerates every installed package (OS-level and language-level) with version and source information, providing the foundation for vulnerability scanning.</div>
+
+    <p>
+        For agent sandboxes with dynamic dependencies, generate the SBOM <strong>after</strong> the agent installs its packages but <strong>before</strong> the agent executes the task code. This captures the complete dependency set for that specific task. Store the SBOM alongside the task execution log so you can retrospectively audit which packages were present when a particular task ran.
+    </p>
+
+    <h2>3. Vulnerability Scanning with Trivy <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        <strong>Trivy</strong> (from Aqua Security) is a comprehensive vulnerability scanner for containers, filesystems, git repositories, and Kubernetes clusters. Given an SBOM or a container image, Trivy matches each package against vulnerability databases (NVD, GitHub Advisory Database, OS-specific advisories) and reports known CVEs with severity ratings (CRITICAL, HIGH, MEDIUM, LOW). Trivy also detects misconfigurations (e.g., running as root, exposed secrets) and license violations.
+    </p>
+
+<pre><code class="language-bash">#!/usr/bin/env bash
+# Scan the agent-runner image for vulnerabilities
+
+# Scan container image directly
+trivy image registry.example.com/agent-runner:latest \
+    --severity CRITICAL,HIGH \
+    --format json \
+    --output trivy-report.json
+
+# Alternatively, scan from an existing SBOM
+trivy sbom sbom-agent-runner.cdx.json \
+    --severity CRITICAL,HIGH \
+    --format table
+
+# Scan a filesystem (useful for scanning the sandbox after package install)
+trivy fs /sandbox/workspace \
+    --scanners vuln,secret,misconfig \
+    --severity CRITICAL,HIGH
+
+# Exit code 1 if vulnerabilities found (useful for CI gates)
+trivy image registry.example.com/agent-runner:latest \
+    --exit-code 1 \
+    --severity CRITICAL
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 26.7.2:</strong> Trivy scanning an agent-runner container image and filesystem for vulnerabilities. The exit-code flag enables CI gate enforcement: the build fails if critical vulnerabilities are found. The fs scanner can be run inside the sandbox after the agent installs packages.</div>
+
+    <p>
+        For agent sandboxes, integrate Trivy scanning at two points. First, scan the base image during CI to ensure it ships without known vulnerabilities. Second, scan the sandbox filesystem after the agent installs packages but before task execution. If the post-install scan finds a critical vulnerability, the sandbox runtime can block execution and return an error to the user, explaining that a required package has a known security issue.
+    </p>
+
+<pre><code class="language-python">import subprocess
+import json
+
+def scan_sandbox(workspace_path: str) -> dict:
+    """Scan the agent sandbox workspace for vulnerabilities after package install."""
+    result = subprocess.run(
+        [
+            "trivy", "fs", workspace_path,
+            "--scanners", "vuln,secret",
+            "--severity", "CRITICAL,HIGH",
+            "--format", "json",
+            "--quiet",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    report = json.loads(result.stdout) if result.stdout else {"Results": []}
+
+    # Aggregate findings
+    critical = []
+    high = []
+    for target in report.get("Results", []):
+        for vuln in target.get("Vulnerabilities", []):
+            entry = {
+                "id": vuln["VulnerabilityID"],
+                "package": vuln["PkgName"],
+                "installed": vuln["InstalledVersion"],
+                "fixed": vuln.get("FixedVersion", "not yet"),
+                "title": vuln.get("Title", ""),
+            }
+            if vuln["Severity"] == "CRITICAL":
+                critical.append(entry)
+            else:
+                high.append(entry)
+
+    return {
+        "safe": len(critical) == 0,
+        "critical_count": len(critical),
+        "high_count": len(high),
+        "critical": critical,
+        "high": high,
+    }
+
+# Usage in the sandbox runtime
+scan = scan_sandbox("/sandbox/workspace")
+if not scan["safe"]:
+    raise SecurityError(
+        f"Sandbox blocked: {scan['critical_count']} critical vulnerabilities found. "
+        f"First: {scan['critical'][0]['id']} in {scan['critical'][0]['package']}"
+    )
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 26.7.3:</strong> Python wrapper for Trivy filesystem scanning, designed to run inside the agent sandbox after package installation. If critical vulnerabilities are found, task execution is blocked with a descriptive error message.</div>
+
+    <h2>4. Image Signing and Verification with Cosign <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        Vulnerability scanning tells you whether a container image contains known vulnerabilities. Image signing tells you whether the image is the one you built, or whether it was tampered with in transit or at rest. <strong>Cosign</strong> (from the Sigstore project) provides keyless signing and verification of container images using short-lived certificates issued by Fulcio and recorded in the Rekor transparency log. "Keyless" means there is no long-lived signing key to manage; instead, Cosign uses OIDC identity (e.g., your CI system's workload identity) to obtain an ephemeral signing certificate.
+    </p>
+
+<pre><code class="language-bash">#!/usr/bin/env bash
+# Sign and verify the agent-runner container image with Cosign
+
+# Sign the image (keyless mode, uses OIDC identity from CI)
+cosign sign registry.example.com/agent-runner:latest
+
+# Verify the signature, checking that it was signed by the expected identity
+cosign verify registry.example.com/agent-runner:latest \
+    --certificate-identity "https://github.com/yourorg/agent-runner/.github/workflows/build.yml@refs/heads/main" \
+    --certificate-oidc-issuer "https://token.actions.githubusercontent.com"
+
+# Attach the SBOM as an attestation to the image
+cosign attest \
+    --predicate sbom-agent-runner.cdx.json \
+    --type cyclonedx \
+    registry.example.com/agent-runner:latest
+
+# Verify the SBOM attestation
+cosign verify-attestation \
+    --type cyclonedx \
+    --certificate-identity "https://github.com/yourorg/agent-runner/.github/workflows/build.yml@refs/heads/main" \
+    --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+    registry.example.com/agent-runner:latest
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 26.7.4:</strong> Cosign keyless signing, verification, and SBOM attestation for an agent-runner container image. The certificate-identity flag ensures only images signed by the expected CI workflow are accepted. The SBOM attestation binds the inventory to the specific image digest.</div>
+
+    <p>
+        In the agent sandbox deployment pipeline, configure the container runtime (Kubernetes admission controller, Docker content trust, or a custom policy engine) to reject any image that lacks a valid Cosign signature. This prevents deployment of unsigned or tampered images, even if an attacker gains write access to the container registry.
+    </p>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight</div>
+        <p>Image signing and SBOM attestation together answer two distinct questions. The signature answers "who built this image, and has it been modified since?" The SBOM attestation answers "what is inside this image?" By requiring both, you establish a chain of trust from the CI build to the production sandbox. An attacker who replaces the image is caught by the signature check. An attacker who injects a vulnerable dependency is caught by the SBOM scan. Neither control alone is sufficient; together they provide defense in depth.</p>
+    </div>
+
+    <h2>5. The SLSA Framework: Provenance and Build Integrity <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>
+        <strong>SLSA</strong> (Supply-chain Levels for Software Artifacts, pronounced "salsa") is a framework for ensuring the integrity of software artifacts throughout the build and delivery process. SLSA defines four levels of increasing assurance:
+    </p>
+
+    <ul>
+        <li><strong>SLSA Level 1:</strong> Build process is documented (provenance exists but is not verified).</li>
+        <li><strong>SLSA Level 2:</strong> Build is executed on a hosted platform with signed provenance (tamper-evident).</li>
+        <li><strong>SLSA Level 3:</strong> Build is executed on a hardened platform with non-falsifiable provenance (tamper-resistant). The build environment is ephemeral and isolated.</li>
+        <li><strong>SLSA Level 4:</strong> Hermetic builds with two-person review of all changes. The highest assurance level, requiring reproducible builds and verified source provenance.</li>
+    </ul>
+
+    <p>
+        For agent sandbox images, SLSA Level 3 is a practical target. GitHub Actions and Google Cloud Build both support SLSA Level 3 provenance generation through the <code>slsa-github-generator</code> and <code>slsa-verifier</code> tools. The provenance document records which source repository was built, which commit was checked out, which builder was used, and which build steps were executed. This document is signed and attached to the container image as an in-toto attestation.
+    </p>
+
+<pre><code class="language-yaml"># .github/workflows/build-agent-runner.yml
+# GitHub Actions workflow with SLSA Level 3 provenance
+
+name: Build Agent Runner
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write   # Required for keyless signing
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build container image
+        run: |
+          docker build -t registry.example.com/agent-runner:${{ github.sha }} .
+
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: registry.example.com/agent-runner:${{ github.sha }}
+          format: cyclonedx-json
+          output-file: sbom.cdx.json
+
+      - name: Scan for vulnerabilities
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: registry.example.com/agent-runner:${{ github.sha }}
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+
+      - name: Push image
+        run: docker push registry.example.com/agent-runner:${{ github.sha }}
+
+      - name: Sign image and attach SBOM
+        uses: sigstore/cosign-installer@v3
+      - run: |
+          cosign sign registry.example.com/agent-runner:${{ github.sha }}
+          cosign attest --predicate sbom.cdx.json --type cyclonedx \
+            registry.example.com/agent-runner:${{ github.sha }}
+
+  provenance:
+    needs: build
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_container_slsa3.yml@v2.0.0
+    with:
+      image: registry.example.com/agent-runner
+      digest: ${{ needs.build.outputs.digest }}
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 26.7.5:</strong> GitHub Actions workflow that builds an agent-runner image with SLSA Level 3 provenance. The pipeline generates an SBOM (Syft via sbom-action), scans for vulnerabilities (Trivy), signs the image (Cosign), attaches the SBOM as an attestation, and generates SLSA provenance.</div>
+
+    <h2>6. CI Hardening: Immutable Images and Pinned Dependencies <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        Beyond scanning and signing, the CI pipeline itself must be hardened against supply-chain attacks. Key practices for agent sandbox images include:
+    </p>
+
+    <p>
+        <strong>Immutable base images.</strong> Pin the base image to a specific digest, not a mutable tag. <code>FROM python:3.12-slim@sha256:abcd1234...</code> ensures that every build uses the exact same base image. A tag like <code>python:3.12-slim</code> can be updated by the image publisher at any time, silently introducing new packages or vulnerabilities.
+    </p>
+
+    <p>
+        <strong>Pinned dependencies.</strong> Lock all Python dependencies with <code>pip freeze</code> or a lockfile tool (pip-tools, Poetry, uv). Lock all system packages with version-pinned <code>apt-get install</code> commands. This ensures reproducible builds: the same Dockerfile always produces the same image, regardless of when or where it is built.
+    </p>
+
+    <p>
+        <strong>Minimal images.</strong> Use distroless or Alpine-based images that contain only the runtime dependencies. Fewer packages mean a smaller attack surface. An agent-runner image does not need a compiler, a shell, or system administration tools. If the agent needs to install packages at runtime, provide a curated set of allowed packages rather than unrestricted pip access.
+    </p>
+
+<pre><code class="language-dockerfile"># Dockerfile for a hardened agent-runner sandbox
+# Stage 1: Build dependencies in a full image
+FROM python:3.12-slim@sha256:f5a1c3e5b2d8... AS builder
+
+WORKDIR /build
+COPY requirements.lock .
+RUN pip install --no-cache-dir --target=/deps -r requirements.lock
+
+# Stage 2: Runtime with minimal base
+FROM gcr.io/distroless/python3-debian12@sha256:a9b8c7d6...
+
+# Copy only the installed packages, no build tools
+COPY --from=builder /deps /deps
+ENV PYTHONPATH=/deps
+
+# Copy the sandbox runtime code
+COPY sandbox_runtime/ /app/
+
+# Run as non-root
+USER nonroot:nonroot
+
+# No shell available in distroless; exec form only
+ENTRYPOINT ["python3", "/app/main.py"]
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 26.7.6:</strong> Multi-stage Dockerfile for a hardened agent sandbox. The build stage installs pinned dependencies; the runtime stage uses a distroless base image with no shell, no package manager, and no build tools. The image is pinned by digest to prevent silent base image updates.</div>
+
+    <div class="callout practical-example">
+        <div class="callout-title">Practical Example: Dependency Allowlist for Agent Sandboxes</div>
+        <p>Instead of giving agents unrestricted <code>pip install</code> access, maintain a curated allowlist of approved packages. The sandbox runtime intercepts install requests and checks each package name and version against the allowlist. Packages not on the list are rejected with an explanatory message. The allowlist is reviewed and updated monthly by the security team. This approach balances agent flexibility (hundreds of approved packages covering common tasks) with supply-chain control (no arbitrary code from PyPI runs in production sandboxes).</p>
+    </div>
+
+    <h2>7. Threat Model: Real-World Supply-Chain Incidents <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        Understanding real-world attacks helps motivate the defenses covered in this section. The following incidents illustrate the diversity of supply-chain threats that affect agent sandboxes.
+    </p>
+
+    <p>
+        <strong>Dependency confusion (2021).</strong> Security researcher Alex Birsan demonstrated that major companies (Apple, Microsoft, PayPal, Tesla, and others) were vulnerable to dependency confusion attacks. The attack exploits package managers that check public registries before private ones. By publishing a malicious package to PyPI with the same name as an internal package, an attacker can trick pip into installing the public (malicious) version. For agent systems that install packages by name, this attack is especially relevant: the agent may request a package that matches an internal name, and the public registry returns a malicious payload.
+    </p>
+
+    <p>
+        <strong>Event-Stream compromise (2018).</strong> An attacker gained maintainer access to the popular npm package event-stream (downloaded 2 million times per week) and injected a targeted backdoor that stole cryptocurrency wallet credentials. The malicious code was hidden in a new dependency (flatmap-stream) added in a minor version update. This incident demonstrates why SBOM tracking and dependency auditing are essential: the malicious dependency appeared as a routine transitive addition that would not trigger any version-pinning violation.
+    </p>
+
+    <p>
+        <strong>Codecov CI compromise (2021).</strong> Attackers modified the Codecov Bash Uploader script (used in thousands of CI pipelines) to exfiltrate environment variables, including CI secrets, API tokens, and signing keys. This is a direct threat to agent sandbox build pipelines: if the CI pipeline is compromised, the attacker can inject malicious code into the agent-runner image, and the signed provenance will attest to the compromised build as legitimate.
+    </p>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight</div>
+        <p>Supply-chain attacks target trust relationships. Dependency confusion exploits trust in package names. The event-stream compromise exploited trust in maintainers. The Codecov attack exploited trust in CI tooling. Each defense in this section addresses a different trust boundary: SBOMs inventory what you trust, Trivy verifies that trust is warranted, Cosign ensures trust has not been violated in transit, and SLSA provenance verifies trust in the build process itself. A complete supply-chain security posture requires coverage at every trust boundary.</p>
+    </div>
+
+    <h2>8. Practical Lab: Hardened Agent-Runner Container <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>
+        This lab produces a hardened agent-runner container image with a complete supply-chain security pipeline: SBOM generation, vulnerability scanning, image signing, and verification.
+    </p>
+
+    <p><strong>Steps:</strong></p>
+    <ol>
+        <li><strong>Build the image</strong> using the multi-stage Dockerfile from Code Fragment 26.7.6, with all dependencies pinned by version and the base image pinned by digest.</li>
+        <li><strong>Generate the SBOM</strong> with Syft, producing a CycloneDX JSON document that inventories every package in the image.</li>
+        <li><strong>Scan for vulnerabilities</strong> with Trivy, failing the pipeline if any CRITICAL-severity CVEs are found.</li>
+        <li><strong>Sign the image</strong> with Cosign using keyless signing backed by your CI system's OIDC identity.</li>
+        <li><strong>Attach the SBOM</strong> as a Cosign attestation, binding the inventory to the image digest.</li>
+        <li><strong>Verify everything</strong> from the deployment side: check the Cosign signature, verify the SBOM attestation, and re-scan with Trivy as a defense-in-depth measure.</li>
+    </ol>
+
+    <p><strong>Verification script:</strong></p>
+
+<pre><code class="language-bash">#!/usr/bin/env bash
+# verify-agent-runner.sh
+# Run this before deploying the agent-runner to production
+
+set -euo pipefail
+
+IMAGE="registry.example.com/agent-runner:latest"
+EXPECTED_IDENTITY="https://github.com/yourorg/agent-runner/.github/workflows/build.yml@refs/heads/main"
+EXPECTED_ISSUER="https://token.actions.githubusercontent.com"
+
+echo "Step 1: Verify image signature..."
+cosign verify "$IMAGE" \
+    --certificate-identity "$EXPECTED_IDENTITY" \
+    --certificate-oidc-issuer "$EXPECTED_ISSUER"
+echo "Signature verified."
+
+echo "Step 2: Verify SBOM attestation..."
+cosign verify-attestation "$IMAGE" \
+    --type cyclonedx \
+    --certificate-identity "$EXPECTED_IDENTITY" \
+    --certificate-oidc-issuer "$EXPECTED_ISSUER" \
+    | jq -r '.payload' | base64 -d | jq '.predicate' > verified-sbom.json
+echo "SBOM attestation verified. $(jq '.components | length' verified-sbom.json) components found."
+
+echo "Step 3: Scan for vulnerabilities..."
+trivy image "$IMAGE" --severity CRITICAL,HIGH --exit-code 1
+echo "No critical or high vulnerabilities found."
+
+echo "All checks passed. Image is safe for deployment."
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 26.7.7:</strong> Deployment verification script that checks the Cosign signature, verifies the SBOM attestation, and runs a fresh Trivy scan before allowing the agent-runner image into production. All three checks must pass; any failure blocks deployment.</div>
+
+    <p>
+        The complete lab code, including the Dockerfile, GitHub Actions workflow, verification script, and a local testing setup using <code>act</code> (for running GitHub Actions locally), is available in the companion repository under <code>labs/chapter-26/hardened-agent-runner/</code>.
+    </p>
+
+    <h2>Exercises</h2>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 26.7.1: SBOM Interpretation <span class="level-badge basic" title="Basic">BASIC</span> <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+        <p>Explain what information an SBOM contains and why it is a prerequisite for vulnerability scanning. What are the two main SBOM formats, and when would you choose each?</p>
+        <details open>
+            <summary>Answer Sketch</summary>
+            <p>An SBOM lists every software component (package name, version, source, license) in an artifact. It is a prerequisite for vulnerability scanning because the scanner needs to know which packages are installed to match them against CVE databases. The two main formats are SPDX (originated at the Linux Foundation, often used for license compliance) and CycloneDX (originated at OWASP, optimized for security use cases). Choose SPDX when the primary concern is license compliance; choose CycloneDX when the focus is vulnerability management and security attestation.</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 26.7.2: Dependency Confusion Defense <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span> <span class="exercise-type coding" title="Coding">Coding</span></div>
+        <p>Write a Python function <code>safe_install(package_name, allowlist)</code> that checks a package name against an allowlist before installation. The function should also verify the package exists on PyPI and check its download count (packages with very few downloads may be suspicious).</p>
+        <details open>
+            <summary>Answer Sketch</summary>
+            <p>Check package_name against the allowlist dict (mapping name to allowed version range). If not in the allowlist, reject with an explanatory message. If in the allowlist, query the PyPI JSON API (https://pypi.org/pypi/{name}/json) to verify the package exists and check its recent download count via the pypistats API. Flag packages with fewer than 1,000 weekly downloads as suspicious. If all checks pass, run pip install with the pinned version from the allowlist.</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 26.7.3: CI Pipeline Design <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span> <span class="exercise-type analysis" title="Analysis">Analysis</span></div>
+        <p>Design a CI pipeline for an agent-runner image that achieves SLSA Level 2. List the required steps and explain which SLSA requirements each step satisfies.</p>
+        <details open>
+            <summary>Answer Sketch</summary>
+            <p>SLSA Level 2 requires: (1) version-controlled source (satisfied by Git), (2) build executed on a hosted service (satisfied by GitHub Actions or similar), (3) signed provenance (satisfied by Cosign or slsa-github-generator). Pipeline steps: checkout source, build image, generate SBOM (Syft), scan vulnerabilities (Trivy), push image, sign image (Cosign), generate provenance attestation. The provenance document records the source repo, commit SHA, builder identity, and build steps. The signature makes the provenance tamper-evident.</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 26.7.4: Runtime Scanning Trade-offs <span class="level-badge advanced" title="Advanced">ADVANCED</span> <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+        <p>Scanning the agent sandbox after package installation adds latency to task execution. Analyze the trade-off between security and performance. Propose a tiered approach that balances both.</p>
+        <details open>
+            <summary>Answer Sketch</summary>
+            <p>Tier 1 (fast, always): check installed packages against a pre-computed allowlist with cached scan results. Latency: milliseconds. Tier 2 (moderate, for new packages): run Trivy filesystem scan on newly installed packages only, using a local vulnerability database updated daily. Latency: 2 to 5 seconds. Tier 3 (thorough, for sensitive tasks): full Trivy scan of the entire workspace, including secret detection and misconfiguration scanning. Latency: 10 to 30 seconds. Assign tiers based on task sensitivity: routine code execution gets Tier 1, tasks accessing production data get Tier 2, tasks with network access get Tier 3.</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 26.7.5: Incident Response <span class="level-badge advanced" title="Advanced">ADVANCED</span> <span class="exercise-type analysis" title="Analysis">Analysis</span></div>
+        <p>A critical CVE is disclosed in a package that your agent sandbox installed for 500 tasks over the past week. Using the SBOM audit trail, design an incident response plan. What data do you need, and what actions do you take?</p>
+        <details open>
+            <summary>Answer Sketch</summary>
+            <p>Query the SBOM archive for all task executions in the past week that included the vulnerable package. For each affected task: (1) check whether the task had network access (potential data exfiltration), (2) check whether the task accessed sensitive data (potential data exposure), (3) review the task output for anomalies. Immediate actions: update the allowlist to require the patched version, rebuild the base image, re-scan all running sandbox instances. Notification: alert users whose tasks were affected with a summary of the risk and remediation status. Long-term: add the CVE to the regression test suite so future scans catch similar patterns.</p>
+        </details>
+    </div>
+
+<section class="bibliography">
+    <h2>References and Further Reading</h2>
+
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://github.com/aquasecurity/trivy" target="_blank" rel="noopener">Aqua Security. Trivy: Comprehensive Security Scanner.</a></p>
+        <p class="bib-annotation">Open-source vulnerability scanner for containers, filesystems, git repositories, and Kubernetes. Supports multiple vulnerability databases and produces reports in JSON, table, and SARIF formats. The standard tool for container security scanning in CI/CD pipelines.</p>
+        <span class="bib-meta">Tool</span>
+    </div>
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://github.com/anchore/syft" target="_blank" rel="noopener">Anchore. Syft: SBOM Generation Tool.</a></p>
+        <p class="bib-annotation">Generates Software Bills of Materials from container images, filesystems, and archives. Supports SPDX, CycloneDX, and native Syft JSON output formats. Detects packages from 15+ ecosystems including pip, npm, APK, APT, and RPM.</p>
+        <span class="bib-meta">Tool</span>
+    </div>
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://docs.sigstore.dev/cosign/overview/" target="_blank" rel="noopener">Sigstore. Cosign: Container Signing, Verification, and Storage.</a></p>
+        <p class="bib-annotation">Keyless signing and verification for container images and other OCI artifacts. Uses Fulcio for ephemeral certificates and Rekor for transparency logging. Integrates with GitHub Actions, GitLab CI, and other CI platforms for automated signing.</p>
+        <span class="bib-meta">Tool</span>
+    </div>
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://slsa.dev/spec/v1.0/" target="_blank" rel="noopener">SLSA: Supply-chain Levels for Software Artifacts, v1.0 Specification.</a></p>
+        <p class="bib-annotation">Framework for ensuring integrity and provenance of software artifacts. Defines four levels of assurance from basic provenance documentation to hermetic, reproducible builds. Adopted by Google, GitHub, and the OpenSSF.</p>
+        <span class="bib-meta">Specification</span>
+    </div>
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://medium.com/@alex.birsan/dependency-confusion-4a5d60fec610" target="_blank" rel="noopener">Birsan, A. (2021). "Dependency Confusion: How I Hacked Into Apple, Microsoft and Dozens of Other Companies."</a></p>
+        <p class="bib-annotation">The original disclosure of dependency confusion attacks, demonstrating how public package registries can be exploited to inject malicious code into private build systems. Essential reading for understanding why agent sandbox package installation requires supply-chain controls.</p>
+        <span class="bib-meta">Article</span>
+    </div>
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://www.cisa.gov/sbom" target="_blank" rel="noopener">CISA. Software Bill of Materials (SBOM) Resources.</a></p>
+        <p class="bib-annotation">U.S. Cybersecurity and Infrastructure Security Agency resources on SBOM standards, tooling, and best practices. Includes guidance on SBOM generation, consumption, and integration into vulnerability management workflows.</p>
+        <span class="bib-meta">Reference</span>
+    </div>
+</section>
+
+<div class="whats-next">
+    <h2>What Comes Next</h2>
+    <p>This section completes the chapter on agent safety and production operations. For the broader discussion of AI safety, ethics, and regulation, see <a class="cross-ref" href="../../part-9-safety-strategy/module-32-safety-ethics-regulation/index.html">Chapter 32: Safety, Ethics &amp; Regulation</a>. For practical deployment patterns, see <a class="cross-ref" href="../../part-8-evaluation-production/module-30-observability-monitoring/index.html">Chapter 30: Observability &amp; Monitoring</a>.</p>
+</div>
+
+<nav class="chapter-nav">
+    <a class="prev" href="section-26.6.html">Agentic Security Benchmarks for Tool-Using Systems</a>
+    <a class="up" href="index.html">Chapter 26: Agent Safety, Production &amp; Operations</a>
+    <a class="next" href="../../part-7-multimodal-applications/index.html">Part VII: AI Applications</a>
+</nav>
+
+    <footer>
+        <p class="footer-title">Building Conversational AI with LLMs and Agents, Fifth Edition</p>
+        <p>&copy; 2026 Alexander Apartsin &amp; Yehudit Aperstein &middot; <a href="../../toc.html">Contents</a></p>
+        <p class="footer-updated">Last updated: <script>document.write(new Date(document.lastModified).toLocaleDateString('en-US', {year:'numeric', month:'long', day:'numeric'}))</script></p>
+    </footer>
+</main>
+</body>
+</html>

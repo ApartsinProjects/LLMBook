@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Section 33.7: Enterprise Integration Patterns for LLM Systems. A comprehensive chapter from the Building Conversational AI textbook.">
+    <title>Section 33.7: Enterprise Integration Patterns for LLM Systems</title>
+    <link rel="stylesheet" href="../../styles/book.css">
+<link rel="stylesheet" href="../../vendor/prism/prism-theme.css">
+    <script defer src="../../vendor/prism/prism-bundle.min.js"></script>
+</head>
+<body>
+<header class="chapter-header">
+    <nav class="header-nav">
+        <a href="../../index.html" class="book-title-link">Building Conversational AI with LLMs and Agents</a>
+        <a href="../../toc.html" class="toc-link" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+    </nav>
+    <div class="part-label"><a href="../index.html">Part IX: Safety &amp; Strategy</a></div>
+    <div class="chapter-label"><a href="index.html">Chapter 33: Strategy, Product &amp; ROI</a></div>
+    <h1>Enterprise Integration Patterns for LLM Systems</h1>
+</header>
+
+<main class="content">
+
+    <div class="prerequisites">
+        <h3>Prerequisites</h3>
+        <p>This section builds on <a class="cross-ref" href="../../part-8-evaluation-production/module-31-production-engineering/section-31.1.html">deployment architecture</a> from Chapter 31, <a class="cross-ref" href="../module-32-safety-ethics-regulation/index.html">safety and compliance</a> from Chapter 32, and <a class="cross-ref" href="section-33.4.html">vendor evaluation</a> from Section 33.4. Familiarity with enterprise authentication protocols (OAuth 2.0, SAML) and cloud IAM is helpful but not required.</p>
+    </div>
+
+    <h2>1. Identity Integration for LLM Applications <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        Enterprise LLM deployments cannot rely on simple API keys shared across teams. Every request to an LLM service must be attributable to a specific user, governed by that user's permissions, and auditable after the fact. This means integrating with your organization's existing identity provider (IdP) using protocols like OpenID Connect (OIDC), SAML 2.0, or OAuth 2.0. The LLM application acts as a relying party in the identity flow, validating tokens issued by the IdP and extracting user claims (role, department, tenant) that drive downstream authorization decisions.
+    </p>
+
+    <p>
+        A critical pattern is <strong>token passthrough</strong>: when the LLM invokes external tools or APIs on behalf of a user, it forwards the user's access token (or a scoped derivative) rather than using a shared service account. This preserves the principle of least privilege and ensures that tool calls respect the user's actual permissions. For example, if a sales agent uses an LLM-powered assistant to query the CRM, the CRM call should use the salesperson's OAuth token so that they only see accounts they own.
+    </p>
+
+    <pre><code class="language-python"># Example: FastAPI middleware for OIDC token validation in an LLM service
+from fastapi import FastAPI, Request, HTTPException, Depends
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+import httpx
+from jose import jwt, JWTError
+from functools import lru_cache
+
+app = FastAPI()
+bearer_scheme = HTTPBearer()
+
+OIDC_ISSUER = "https://login.enterprise.com/realms/prod"
+OIDC_AUDIENCE = "llm-platform"
+
+@lru_cache(maxsize=1)
+def get_jwks():
+    """Fetch and cache the OIDC provider's public keys."""
+    discovery = httpx.get(f"{OIDC_ISSUER}/.well-known/openid-configuration").json()
+    return httpx.get(discovery["jwks_uri"]).json()
+
+async def validate_token(
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+) -> dict:
+    """Validate the Bearer token and return user claims."""
+    try:
+        claims = jwt.decode(
+            credentials.credentials,
+            get_jwks(),
+            algorithms=["RS256"],
+            audience=OIDC_AUDIENCE,
+            issuer=OIDC_ISSUER,
+        )
+        return {
+            "user_id": claims["sub"],
+            "email": claims.get("email"),
+            "roles": claims.get("realm_access", {}).get("roles", []),
+            "tenant_id": claims.get("tenant_id"),
+            "access_token": credentials.credentials,  # for passthrough
+        }
+    except JWTError as e:
+        raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
+
+@app.post("/chat")
+async def chat(request: Request, user: dict = Depends(validate_token)):
+    """Chat endpoint with identity-aware context."""
+    body = await request.json()
+    # User identity flows into the LLM context and tool calls
+    return await process_chat(
+        message=body["message"],
+        user_id=user["user_id"],
+        tenant_id=user["tenant_id"],
+        roles=user["roles"],
+        passthrough_token=user["access_token"],
+    )</code></pre>
+
+    <p>
+        The <code>passthrough_token</code> field is the key architectural decision. When the LLM orchestrator invokes a tool (a database query, a Slack message, a Jira update), it attaches this token to the outbound request. The downstream service validates the token independently, ensuring that the LLM cannot escalate privileges beyond what the user actually holds.
+    </p>
+
+    <h2>2. Role-Based Access Control for LLM Features <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        RBAC in an LLM system extends beyond traditional "can this user access this endpoint" checks. Enterprises need to control access across four dimensions: <strong>which models</strong> a user can invoke (GPT-4o vs. a cheaper model), <strong>which tools</strong> they can use (read-only database access vs. write access), <strong>which prompts or assistants</strong> they can access (a legal review assistant restricted to the legal team), and <strong>which knowledge bases</strong> they can query (restricting HR documents to HR staff).
+    </p>
+
+    <pre><code class="language-python"># Example: LLM-specific RBAC policy engine
+from dataclasses import dataclass, field
+from typing import Optional
+
+@dataclass
+class LLMPermission:
+    """A single permission for an LLM resource."""
+    resource_type: str   # "model", "tool", "assistant", "knowledge_base"
+    resource_id: str     # "gpt-4o", "sql-query", "legal-reviewer", "hr-docs"
+    actions: list[str]   # ["invoke"], ["read", "write"], ["query"]
+
+@dataclass
+class LLMRole:
+    """An enterprise role with LLM-specific permissions."""
+    name: str
+    permissions: list[LLMPermission] = field(default_factory=list)
+    token_budget_daily: int = 100_000
+    max_context_window: int = 32_000
+
+# Define roles
+ROLES = {
+    "analyst": LLMRole(
+        name="analyst",
+        permissions=[
+            LLMPermission("model", "gpt-4o-mini", ["invoke"]),
+            LLMPermission("tool", "sql-read", ["invoke"]),
+            LLMPermission("knowledge_base", "product-docs", ["query"]),
+        ],
+        token_budget_daily=200_000,
+    ),
+    "engineer": LLMRole(
+        name="engineer",
+        permissions=[
+            LLMPermission("model", "gpt-4o", ["invoke"]),
+            LLMPermission("model", "claude-sonnet-4", ["invoke"]),
+            LLMPermission("tool", "sql-read", ["invoke"]),
+            LLMPermission("tool", "code-exec", ["invoke"]),
+            LLMPermission("knowledge_base", "product-docs", ["query"]),
+            LLMPermission("knowledge_base", "internal-wiki", ["query"]),
+        ],
+        token_budget_daily=500_000,
+    ),
+    "admin": LLMRole(
+        name="admin",
+        permissions=[
+            LLMPermission("model", "*", ["invoke"]),
+            LLMPermission("tool", "*", ["invoke"]),
+            LLMPermission("knowledge_base", "*", ["query"]),
+            LLMPermission("assistant", "*", ["invoke", "configure"]),
+        ],
+        token_budget_daily=2_000_000,
+    ),
+}
+
+def check_permission(
+    user_roles: list[str],
+    resource_type: str,
+    resource_id: str,
+    action: str,
+) -> bool:
+    """Check if any of the user's roles grant the requested permission."""
+    for role_name in user_roles:
+        role = ROLES.get(role_name)
+        if role is None:
+            continue
+        for perm in role.permissions:
+            if perm.resource_type != resource_type:
+                continue
+            if perm.resource_id != "*" and perm.resource_id != resource_id:
+                continue
+            if action in perm.actions:
+                return True
+    return False</code></pre>
+
+    <p>
+        In practice, RBAC policies for LLM systems are often stored in a policy engine like Open Policy Agent (OPA) or Cedar (AWS), with the LLM orchestrator querying the engine before each model invocation or tool call. This decouples policy from application code and allows security teams to update policies without redeploying the application.
+    </p>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight</div>
+        <p><strong>LLM RBAC is four-dimensional.</strong> Traditional RBAC controls endpoint access. LLM RBAC must simultaneously gate model selection, tool availability, knowledge base access, and token budgets. A well-designed policy engine evaluates all four dimensions on every request, ensuring that a user with "analyst" privileges cannot invoke expensive models, execute code, or access restricted knowledge, even if the LLM's reasoning suggests doing so.</p>
+    </div>
+
+    <h2>3. Multi-Tenant Architecture and Data Partitioning <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>
+        SaaS platforms that offer LLM features must ensure strict isolation between tenants. A prompt from Tenant A must never retrieve documents belonging to Tenant B. Conversation history from one tenant must never leak into another's context window. This requires partitioning at multiple layers: the vector store, the conversation memory, the prompt template registry, and the audit log.
+    </p>
+
+    <p>
+        The most robust approach uses <strong>namespace-based isolation</strong> in the vector store combined with tenant-scoped filters on every query. Each tenant's documents are indexed under a dedicated namespace or collection, and the retrieval layer enforces tenant boundaries before the LLM ever sees the results.
+    </p>
+
+    <pre><code class="language-python"># Example: Tenant-isolated RAG pipeline with namespace separation
+from qdrant_client import QdrantClient
+from qdrant_client.models import Filter, FieldCondition, MatchValue
+
+class TenantIsolatedRAG:
+    """RAG pipeline with strict tenant data isolation."""
+
+    def __init__(self, qdrant_url: str):
+        self.client = QdrantClient(url=qdrant_url)
+
+    def retrieve(
+        self,
+        tenant_id: str,
+        query_embedding: list[float],
+        top_k: int = 5,
+    ) -> list[dict]:
+        """Retrieve documents scoped to a single tenant."""
+        results = self.client.search(
+            collection_name="documents",
+            query_vector=query_embedding,
+            query_filter=Filter(
+                must=[
+                    FieldCondition(
+                        key="tenant_id",
+                        match=MatchValue(value=tenant_id),
+                    )
+                ]
+            ),
+            limit=top_k,
+        )
+        return [
+            {
+                "text": hit.payload["text"],
+                "source": hit.payload["source"],
+                "score": hit.score,
+            }
+            for hit in results
+        ]
+
+    def build_context(
+        self,
+        tenant_id: str,
+        query: str,
+        query_embedding: list[float],
+        system_prompt_override: str | None = None,
+    ) -> list[dict]:
+        """Build a tenant-scoped context for the LLM."""
+        docs = self.retrieve(tenant_id, query_embedding)
+        # Use tenant-specific system prompt if configured
+        system_prompt = (
+            system_prompt_override
+            or self.get_tenant_system_prompt(tenant_id)
+        )
+        context_block = "\n\n".join(
+            f"[Source: {d['source']}]\n{d['text']}" for d in docs
+        )
+        return [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"Context:\n{context_block}\n\nQuestion: {query}"},
+        ]
+
+    def get_tenant_system_prompt(self, tenant_id: str) -> str:
+        """Retrieve the tenant-specific system prompt from configuration."""
+        # In production, this reads from a database or config service
+        return f"You are an assistant for tenant {tenant_id}. Only use provided context."</code></pre>
+
+    <p>
+        Beyond vector store isolation, conversation memory requires its own partitioning. If you use Redis or a database for session state, every key must include the tenant identifier. Prompt templates should be stored in a tenant-scoped registry so that Tenant A's custom instructions never appear in Tenant B's sessions. For the strongest isolation guarantees, some enterprises deploy separate vector store collections (or even separate instances) per tenant, accepting the operational overhead in exchange for a hard boundary that a software bug cannot breach.
+    </p>
+
+    <h2>4. Audit Logging for Compliance <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        Every LLM interaction in an enterprise must produce an immutable audit record. Regulators, internal compliance teams, and incident responders all need the ability to reconstruct exactly what happened: who asked what, which model responded, what tools were invoked, what data was accessed, and what the final output was. This is not optional for organizations subject to SOC 2, HIPAA, GDPR, or financial regulations.
+    </p>
+
+    <p>
+        The audit log should capture the full lifecycle of a request: the inbound prompt (with PII redacted if required by policy), the model and parameters used, any tool calls and their results, the final response, and metadata such as token counts, latency, and cost. Logs must be written to an append-only store (such as Amazon S3 with Object Lock, or an immutable database table) so that records cannot be tampered with after the fact.
+    </p>
+
+    <pre><code class="language-python"># Example: Structured audit logging for LLM interactions
+import json
+import hashlib
+from datetime import datetime, timezone
+from dataclasses import dataclass, asdict
+from typing import Optional
+
+@dataclass
+class LLMAuditRecord:
+    """Immutable audit record for a single LLM interaction."""
+    # Identity
+    request_id: str
+    user_id: str
+    tenant_id: str
+    session_id: str
+    # Request
+    timestamp: str
+    model: str
+    prompt_hash: str          # SHA-256 of the full prompt (for privacy)
+    prompt_text: Optional[str]  # included only if policy allows
+    tool_calls: list[dict]
+    # Response
+    response_hash: str
+    response_text: Optional[str]
+    # Metrics
+    input_tokens: int
+    output_tokens: int
+    latency_ms: int
+    estimated_cost_usd: float
+    # Integrity
+    record_hash: str = ""
+
+    def compute_hash(self) -> str:
+        """Compute a SHA-256 hash of the record for tamper detection."""
+        data = asdict(self)
+        data.pop("record_hash")
+        canonical = json.dumps(data, sort_keys=True)
+        return hashlib.sha256(canonical.encode()).hexdigest()
+
+class AuditLogger:
+    """Writes LLM audit records to an append-only store."""
+
+    def __init__(self, storage_backend):
+        self.storage = storage_backend
+
+    def log(self, record: LLMAuditRecord):
+        record.record_hash = record.compute_hash()
+        self.storage.append(asdict(record))
+
+    def verify(self, record_dict: dict) -> bool:
+        """Verify that a stored record has not been tampered with."""
+        stored_hash = record_dict.pop("record_hash")
+        canonical = json.dumps(record_dict, sort_keys=True)
+        computed = hashlib.sha256(canonical.encode()).hexdigest()
+        return computed == stored_hash</code></pre>
+
+    <div class="callout warning">
+        <div class="callout-title">Warning</div>
+        <p>Audit logs that contain full prompt text may themselves become a compliance liability. If users paste sensitive data (PII, PHI, financial records) into prompts, the audit log now contains that data and must be protected accordingly. Many enterprises adopt a <strong>hash-and-redact</strong> strategy: store a SHA-256 hash of the full prompt for integrity verification, but redact or omit sensitive content from the stored text. Retention policies must align with your regulatory requirements, which may range from 90 days (SOC 2) to seven years (financial regulations).</p>
+    </div>
+
+    <h2>5. Approval Workflows and Human-in-the-Loop Escalation <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>
+        Not every LLM action should execute immediately. High-risk operations (sending an email to a customer, modifying a database record, approving an expense, generating a legal document) require human approval before execution. The approval workflow pattern intercepts the LLM's tool call, presents it to a human reviewer, and only executes the action after explicit approval.
+    </p>
+
+    <p>
+        The architecture separates <strong>intent</strong> from <strong>execution</strong>. The LLM generates a structured intent (a tool call with parameters), the system classifies the intent by risk level, and high-risk intents are routed to an approval queue. The approver sees the full context: the user's original request, the LLM's reasoning, and the proposed action with its parameters. They can approve, reject, or modify the action before it executes.
+    </p>
+
+    <pre><code class="language-python"># Example: Risk-based approval routing for LLM tool calls
+from enum import Enum
+from dataclasses import dataclass
+
+class RiskLevel(Enum):
+    LOW = "low"         # auto-execute
+    MEDIUM = "medium"   # log and execute, flag for review
+    HIGH = "high"       # require human approval before execution
+    CRITICAL = "critical"  # require two approvals
+
+# Risk classification for tool calls
+TOOL_RISK_MAP = {
+    "search_documents": RiskLevel.LOW,
+    "summarize_text": RiskLevel.LOW,
+    "send_email": RiskLevel.HIGH,
+    "update_database": RiskLevel.HIGH,
+    "delete_record": RiskLevel.CRITICAL,
+    "approve_expense": RiskLevel.CRITICAL,
+    "generate_contract": RiskLevel.HIGH,
+    "query_database_readonly": RiskLevel.MEDIUM,
+}
+
+@dataclass
+class PendingApproval:
+    request_id: str
+    user_id: str
+    tool_name: str
+    tool_params: dict
+    risk_level: RiskLevel
+    llm_reasoning: str
+    original_query: str
+    status: str = "pending"  # pending, approved, rejected, modified
+
+class ApprovalRouter:
+    """Routes tool calls based on risk classification."""
+
+    def __init__(self, approval_queue, executor):
+        self.queue = approval_queue
+        self.executor = executor
+
+    async def route(self, tool_call: dict, context: dict) -> dict:
+        tool_name = tool_call["name"]
+        risk = TOOL_RISK_MAP.get(tool_name, RiskLevel.HIGH)
+
+        if risk == RiskLevel.LOW:
+            return await self.executor.execute(tool_call)
+
+        if risk == RiskLevel.MEDIUM:
+            result = await self.executor.execute(tool_call)
+            await self.queue.log_for_review(tool_call, context, result)
+            return result
+
+        # HIGH and CRITICAL: require approval before execution
+        approval = PendingApproval(
+            request_id=context["request_id"],
+            user_id=context["user_id"],
+            tool_name=tool_name,
+            tool_params=tool_call["arguments"],
+            risk_level=risk,
+            llm_reasoning=context.get("reasoning", ""),
+            original_query=context["original_query"],
+        )
+        await self.queue.submit(approval)
+        return {
+            "status": "pending_approval",
+            "message": f"Action '{tool_name}' requires approval. Request submitted.",
+            "approval_id": approval.request_id,
+        }</code></pre>
+
+    <p>
+        For critical actions that require two approvals, the workflow extends to a multi-step process: the first approver validates the business logic, the second approver (often from a different team, such as security or compliance) validates the risk assessment. This dual-approval pattern is common in financial services and healthcare, where a single point of failure in the approval chain is unacceptable.
+    </p>
+
+    <h2>6. Governance Boundaries <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>
+        Enterprise governance for LLM systems spans three domains: <strong>data residency</strong>, <strong>model provenance</strong>, and <strong>prompt review processes</strong>.
+    </p>
+
+    <p>
+        <strong>Data residency</strong> requirements dictate where data can be processed. A European enterprise subject to GDPR may require that all LLM inference happens within the EU. This constrains model selection (not all providers offer EU-based inference endpoints) and architecture (you may need region-specific deployments with traffic routing based on the user's jurisdiction). Cloud providers now offer "sovereign AI" configurations, but verifying compliance requires careful audit of the full data flow, including any telemetry or logging that the provider collects.
+    </p>
+
+    <p>
+        <strong>Model provenance</strong> tracks which model version produced which outputs. When a model is updated (a new checkpoint, a fine-tuned variant, or a provider-side update), the provenance record links outputs to the specific model version that generated them. This is essential for debugging regressions, responding to regulatory inquiries, and maintaining reproducibility.
+    </p>
+
+    <p>
+        <strong>Prompt review processes</strong> ensure that system prompts and prompt templates undergo the same change management discipline as application code. A prompt change can alter the behavior of the entire system; it deserves a pull request, a review, and a staged rollout. Many enterprises store prompts in version-controlled repositories and deploy them through CI/CD pipelines, treating prompt changes as configuration updates that require approval.
+    </p>
+
+    <pre><code class="language-yaml"># Example: Governance configuration for an enterprise LLM platform
+governance:
+  data_residency:
+    default_region: "eu-west-1"
+    allowed_regions: ["eu-west-1", "eu-central-1"]
+    blocked_regions: ["us-*", "ap-*"]
+    enforcement: "strict"  # reject requests that would route outside allowed regions
+
+  model_provenance:
+    require_version_pinning: true
+    allowed_providers: ["azure-openai", "anthropic-eu", "self-hosted"]
+    model_registry_url: "https://models.internal.enterprise.com/registry"
+    audit_every_invocation: true
+
+  prompt_management:
+    repository: "git@github.com:enterprise/llm-prompts.git"
+    require_review: true
+    min_reviewers: 2
+    deploy_strategy: "canary"   # canary, blue-green, or immediate
+    canary_percentage: 10
+    rollback_on_quality_drop: true
+    quality_threshold:
+      min_relevance_score: 0.85
+      max_hallucination_rate: 0.02
+
+  secrets:
+    vault_backend: "hashicorp-vault"
+    vault_url: "https://vault.internal.enterprise.com"
+    api_key_rotation_days: 30
+    tool_credential_path: "secret/llm-platform/tools/"
+    audit_secret_access: true</code></pre>
+
+    <h2>7. Secrets Management and Credential Rotation <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        LLM applications accumulate API keys at a remarkable rate: keys for the model provider, keys for vector databases, keys for tool APIs (Slack, Jira, databases, email services), and keys for observability platforms. Hardcoding these in environment variables or configuration files is a security incident waiting to happen. Enterprise deployments must integrate with a secrets vault (HashiCorp Vault, AWS Secrets Manager, Azure Key Vault, or GCP Secret Manager) and implement automatic rotation.
+    </p>
+
+    <p>
+        The LLM orchestrator fetches credentials from the vault at runtime, caches them with a short TTL, and gracefully handles rotation events. When a credential is rotated, the next request fetches the new value from the vault. For tool calls, the orchestrator retrieves tool-specific credentials from the vault just before invocation, ensuring that long-lived secrets never reside in memory longer than necessary.
+    </p>
+
+    <pre><code class="language-python"># Example: Vault-integrated credential manager for LLM tool calls
+import time
+from typing import Optional
+
+class VaultCredentialManager:
+    """Manages API credentials with vault integration and caching."""
+
+    def __init__(self, vault_client, cache_ttl_seconds: int = 300):
+        self.vault = vault_client
+        self.cache_ttl = cache_ttl_seconds
+        self._cache: dict[str, tuple[str, float]] = {}
+
+    def get_credential(self, path: str) -> str:
+        """Fetch a credential, using cache if fresh."""
+        cached = self._cache.get(path)
+        if cached:
+            value, fetched_at = cached
+            if time.time() - fetched_at < self.cache_ttl:
+                return value
+
+        # Fetch from vault
+        secret = self.vault.secrets.kv.v2.read_secret_version(path=path)
+        value = secret["data"]["data"]["api_key"]
+        self._cache[path] = (value, time.time())
+        return value
+
+    def get_tool_headers(self, tool_name: str) -> dict:
+        """Build authentication headers for a specific tool."""
+        credential_path = f"llm-platform/tools/{tool_name}"
+        api_key = self.get_credential(credential_path)
+        return {"Authorization": f"Bearer {api_key}"}
+
+    def rotate_and_verify(self, path: str) -> bool:
+        """Force rotation and verify the new credential works."""
+        # Invalidate cache
+        self._cache.pop(path, None)
+        # Fetch new credential (vault handles the actual rotation)
+        new_key = self.get_credential(path)
+        return new_key is not None</code></pre>
+
+    <h2>8. Practical Example: Enterprise Chatbot with Full Integration <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>
+        The following example ties together all the patterns from this section into a single enterprise chatbot deployment. The chatbot authenticates users via SSO, enforces RBAC on model and tool access, isolates tenant data, logs every interaction for compliance, routes high-risk actions through approval workflows, and manages credentials through a vault.
+    </p>
+
+    <pre><code class="language-python"># Example: Enterprise chatbot orchestrator combining all integration patterns
+class EnterpriseChatOrchestrator:
+    """
+    Production chatbot with SSO, RBAC, tenant isolation,
+    audit logging, approval workflows, and vault integration.
+    """
+
+    def __init__(
+        self,
+        rag: TenantIsolatedRAG,
+        audit: AuditLogger,
+        approval: ApprovalRouter,
+        credentials: VaultCredentialManager,
+    ):
+        self.rag = rag
+        self.audit = audit
+        self.approval = approval
+        self.credentials = credentials
+
+    async def handle_request(self, user: dict, message: str) -> dict:
+        """Process a chat request through the full enterprise pipeline."""
+        request_id = generate_request_id()
+
+        # 1. RBAC check: can this user invoke the requested model?
+        model = self.select_model(user["roles"])
+        if not check_permission(user["roles"], "model", model, "invoke"):
+            return {"error": "Insufficient permissions for model access."}
+
+        # 2. Tenant-isolated retrieval
+        embedding = await self.embed(message)
+        context_messages = self.rag.build_context(
+            tenant_id=user["tenant_id"],
+            query=message,
+            query_embedding=embedding,
+        )
+
+        # 3. LLM invocation with tool routing
+        api_key = self.credentials.get_credential(f"models/{model}")
+        response = await self.call_llm(model, context_messages, api_key)
+
+        # 4. Process tool calls through approval workflow
+        if response.get("tool_calls"):
+            for tool_call in response["tool_calls"]:
+                if not check_permission(
+                    user["roles"], "tool", tool_call["name"], "invoke"
+                ):
+                    continue  # skip unauthorized tools
+                result = await self.approval.route(
+                    tool_call,
+                    context={
+                        "request_id": request_id,
+                        "user_id": user["user_id"],
+                        "original_query": message,
+                    },
+                )
+                # Feed tool result back to LLM for final response
+
+        # 5. Audit logging
+        self.audit.log(LLMAuditRecord(
+            request_id=request_id,
+            user_id=user["user_id"],
+            tenant_id=user["tenant_id"],
+            session_id=user.get("session_id", ""),
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            model=model,
+            prompt_hash=hashlib.sha256(message.encode()).hexdigest(),
+            prompt_text=None,  # redacted per policy
+            tool_calls=response.get("tool_calls", []),
+            response_hash=hashlib.sha256(
+                response["content"].encode()
+            ).hexdigest(),
+            response_text=response["content"],
+            input_tokens=response["usage"]["input"],
+            output_tokens=response["usage"]["output"],
+            latency_ms=response["latency_ms"],
+            estimated_cost_usd=response["estimated_cost"],
+        ))
+
+        return {"response": response["content"], "request_id": request_id}
+
+    def select_model(self, roles: list[str]) -> str:
+        """Select the best available model based on user roles."""
+        if "admin" in roles or "engineer" in roles:
+            return "gpt-4o"
+        return "gpt-4o-mini"</code></pre>
+
+    <div class="callout practical-example">
+        <div class="callout-title">Practical Example: Deployment Architecture</div>
+        <p><strong>Identity layer:</strong> Keycloak (or Azure AD, Okta) issues OIDC tokens. The FastAPI gateway validates tokens and extracts claims.</p>
+        <p><strong>Authorization layer:</strong> Open Policy Agent evaluates RBAC policies. Policies are stored in Git and deployed via CI/CD.</p>
+        <p><strong>Data layer:</strong> Qdrant vector store with tenant-scoped collections. Redis stores session state with tenant-prefixed keys.</p>
+        <p><strong>Audit layer:</strong> Structured JSON logs written to Amazon S3 with Object Lock (WORM compliance). A secondary copy streams to Elasticsearch for search.</p>
+        <p><strong>Approval layer:</strong> High-risk tool calls are routed to a Slack channel where approvers can approve or reject with a button click. Approval status is tracked in PostgreSQL.</p>
+        <p><strong>Secrets layer:</strong> HashiCorp Vault manages all API keys with 30-day automatic rotation. The orchestrator fetches credentials at runtime with a 5-minute cache TTL.</p>
+    </div>
+
+    <h2>Exercises</h2>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 33.7.1: RBAC Policy Design <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span> <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+        <p>Design an RBAC policy for an enterprise LLM platform with three roles: analyst, engineer, and admin. Specify which models, tools, and knowledge bases each role can access. Include token budget limits per role.</p>
+        <details open>
+            <summary>Answer Sketch</summary>
+            <p>Analysts: GPT-4o-mini only, read-only SQL tool, product documentation knowledge base, 200K tokens/day. Engineers: GPT-4o and Claude Sonnet, read-only SQL plus code execution tool, all technical knowledge bases, 500K tokens/day. Admins: all models, all tools, all knowledge bases including HR and finance, 2M tokens/day, plus ability to configure assistants and manage prompts.</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 33.7.2: Tenant Isolation Audit <span class="level-badge advanced" title="Advanced">ADVANCED</span> <span class="exercise-type coding" title="Coding">Coding</span></div>
+        <p>Write a test suite that verifies tenant isolation in a multi-tenant RAG pipeline. The tests should confirm that Tenant A cannot retrieve Tenant B's documents, even when queries are semantically similar to Tenant B's content.</p>
+        <details open>
+            <summary>Answer Sketch</summary>
+            <p>Create two tenants with overlapping vocabulary but distinct documents. Index "Q3 revenue report" under both tenants with different content. Query as Tenant A and verify that only Tenant A's document appears. Attempt to bypass isolation by including Tenant B's ID in the query text, and verify the filter still holds. Test edge cases: empty tenant, nonexistent tenant, and null tenant ID (should return zero results, not all results).</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 33.7.3: Approval Workflow Implementation <span class="level-badge advanced" title="Advanced">ADVANCED</span> <span class="exercise-type coding" title="Coding">Coding</span></div>
+        <p>Implement a simple approval workflow for an LLM agent that can send emails. The workflow should intercept the "send_email" tool call, present it to an approver via a REST API, and only send the email after approval.</p>
+        <details open>
+            <summary>Answer Sketch</summary>
+            <p>Create a FastAPI endpoint that receives pending approvals and stores them in a database. Build a second endpoint where approvers can list pending actions and approve or reject them. The LLM orchestrator polls for approval status (or uses a webhook) and executes the email send only after receiving an "approved" status. Include a timeout: if no approval is received within 4 hours, the action is auto-rejected and the user is notified.</p>
+        </details>
+    </div>
+
+    <section class="bibliography">
+        <h2>Bibliography and Further Reading</h2>
+        <ul>
+            <li>Hardt, D. (2012). "The OAuth 2.0 Authorization Framework." <em>RFC 6749, IETF</em>.</li>
+            <li>Sakimura, N., Bradley, J., Jones, M., et al. (2014). "OpenID Connect Core 1.0." <em>OpenID Foundation</em>.</li>
+            <li>OWASP. (2025). "OWASP Top 10 for LLM Applications." <em>Open Worldwide Application Security Project</em>.</li>
+            <li>Cedar Policy Language. (2024). "Authorization Policy Language." <em>AWS</em>. <a href="https://www.cedarpolicy.com/" target="_blank" rel="noopener">cedarpolicy.com</a>.</li>
+            <li>HashiCorp. (2025). "Vault Secrets Management." <em>HashiCorp Documentation</em>. <a href="https://www.vaultproject.io/" target="_blank" rel="noopener">vaultproject.io</a>.</li>
+            <li>Microsoft. (2025). "Azure AI Content Safety." <em>Microsoft Learn</em>.</li>
+            <li>Anthropic. (2025). "Enterprise Security and Compliance." <em>Anthropic Documentation</em>.</li>
+        </ul>
+    </section>
+
+<div class="whats-next">
+    <h2>What Comes Next</h2>
+    <p>The next section, <a class="cross-ref" href="section-33.8.html">Section 33.8: Economic Design of LLM Systems</a>, covers the cost engineering side of enterprise LLM deployments: token budgeting, cascade routing, semantic caching, and ROI measurement at the per-request level.</p>
+</div>
+
+<nav class="chapter-nav">
+    <a class="prev" href="section-33.6.html">Build vs. Buy Decision Framework</a>
+    <a class="up" href="index.html">Chapter 33: LLM Strategy, Product Management &amp; ROI</a>
+    <a class="next" href="section-33.8.html">Economic Design of LLM Systems</a>
+</nav>
+
+    <footer>
+        <p class="footer-title">Building Conversational AI with LLMs and Agents, Fifth Edition</p>
+        <p>&copy; 2026 Alexander Apartsin &amp; Yehudit Aperstein &middot; <a href="../../toc.html">Contents</a></p>
+        <p class="footer-updated">Last updated: <script>document.write(new Date(document.lastModified).toLocaleDateString('en-US', {year:'numeric', month:'long', day:'numeric'}))</script></p>
+    </footer>
+</main>
+</body>
+</html>

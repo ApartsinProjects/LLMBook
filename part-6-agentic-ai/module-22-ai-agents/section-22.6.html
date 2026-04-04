@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Section 22.6: End-to-End Agent System Architecture: A Deployment Blueprint. A comprehensive chapter from the Building Conversational AI textbook.">
+    <title>Section 22.6: End-to-End Agent System Architecture: A Deployment Blueprint</title>
+    <link rel="stylesheet" href="../../styles/book.css">
+<link rel="stylesheet" href="../../vendor/prism/prism-theme.css">
+    <script defer src="../../vendor/prism/prism-bundle.min.js"></script>
+</head>
+<body>
+<header class="chapter-header">
+    <nav class="header-nav">
+        <a href="../../index.html" class="book-title-link">Building Conversational AI with LLMs and Agents</a>
+        <a href="../../toc.html" class="toc-link" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+    </nav>
+    <div class="part-label"><a href="../index.html">Part VI: Agentic AI</a></div>
+    <div class="chapter-label"><a href="index.html">Chapter 22: AI Agent Foundations</a></div>
+    <h1>End-to-End Agent System Architecture: A Deployment Blueprint</h1>
+</header>
+
+<main class="content">
+
+    <div class="prerequisites">
+        <h3>Prerequisites</h3>
+        <p>This section assumes familiarity with the agent loop and cognitive architectures from <a class="cross-ref" href="section-22.1.html">Section 22.1</a>, agent memory systems from <a class="cross-ref" href="section-22.2.html">Section 22.2</a>, and planning strategies from <a class="cross-ref" href="section-22.3.html">Section 22.3</a>. Practical experience with Python async programming and basic familiarity with web service patterns (rate limiting, circuit breakers) will help you follow the production-oriented examples.</p>
+    </div>
+
+    <div class="callout big-picture">
+        <div class="callout-title">Big Picture</div>
+        <p><strong>A production agent is far more than a model in a loop.</strong> The agent loop from <a class="cross-ref" href="section-22.1.html">Section 22.1</a> described the conceptual cycle of perceive, reason, and act. Deploying that loop in production requires surrounding it with infrastructure: a planner that decomposes tasks, a tool router that dispatches actions, a memory manager that persists context, an execution sandbox that isolates side effects, an evaluator that checks results, a recovery handler that manages failures, a permissions gate that enforces access control, and a cost controller that keeps spending within budget. This section presents a reference architecture that wires all of these components together, giving you a blueprint you can adapt to any agent deployment.</p>
+    </div>
+
+    <h2>1. The Eight Components of a Production Agent <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>
+        Building a reliable agent system requires eight distinct components, each responsible for a specific concern. Separating these concerns makes the system easier to test, debug, and extend. When any component fails, the others can continue operating in a degraded mode rather than bringing down the entire agent.
+    </p>
+
+    <p>
+        The components are: (1) the <strong>Planner</strong>, which decomposes user requests into executable steps; (2) the <strong>Tool Router</strong>, which maps planned actions to available tools; (3) the <strong>Memory Manager</strong>, which reads and writes persistent state; (4) the <strong>Execution Sandbox</strong>, which runs tool calls in isolation; (5) the <strong>Evaluator</strong>, which validates results against expectations; (6) the <strong>Recovery Handler</strong>, which manages retries, rollbacks, and graceful degradation; (7) the <strong>Permissions Gate</strong>, which enforces access control at every boundary; and (8) the <strong>Cost Controller</strong>, which tracks and limits token and API spending.
+    </p>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight</div>
+        <p>The most common production failure mode is not a model hallucination; it is an unhandled edge case in the infrastructure surrounding the model. A tool times out and nobody catches the exception. A context window overflows because memory was not pruned. A user escalates to an expensive model and nobody notices the cost spike. The eight-component architecture exists to handle these failure modes systematically rather than through ad-hoc patches.</p>
+    </div>
+
+    <h2>2. Reference Architecture: Request Flow <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>
+        Every request to the agent system follows a predictable path through the eight components. Understanding this flow is essential for debugging production issues, because the failure mode tells you exactly which component to investigate. The sequence is as follows.
+    </p>
+
+    <p>
+        First, the user's input arrives at the <strong>Permissions Gate</strong>, which checks whether the user is authenticated and authorized to invoke the agent. If the request passes, the <strong>Cost Controller</strong> checks whether the user's budget allows another request. The <strong>Memory Manager</strong> then loads relevant context: the user's profile, recent conversation history, and any semantic memories retrieved via embedding search. This assembled context flows into the <strong>Planner</strong>, which calls the LLM to produce a step-by-step plan. Each planned step is dispatched to the <strong>Tool Router</strong>, which selects the appropriate tool and sends the call to the <strong>Execution Sandbox</strong>. After execution, the <strong>Evaluator</strong> checks whether the result meets the expected criteria. If the evaluation fails, the <strong>Recovery Handler</strong> decides whether to retry, try a different approach, or abort with a user-facing message. Once all steps complete, the Memory Manager persists any new information and the final response is returned to the user.
+    </p>
+
+    <p>
+        The following diagram placeholder describes the reference architecture. When a visual SVG is available, it will replace this description.
+    </p>
+
+    <div class="diagram-container" role="img" aria-label="Reference architecture diagram for an end-to-end agent system">
+        <div class="diagram-caption"><strong>Figure 22.6.1</strong>: Reference architecture for a production agent system. User input flows through the Permissions Gate, Cost Controller, Memory Manager, Planner, Tool Router, Execution Sandbox, Evaluator, and Recovery Handler before a response is returned. Arrows indicate data flow; dashed arrows indicate fallback paths.</div>
+    </div>
+
+    <p>
+        The following code defines the data structures that flow between components. Each component communicates through typed messages, making the interfaces explicit and testable.
+    </p>
+
+<pre><code class="language-python"># Code Fragment 22.6.1: Core data structures for the agent system
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Any
+
+class StepStatus(Enum):
+    PENDING = "pending"
+    RUNNING = "running"
+    SUCCESS = "success"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+
+@dataclass
+class AgentRequest:
+    """Incoming user request with authentication context."""
+    user_id: str
+    session_id: str
+    message: str
+    permissions: list[str] = field(default_factory=list)
+    max_budget_usd: float = 1.0
+
+@dataclass
+class PlanStep:
+    """A single step in the agent's plan."""
+    step_id: int
+    description: str
+    tool_name: str
+    tool_args: dict[str, Any] = field(default_factory=dict)
+    status: StepStatus = StepStatus.PENDING
+    result: Any = None
+    cost_usd: float = 0.0
+
+@dataclass
+class AgentPlan:
+    """The full plan produced by the Planner."""
+    steps: list[PlanStep]
+    reasoning: str
+    estimated_cost_usd: float = 0.0
+
+@dataclass
+class AgentResponse:
+    """Final response returned to the user."""
+    message: str
+    plan: AgentPlan
+    total_cost_usd: float = 0.0
+    steps_completed: int = 0
+    steps_failed: int = 0
+</code></pre>
+
+    <h2>3. The Planner <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>
+        The Planner is the agent's strategic brain. It receives the user's request along with loaded memory context and produces an <code>AgentPlan</code>: an ordered list of steps, each specifying which tool to call and with what arguments. The planner's prompt is critical. It must describe the available tools, the user's permissions, and any constraints (budget limits, time constraints, safety rules). The plan-and-execute pattern from <a class="cross-ref" href="section-22.3.html">Section 22.3</a> provides the theoretical foundation; here we implement it concretely.
+    </p>
+
+<pre><code class="language-python"># Code Fragment 22.6.2: Planner component
+import json
+from openai import AsyncOpenAI
+
+class Planner:
+    def __init__(self, client: AsyncOpenAI, model: str = "gpt-4o-mini"):
+        self.client = client
+        self.model = model
+
+    async def create_plan(
+        self,
+        request: AgentRequest,
+        memory_context: str,
+        available_tools: list[dict],
+    ) -> AgentPlan:
+        tool_descriptions = "\n".join(
+            f"- {t['name']}: {t['description']} "
+            f"(requires: {', '.join(t.get('permissions', ['none']))})"
+            for t in available_tools
+        )
+
+        system_prompt = f"""You are a planning agent. Decompose the user's
+request into a sequence of tool calls.
+
+Available tools:
+{tool_descriptions}
+
+User permissions: {', '.join(request.permissions)}
+Budget limit: ${request.max_budget_usd:.2f}
+
+Respond with JSON: {{"reasoning": "...", "steps": [
+  {{"description": "...", "tool_name": "...", "tool_args": {{...}}}}
+]}}"""
+
+        response = await self.client.chat.completions.create(
+            model=self.model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": (
+                    f"Context:\n{memory_context}\n\n"
+                    f"Request: {request.message}"
+                )},
+            ],
+            response_format={"type": "json_object"},
+            temperature=0.0,
+        )
+
+        data = json.loads(response.choices[0].message.content)
+        steps = [
+            PlanStep(step_id=i, description=s["description"],
+                     tool_name=s["tool_name"],
+                     tool_args=s.get("tool_args", {}))
+            for i, s in enumerate(data["steps"])
+        ]
+        return AgentPlan(steps=steps, reasoning=data["reasoning"])
+</code></pre>
+
+    <h2>4. Tool Router and Execution Sandbox <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>
+        The Tool Router maps a tool name from the plan to the actual callable implementation, while the Execution Sandbox provides isolation for running that tool. Isolation is important for several reasons: a misbehaving tool should not crash the agent, tool execution time should be bounded, and side effects should be trackable for audit logging. In practice, the sandbox can range from a simple try/except with a timeout (shown here) to a full container-based sandbox for code execution agents.
+    </p>
+
+<pre><code class="language-python"># Code Fragment 22.6.3: Tool Router and Execution Sandbox
+import asyncio
+from typing import Callable, Awaitable
+
+class ToolRouter:
+    """Maps tool names to implementations and enforces permissions."""
+
+    def __init__(self):
+        self._tools: dict[str, Callable[..., Awaitable[Any]]] = {}
+        self._permissions: dict[str, list[str]] = {}
+
+    def register(
+        self, name: str, fn: Callable[..., Awaitable[Any]],
+        required_permissions: list[str] | None = None,
+    ):
+        self._tools[name] = fn
+        self._permissions[name] = required_permissions or []
+
+    def check_permission(self, tool_name: str, user_perms: list[str]) -> bool:
+        required = self._permissions.get(tool_name, [])
+        return all(p in user_perms for p in required)
+
+    def get_tool(self, name: str) -> Callable[..., Awaitable[Any]] | None:
+        return self._tools.get(name)
+
+class ExecutionSandbox:
+    """Runs tool calls with timeout and error isolation."""
+
+    def __init__(self, timeout_seconds: float = 30.0):
+        self.timeout = timeout_seconds
+
+    async def execute(
+        self, tool_fn: Callable[..., Awaitable[Any]],
+        tool_args: dict[str, Any],
+    ) -> tuple[bool, Any]:
+        """Returns (success, result_or_error)."""
+        try:
+            result = await asyncio.wait_for(
+                tool_fn(**tool_args), timeout=self.timeout
+            )
+            return True, result
+        except asyncio.TimeoutError:
+            return False, f"Tool timed out after {self.timeout}s"
+        except Exception as e:
+            return False, f"Tool error: {type(e).__name__}: {e}"
+</code></pre>
+
+    <div class="callout warning">
+        <div class="callout-title">Warning</div>
+        <p>Never run untrusted tool code in the same process as your agent without sandboxing. A tool that enters an infinite loop, consumes all available memory, or raises an unhandled exception can take down the entire agent. For code execution tools specifically, use container-based isolation (Docker, gVisor, or a cloud sandbox service). The <code>asyncio.wait_for</code> pattern shown above handles timeouts but does not protect against memory exhaustion or malicious system calls.</p>
+    </div>
+
+    <h2>5. Production Concerns: Rate Limiting, Circuit Breakers, and Graceful Degradation <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>
+        Production agent systems must handle the reality that external services fail. APIs go down, rate limits are hit, and network connections drop. Three patterns from distributed systems engineering are essential for building resilient agents.
+    </p>
+
+    <h3>Rate Limiting</h3>
+
+    <p>
+        Every external API the agent calls has rate limits. Exceeding them causes cascading failures as retries pile up. A token bucket rate limiter, applied per tool, prevents the agent from overwhelming any single service. The rate limiter should be shared across all agent instances if you are running multiple replicas.
+    </p>
+
+    <h3>Circuit Breakers</h3>
+
+    <p>
+        A circuit breaker tracks consecutive failures for each tool. After a configurable threshold (for example, five consecutive failures), the breaker "opens" and immediately rejects further calls to that tool for a cooldown period. This prevents the agent from wasting time and budget on a tool that is clearly down. After the cooldown, the breaker enters a "half-open" state and allows one test call through. If the test succeeds, the breaker closes and normal operation resumes.
+    </p>
+
+    <h3>Graceful Degradation</h3>
+
+    <p>
+        When a tool is unavailable, the agent should not simply fail. Instead, the Recovery Handler should check whether an alternative tool can accomplish the same goal, or whether the agent can provide a partial answer without the tool. For example, if a web search tool is down, the agent might fall back to its parametric knowledge and clearly disclose that it could not verify the information with a live search.
+    </p>
+
+<pre><code class="language-python"># Code Fragment 22.6.4: Circuit breaker implementation
+import time
+
+class CircuitBreaker:
+    """Prevents repeated calls to a failing tool."""
+
+    def __init__(
+        self, failure_threshold: int = 5,
+        cooldown_seconds: float = 60.0,
+    ):
+        self.failure_threshold = failure_threshold
+        self.cooldown = cooldown_seconds
+        self._failures: dict[str, int] = {}
+        self._opened_at: dict[str, float] = {}
+
+    def is_open(self, tool_name: str) -> bool:
+        if self._failures.get(tool_name, 0) < self.failure_threshold:
+            return False
+        opened = self._opened_at.get(tool_name, 0)
+        if time.time() - opened > self.cooldown:
+            # Half-open: allow one attempt
+            self._failures[tool_name] = self.failure_threshold - 1
+            return False
+        return True
+
+    def record_success(self, tool_name: str):
+        self._failures[tool_name] = 0
+        self._opened_at.pop(tool_name, None)
+
+    def record_failure(self, tool_name: str):
+        self._failures[tool_name] = self._failures.get(tool_name, 0) + 1
+        if self._failures[tool_name] >= self.failure_threshold:
+            self._opened_at[tool_name] = time.time()
+</code></pre>
+
+    <h2>6. Cost Control: Token Budgeting and Cascade Routing <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>
+        Agent systems can consume tokens at an alarming rate. A single complex request might trigger dozens of LLM calls across planning, tool selection, evaluation, and replanning. Without explicit cost control, a runaway agent loop can burn through an entire monthly API budget in minutes. The Cost Controller addresses this with two mechanisms: per-request token budgets and cascade routing.
+    </p>
+
+    <h3>Per-Request Token Budgets</h3>
+
+    <p>
+        Each <code>AgentRequest</code> carries a <code>max_budget_usd</code> field. The Cost Controller tracks cumulative spending across all LLM calls and tool invocations within a single request. Before each LLM call, the controller checks the remaining budget. If the remaining budget is too low for the planned call, the agent must either abort or switch to a cheaper strategy.
+    </p>
+
+    <h3>Cascade Routing</h3>
+
+    <p>
+        Cascade routing sends requests to the cheapest adequate model first and only escalates to more expensive models when the cheaper one cannot produce a satisfactory result. For example, simple tool selection might use <code>gpt-4o-mini</code> at $0.15 per million input tokens, while complex multi-step planning escalates to <code>claude-sonnet-4-20250514</code> or <code>o3</code>. The evaluator's quality score determines whether escalation is needed.
+    </p>
+
+<pre><code class="language-python"># Code Fragment 22.6.5: Cost Controller with cascade routing
+from dataclasses import dataclass
+
+@dataclass
+class ModelTier:
+    name: str
+    model_id: str
+    cost_per_1k_input: float
+    cost_per_1k_output: float
+
+class CostController:
+    """Tracks spending and routes to the cheapest adequate model."""
+
+    TIERS = [
+        ModelTier("fast", "gpt-4o-mini", 0.00015, 0.0006),
+        ModelTier("balanced", "claude-sonnet-4-20250514", 0.003, 0.015),
+        ModelTier("powerful", "o3", 0.01, 0.04),
+    ]
+
+    def __init__(self):
+        self._spent: dict[str, float] = {}  # session_id -> total USD
+
+    def get_spent(self, session_id: str) -> float:
+        return self._spent.get(session_id, 0.0)
+
+    def record_cost(self, session_id: str, cost_usd: float):
+        self._spent[session_id] = self.get_spent(session_id) + cost_usd
+
+    def can_afford(self, session_id: str, budget: float,
+                   estimated_cost: float) -> bool:
+        return self.get_spent(session_id) + estimated_cost <= budget
+
+    def select_tier(self, session_id: str, budget: float,
+                    min_tier: str = "fast") -> ModelTier | None:
+        """Select cheapest tier at or above min_tier within budget."""
+        started = False
+        for tier in self.TIERS:
+            if tier.name == min_tier:
+                started = True
+            if not started:
+                continue
+            # Estimate cost for a typical call (~2k input, ~500 output)
+            estimated = (2 * tier.cost_per_1k_input
+                         + 0.5 * tier.cost_per_1k_output)
+            if self.can_afford(session_id, budget, estimated):
+                return tier
+        return None  # Budget exhausted
+</code></pre>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight</div>
+        <p>Cascade routing often saves 60 to 80% of API costs with minimal quality degradation. In practice, most agent steps (simple tool dispatch, formatting results, short follow-up questions) do not require the most capable model. Reserve expensive models for the planning phase and for recovery after evaluation failures. Measure your cascade hit rate (the percentage of calls handled by the cheapest tier) as a key operational metric.</p>
+    </div>
+
+    <h2>7. Permissions Model <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>
+        The Permissions Gate enforces security at three levels: user-level access (who can use the agent), tool-level access control lists (which tools a given user can invoke), and action-level constraints (what parameters are allowed). Every tool invocation passes through the gate before reaching the sandbox. This is especially important for agents that can execute code, send emails, modify databases, or access external services.
+    </p>
+
+    <p>
+        Audit logging is the companion to access control. Every permission check, whether it passes or fails, is logged with a timestamp, user ID, tool name, and the decision. This log serves both security auditing and debugging purposes. When an agent produces an unexpected result, the audit log reveals exactly which tools it invoked and in what order.
+    </p>
+
+<pre><code class="language-python"># Code Fragment 22.6.6: Permissions Gate with audit logging
+import logging
+from datetime import datetime, timezone
+
+audit_log = logging.getLogger("agent.audit")
+
+class PermissionsGate:
+    """Enforces tool-level access control with audit trail."""
+
+    def __init__(self, acl: dict[str, list[str]]):
+        # acl maps tool_name -> list of allowed permission strings
+        self._acl = acl
+
+    def check(self, user_id: str, user_perms: list[str],
+              tool_name: str, tool_args: dict) -> bool:
+        required = self._acl.get(tool_name, [])
+        allowed = all(p in user_perms for p in required)
+
+        audit_log.info(
+            "permission_check | %s | user=%s | tool=%s | "
+            "required=%s | granted=%s | args_keys=%s",
+            datetime.now(timezone.utc).isoformat(),
+            user_id, tool_name, required, allowed,
+            list(tool_args.keys()),
+        )
+        return allowed
+
+    def filter_tools(self, user_perms: list[str],
+                     tools: list[dict]) -> list[dict]:
+        """Return only tools the user is allowed to invoke."""
+        return [
+            t for t in tools
+            if all(p in user_perms
+                   for p in t.get("permissions", []))
+        ]
+</code></pre>
+
+    <h2>8. Recovery Patterns <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>
+        Failures in agent systems are inevitable. Tools time out, APIs return errors, and LLMs produce invalid outputs. The Recovery Handler implements three patterns that keep the agent operational despite failures.
+    </p>
+
+    <h3>Checkpoint and Resume</h3>
+
+    <p>
+        After each successful step, the agent saves a checkpoint containing the current plan state, all completed step results, and the accumulated context. If a later step fails and the agent must restart, it resumes from the last checkpoint rather than repeating all previous work. This is particularly valuable for long-running tasks that span many tool calls.
+    </p>
+
+    <h3>Idempotent Actions</h3>
+
+    <p>
+        Tools should be designed so that repeating the same call produces the same result without harmful side effects. For example, a "create file" tool should check whether the file already exists before creating it. When idempotent design is not possible (such as sending an email), the agent should track which actions have been executed and skip them on retry.
+    </p>
+
+    <h3>Rollback</h3>
+
+    <p>
+        For operations that support undo (database transactions, file system changes, API operations with delete endpoints), the Recovery Handler can reverse completed steps when a later step makes the entire plan invalid. The key requirement is that each tool registers a rollback function alongside its forward function.
+    </p>
+
+    <div class="callout tip">
+        <div class="callout-title">Tip</div>
+        <p>Design your tools with recovery in mind from the start. Every tool should answer three questions: (1) Is this action idempotent? (2) Can it be rolled back? (3) What does a partial failure look like? Documenting these properties in the tool's metadata allows the Recovery Handler to make informed decisions automatically rather than relying on hardcoded retry logic.</p>
+    </div>
+
+    <h2>9. Wiring It All Together <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>
+        The following code shows the complete agent system skeleton that wires all eight components into a single <code>AgentSystem</code> class. This is a minimal but functional implementation that you can use as a starting point for production systems. Each component is injected as a dependency, making it straightforward to swap implementations (for example, replacing the in-memory cost tracker with a Redis-backed one).
+    </p>
+
+<pre><code class="language-python"># Code Fragment 22.6.7: Complete agent system skeleton
+class AgentSystem:
+    """Wires all eight components into a production agent."""
+
+    def __init__(
+        self,
+        planner: Planner,
+        tool_router: ToolRouter,
+        sandbox: ExecutionSandbox,
+        cost_ctrl: CostController,
+        perms_gate: PermissionsGate,
+        circuit_breaker: CircuitBreaker,
+        memory_manager,  # see Section 22.7
+        max_retries: int = 2,
+    ):
+        self.planner = planner
+        self.router = tool_router
+        self.sandbox = sandbox
+        self.cost = cost_ctrl
+        self.perms = perms_gate
+        self.breaker = circuit_breaker
+        self.memory = memory_manager
+        self.max_retries = max_retries
+
+    async def handle(self, request: AgentRequest) -> AgentResponse:
+        # 1. Permissions: authenticate user
+        if not request.permissions:
+            return AgentResponse(
+                message="Access denied: no permissions.",
+                plan=AgentPlan(steps=[], reasoning=""),
+            )
+
+        # 2. Cost check: ensure budget is available
+        if not self.cost.can_afford(
+            request.session_id, request.max_budget_usd, 0.01
+        ):
+            return AgentResponse(
+                message="Budget exhausted for this session.",
+                plan=AgentPlan(steps=[], reasoning=""),
+            )
+
+        # 3. Memory: load relevant context
+        memory_ctx = await self.memory.load_context(
+            request.user_id, request.session_id, request.message
+        )
+
+        # 4. Filter tools by user permissions
+        all_tools = self.router._tools
+        allowed_tools = self.perms.filter_tools(
+            request.permissions,
+            [{"name": n, "description": "", "permissions": []}
+             for n in all_tools],
+        )
+
+        # 5. Plan
+        plan = await self.planner.create_plan(
+            request, memory_ctx, allowed_tools
+        )
+
+        # 6. Execute each step
+        completed, failed = 0, 0
+        for step in plan.steps:
+            # Check circuit breaker
+            if self.breaker.is_open(step.tool_name):
+                step.status = StepStatus.SKIPPED
+                failed += 1
+                continue
+
+            # Check permissions for this specific tool
+            if not self.perms.check(
+                request.user_id, request.permissions,
+                step.tool_name, step.tool_args,
+            ):
+                step.status = StepStatus.SKIPPED
+                failed += 1
+                continue
+
+            # Execute with retries
+            tool_fn = self.router.get_tool(step.tool_name)
+            if tool_fn is None:
+                step.status = StepStatus.FAILED
+                step.result = f"Unknown tool: {step.tool_name}"
+                failed += 1
+                continue
+
+            success = False
+            for attempt in range(self.max_retries + 1):
+                ok, result = await self.sandbox.execute(
+                    tool_fn, step.tool_args
+                )
+                if ok:
+                    step.status = StepStatus.SUCCESS
+                    step.result = result
+                    self.breaker.record_success(step.tool_name)
+                    success = True
+                    break
+                self.breaker.record_failure(step.tool_name)
+
+            if success:
+                completed += 1
+            else:
+                step.status = StepStatus.FAILED
+                step.result = result
+                failed += 1
+
+        # 7. Persist memory
+        await self.memory.save_context(
+            request.user_id, request.session_id,
+            request.message, plan,
+        )
+
+        # 8. Build response
+        total_cost = self.cost.get_spent(request.session_id)
+        summary = "\n".join(
+            f"Step {s.step_id}: {s.status.value} ({s.description})"
+            for s in plan.steps
+        )
+        return AgentResponse(
+            message=f"Completed.\n{summary}",
+            plan=plan,
+            total_cost_usd=total_cost,
+            steps_completed=completed,
+            steps_failed=failed,
+        )
+</code></pre>
+
+    <h2>10. Putting It Into Practice <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        To see how the system skeleton comes together, consider a concrete scenario: a customer support agent that can look up orders, check inventory, issue refunds, and send emails. Each of these is a tool with specific permissions. The following snippet shows how to register tools and run the agent.
+    </p>
+
+<pre><code class="language-python"># Code Fragment 22.6.8: Registering tools and running the agent
+from openai import AsyncOpenAI
+
+# Define tool implementations
+async def lookup_order(order_id: str) -> dict:
+    # In production, query your order database
+    return {"order_id": order_id, "status": "shipped", "total": 49.99}
+
+async def check_inventory(product_id: str) -> dict:
+    return {"product_id": product_id, "in_stock": True, "quantity": 42}
+
+async def issue_refund(order_id: str, amount: float) -> dict:
+    return {"order_id": order_id, "refunded": amount, "success": True}
+
+# Wire up the system
+client = AsyncOpenAI()
+router = ToolRouter()
+router.register("lookup_order", lookup_order)
+router.register("check_inventory", check_inventory)
+router.register("issue_refund", issue_refund,
+                required_permissions=["refunds"])
+
+agent = AgentSystem(
+    planner=Planner(client),
+    tool_router=router,
+    sandbox=ExecutionSandbox(timeout_seconds=15.0),
+    cost_ctrl=CostController(),
+    perms_gate=PermissionsGate({
+        "lookup_order": [],
+        "check_inventory": [],
+        "issue_refund": ["refunds"],
+    }),
+    circuit_breaker=CircuitBreaker(),
+    memory_manager=None,  # replaced with real memory in Section 22.7
+)
+
+# Handle a request
+import asyncio
+
+request = AgentRequest(
+    user_id="agent-42",
+    session_id="sess-001",
+    message="Check if order ORD-123 is shipped and refund it if so.",
+    permissions=["read", "refunds"],
+    max_budget_usd=0.50,
+)
+
+response = asyncio.run(agent.handle(request))
+print(response.message)
+</code></pre>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 22.6.1: Add Timeout Escalation <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span> <span class="exercise-type coding" title="Coding">Coding</span></div>
+        <p>Modify the <code>ExecutionSandbox</code> to support per-tool timeout overrides. Some tools (like web scraping) legitimately need longer timeouts than others (like database lookups). Add a <code>timeout_overrides: dict[str, float]</code> parameter to the constructor and use it in <code>execute()</code>.</p>
+        <details open>
+            <summary>Answer Sketch</summary>
+            <p>Store the overrides dict in <code>__init__</code>. In <code>execute()</code>, accept a <code>tool_name</code> parameter. Look up <code>self.timeout_overrides.get(tool_name, self.timeout)</code> and pass that value to <code>asyncio.wait_for()</code>. This allows setting 60s for web_scrape while keeping the default at 15s for everything else.</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 22.6.2: Cost Dashboard <span class="level-badge advanced" title="Advanced">ADVANCED</span> <span class="exercise-type coding" title="Coding">Coding</span></div>
+        <p>Extend the <code>CostController</code> to track per-model-tier spending and per-tool spending separately. Add methods <code>get_cost_breakdown(session_id)</code> that returns a dictionary with keys "by_tier" and "by_tool", each mapping to sub-dictionaries of costs. This data is essential for building an operational cost dashboard.</p>
+        <details open>
+            <summary>Answer Sketch</summary>
+            <p>Add two more dictionaries alongside <code>_spent</code>: <code>_by_tier[session_id][tier_name]</code> and <code>_by_tool[session_id][tool_name]</code>. Update <code>record_cost()</code> to accept <code>tier_name</code> and <code>tool_name</code> parameters and increment the appropriate counters. The breakdown method reads from these nested dictionaries.</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 22.6.3: Checkpoint System <span class="level-badge advanced" title="Advanced">ADVANCED</span> <span class="exercise-type coding" title="Coding">Coding</span></div>
+        <p>Implement a <code>CheckpointManager</code> that saves agent state after each successful step and can resume from the last checkpoint. Use JSON serialization to persist the plan state and completed step results to a file. Add a <code>resume(session_id)</code> method to <code>AgentSystem</code> that loads the checkpoint and continues execution from where it left off.</p>
+        <details open>
+            <summary>Answer Sketch</summary>
+            <p>Create a <code>CheckpointManager</code> class that writes <code>{session_id}.json</code> after each successful step, containing the serialized <code>AgentPlan</code> and the index of the last completed step. In <code>AgentSystem.handle()</code>, check for an existing checkpoint at the start. If found, deserialize the plan and skip steps that are already marked as <code>SUCCESS</code>. The key subtlety is that tool arguments may reference results from earlier steps, so the checkpoint must also store step results.</p>
+        </details>
+    </div>
+
+<div class="whats-next">
+    <h2>What Comes Next</h2>
+    <p>The next section, <a class="cross-ref" href="section-22.7.html">Section 22.7: Memory Architecture for Agents</a>, dives deep into the memory manager component introduced here. You will learn how to design multi-tier memory systems with explicit write policies, read policies, and forgetting strategies that keep agents both informed and efficient.</p>
+</div>
+
+<nav class="chapter-nav">
+    <a class="prev" href="section-22.5.html">Agent Evaluation &amp; Benchmarks</a>
+    <a class="up" href="index.html">Chapter 22: AI Agent Foundations</a>
+    <a class="next" href="../module-23-tool-use-protocols/index.html">Chapter 23: Tool Use, Function Calling &amp; Protocols</a>
+</nav>
+
+    <footer>
+        <p class="footer-title">Building Conversational AI with LLMs and Agents, Fifth Edition</p>
+        <p>&copy; 2026 Alexander Apartsin &amp; Yehudit Aperstein &middot; <a href="../../toc.html">Contents</a></p>
+        <p class="footer-updated">Last updated: <script>document.write(new Date(document.lastModified).toLocaleDateString('en-US', {year:'numeric', month:'long', day:'numeric'}))</script></p>
+    </footer>
+</main>
+</body>
+</html>

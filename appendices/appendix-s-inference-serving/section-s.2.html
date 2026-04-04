@@ -3,19 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Section S.2: Text Generation Inference (TGI): Deployment and Configuration. A comprehensive chapter from the Building Conversational AI textbook.">
     <title>Section S.2: Text Generation Inference (TGI): Deployment and Configuration | Building Conversational AI with LLMs and Agents</title>
     <link rel="stylesheet" href="../../styles/book.css">
-    <link rel="stylesheet" href="../../vendor/katex/katex.min.css">
-    <script defer src="../../vendor/katex/katex.min.js"></script>
-    <script defer src="../../vendor/katex/contrib/auto-render.min.js"
-        onload="renderMathInElement(document.body, {
-            delimiters: [
-                {left: '$$', right: '$$', display: true},
-                {left: '$', right: '$', display: false}
-            ],
-            throwOnError: false
-        });"></script>
-    <link rel="stylesheet" href="../../vendor/prism/prism-theme.css">
+<link rel="stylesheet" href="../../vendor/prism/prism-theme.css">
     <script defer src="../../vendor/prism/prism-bundle.min.js"></script>
 </head>
 <body>
@@ -33,10 +24,285 @@
 
     <div class="callout big-picture">
         <div class="callout-title">Big Picture</div>
-        <p>This section covers text Generation Inference (TGI): Deployment and Configuration. Content will be generated using the book production pipeline.</p>
+        <p>Text Generation Inference (TGI) is HuggingFace's production-grade inference server, built in Rust and Python for maximum throughput and reliability. TGI provides Docker-first deployment, built-in quantization support, token streaming, and a battle-tested router that handles concurrent requests efficiently. If you are already invested in the HuggingFace ecosystem, TGI offers the shortest path from a model on the Hub to a production API endpoint.</p>
     </div>
 
-    <p><em>Content pending: this section will be produced by the book-writers agent pipeline.</em></p>
+    <h2>1. What Is TGI and When Should You Use It?</h2>
+
+    <p>
+        Text Generation Inference (TGI) is an open-source serving framework developed by HuggingFace, purpose-built
+        for deploying large language models. Unlike general-purpose model servers such as Triton or TorchServe, TGI
+        is specialized for autoregressive text generation. Its architecture consists of two main components: a
+        <strong>Rust-based router</strong> that handles HTTP connections, request queuing, and token streaming, and
+        a <strong>Python model server</strong> that runs the actual inference on GPU using custom CUDA kernels.
+    </p>
+
+    <p>
+        TGI is an excellent choice when you need a production-ready serving solution with minimal configuration,
+        when your models are hosted on HuggingFace Hub, or when you want built-in support for features like
+        watermarking, grammar-constrained generation, and speculative decoding. It powers HuggingFace's own
+        Inference Endpoints service, which means it has been tested at significant scale.
+    </p>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight</div>
+        <p>TGI's Rust router is a critical architectural decision. By handling all I/O, connection management, and request scheduling in Rust, TGI avoids Python's GIL bottleneck for the networking layer. The Python process only handles the GPU-bound inference work, where the GIL is released during CUDA kernel execution anyway.</p>
+    </div>
+
+    <h2>2. Docker Deployment</h2>
+
+    <p>
+        The recommended way to deploy TGI is through its official Docker image. This bundles all CUDA
+        dependencies, the Rust router, and the Python model server into a single container. The following
+        command pulls and runs TGI with a Llama model.
+    </p>
+
+    <pre><code class="language-bash"># Pull and run TGI with a Llama 3.1 8B model
+docker run --gpus all --shm-size 1g -p 8080:80 \
+    -v /data:/data \
+    ghcr.io/huggingface/text-generation-inference:latest \
+    --model-id meta-llama/Llama-3.1-8B-Instruct \
+    --max-input-tokens 2048 \
+    --max-total-tokens 4096 \
+    --max-batch-prefill-tokens 4096</code></pre>
+
+    <p>
+        Let us break down the key parts of this command. The <code>--gpus all</code> flag exposes all host GPUs
+        to the container. The <code>--shm-size 1g</code> flag increases shared memory, which is required for
+        PyTorch's data loader workers. The <code>-v /data:/data</code> mount provides persistent storage for
+        downloaded model weights so they survive container restarts.
+    </p>
+
+    <h3>2.1 Docker Compose for Persistent Deployments</h3>
+
+    <p>
+        For production deployments, a Docker Compose file provides a declarative and reproducible setup. The
+        following configuration defines a TGI service with health checks and automatic restarts.
+    </p>
+
+    <pre><code class="language-yaml"># docker-compose.yml
+version: "3.9"
+
+services:
+  tgi:
+    image: ghcr.io/huggingface/text-generation-inference:latest
+    ports:
+      - "8080:80"
+    volumes:
+      - model-cache:/data
+    environment:
+      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    shm_size: "1g"
+    command: >
+      --model-id meta-llama/Llama-3.1-8B-Instruct
+      --quantize awq
+      --max-input-tokens 2048
+      --max-total-tokens 4096
+      --max-concurrent-requests 128
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+volumes:
+  model-cache:</code></pre>
+
+    <h2>3. Environment Variables and Configuration</h2>
+
+    <p>
+        TGI accepts configuration through both command-line arguments and environment variables. Environment
+        variables are prefixed with <code>TGI_</code> or use HuggingFace-standard names. The table below lists
+        the most important configuration options.
+    </p>
+
+    <figure>
+        <table>
+            <thead>
+                <tr>
+                    <th scope="col">CLI Flag / Env Variable</th>
+                    <th scope="col">Default</th>
+                    <th scope="col">Description</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td><code>--model-id</code></td><td>(required)</td><td>HuggingFace model ID or local path</td></tr>
+                <tr><td><code>--quantize</code></td><td>None</td><td>Quantization method: <code>awq</code>, <code>gptq</code>, <code>bitsandbytes</code>, <code>eetq</code></td></tr>
+                <tr><td><code>--max-input-tokens</code></td><td>1024</td><td>Maximum allowed input prompt length</td></tr>
+                <tr><td><code>--max-total-tokens</code></td><td>2048</td><td>Maximum combined input + output token count</td></tr>
+                <tr><td><code>--max-batch-prefill-tokens</code></td><td>4096</td><td>Maximum tokens processed in a single prefill step</td></tr>
+                <tr><td><code>--max-concurrent-requests</code></td><td>128</td><td>Maximum number of simultaneous requests the router accepts</td></tr>
+                <tr><td><code>--num-shard</code></td><td>1</td><td>Number of GPU shards for tensor parallelism</td></tr>
+                <tr><td><code>HUGGING_FACE_HUB_TOKEN</code></td><td>None</td><td>Token for accessing gated models on HuggingFace Hub</td></tr>
+            </tbody>
+        </table>
+        <figcaption><strong>Figure S.2.1</strong>: Key TGI configuration options. These control memory allocation, request limits, and model loading behavior.</figcaption>
+    </figure>
+
+    <div class="callout warning">
+        <div class="callout-title">Warning</div>
+        <p>The <code>--max-batch-prefill-tokens</code> parameter directly affects GPU memory usage during the prompt processing phase. Setting it too high can cause out-of-memory errors, especially on GPUs with less than 40 GB of VRAM. Start with 4096 and increase gradually while monitoring memory usage.</p>
+    </div>
+
+    <h2>4. Quantization Options</h2>
+
+    <p>
+        TGI supports several quantization backends that reduce model memory footprint and often increase
+        throughput. You select the quantization method at startup; TGI then loads the model weights in the
+        specified format. The model must have been pre-quantized in the chosen format (with the exception of
+        bitsandbytes, which quantizes on the fly).
+    </p>
+
+    <pre><code class="language-bash"># Run with AWQ quantization (model must be pre-quantized)
+docker run --gpus all --shm-size 1g -p 8080:80 \
+    -v /data:/data \
+    ghcr.io/huggingface/text-generation-inference:latest \
+    --model-id TheBloke/Llama-2-13B-Chat-AWQ \
+    --quantize awq
+
+# Run with bitsandbytes 4-bit quantization (quantizes on the fly)
+docker run --gpus all --shm-size 1g -p 8080:80 \
+    -v /data:/data \
+    ghcr.io/huggingface/text-generation-inference:latest \
+    --model-id meta-llama/Llama-3.1-8B-Instruct \
+    --quantize bitsandbytes-nf4</code></pre>
+
+    <h2>5. Making Requests: Streaming and Non-Streaming</h2>
+
+    <p>
+        TGI exposes two primary HTTP endpoints: <code>/generate</code> for standard request/response and
+        <code>/generate_stream</code> for server-sent events (SSE) streaming. It also provides an
+        OpenAI-compatible endpoint at <code>/v1/chat/completions</code>. The following Python examples
+        demonstrate both modes.
+    </p>
+
+    <pre><code class="language-python">import requests
+
+TGI_URL = "http://localhost:8080"
+
+# Non-streaming request
+response = requests.post(
+    f"{TGI_URL}/generate",
+    json={
+        "inputs": "What is the capital of France?",
+        "parameters": {
+            "max_new_tokens": 100,
+            "temperature": 0.7,
+            "top_p": 0.9,
+            "do_sample": True,
+        },
+    },
+)
+result = response.json()
+print(result["generated_text"])</code></pre>
+
+    <p>
+        For applications that benefit from displaying tokens as they are generated (chatbots, for example),
+        streaming provides a much better user experience. TGI uses server-sent events for its streaming
+        endpoint.
+    </p>
+
+    <pre><code class="language-python">import requests
+import json
+
+# Streaming request using server-sent events
+response = requests.post(
+    f"{TGI_URL}/generate_stream",
+    json={
+        "inputs": "Explain gradient descent in simple terms.",
+        "parameters": {
+            "max_new_tokens": 200,
+            "temperature": 0.5,
+        },
+    },
+    stream=True,
+)
+
+for line in response.iter_lines():
+    if line:
+        decoded = line.decode("utf-8")
+        if decoded.startswith("data:"):
+            token_data = json.loads(decoded[5:])
+            # Each chunk contains a single token
+            if not token_data.get("details"):
+                print(token_data["token"]["text"], end="", flush=True)
+
+print()  # Final newline</code></pre>
+
+    <h2>6. Health Checks and Monitoring</h2>
+
+    <p>
+        TGI provides health and metrics endpoints that integrate with standard monitoring stacks. The
+        <code>/health</code> endpoint returns HTTP 200 when the model is loaded and ready to serve. The
+        <code>/metrics</code> endpoint exposes Prometheus-format metrics for throughput, latency, and queue
+        depth.
+    </p>
+
+    <pre><code class="language-bash"># Check if TGI is healthy
+curl http://localhost:8080/health
+
+# Fetch Prometheus metrics
+curl http://localhost:8080/metrics
+
+# Key metrics to monitor:
+#   tgi_request_duration_seconds    - End-to-end request latency
+#   tgi_request_count               - Total requests processed
+#   tgi_queue_size                  - Current queue depth
+#   tgi_batch_current_size          - Active batch size</code></pre>
+
+    <div class="callout tip">
+        <div class="callout-title">Tip</div>
+        <p>Set up a Grafana dashboard that tracks <code>tgi_queue_size</code> and <code>tgi_batch_current_size</code> over time. When the queue consistently exceeds your <code>--max-concurrent-requests</code> limit, it is time to scale horizontally by adding more TGI replicas behind a load balancer.</p>
+    </div>
+
+    <h2>7. Router Configuration and Batching Behavior</h2>
+
+    <p>
+        The Rust router is the entry point for all requests. It maintains a priority queue, groups requests
+        into batches for the model server, and handles backpressure when the system is overloaded. Several
+        parameters control how aggressively the router batches requests.
+    </p>
+
+    <figure>
+        <table>
+            <thead>
+                <tr>
+                    <th scope="col">Parameter</th>
+                    <th scope="col">Effect</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td><code>--max-waiting-tokens</code></td><td>Maximum tokens a request can wait in queue before being scheduled; lower values reduce latency, higher values improve throughput</td></tr>
+                <tr><td><code>--waiting-served-ratio</code></td><td>Ratio of waiting vs. running tokens; controls how aggressively new requests are admitted to the batch</td></tr>
+                <tr><td><code>--max-batch-size</code></td><td>Hard limit on batch size; useful for controlling memory usage on smaller GPUs</td></tr>
+            </tbody>
+        </table>
+        <figcaption><strong>Figure S.2.2</strong>: Router parameters that control TGI's batching behavior and the tradeoff between latency and throughput.</figcaption>
+    </figure>
+
+    <p>
+        The router also supports request prioritization and token budgets. When a request exceeds the
+        <code>--max-input-tokens</code> limit, TGI returns an HTTP 422 error immediately rather than
+        attempting to process and fail partway through. This fail-fast behavior prevents wasted GPU cycles.
+    </p>
+
+    <h2>Summary</h2>
+
+    <p>
+        TGI provides a Docker-native, production-ready serving solution for LLMs with a clean separation
+        between its Rust networking layer and Python inference layer. Its built-in quantization support,
+        streaming endpoints, health checks, and Prometheus metrics make it well-suited for deployment behind
+        container orchestration systems like Kubernetes. In the next section, we explore SGLang, which takes
+        a fundamentally different approach by providing a programming language for structured LLM interactions.
+    </p>
 
     <nav class="chapter-nav">
     <a class="prev" href="section-s.1.html">vLLM: PagedAttention, Continuous Batching, and OpenAI-Com...</a>

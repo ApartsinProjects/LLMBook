@@ -3,19 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Section M.2: Conditional Routing and Cycles. A comprehensive chapter from the Building Conversational AI textbook.">
     <title>Section M.2: Conditional Routing and Cycles | Building Conversational AI with LLMs and Agents</title>
     <link rel="stylesheet" href="../../styles/book.css">
-    <link rel="stylesheet" href="../../vendor/katex/katex.min.css">
-    <script defer src="../../vendor/katex/katex.min.js"></script>
-    <script defer src="../../vendor/katex/contrib/auto-render.min.js"
-        onload="renderMathInElement(document.body, {
-            delimiters: [
-                {left: '$$', right: '$$', display: true},
-                {left: '$', right: '$', display: false}
-            ],
-            throwOnError: false
-        });"></script>
-    <link rel="stylesheet" href="../../vendor/prism/prism-theme.css">
+<link rel="stylesheet" href="../../vendor/prism/prism-theme.css">
     <script defer src="../../vendor/prism/prism-bundle.min.js"></script>
 </head>
 <body>
@@ -33,10 +24,239 @@
 
     <div class="callout big-picture">
         <div class="callout-title">Big Picture</div>
-        <p>This section covers conditional Routing and Cycles. Content will be generated using the book production pipeline.</p>
+        <p>Static edges move execution along a fixed path, but real agents need to make decisions at runtime. LangGraph's <strong>conditional edges</strong> let you route execution based on state, while <strong>cycles</strong> allow nodes to loop back for retries, iterative refinement, or tool-calling loops. This section covers routing functions, branching logic, cycle construction, and safeguards against infinite loops.</p>
     </div>
 
-    <p><em>Content pending: this section will be produced by the book-writers agent pipeline.</em></p>
+    <h2>1. Conditional Edges</h2>
+
+    <p>A conditional edge replaces a fixed transition with a routing function. Instead of always going from node A to node B, the graph calls your function to decide which node runs next. The routing function receives the current state and returns the name of the target node (or a list of names for parallel fan-out).</p>
+
+    <p>The following example routes a user request to either a search tool or a calculator tool based on the LLM's classification.</p>
+
+    <pre><code class="language-python">from typing import TypedDict, Annotated, Literal
+from langgraph.graph import StateGraph, START, END
+from langgraph.graph.message import add_messages
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import HumanMessage, SystemMessage
+
+class RouterState(TypedDict):
+    messages: Annotated[list, add_messages]
+    route: str
+
+llm = ChatOpenAI(model="gpt-4o-mini")
+
+def classify(state: RouterState) -> dict:
+    sys_msg = SystemMessage(
+        content="Classify the request as 'search' or 'calculate'. "
+                "Reply with one word."
+    )
+    resp = llm.invoke([sys_msg] + state["messages"])
+    return {"route": resp.content.strip().lower()}
+
+def search_tool(state: RouterState) -> dict:
+    return {"messages": [("assistant", "Searching the web...")]}
+
+def calculator_tool(state: RouterState) -> dict:
+    return {"messages": [("assistant", "Running calculation...")]}
+
+# Routing function: inspects state, returns the next node name
+def pick_tool(state: RouterState) -> Literal["search", "calculator"]:
+    if state["route"] == "search":
+        return "search"
+    return "calculator"
+
+builder = StateGraph(RouterState)
+builder.add_node("classify", classify)
+builder.add_node("search", search_tool)
+builder.add_node("calculator", calculator_tool)
+
+builder.add_edge(START, "classify")
+builder.add_conditional_edges("classify", pick_tool)
+builder.add_edge("search", END)
+builder.add_edge("calculator", END)
+
+router_graph = builder.compile()</code></pre>
+    <div class="code-caption"><strong>Code Fragment M.2.1:</strong> A conditional routing graph. The <code>pick_tool</code> function reads the <code>route</code> channel and returns the name of the node to execute next. LangGraph calls this function automatically after the <code>classify</code> node finishes.</div>
+
+    <figure>
+        <pre class="figure-text">
+                          ┌──────────┐
+                     ┌───▶│  search   │───┐
+┌───────┐  ┌──────────┐  └──────────┘   │  ┌─────┐
+│ START │─▶│ classify  │                 ├─▶│ END │
+└───────┘  └──────────┘  ┌──────────┐   │  └─────┘
+                     └───▶│calculator│───┘
+                          └──────────┘
+        </pre>
+        <figcaption>Figure M.2.1: A conditional routing graph with two possible paths after classification. The routing function determines which branch executes.</figcaption>
+    </figure>
+
+    <h3>1.1 The <code>add_conditional_edges</code> API</h3>
+
+    <p>The full signature is <code>add_conditional_edges(source, path, path_map=None)</code>. The <code>path</code> argument is your routing function. An optional <code>path_map</code> dictionary maps return values to node names when they differ. For example, if your function returns <code>"web"</code> but the node is named <code>"search"</code>, you can write:</p>
+
+    <pre><code class="language-python">builder.add_conditional_edges(
+    "classify",
+    pick_tool,
+    path_map={"web": "search", "math": "calculator"}
+)</code></pre>
+    <div class="code-caption"><strong>Code Fragment M.2.2:</strong> Using <code>path_map</code> to decouple routing function return values from node names. This is useful when routing logic is reused across graphs that name their nodes differently.</div>
+
+    <div class="callout note">
+        <div class="callout-title">Note: Type Hints Help Validation</div>
+        <p>Adding a <code>Literal</code> return type to your routing function (e.g., <code>Literal["search", "calculator"]</code>) allows LangGraph to validate the graph at compile time, catching typos and missing nodes before the graph ever runs.</p>
+    </div>
+
+    <h2>2. Cycles: The Agent Loop Pattern</h2>
+
+    <p>The most powerful feature of LangGraph is its ability to express cycles. A cycle occurs when an edge points back to an earlier node, creating a loop. This is the foundation of the <em>ReAct agent loop</em>: the LLM decides whether to call a tool, the tool runs, and control returns to the LLM to decide again.</p>
+
+    <p>The following example builds a tool-calling agent that loops until the LLM decides it has a final answer.</p>
+
+    <pre><code class="language-python">from langgraph.graph import StateGraph, START, END
+from langgraph.prebuilt import ToolNode
+from langchain_openai import ChatOpenAI
+from langchain_core.tools import tool
+
+@tool
+def get_weather(city: str) -> str:
+    """Look up the current weather for a city."""
+    # Simulated response
+    return f"The weather in {city} is 22°C and sunny."
+
+tools = [get_weather]
+llm = ChatOpenAI(model="gpt-4o-mini").bind_tools(tools)
+
+class AgentState(TypedDict):
+    messages: Annotated[list, add_messages]
+
+def call_model(state: AgentState) -> dict:
+    response = llm.invoke(state["messages"])
+    return {"messages": [response]}
+
+def should_continue(state: AgentState) -> str:
+    """Route back to tools if the LLM made tool calls, otherwise end."""
+    last_message = state["messages"][-1]
+    if last_message.tool_calls:
+        return "tools"
+    return END
+
+# Build the cyclic graph
+builder = StateGraph(AgentState)
+builder.add_node("agent", call_model)
+builder.add_node("tools", ToolNode(tools))
+
+builder.add_edge(START, "agent")
+builder.add_conditional_edges("agent", should_continue)
+builder.add_edge("tools", "agent")  # cycle back
+
+agent = builder.compile()</code></pre>
+    <div class="code-caption"><strong>Code Fragment M.2.3:</strong> A ReAct-style agent loop. The <code>should_continue</code> function checks whether the LLM's last response contains tool calls. If so, the graph cycles back through the <code>tools</code> node; otherwise it exits.</div>
+
+    <figure>
+        <pre class="figure-text">
+┌───────┐     ┌────────┐  tool_calls?  ┌────────┐
+│ START │────▶│ agent  │──────────────▶│ tools  │
+└───────┘     └────────┘               └────────┘
+                  │  ▲                      │
+                  │  └──────────────────────┘
+                  │  no tool_calls
+                  ▼
+              ┌─────┐
+              │ END │
+              └─────┘
+        </pre>
+        <figcaption>Figure M.2.2: The ReAct agent loop. Execution cycles between <code>agent</code> and <code>tools</code> until the LLM stops requesting tool calls.</figcaption>
+    </figure>
+
+    <h2>3. Loop Detection and Recursion Limits</h2>
+
+    <p>Cycles introduce the risk of infinite loops. If the LLM keeps requesting tools without converging on a final answer, the graph will run indefinitely. LangGraph protects against this with a configurable <strong>recursion limit</strong>.</p>
+
+    <pre><code class="language-python">from langchain_core.messages import HumanMessage
+
+# Set a recursion limit to prevent infinite loops
+result = agent.invoke(
+    {"messages": [HumanMessage(content="What is the weather in Paris?")]},
+    config={"recursion_limit": 25}
+)
+print(result["messages"][-1].content)</code></pre>
+    <div class="code-caption"><strong>Code Fragment M.2.4:</strong> Invoking the agent with a recursion limit of 25 steps. If the graph exceeds this limit, LangGraph raises a <code>GraphRecursionError</code> instead of looping forever.</div>
+
+    <div class="callout warning">
+        <div class="callout-title">Warning: Setting Recursion Limits</div>
+        <p>The default recursion limit is 25. For complex agents with many tool calls, you may need to increase this value. However, a very high limit can lead to runaway costs and long execution times. Monitor your agent's loop count during development and set the limit to a reasonable multiple of the expected maximum.</p>
+    </div>
+
+    <h2>4. Retry Patterns</h2>
+
+    <p>Cycles are also useful for implementing retry logic. If a node fails or produces unsatisfactory output, you can route back to it for another attempt. The following pattern retries an LLM call when the output fails validation.</p>
+
+    <pre><code class="language-python">import json
+
+class RetryState(TypedDict):
+    messages: Annotated[list, add_messages]
+    parsed_output: dict
+    attempts: int
+
+def generate_json(state: RetryState) -> dict:
+    """Ask the LLM to produce structured JSON."""
+    response = llm.invoke(state["messages"])
+    attempts = state.get("attempts", 0) + 1
+    try:
+        parsed = json.loads(response.content)
+        return {"messages": [response], "parsed_output": parsed, "attempts": attempts}
+    except json.JSONDecodeError:
+        error_msg = ("assistant", "Output was not valid JSON. Trying again...")
+        return {"messages": [response, error_msg], "parsed_output": {}, "attempts": attempts}
+
+def check_output(state: RetryState) -> str:
+    """Retry if parsing failed and we have attempts remaining."""
+    if state["parsed_output"] and state["parsed_output"] != {}:
+        return END
+    if state["attempts"] >= 3:
+        return END  # give up after 3 tries
+    return "generate"
+
+builder = StateGraph(RetryState)
+builder.add_node("generate", generate_json)
+builder.add_edge(START, "generate")
+builder.add_conditional_edges("generate", check_output)
+
+retry_graph = builder.compile()</code></pre>
+    <div class="code-caption"><strong>Code Fragment M.2.5:</strong> A retry loop that re-invokes the LLM up to three times if the response is not valid JSON. The <code>attempts</code> counter prevents infinite retries.</div>
+
+    <h2>5. Parallel Branching</h2>
+
+    <p>A routing function can return a <em>list</em> of node names to trigger parallel execution. LangGraph runs all target nodes concurrently and merges their state updates using the configured reducers before continuing.</p>
+
+    <pre><code class="language-python">def fan_out(state: RouterState) -> list[str]:
+    """Run both tools in parallel."""
+    return ["search", "calculator"]
+
+builder = StateGraph(RouterState)
+builder.add_node("classify", classify)
+builder.add_node("search", search_tool)
+builder.add_node("calculator", calculator_tool)
+builder.add_node("merge", lambda state: state)  # no-op merge point
+
+builder.add_edge(START, "classify")
+builder.add_conditional_edges("classify", fan_out)
+builder.add_edge("search", "merge")
+builder.add_edge("calculator", "merge")
+builder.add_edge("merge", END)
+
+parallel_graph = builder.compile()</code></pre>
+    <div class="code-caption"><strong>Code Fragment M.2.6:</strong> Parallel fan-out. The routing function returns both node names, causing them to run concurrently. A merge node collects results before the graph exits.</div>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight: Reducers Matter for Parallel Branches</div>
+        <p>When parallel branches write to the same state channel, the reducer determines how the values are combined. Without a reducer, the last branch to finish overwrites earlier results. Use an append-style reducer (like <code>add_messages</code>) when you want to keep outputs from all branches.</p>
+    </div>
+
+    <h2>6. Summary</h2>
+
+    <p>Conditional edges and cycles transform LangGraph from a simple pipeline tool into a full agent orchestrator. You learned how to route execution dynamically with <code>add_conditional_edges</code>, build ReAct-style tool-calling loops, guard against infinite cycles with recursion limits, implement retry patterns, and fan out to parallel branches. In <a href="section-m.3.html">Section M.3</a>, you will see how to pause graph execution and inject human decisions into the loop.</p>
 
     <nav class="chapter-nav">
     <a class="prev" href="section-m.1.html">Graph Fundamentals: Nodes, Edges, and State</a>

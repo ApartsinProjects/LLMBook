@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Section 31.5: AI Gateways and Model Routing. A comprehensive chapter from the Building Conversational AI textbook.">
+    <title>Section 31.5: AI Gateways and Model Routing</title>
+    <link rel="stylesheet" href="../../styles/book.css">
+    <link rel="stylesheet" href="../../vendor/katex/katex.min.css">
+    <script defer src="../../vendor/katex/katex.min.js"></script>
+    <script defer src="../../vendor/katex/contrib/auto-render.min.js"
+        onload="renderMathInElement(document.body, {
+            delimiters: [
+                {left: '$$', right: '$$', display: true},
+                {left: '$', right: '$', display: false}
+            ],
+            throwOnError: false
+        });"></script>
+    <link rel="stylesheet" href="../../vendor/prism/prism-theme.css">
+    <script defer src="../../vendor/prism/prism-bundle.min.js"></script>
+</head>
+<body>
+<header class="chapter-header">
+    <nav class="header-nav">
+        <a href="../../index.html" class="book-title-link">Building Conversational AI with LLMs and Agents</a>
+        <a href="../../toc.html" class="toc-link" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+    </nav>
+    <div class="part-label"><a href="../index.html">Part VIII: Evaluation &amp; Production</a></div>
+    <div class="chapter-label"><a href="index.html">Chapter 31: Production Engineering &amp; Operations</a></div>
+    <h1>AI Gateways and Model Routing</h1>
+</header>
+
+<main class="content">
+
+    <div class="prerequisites">
+        <h3>Prerequisites</h3>
+        <p>This section builds on the deployment architecture from <a href="section-31.1.html">Section 31.1</a> and the scaling patterns in <a href="section-31.3.html">Section 31.3</a>. Understanding <a class="cross-ref" href="../../part-3-working-with-llms/module-10-llm-apis/section-10.1.html">LLM API mechanics</a> and the <a class="cross-ref" href="../../part-6-agentic-ai/module-26-agent-safety-production/section-26.4.html">error recovery patterns in Section 26.4</a> will provide useful context.</p>
+    </div>
+
+    <h2>1. The Case for an AI Gateway Layer <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        As LLM applications grow in complexity, organizations find themselves managing API keys for
+        multiple providers, implementing retry logic in every service, duplicating rate limiting code
+        across teams, and struggling to track costs across projects. An AI gateway solves these problems
+        by introducing a centralized proxy layer between your application code and LLM providers. All
+        model requests flow through the gateway, which handles routing, fallbacks, rate limiting, cost
+        tracking, caching, and observability in a single place.
+    </p>
+
+    <p>
+        The AI gateway pattern mirrors the traditional API gateway pattern (Kong, Envoy, AWS API Gateway)
+        but is specialized for the unique characteristics of LLM traffic. LLM requests are long-lived
+        (seconds, not milliseconds), token-based rather than request-based for billing, and require
+        streaming support. LLM responses are non-deterministic, making caching strategies different from
+        traditional API caching. The gateway must understand these characteristics to provide meaningful
+        routing, load balancing, and cost management.
+    </p>
+
+    <p>
+        Several mature AI gateway solutions exist, each with different trade-offs. <strong>LiteLLM Proxy</strong>
+        provides a unified OpenAI-compatible API across 100+ LLM providers, making it easy to switch models
+        without changing application code. <strong>Portkey</strong> offers a managed gateway with built-in
+        observability, caching, and guardrails. <strong>Kong AI Gateway</strong> extends the popular Kong API
+        gateway with AI-specific plugins. <strong>Cloudflare AI Gateway</strong> provides edge-deployed
+        gateway functionality with built-in analytics.
+    </p>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight</div>
+        <p>The most important benefit of an AI gateway is <strong>provider independence</strong>. When your application code calls <code>gateway/v1/chat/completions</code> instead of <code>api.openai.com/v1/chat/completions</code>, switching from GPT-4o to Claude Sonnet or Gemini becomes a configuration change, not a code change. This decoupling is critical for cost optimization (routing to the cheapest adequate model), reliability (automatic failover when a provider has an outage), and compliance (routing sensitive data to specific providers or regions). The <a class="cross-ref" href="../../part-2-understanding-llms/module-07-modern-llm-landscape/index.html">model landscape in Chapter 7</a> changes rapidly; your gateway absorbs that volatility.</p>
+    </div>
+
+    <h2>2. LiteLLM Proxy: Unified Model Access <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        LiteLLM is an open-source library that provides a unified interface to 100+ LLM providers using
+        the OpenAI API format. The LiteLLM Proxy Server extends this into a standalone gateway service
+        that your applications call instead of calling LLM providers directly. It supports load balancing,
+        fallbacks, spend tracking, rate limiting, and virtual API keys for multi-team environments.
+    </p>
+
+<pre><code class="language-yaml"># litellm_config.yaml - LiteLLM Proxy configuration
+model_list:
+  # Primary model with multiple deployments for load balancing
+  - model_name: "gpt-4o"
+    litellm_params:
+      model: "openai/gpt-4o"
+      api_key: "os.environ/OPENAI_API_KEY"
+      rpm: 500  # Requests per minute limit
+      tpm: 200000  # Tokens per minute limit
+
+  - model_name: "gpt-4o"
+    litellm_params:
+      model: "azure/gpt-4o-eastus"
+      api_key: "os.environ/AZURE_API_KEY"
+      api_base: "https://my-eastus.openai.azure.com"
+      rpm: 300
+
+  # Fallback model (cheaper, faster)
+  - model_name: "gpt-4o-mini"
+    litellm_params:
+      model: "openai/gpt-4o-mini"
+      api_key: "os.environ/OPENAI_API_KEY"
+
+  # Alternative provider (Anthropic via OpenAI-compatible API)
+  - model_name: "claude-sonnet"
+    litellm_params:
+      model: "anthropic/claude-sonnet-4-20250514"
+      api_key: "os.environ/ANTHROPIC_API_KEY"
+
+# Router settings
+router_settings:
+  routing_strategy: "latency-based-routing"
+  num_retries: 3
+  retry_after: 5
+  allowed_fails: 2  # Remove deployment after 2 consecutive failures
+  cooldown_time: 60  # Re-check failed deployment after 60s
+
+# Budget and rate limiting
+general_settings:
+  master_key: "sk-gateway-master-key"
+  database_url: "postgresql://user:pass@db:5432/litellm"
+  max_budget: 1000.0  # Monthly budget in USD
+  budget_duration: "30d"
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 31.5.1:</strong> LiteLLM Proxy configuration with multiple model deployments, load balancing, and budget controls. The same model name (<code>gpt-4o</code>) maps to both OpenAI direct and Azure deployments, enabling automatic load distribution. The router uses latency-based routing to send requests to the fastest available endpoint.</div>
+
+    <p>
+        With the proxy running, your application code uses the standard OpenAI client library pointed
+        at the gateway. No LiteLLM-specific code is needed in your application, which keeps the
+        gateway concern cleanly separated from business logic.
+    </p>
+
+<pre><code class="language-python">import openai
+
+# Point the standard OpenAI client at the LiteLLM Proxy
+client = openai.OpenAI(
+    base_url="http://litellm-proxy:4000/v1",
+    api_key="sk-team-analytics-key",  # Virtual key for cost tracking
+)
+
+# This request is transparently routed, load-balanced, and tracked
+response = client.chat.completions.create(
+    model="gpt-4o",  # Logical model name, resolved by the proxy
+    messages=[{"role": "user", "content": "Summarize this quarter's revenue."}],
+    temperature=0.3,
+)
+
+# The proxy handles:
+# 1. Routing to the fastest available gpt-4o deployment
+# 2. Automatic retry if the first deployment fails
+# 3. Token counting and cost attribution to the virtual key
+# 4. Rate limiting per the team's allocated budget
+print(response.choices[0].message.content)
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 31.5.2:</strong> Application code using the LiteLLM Proxy. The standard OpenAI client is pointed at the proxy URL with a virtual API key. The proxy resolves the logical model name to a physical deployment, handles routing and retries, and tracks usage against the team's budget. No proxy-specific imports are needed.</div>
+
+    <h2>3. Fallback Chains and Provider Failover <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>
+        Provider outages are inevitable. OpenAI, Anthropic, Google, and Azure all experience periodic
+        degradation or downtime. A production LLM application must handle these outages gracefully,
+        ideally without the user noticing any disruption. AI gateways implement this through fallback
+        chains: ordered lists of alternative models or providers to try when the primary option fails.
+    </p>
+
+    <p>
+        Fallback strategies range from simple to sophisticated. The simplest approach is a static
+        ordered list: try OpenAI first, then Azure, then Anthropic. More advanced strategies consider
+        the nature of the failure (rate limit vs. server error), the request characteristics (latency
+        sensitivity, cost sensitivity, quality requirements), and real-time provider health metrics.
+        Some gateways support "hedging," where the request is sent to multiple providers simultaneously
+        and the fastest response wins.
+    </p>
+
+<pre><code class="language-python">from litellm import Router
+
+# Configure a router with fallback chains
+router = Router(
+    model_list=[
+        {
+            "model_name": "primary-chat",
+            "litellm_params": {
+                "model": "openai/gpt-4o",
+                "api_key": OPENAI_KEY,
+            },
+        },
+        {
+            "model_name": "primary-chat",
+            "litellm_params": {
+                "model": "anthropic/claude-sonnet-4-20250514",
+                "api_key": ANTHROPIC_KEY,
+            },
+        },
+        {
+            "model_name": "primary-chat",
+            "litellm_params": {
+                "model": "google/gemini-2.5-pro",
+                "api_key": GOOGLE_KEY,
+            },
+        },
+    ],
+    # Fallback configuration
+    fallbacks=[
+        {"primary-chat": ["fallback-chat"]},
+    ],
+    # Context window overflow handling
+    context_window_fallbacks=[
+        {"primary-chat": ["long-context-chat"]},
+    ],
+    routing_strategy="latency-based-routing",
+    num_retries=2,
+    retry_after=1,
+)
+
+# The router automatically handles failover
+async def resilient_completion(messages, **kwargs):
+    """Make an LLM call with automatic multi-provider failover."""
+    try:
+        response = await router.acompletion(
+            model="primary-chat",
+            messages=messages,
+            **kwargs,
+        )
+        return response
+    except Exception as e:
+        # All providers failed; log and raise
+        logger.error(f"All providers exhausted: {e}")
+        raise ServiceUnavailableError("LLM service temporarily unavailable")
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 31.5.3:</strong> Multi-provider fallback chain using LiteLLM Router. Three deployments share the same logical model name; the router tries them in order based on latency. If a request exceeds the context window, it automatically falls back to a long-context model. The application code calls a single function without any provider-specific logic.</div>
+
+    <div class="callout practical-example">
+        <div class="callout-title">Practical Example: Designing a Fallback Strategy</div>
+        <p>A production chatbot serving financial advisors requires high reliability. The team configures three tiers of fallback: <strong>Tier 1</strong> is GPT-4o via Azure (lowest latency, data stays in their Azure region). <strong>Tier 2</strong> is Claude Sonnet via direct API (slightly different behavior, but similar quality). <strong>Tier 3</strong> is GPT-4o-mini (lower quality, but very reliable and fast). The gateway routes to Tier 1 by default, falls back to Tier 2 on rate limits or timeouts (with a 3-second threshold), and falls back to Tier 3 only when both premium providers are down. A metric tracks which tier served each request, feeding into SLA reporting. The <a class="cross-ref" href="../../part-6-agentic-ai/module-26-agent-safety-production/section-26.4.html">resilience patterns in Section 26.4</a> apply the same principle at the agent level.</p>
+    </div>
+
+    <h2>4. Rate Limiting and Request Management <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        LLM providers impose rate limits measured in requests per minute (RPM) and tokens per minute
+        (TPM). Exceeding these limits results in 429 errors that degrade user experience. An AI gateway
+        centralizes rate limit management, ensuring that aggregate traffic from all application instances
+        stays within provider limits. This is especially important in multi-team environments where
+        several applications share the same provider account.
+    </p>
+
+    <p>
+        Gateway-level rate limiting operates at two levels. <strong>Upstream limiting</strong> ensures
+        that the total traffic to each provider stays within that provider's rate limits. The gateway
+        tracks request and token rates per deployment and queues or rejects requests that would exceed
+        limits. <strong>Downstream limiting</strong> enforces per-team or per-user quotas, ensuring
+        fair resource allocation across internal consumers. Virtual API keys enable this: each team
+        gets a key with specific RPM, TPM, and budget limits.
+    </p>
+
+<pre><code class="language-python">import asyncio
+from dataclasses import dataclass, field
+from collections import defaultdict
+import time
+
+@dataclass
+class RateLimitConfig:
+    requests_per_minute: int = 60
+    tokens_per_minute: int = 100000
+    max_budget_usd: float = 500.0
+    budget_period_days: int = 30
+
+class GatewayRateLimiter:
+    """Token-aware rate limiter for AI gateway traffic."""
+
+    def __init__(self):
+        self.team_configs: dict[str, RateLimitConfig] = {}
+        self.request_windows: dict[str, list[float]] = defaultdict(list)
+        self.token_windows: dict[str, list[tuple[float, int]]] = defaultdict(list)
+        self._lock = asyncio.Lock()
+
+    async def check_rate_limit(
+        self, team_id: str, estimated_tokens: int
+    ) -> bool:
+        """Check if a request is within rate limits. Returns True if allowed."""
+        config = self.team_configs.get(team_id, RateLimitConfig())
+        now = time.monotonic()
+        window_start = now - 60  # 1-minute window
+
+        async with self._lock:
+            # Clean old entries
+            self.request_windows[team_id] = [
+                t for t in self.request_windows[team_id] if t > window_start
+            ]
+            self.token_windows[team_id] = [
+                (t, n) for t, n in self.token_windows[team_id]
+                if t > window_start
+            ]
+
+            # Check RPM
+            if len(self.request_windows[team_id]) >= config.requests_per_minute:
+                return False
+
+            # Check TPM
+            current_tokens = sum(
+                n for _, n in self.token_windows[team_id]
+            )
+            if current_tokens + estimated_tokens > config.tokens_per_minute:
+                return False
+
+            # Record this request
+            self.request_windows[team_id].append(now)
+            self.token_windows[team_id].append((now, estimated_tokens))
+            return True
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 31.5.4:</strong> A token-aware rate limiter for AI gateway traffic. Unlike traditional rate limiters that only count requests, this implementation also tracks token consumption within sliding windows. The <code>estimated_tokens</code> parameter is calculated from the prompt length before the request is sent, preventing token-budget overruns.</div>
+
+<div class="callout library-shortcut">
+<div class="callout-title">Library Shortcut</div>
+<p>The same result in a YAML config with <strong>LiteLLM Proxy</strong>, which handles rate limiting, budget enforcement, and virtual keys out of the box:</p>
+<pre><code class="language-python">
+# litellm_config.yaml:
+# general_settings:
+#   master_key: sk-admin-key
+# model_list:
+#   - model_name: gpt-4o
+#     litellm_params:
+#       model: openai/gpt-4o
+#       rpm: 100
+#       tpm: 500000
+#
+# Start: litellm --config litellm_config.yaml
+# Then create per-team keys via the admin API:
+import litellm
+key = litellm.create_key(
+    models=["gpt-4o"], max_budget=500.0, budget_duration="30d", tpm_limit=100000,
+)
+# All rate limiting and budget enforcement is handled by the proxy
+</code></pre>
+</div>
+
+    <h2>5. Semantic Caching for LLM Responses <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>
+        Traditional API caching uses exact key matching, but LLM requests rarely repeat exactly. Two
+        users might ask "What is the capital of France?" and "What's France's capital city?" and expect
+        the same answer. Semantic caching uses <a class="cross-ref" href="../../part-5-retrieval-conversation/module-19-embeddings-vector-db/index.html">embedding similarity</a> to identify semantically equivalent
+        requests and serve cached responses. This can reduce costs significantly for applications with
+        repetitive query patterns, such as customer support or FAQ bots.
+    </p>
+
+    <p>
+        The trade-off is cache freshness versus cost savings. Semantic caching works well for factual
+        queries with stable answers, but poorly for queries that depend on real-time data, user context,
+        or conversation history. Most gateway implementations allow you to configure which requests are
+        cache-eligible based on the model, temperature (only cache deterministic calls with
+        temperature=0), and custom metadata.
+    </p>
+
+<pre><code class="language-python">import numpy as np
+from typing import Optional
+
+class SemanticCache:
+    """Embedding-based semantic cache for LLM responses."""
+
+    def __init__(self, embedding_model, similarity_threshold=0.95):
+        self.embedding_model = embedding_model
+        self.threshold = similarity_threshold
+        self.cache: list[dict] = []  # In production, use a vector DB
+
+    async def get(self, messages: list[dict]) -> Optional[str]:
+        """Look up a semantically similar cached response."""
+        query = self._extract_query(messages)
+        query_embedding = await self.embedding_model.embed(query)
+
+        best_score = 0.0
+        best_response = None
+
+        for entry in self.cache:
+            score = self._cosine_similarity(
+                query_embedding, entry["embedding"]
+            )
+            if score > best_score:
+                best_score = score
+                best_response = entry["response"]
+
+        if best_score >= self.threshold:
+            return best_response
+        return None
+
+    async def put(self, messages: list[dict], response: str):
+        """Cache a response with its embedding."""
+        query = self._extract_query(messages)
+        embedding = await self.embedding_model.embed(query)
+        self.cache.append({
+            "query": query,
+            "embedding": embedding,
+            "response": response,
+            "created_at": time.time(),
+        })
+
+    def _extract_query(self, messages: list[dict]) -> str:
+        """Extract the cacheable query from messages."""
+        return messages[-1]["content"]
+
+    def _cosine_similarity(self, a, b) -> float:
+        return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)))
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 31.5.5:</strong> A semantic cache that uses embedding similarity to match incoming queries against cached responses. When the cosine similarity exceeds the threshold (0.95), the cached response is returned without making an LLM call. In production, replace the list-based cache with a <a class="cross-ref" href="../../part-5-retrieval-conversation/module-19-embeddings-vector-db/index.html">vector database</a> like Pinecone or Qdrant for efficient similarity search at scale.</div>
+
+    <div class="callout warning">
+        <div class="callout-title">Warning</div>
+        <p>Semantic caching introduces a subtle correctness risk: two queries that appear semantically similar may require different answers depending on context. "What is the current stock price of AAPL?" asked at 10am and 3pm should return different answers. Always include relevant context (timestamps, user roles, session state) in the cache key computation, and set appropriate TTL (time-to-live) values. For conversational applications where responses depend on multi-turn context, semantic caching is generally not appropriate. Restrict it to stateless, factual queries.</p>
+    </div>
+
+    <h2>6. Cost Tracking and Budget Enforcement <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        One of the most valuable functions of an AI gateway is centralized cost tracking. Every request
+        flowing through the gateway carries token count and model information, allowing precise cost
+        calculation. The gateway can enforce budgets at multiple levels: per team, per project, per
+        user, and globally. When a budget threshold is approached, the gateway can send alerts, switch
+        to cheaper models, or reject non-critical requests.
+    </p>
+
+    <p>
+        Cost tracking at the gateway level complements the <a class="cross-ref" href="../module-30-observability-monitoring/section-30.5.html">OTel-based cost attribution in Section 30.5</a>. While OTel provides per-request cost visibility for debugging and analysis, the gateway provides real-time enforcement: it can block a request before it is sent to a provider, preventing budget overruns rather than merely reporting them after the fact. The combination of gateway-level enforcement and OTel-level visibility provides complete cost control.
+    </p>
+
+<pre><code class="language-python">from datetime import datetime, timedelta
+
+class BudgetEnforcer:
+    """Enforce spending limits per team with tiered responses."""
+
+    def __init__(self, db):
+        self.db = db
+
+    async def check_and_record(
+        self, team_id: str, model: str, estimated_cost: float
+    ) -> dict:
+        """Check budget, record spend, return routing decision."""
+        team = await self.db.get_team(team_id)
+        period_start = datetime.utcnow() - timedelta(days=team.budget_period_days)
+        current_spend = await self.db.get_spend(team_id, since=period_start)
+
+        remaining = team.max_budget - current_spend
+        utilization = current_spend / team.max_budget
+
+        # Tiered response based on budget utilization
+        if utilization >= 1.0:
+            return {
+                "action": "reject",
+                "reason": f"Budget exhausted (${current_spend:.2f}/${team.max_budget:.2f})",
+            }
+        elif utilization >= 0.9:
+            return {
+                "action": "downgrade",
+                "target_model": team.budget_fallback_model,
+                "reason": f"Budget >90%, routing to {team.budget_fallback_model}",
+            }
+        elif utilization >= 0.75:
+            return {
+                "action": "allow",
+                "warning": f"Budget at {utilization:.0%}. ${remaining:.2f} remaining.",
+            }
+        else:
+            return {"action": "allow"}
+
+    async def record_spend(self, team_id: str, model: str, cost: float):
+        """Record actual spend after a successful response."""
+        await self.db.record_transaction(
+            team_id=team_id,
+            model=model,
+            cost=cost,
+            timestamp=datetime.utcnow(),
+        )
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 31.5.6:</strong> Budget enforcement with tiered responses. At 75% utilization, the system issues warnings. At 90%, requests are automatically downgraded to a cheaper model. At 100%, non-critical requests are rejected. This progressive approach prevents sudden service disruptions while keeping costs under control.</div>
+
+
+    <h2>Exercises</h2>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 31.5.1: Gateway Setup <span class="level-badge basic" title="Basic">BASIC</span> <span class="exercise-type coding" title="Coding">Coding</span></div>
+        <p>Deploy a LiteLLM Proxy with Docker and configure it with two model deployments (OpenAI and a fallback). Make a request through the proxy and verify that the response includes usage metadata.</p>
+        <details open>
+            <summary>Answer Sketch</summary>
+            <p>Run <code>docker run -p 4000:4000 -v ./config.yaml:/app/config.yaml ghcr.io/berriai/litellm:main-latest</code> with a config file containing two model entries. Point an OpenAI client at <code>http://localhost:4000/v1</code> and make a chat completion request. The response includes standard usage fields; the proxy logs show routing decisions and cost calculations.</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 31.5.2: Fallback Chain Design <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span> <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+        <p>Design a three-tier fallback strategy for a customer support chatbot. Specify which models to use at each tier, when to trigger fallback, and how to handle quality differences between tiers. Consider how you would test the fallback behavior.</p>
+        <details open>
+            <summary>Answer Sketch</summary>
+            <p>Tier 1: Claude Sonnet (best quality for nuanced customer interactions). Tier 2: GPT-4o-mini (fallback on rate limit or timeout after 5s). Tier 3: A cached FAQ response system (fallback when all LLM providers are down). Test by simulating provider failures using the gateway's health check override. Log the serving tier on every request and alert if Tier 3 usage exceeds 1% of traffic.</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 31.5.3: Semantic Cache Evaluation <span class="level-badge advanced" title="Advanced">ADVANCED</span> <span class="exercise-type project" title="Project">Project</span></div>
+        <p>Implement a semantic cache for a FAQ chatbot. Measure the cache hit rate, latency improvement, and cost savings over a test dataset of 1,000 queries with natural paraphrasing variation. Determine the optimal similarity threshold for your use case.</p>
+        <details open>
+            <summary>Answer Sketch</summary>
+            <p>Generate 1,000 test queries from 100 base questions with 10 paraphrases each. Run without cache to establish baseline cost and latency. Then enable the cache with thresholds from 0.85 to 0.99 in 0.02 increments. Measure hit rate, correctness (manual spot-check of 50 cache hits for semantic equivalence), latency (cached vs. uncached P50/P95), and cost savings. Typical results: threshold of 0.93 to 0.96 gives 40 to 60% hit rate with fewer than 2% incorrect cache matches for FAQ-style queries.</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 31.5.4: Multi-Team Budget Policy <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span> <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+        <p>Design a budget allocation policy for an organization with five teams sharing a $10,000 monthly LLM budget. Specify how to allocate budgets, handle overages, implement alerts, and manage end-of-month budget pressure.</p>
+        <details open>
+            <summary>Answer Sketch</summary>
+            <p>Allocate fixed budgets per team based on projected usage (e.g., $3,000 for the main product team, $2,000 each for two feature teams, $1,500 for internal tools, $1,500 reserve). Implement 75%/90%/100% threshold alerts. At 90%, automatically downgrade to cheaper models. At 100%, allow a 10% overflow buffer charged against next month. Track daily spend rates and project monthly totals. Alert the engineering lead if projected spend exceeds 120% of any team's budget by mid-month.</p>
+        </details>
+    </div>
+
+<div class="whats-next">
+    <h2>What Comes Next</h2>
+    <p>The next section covers <a href="section-31.6.html">Workflow Orchestration and Durable Execution</a>, addressing how to make long-running LLM agent workflows resilient to crashes, timeouts, and provider outages using frameworks like Temporal, Inngest, and LangGraph persistence.</p>
+</div>
+
+<nav class="chapter-nav">
+    <a class="prev" href="section-31.4.html">LLMOps &amp; Continuous Improvement</a>
+    <a class="up" href="index.html">Chapter 31: Production Engineering &amp; Operations</a>
+    <a class="next" href="section-31.6.html">Workflow Orchestration &amp; Durable Execution</a>
+</nav>
+    <footer>
+        <p class="footer-title">Building Conversational AI with LLMs and Agents, Fifth Edition</p>
+        <p>&copy; 2026 Alexander Apartsin &amp; Yehudit Aperstein &middot; <a href="../../toc.html">Contents</a></p>
+        <p class="footer-updated">Last updated: <script>document.write(new Date(document.lastModified).toLocaleDateString('en-US', {year:'numeric', month:'long', day:'numeric'}))</script></p>
+    </footer>
+</main>
+</body>
+</html>

@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Section 29.13: Research Methodology for LLM Papers. A comprehensive chapter from the Building Conversational AI textbook.">
+    <title>Section 29.13: Research Methodology for LLM Papers</title>
+    <link rel="stylesheet" href="../../styles/book.css">
+<link rel="stylesheet" href="../../vendor/prism/prism-theme.css">
+    <script defer src="../../vendor/prism/prism-bundle.min.js"></script>
+</head>
+<body>
+<header class="chapter-header">
+    <nav class="header-nav">
+        <a href="../../index.html" class="book-title-link">Building Conversational AI with LLMs and Agents</a>
+        <a href="../../toc.html" class="toc-link" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+    </nav>
+    <div class="part-label"><a href="../index.html">Part VIII: Evaluation &amp; Production</a></div>
+    <div class="chapter-label"><a href="index.html">Chapter 29: Evaluation and Observability</a></div>
+    <h1>Research Methodology for LLM Papers</h1>
+</header>
+
+<main class="content">
+
+    <blockquote class="epigraph">
+        <p>"An experiment you cannot reproduce is an anecdote you cannot trust."</p>
+        <cite><span class="agent-avatar-inline" style="background-color: #7f8c8d;"><img src="../../front-matter/images/agents/eval.png" alt="Eval"></span> <a href="../../front-matter/wisdom-council.html#eval">Eval</a> <span class="agent-desc">AI Agent</span></cite>
+    </blockquote>
+
+    <div class="prerequisites">
+        <h3>Prerequisites</h3>
+        <p>Before starting, make sure you are familiar with evaluation metrics from <a class="cross-ref" href="section-29.1.html">Section 29.1: LLM Evaluation Fundamentals</a>, reproducibility practices from <a class="cross-ref" href="section-29.7.html">Section 29.7: LLM Experiment Reproducibility</a>, and evaluation harness ecosystems from <a class="cross-ref" href="section-29.9.html">Section 29.9: Evaluation Harness Ecosystems</a>.</p>
+    </div>
+
+    <div class="callout big-picture">
+        <div class="callout-title">Big Picture</div>
+        <p><strong>Rigorous methodology separates LLM science from LLM folklore.</strong> The rapid pace of large language model research has produced thousands of papers with evaluation claims that vary enormously in rigor. Some report single-run results on leaked benchmarks with no confidence intervals; others follow careful experimental protocols with ablations, statistical tests, and human evaluation. This section provides a comprehensive methodology guide for designing, executing, and reporting LLM experiments. It covers experiment design, reproducibility challenges, evaluation protocol construction, ablation studies, human evaluation methodology, artifact packaging, statistical reporting, and the most common pitfalls that undermine published results. Whether you are writing your first LLM paper or reviewing submissions for a top venue, this section will help you distinguish credible findings from noise.</p>
+    </div>
+
+    <h2>1. Experiment Design for LLM Research <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        LLM experiments differ from classical machine learning experiments in several important ways. Models are expensive to run, outputs are stochastic even at low temperatures, API-based models change without notice, and the combinatorial space of prompts and hyperparameters is vast. Designing experiments that yield trustworthy conclusions under these constraints requires careful attention to randomness control, statistical power, and ablation structure.
+    </p>
+
+    <h3>1.1 Controlling for Randomness</h3>
+
+    <p>
+        Stochasticity in LLM experiments arises from multiple sources: sampling temperature, dropout during training, data shuffling, and even nondeterministic GPU operations. Controlling these sources is the first step toward reproducible results. Code Fragment 29.13.1 demonstrates how to set reproducible seeds across the major frameworks.
+    </p>
+
+<pre><code class="language-python">
+# Code Fragment 29.13.1: Setting reproducible seeds for LLM experiments
+import os
+import random
+import numpy as np
+import torch
+
+def set_global_seed(seed: int = 42) -> None:
+    """Set seeds across all sources of randomness for reproducibility."""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    os.environ["PYTHONHASHSEED"] = str(seed)
+
+    # For maximum determinism on CUDA (may reduce performance)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+set_global_seed(42)
+
+# For API-based models, control randomness via generation parameters
+def deterministic_api_call(client, prompt: str, model: str) -> str:
+    """Make a reproducible API call by fixing temperature and seed."""
+    response = client.chat.completions.create(
+        model=model,
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.0,       # Greedy decoding
+        seed=42,               # Server-side seed (OpenAI-specific)
+        top_p=1.0,             # No nucleus sampling
+        max_tokens=512,
+    )
+    # Log the system_fingerprint for version tracking
+    print(f"System fingerprint: {response.system_fingerprint}")
+    return response.choices[0].message.content
+
+# Run multiple trials even with temperature=0.0
+# API models may still vary across calls due to infrastructure changes
+def multi_trial_evaluation(
+    client, prompts: list[str], model: str, n_trials: int = 5
+) -> dict:
+    """Run multiple trials and report variance."""
+    from collections import defaultdict
+    results = defaultdict(list)
+
+    for trial in range(n_trials):
+        for i, prompt in enumerate(prompts):
+            output = deterministic_api_call(client, prompt, model)
+            results[i].append(output)
+
+    # Check consistency across trials
+    consistency = {}
+    for idx, outputs in results.items():
+        unique_outputs = len(set(outputs))
+        consistency[idx] = {
+            "consistent": unique_outputs == 1,
+            "unique_outputs": unique_outputs,
+            "n_trials": n_trials,
+        }
+    return consistency
+</code></pre>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight</div>
+        <p><strong>Temperature zero does not guarantee determinism.</strong> Even with <code>temperature=0.0</code>, API-based models can produce different outputs across calls. Infrastructure-level changes (model routing, quantization, batching) introduce nondeterminism that is invisible to the caller. Always run multiple trials and report the variance. For local models, setting CUDA determinism flags can help, but some operations (such as atomicAdd in certain attention implementations) remain inherently nondeterministic on GPUs.</p>
+    </div>
+
+    <h3>1.2 Statistical Significance with Expensive Models</h3>
+
+    <p>
+        Classical statistical testing assumes cheap evaluation: you can run thousands of bootstrap samples or cross-validation folds at minimal cost. LLM evaluation inverts this assumption. A single evaluation run on GPT-4 across 1,000 examples might cost $50 or more, and training runs can cost thousands of dollars. This cost constraint demands sample-efficient experimental designs.
+    </p>
+
+    <p>
+        Paired comparisons are essential. Rather than comparing aggregate scores between two systems, compare their performance on the same examples. The paired bootstrap test and the permutation test are well suited to this setting because they operate on per-example score differences and do not assume normality. When budget is limited, prioritize paired designs over independent evaluations, and use stratified sampling to ensure coverage of important subgroups (e.g., question difficulty, domain, or output length).
+    </p>
+
+    <h3>1.3 Ablation Study Design</h3>
+
+    <p>
+        An ablation study systematically removes or modifies components of a system to measure each component's contribution. In LLM research, ablations typically target: (1) prompt components (system instructions, few-shot examples, chain-of-thought formatting), (2) retrieval components (in RAG systems), (3) hyperparameters (temperature, top-p, max tokens), and (4) data (training data subsets, few-shot example selection strategies). A well-designed ablation holds all variables constant except the one under study. Section 4 covers ablation methodology in depth.
+    </p>
+
+    <h2>2. Reproducibility Challenges <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>
+        Reproducibility in LLM research faces challenges that do not exist in traditional machine learning. API models change silently, hardware differences produce different floating-point results, and training data contamination can inflate benchmark scores. Understanding these challenges is essential for both producers and consumers of LLM research.
+    </p>
+
+    <h3>2.1 Version Drift in API Models</h3>
+
+    <p>
+        When a paper reports results using "GPT-4," that label is ambiguous. The model behind the GPT-4 API endpoint changes over time as the provider updates weights, modifies safety filters, or adjusts infrastructure. Results obtained in January may not be reproducible in June, even with identical prompts and parameters. To mitigate this problem: (1) record the specific model version or snapshot identifier (e.g., <code>gpt-4-0613</code> rather than <code>gpt-4</code>), (2) log the system fingerprint returned by the API, (3) run evaluations within a narrow time window, and (4) archive raw model outputs alongside scores.
+    </p>
+
+    <h3>2.2 Hardware-Dependent Results</h3>
+
+    <p>
+        For locally hosted models, floating-point arithmetic varies across GPU architectures, driver versions, and even batch sizes. A model evaluated on an A100 may produce slightly different logits than the same model on an H100, leading to different greedy-decoded outputs for borderline cases. These differences are typically small (affecting 1 to 3 percent of examples), but they can shift aggregate metrics enough to change the ranking of systems. Report the exact hardware configuration, CUDA version, and library versions used for all experiments.
+    </p>
+
+    <h3>2.3 Dataset Contamination Detection</h3>
+
+    <p>
+        Benchmark contamination occurs when test examples (or close paraphrases) appear in a model's training data. This is one of the most serious threats to the validity of LLM evaluation results. Detection methods include: (1) n-gram overlap analysis between training data and benchmark examples, (2) membership inference attacks that test whether the model has memorized specific examples, (3) canary string insertion during benchmark construction, and (4) performance comparison between original and rephrased versions of benchmark questions. If performance drops significantly on rephrased versions, contamination is likely.
+    </p>
+
+    <div class="callout warning">
+        <div class="callout-title">Warning</div>
+        <p><strong>Contamination is pervasive and often undetectable.</strong> Large-scale web crawls used for pretraining ingest benchmark datasets that were posted online. Many popular benchmarks (MMLU, GSM8K, HumanEval) have been found in training corpora. When evaluating on standard benchmarks, always consider the possibility that results are inflated by contamination. Where possible, construct held-out evaluation sets that have never been published online. See the contamination discussion in <a class="cross-ref" href="section-29.2.html">Section 29.2</a> for detailed detection methods.</p>
+    </div>
+
+    <h2>3. Evaluation Protocol Design <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        An evaluation protocol specifies every decision required to go from a research question to a set of reported numbers. A well-designed protocol eliminates researcher degrees of freedom and ensures that results are interpretable and comparable. The three core decisions are: choosing baselines, selecting or constructing benchmarks, and defining data splits.
+    </p>
+
+    <h3>3.1 Choosing Baselines</h3>
+
+    <p>
+        Every evaluation needs baselines that anchor the results. Good baselines serve three purposes: they establish a lower bound (what a trivial system achieves), they represent the state of the art (what the best existing system achieves), and they isolate the contribution of your method (what happens without your specific innovation). At minimum, include: (1) a random or majority-class baseline, (2) a simple heuristic baseline, (3) the strongest published result on the same benchmark, and (4) an ablated version of your own system that removes the key proposed component.
+    </p>
+
+    <h3>3.2 Benchmark Selection vs. Construction</h3>
+
+    <p>
+        Using existing benchmarks enables comparison with prior work but carries risks: contamination, saturation (when top models all score above 95%), and misalignment between the benchmark's task distribution and your target application. Constructing a new benchmark avoids contamination and ensures task relevance, but requires substantial effort in annotation, quality control, and documentation. A common compromise is to use established benchmarks for comparability while also reporting results on a custom held-out evaluation set that is specific to your application domain.
+    </p>
+
+    <h3>3.3 Held-Out vs. In-Distribution Splits</h3>
+
+    <p>
+        The split between development and test data determines what your evaluation actually measures. An in-distribution split (random partitioning of examples) measures interpolation ability. A held-out split along a meaningful axis (unseen domains, unseen question types, temporal splits) measures generalization. For LLM research, temporal splits are particularly important: examples from before the model's training cutoff date may be memorized, while examples from after the cutoff test genuine reasoning. Always report which split strategy you used and why.
+    </p>
+
+    <h2>4. Ablation Studies <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>
+        Ablation studies are the backbone of empirical evidence in system-building papers. A reader who sees only a final system score cannot judge which components matter. Ablation studies decompose the system's performance into individual contributions, revealing which design decisions are essential and which are incidental.
+    </p>
+
+    <h3>4.1 What to Ablate</h3>
+
+    <p>
+        In LLM-based systems, four categories of components are candidates for ablation. <strong>Architectural components</strong>: retrieval modules, rerankers, chain-of-thought prompting, tool use. <strong>Hyperparameters</strong>: temperature, top-p, number of few-shot examples, chunk size in RAG. <strong>Data choices</strong>: training data subsets, few-shot example selection strategies, document corpora. <strong>Prompt elements</strong>: system instructions, output format specifications, persona definitions. Each ablation should modify exactly one variable while holding everything else constant.
+    </p>
+
+    <h3>4.2 Reporting Marginal Contributions</h3>
+
+    <p>
+        Present ablation results as a table where each row removes one component from the full system. Report the absolute performance of each ablated variant and the delta from the full system. Include confidence intervals for every number. A common mistake is to present ablation results without error bars; this makes it impossible to determine whether the observed differences are statistically meaningful or within the noise margin. The table should be ordered by the magnitude of the contribution, making it immediately clear which components matter most.
+    </p>
+
+    <h3>4.3 Interaction Effects</h3>
+
+    <p>
+        Components in an LLM system can interact: chain-of-thought prompting may only help when combined with a specific system instruction, or retrieval may only improve performance above a certain context length threshold. Testing all pairwise interactions is expensive (quadratic in the number of components), so prioritize interactions where you have a theoretical reason to expect a dependency. Report any significant interactions discovered, as they reveal important design constraints that others building on your work should understand.
+    </p>
+
+    <h2>5. Human Evaluation Methodology <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>
+        Automatic metrics capture only a fraction of what matters in language generation. Human evaluation remains the gold standard for assessing fluency, coherence, factual accuracy, helpfulness, and safety. However, poorly designed human evaluation can be worse than no evaluation at all, producing numbers that are unreliable, unreproducible, and misleading.
+    </p>
+
+    <h3>5.1 Inter-Annotator Agreement</h3>
+
+    <p>
+        Before trusting human evaluation scores, you must establish that different annotators agree on their judgments. Two standard metrics are Cohen's kappa (for two annotators) and Krippendorff's alpha (for any number of annotators and rating scales). Cohen's kappa corrects for chance agreement; values below 0.4 indicate poor agreement, 0.4 to 0.6 indicates moderate agreement, and above 0.8 indicates strong agreement. Code Fragment 29.13.2 demonstrates how to compute both metrics.
+    </p>
+
+<pre><code class="language-python">
+# Code Fragment 29.13.2: Inter-annotator agreement calculation
+import numpy as np
+from sklearn.metrics import cohen_kappa_score
+import krippendorff  # pip install krippendorff
+
+def compute_agreement_metrics(annotations: dict[str, list[int]]) -> dict:
+    """
+    Compute inter-annotator agreement metrics.
+
+    Args:
+        annotations: dict mapping annotator_id to list of ratings.
+            Each list has one rating per example; use np.nan for missing.
+
+    Returns:
+        Dictionary with agreement statistics.
+    """
+    annotator_ids = list(annotations.keys())
+    rating_matrix = np.array([annotations[aid] for aid in annotator_ids])
+
+    results = {}
+
+    # Pairwise Cohen's kappa (for each pair of annotators)
+    kappa_scores = []
+    for i in range(len(annotator_ids)):
+        for j in range(i + 1, len(annotator_ids)):
+            # Filter to examples where both annotators provided ratings
+            mask = ~(np.isnan(rating_matrix[i]) | np.isnan(rating_matrix[j]))
+            if mask.sum() > 0:
+                kappa = cohen_kappa_score(
+                    rating_matrix[i][mask].astype(int),
+                    rating_matrix[j][mask].astype(int),
+                )
+                kappa_scores.append({
+                    "pair": (annotator_ids[i], annotator_ids[j]),
+                    "kappa": round(kappa, 3),
+                    "n_shared": int(mask.sum()),
+                })
+    results["pairwise_kappa"] = kappa_scores
+    results["mean_kappa"] = round(
+        np.mean([k["kappa"] for k in kappa_scores]), 3
+    )
+
+    # Krippendorff's alpha (all annotators simultaneously)
+    # Handles missing data and works with ordinal or nominal scales
+    alpha = krippendorff.alpha(
+        reliability_data=rating_matrix,
+        level_of_measurement="ordinal",
+    )
+    results["krippendorff_alpha"] = round(alpha, 3)
+
+    # Interpretation guide
+    if alpha >= 0.8:
+        results["interpretation"] = "Strong agreement; results are reliable."
+    elif alpha >= 0.667:
+        results["interpretation"] = "Moderate agreement; tentative conclusions only."
+    else:
+        results["interpretation"] = (
+            "Low agreement; revise annotation guidelines before proceeding."
+        )
+
+    return results
+
+# Example usage with three annotators rating 10 examples on a 1-5 scale
+annotations = {
+    "annotator_A": [4, 3, 5, 2, 4, 3, 5, 1, 4, 3],
+    "annotator_B": [4, 2, 5, 3, 4, 3, 4, 1, 3, 3],
+    "annotator_C": [5, 3, 5, 2, 3, 3, 5, 2, 4, 4],
+}
+
+agreement = compute_agreement_metrics(annotations)
+print(f"Mean Cohen's kappa: {agreement['mean_kappa']}")
+print(f"Krippendorff's alpha: {agreement['krippendorff_alpha']}")
+print(f"Interpretation: {agreement['interpretation']}")
+</code></pre>
+
+    <h3>5.2 Annotation Guidelines Design</h3>
+
+    <p>
+        The quality of human evaluation depends entirely on the clarity of the annotation guidelines. Effective guidelines include: (1) a precise definition of each rating criterion with examples of each score level, (2) boundary cases that distinguish adjacent score levels (e.g., what makes a response a 3 rather than a 4), (3) instructions for handling edge cases (e.g., a response that is factually correct but unhelpful), and (4) a calibration exercise where annotators rate the same set of examples and discuss disagreements before the main annotation begins. Publish your full annotation guidelines as supplementary material so that others can replicate your human evaluation.
+    </p>
+
+    <h3>5.3 Crowdsourcing Quality Control</h3>
+
+    <p>
+        When using crowdsourcing platforms for annotation, quality control mechanisms are essential. Standard techniques include: (1) gold-standard questions with known answers to filter inattentive workers, (2) redundant annotation (at least 3 annotators per example) with majority voting or adjudication, (3) qualification tests that screen workers before they access the main task, (4) time-based filtering to remove workers who complete tasks implausibly fast, and (5) periodic requalification to detect quality degradation over time. Report the number of workers, their qualification criteria, pay rate, acceptance rate, and the aggregation method used.
+    </p>
+
+    <h2>6. Artifacts and Reproducibility Packages <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        A published result is only as reproducible as the artifacts that accompany it. The LLM research community has converged on several standard artifact types: model cards, datasheets, code release checklists, and containerized experiment specifications. Providing these artifacts is increasingly required by top venues and is always good scientific practice.
+    </p>
+
+    <h3>6.1 Model Cards and Datasheets</h3>
+
+    <p>
+        A <strong>model card</strong> (Mitchell et al., 2019) documents a model's intended use, training data, evaluation results, limitations, and ethical considerations. A <strong>datasheet</strong> (Gebru et al., 2021) provides analogous documentation for datasets. Both serve as structured disclosure mechanisms that help downstream users understand what a model or dataset can and cannot do. For LLM papers, the model card should include: the base model and version, fine-tuning data and procedure, evaluation benchmarks and scores (with confidence intervals), known failure modes, and computational cost of training.
+    </p>
+
+    <h3>6.2 Reproducibility Checklist</h3>
+
+    <p>
+        Code Fragment 29.13.3 provides a machine-readable reproducibility checklist that you can include in your paper's supplementary material. This checklist is adapted from the ML Reproducibility Checklist used by NeurIPS and ICML, extended with LLM-specific items.
+    </p>
+
+<pre><code class="language-python">
+# Code Fragment 29.13.3: Reproducibility checklist for LLM papers
+import json
+from dataclasses import dataclass, field, asdict
+from datetime import date
+
+@dataclass
+class ReproducibilityChecklist:
+    """Machine-readable checklist for LLM experiment reproducibility."""
+
+    # Paper metadata
+    paper_title: str = ""
+    authors: list[str] = field(default_factory=list)
+    date_completed: str = field(default_factory=lambda: str(date.today()))
+
+    # Model specification
+    model_name_and_version: str = ""          # e.g., "gpt-4-0613"
+    model_access_method: str = ""             # "API" | "local weights" | "both"
+    model_weights_available: bool = False
+    api_version_pinned: bool = False
+    system_fingerprint_logged: bool = False
+
+    # Data specification
+    dataset_publicly_available: bool = False
+    dataset_license_documented: bool = False
+    dataset_construction_described: bool = False
+    contamination_check_performed: bool = False
+    train_dev_test_split_described: bool = False
+
+    # Experiment specification
+    all_hyperparameters_reported: bool = False
+    random_seeds_specified: bool = False
+    number_of_trials_reported: bool = False
+    confidence_intervals_reported: bool = False
+    statistical_tests_specified: bool = False
+    compute_budget_reported: bool = False
+    hardware_specification_included: bool = False
+    software_versions_pinned: bool = False
+
+    # Ablation and analysis
+    ablation_study_included: bool = False
+    error_analysis_included: bool = False
+    failure_cases_documented: bool = False
+
+    # Human evaluation (if applicable)
+    annotation_guidelines_published: bool = False
+    inter_annotator_agreement_reported: bool = False
+    annotator_demographics_described: bool = False
+    annotator_compensation_reported: bool = False
+
+    # Artifacts
+    code_released: bool = False
+    code_includes_readme: bool = False
+    containerized_environment: bool = False
+    raw_outputs_archived: bool = False
+
+    def completion_rate(self) -> float:
+        """Calculate the fraction of applicable items that are checked."""
+        fields = asdict(self)
+        bool_fields = {k: v for k, v in fields.items() if isinstance(v, bool)}
+        return sum(bool_fields.values()) / len(bool_fields)
+
+    def save(self, path: str) -> None:
+        with open(path, "w") as f:
+            json.dump(asdict(self), f, indent=2)
+
+    def summary(self) -> str:
+        rate = self.completion_rate()
+        return (
+            f"Reproducibility checklist: {rate:.0%} complete "
+            f"({sum(1 for v in asdict(self).values() if v is True)} of "
+            f"{sum(1 for v in asdict(self).values() if isinstance(v, bool))} items)"
+        )
+
+# Example usage
+checklist = ReproducibilityChecklist(
+    paper_title="Improving RAG with Adaptive Retrieval",
+    authors=["Alice Smith", "Bob Jones"],
+    model_name_and_version="gpt-4-0613",
+    model_access_method="API",
+    api_version_pinned=True,
+    system_fingerprint_logged=True,
+    dataset_publicly_available=True,
+    dataset_license_documented=True,
+    all_hyperparameters_reported=True,
+    random_seeds_specified=True,
+    number_of_trials_reported=True,
+    confidence_intervals_reported=True,
+    statistical_tests_specified=True,
+    ablation_study_included=True,
+    code_released=True,
+)
+print(checklist.summary())
+checklist.save("reproducibility_checklist.json")
+</code></pre>
+
+    <h3>6.3 Containerized Experiments</h3>
+
+    <p>
+        Pinning software versions in a requirements file is necessary but not sufficient. Containerized environments (Docker, Singularity) capture the full execution environment, including system libraries, CUDA drivers, and OS-level dependencies. For LLM experiments, include the following in your container: (1) the exact model weights or API client library version, (2) all evaluation harness code at a pinned commit, (3) the evaluation dataset, (4) a single entry-point script that reproduces all reported results, and (5) expected output files for validation. Cross-reference the containerized reproducibility practices discussed in <a class="cross-ref" href="section-29.7.html">Section 29.7</a>.
+    </p>
+
+    <h2>7. Writing and Presentation <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        How you present results is as important as how you obtain them. Reviewers and readers form judgments based on tables, figures, and statistical claims. Sloppy presentation undermines even strong experimental work.
+    </p>
+
+    <h3>7.1 Result Tables Best Practices</h3>
+
+    <p>
+        Every result table should include: (1) the metric name and direction (higher is better, or lower is better), (2) the number of evaluation examples, (3) confidence intervals or standard deviations from multiple runs, (4) bold formatting for the best result in each column, (5) a clear indication of which results are from your system and which are from prior work, and (6) statistical significance markers where applicable. Avoid reporting only mean scores without any measure of variance. A single number without context is uninterpretable.
+    </p>
+
+    <h3>7.2 Bootstrap Confidence Intervals</h3>
+
+    <p>
+        The bootstrap is the workhorse of statistical inference in LLM evaluation. It requires no distributional assumptions and works with any metric. The procedure is straightforward: resample the evaluation examples with replacement, compute the metric on each resample, and take the 2.5th and 97.5th percentiles as the 95% confidence interval. Code Fragment 29.13.4 demonstrates bootstrap confidence intervals for comparing two systems.
+    </p>
+
+<pre><code class="language-python">
+# Code Fragment 29.13.4: Bootstrap confidence intervals for metric comparison
+import numpy as np
+from typing import Callable
+
+def bootstrap_confidence_interval(
+    scores: np.ndarray,
+    metric_fn: Callable[[np.ndarray], float],
+    n_bootstrap: int = 10_000,
+    confidence_level: float = 0.95,
+    seed: int = 42,
+) -> tuple[float, float, float]:
+    """
+    Compute bootstrap confidence interval for a metric.
+
+    Args:
+        scores: Per-example scores (e.g., 0/1 for accuracy).
+        metric_fn: Function that aggregates scores (e.g., np.mean).
+        n_bootstrap: Number of bootstrap resamples.
+        confidence_level: Confidence level (default 0.95 for 95% CI).
+        seed: Random seed for reproducibility.
+
+    Returns:
+        Tuple of (point_estimate, lower_bound, upper_bound).
+    """
+    rng = np.random.RandomState(seed)
+    point_estimate = metric_fn(scores)
+
+    bootstrap_estimates = []
+    n = len(scores)
+    for _ in range(n_bootstrap):
+        resample = rng.choice(scores, size=n, replace=True)
+        bootstrap_estimates.append(metric_fn(resample))
+
+    bootstrap_estimates = np.array(bootstrap_estimates)
+    alpha = 1 - confidence_level
+    lower = np.percentile(bootstrap_estimates, 100 * alpha / 2)
+    upper = np.percentile(bootstrap_estimates, 100 * (1 - alpha / 2))
+
+    return point_estimate, lower, upper
+
+def paired_bootstrap_test(
+    scores_a: np.ndarray,
+    scores_b: np.ndarray,
+    metric_fn: Callable[[np.ndarray], float] = np.mean,
+    n_bootstrap: int = 10_000,
+    seed: int = 42,
+) -> dict:
+    """
+    Paired bootstrap test: is system A significantly better than system B?
+
+    Args:
+        scores_a: Per-example scores for system A.
+        scores_b: Per-example scores for system B.
+        metric_fn: Aggregation function.
+        n_bootstrap: Number of resamples.
+        seed: Random seed.
+
+    Returns:
+        Dictionary with observed difference, confidence interval, and p-value.
+    """
+    assert len(scores_a) == len(scores_b), "Scores must be paired."
+    rng = np.random.RandomState(seed)
+    n = len(scores_a)
+
+    observed_diff = metric_fn(scores_a) - metric_fn(scores_b)
+
+    # Bootstrap the difference
+    bootstrap_diffs = []
+    for _ in range(n_bootstrap):
+        indices = rng.choice(n, size=n, replace=True)
+        diff = metric_fn(scores_a[indices]) - metric_fn(scores_b[indices])
+        bootstrap_diffs.append(diff)
+
+    bootstrap_diffs = np.array(bootstrap_diffs)
+
+    # Two-sided p-value: fraction of bootstrap samples where
+    # the difference has the opposite sign from observed
+    p_value = np.mean(bootstrap_diffs <= 0) if observed_diff > 0 else np.mean(bootstrap_diffs >= 0)
+
+    ci_lower = np.percentile(bootstrap_diffs, 2.5)
+    ci_upper = np.percentile(bootstrap_diffs, 97.5)
+
+    return {
+        "observed_diff": round(observed_diff, 4),
+        "ci_95": (round(ci_lower, 4), round(ci_upper, 4)),
+        "p_value": round(p_value, 4),
+        "significant_at_005": p_value < 0.05,
+    }
+
+# Example: comparing two systems on 500 binary accuracy scores
+rng = np.random.RandomState(0)
+system_a_scores = rng.binomial(1, 0.78, size=500).astype(float)
+system_b_scores = rng.binomial(1, 0.74, size=500).astype(float)
+
+# Single system confidence interval
+point, lower, upper = bootstrap_confidence_interval(system_a_scores, np.mean)
+print(f"System A accuracy: {point:.3f} [{lower:.3f}, {upper:.3f}]")
+
+# Paired comparison
+comparison = paired_bootstrap_test(system_a_scores, system_b_scores)
+print(f"Difference: {comparison['observed_diff']:.3f}")
+print(f"95% CI: [{comparison['ci_95'][0]:.3f}, {comparison['ci_95'][1]:.3f}]")
+print(f"p-value: {comparison['p_value']:.4f}")
+print(f"Significant at 0.05: {comparison['significant_at_005']}")
+</code></pre>
+
+    <div class="callout tip">
+        <div class="callout-title">Tip</div>
+        <p><strong>Use the paired bootstrap, not the unpaired version.</strong> When comparing two systems evaluated on the same test set, the paired bootstrap exploits the correlation between their per-example scores. This yields tighter confidence intervals and more powerful tests than treating the two sets of scores as independent. The unpaired version throws away information and can fail to detect real differences.</p>
+    </div>
+
+    <h3>7.3 Permutation Tests</h3>
+
+    <p>
+        An alternative to the bootstrap is the permutation test, which tests the null hypothesis that two systems perform identically by randomly swapping their scores on each example. Permutation tests are exact (they do not rely on asymptotic approximations) and are particularly appropriate when the number of evaluation examples is small (fewer than 100). For LLM evaluation, where test sets are often in the hundreds rather than thousands, permutation tests can be more reliable than bootstrap methods for small-sample comparisons.
+    </p>
+
+    <h2>8. Common Pitfalls <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        The flexibility of LLM systems creates numerous opportunities for methodological errors. Some are accidental; others reflect systemic incentives to report favorable results. Awareness of these pitfalls is the first defense against them.
+    </p>
+
+    <h3>8.1 P-Hacking with Prompt Tuning</h3>
+
+    <p>
+        Prompt engineering is a form of hyperparameter search. If you try 50 prompt variants and report the best result, you have effectively run 50 hypothesis tests and selected the one that worked. This inflates your reported performance relative to what a new user would achieve with your system. To avoid this: (1) split your development data into a prompt-tuning set and a held-out validation set, (2) lock the prompt before evaluating on the test set, and (3) report how many prompt variants were tried. Treat prompt selection with the same rigor you would apply to any other hyperparameter search.
+    </p>
+
+    <h3>8.2 Data Leakage Through Few-Shot Examples</h3>
+
+    <p>
+        Few-shot examples in the prompt can leak information about the test distribution. If your few-shot examples are drawn from the same source as the test set, or if they are selected to be maximally similar to the test examples (e.g., via nearest-neighbor retrieval from the test set), the resulting performance will overestimate what the system achieves in practice. Few-shot examples should be drawn from a separate pool that does not overlap with the test set, and the selection method should be documented.
+    </p>
+
+    <h3>8.3 Cherry-Picking Generations</h3>
+
+    <p>
+        Showing selected model outputs in a paper is legitimate for illustration, but it becomes misleading when the examples are chosen to present the model in the best possible light without acknowledging failure cases. Best practice: select examples by a systematic method (e.g., the median-scoring example, the best and worst examples, or random samples) and state the selection criterion explicitly. Include a failure analysis section that examines cases where the system performs poorly.
+    </p>
+
+    <h3>8.4 Overfitting to Benchmarks</h3>
+
+    <p>
+        When the same benchmarks are used repeatedly across papers, there is a community-level risk of overfitting. Systems are implicitly optimized to perform well on popular benchmarks, and design choices that help on MMLU or GSM8K may not transfer to real-world tasks. Mitigations include: (1) evaluating on multiple diverse benchmarks rather than a single headline number, (2) including application-specific evaluations alongside standard benchmarks, (3) reporting results on held-out benchmarks that were not used during development, and (4) conducting user studies that measure real-world task completion rather than benchmark proxies.
+    </p>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight</div>
+        <p><strong>Every researcher degree of freedom is a potential source of bias.</strong> The choices you make during evaluation (which prompt to use, which examples to include, which metric to report, which baseline to compare against, which subset to focus on) all influence the reported results. The antidote is preregistration: decide your evaluation protocol before you see any results, document it, and follow it without deviation. Any post-hoc analyses should be clearly labeled as exploratory.</p>
+    </div>
+
+    <h2>9. Practical Lab: Complete Evaluation Protocol for a RAG System <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>
+        This exercise brings together all the concepts from this section. You will design and implement a complete evaluation protocol for a retrieval-augmented question answering (QA) system, including baselines, metrics, ablations, statistical testing, and a human evaluation component.
+    </p>
+
+<pre><code class="language-python">
+# Lab: Complete evaluation protocol for a retrieval-augmented QA system
+
+from dataclasses import dataclass, field
+from typing import Optional
+import json
+
+@dataclass
+class EvaluationProtocol:
+    """Full specification for a RAG QA system evaluation."""
+
+    # ── Research question ──
+    research_question: str = (
+        "Does adaptive passage retrieval improve factual QA accuracy "
+        "compared to fixed top-k retrieval?"
+    )
+
+    # ── Systems under evaluation ──
+    systems: dict = field(default_factory=lambda: {
+        "random_baseline": "Random passage selection (lower bound)",
+        "bm25_topk": "BM25 retrieval, top-5 passages (sparse baseline)",
+        "dense_topk": "Dense retrieval (ColBERT), top-5 passages (dense baseline)",
+        "adaptive_ours": "Adaptive retrieval with confidence-based re-ranking (proposed)",
+        "no_retrieval": "LLM only, no retrieval (ablation: is retrieval needed?)",
+        "oracle_retrieval": "Gold passage provided (upper bound)",
+    })
+
+    # ── Benchmarks ──
+    benchmarks: dict = field(default_factory=lambda: {
+        "natural_questions_open": {
+            "source": "Google NQ Open (Kwiatkowski et al., 2019)",
+            "n_test": 3610,
+            "split": "standard test split",
+            "rationale": "Well-established open-domain QA benchmark",
+        },
+        "custom_held_out": {
+            "source": "Manually curated, never published online",
+            "n_test": 200,
+            "split": "temporal split (questions from 2025+)",
+            "rationale": "Contamination-free evaluation on recent knowledge",
+        },
+    })
+
+    # ── Metrics ──
+    metrics: list = field(default_factory=lambda: [
+        {"name": "Exact Match (EM)", "primary": True,
+         "description": "Strict string match after normalization"},
+        {"name": "Token-level F1", "primary": True,
+         "description": "Unigram overlap between prediction and reference"},
+        {"name": "Recall@5", "primary": False,
+         "description": "Retrieval quality: is the gold passage in the top 5?"},
+        {"name": "Answer faithfulness", "primary": False,
+         "description": "Human-judged: is the answer supported by retrieved passages?"},
+    ])
+
+    # ── Ablations ──
+    ablations: list = field(default_factory=lambda: [
+        "Remove adaptive re-ranking (use static top-k instead)",
+        "Remove confidence thresholding (always retrieve)",
+        "Vary number of retrieved passages: k in {1, 3, 5, 10, 20}",
+        "Replace dense retriever with BM25 (keeping adaptive logic)",
+        "Remove passage concatenation (use only top-1 passage)",
+        "Vary LLM temperature: {0.0, 0.3, 0.7, 1.0}",
+    ])
+
+    # ── Statistical protocol ──
+    statistical_protocol: dict = field(default_factory=lambda: {
+        "n_trials": 5,
+        "seeds": [42, 123, 456, 789, 1024],
+        "confidence_intervals": "Bootstrap, 10000 resamples, 95% CI",
+        "significance_test": "Paired bootstrap test, alpha=0.05",
+        "multiple_comparison_correction": "Bonferroni for pairwise system comparisons",
+    })
+
+    # ── Human evaluation ──
+    human_eval: dict = field(default_factory=lambda: {
+        "n_examples": 100,
+        "selection": "Stratified random: 50 correct, 50 incorrect by EM",
+        "n_annotators": 3,
+        "criteria": [
+            "Factual accuracy (1-5 scale)",
+            "Answer completeness (1-5 scale)",
+            "Faithfulness to retrieved context (binary)",
+        ],
+        "agreement_threshold": "Krippendorff alpha >= 0.67",
+        "calibration": "10 shared examples discussed before main annotation",
+        "platform": "Prolific, English-fluent workers, qualification test required",
+        "compensation": "$15/hour minimum",
+    })
+
+    # ── Reproducibility artifacts ──
+    artifacts: list = field(default_factory=lambda: [
+        "Docker container with pinned dependencies",
+        "All prompts in version-controlled YAML files",
+        "Raw model outputs for all experiments (JSON)",
+        "Annotation guidelines (PDF)",
+        "Reproducibility checklist (JSON)",
+        "Model card for fine-tuned retriever",
+    ])
+
+    def save_protocol(self, path: str) -> None:
+        """Export the full protocol as a JSON document."""
+        from dataclasses import asdict
+        with open(path, "w") as f:
+            json.dump(asdict(self), f, indent=2)
+        print(f"Protocol saved to {path}")
+
+    def summarize(self) -> str:
+        """Print a human-readable summary."""
+        lines = [
+            f"Research Question: {self.research_question}",
+            f"Systems: {len(self.systems)} (including baselines and ablations)",
+            f"Benchmarks: {len(self.benchmarks)}",
+            f"Metrics: {len(self.metrics)} ({sum(1 for m in self.metrics if m['primary'])} primary)",
+            f"Ablations: {len(self.ablations)}",
+            f"Trials per configuration: {self.statistical_protocol['n_trials']}",
+            f"Human evaluation: {self.human_eval['n_examples']} examples, "
+            f"{self.human_eval['n_annotators']} annotators",
+            f"Artifacts: {len(self.artifacts)} items",
+        ]
+        return "\n".join(lines)
+
+# Create and inspect the protocol
+protocol = EvaluationProtocol()
+print(protocol.summarize())
+protocol.save_protocol("evaluation_protocol.json")
+</code></pre>
+
+    <div class="callout tip">
+        <div class="callout-title">Tip</div>
+        <p><strong>Write the protocol before running any experiments.</strong> Preregistering your evaluation protocol (even informally, by committing the protocol document to your repository before starting experiments) prevents unconscious p-hacking and makes your results more credible. If you deviate from the protocol during the study, document the deviation and the reason for it. Exploratory analyses that were not part of the original protocol should be clearly labeled as such in the paper.</p>
+    </div>
+
+    <div class="exercises">
+        <h3>Exercises</h3>
+        <ol>
+            <li><strong>Seed Sensitivity Analysis.</strong> Take an LLM-based text classification system and run it with five different random seeds on the same test set. Compute the standard deviation of accuracy across seeds. Is the variance large enough to change the ranking between two systems that differ by 1 percentage point?</li>
+            <li><strong>Bootstrap Power Analysis.</strong> Using the bootstrap confidence interval code from this section, determine how many test examples are needed to detect a 2-point accuracy difference (e.g., 76% vs. 78%) with 95% confidence. Try sample sizes of 100, 250, 500, and 1000.</li>
+            <li><strong>Annotation Guideline Design.</strong> Write a complete annotation guideline for evaluating the "helpfulness" of chatbot responses on a 1 to 5 scale. Include a rubric with example responses for each score level, boundary cases, and instructions for handling ambiguous situations. Then have two colleagues annotate 20 examples independently and compute Cohen's kappa.</li>
+            <li><strong>Ablation Table Construction.</strong> For a RAG system with at least three components (retriever, reranker, prompt template), construct a full ablation table. Each row should remove exactly one component. Include confidence intervals and significance tests for every comparison against the full system.</li>
+            <li><strong>Contamination Probe.</strong> Select three popular benchmarks (e.g., MMLU, GSM8K, TriviaQA). For each, rephrase 50 test questions to preserve the answer while changing the surface form. Compare model performance on original vs. rephrased questions. A significant performance drop suggests contamination.</li>
+        </ol>
+    </div>
+
+    <div class="callout research-frontier">
+        <div class="callout-title">Research Frontier</div>
+        <p><strong>Toward preregistered LLM research.</strong> The social sciences addressed their replication crisis partly through preregistration: researchers publicly commit to their hypotheses, methods, and analysis plans before collecting data. The LLM research community is beginning to adopt similar practices. Emerging proposals include evaluation protocol registries where researchers publish their experimental design before running experiments, benchmark escrow services that hold test sets until the protocol is locked, and standardized reporting templates that enforce disclosure of all researcher degrees of freedom. These practices face resistance due to the fast pace of LLM research, but the alternative (a literature filled with irreproducible claims) is worse. The ACL 2024 Reproducibility Criteria and the NeurIPS Checklist represent initial steps toward community-wide standards.</p>
+    </div>
+
+<section class="bibliography">
+    <h2 class="bibliography-title">Bibliography</h2>
+
+    <div class="bib-category">Reproducibility and Methodology</div>
+    <div class="bib-entry-card">
+        <div class="bib-ref">Dodge, J., Gururangan, S., Card, D., Schwartz, R., &amp; Smith, N. A. (2019). "Show Your Work: Improved Reporting of Experimental Results." <em>EMNLP 2019</em>. <a href="https://arxiv.org/abs/1909.03004" target="_blank" rel="noopener">arXiv:1909.03004</a></div>
+        <div class="bib-annotation">A foundational paper arguing for improved reporting standards in NLP research. Demonstrates that reporting only mean scores without variance obscures important information about system reliability. Proposes reporting expected validation performance as a function of computational budget.</div>
+        <div class="bib-meta"><span>Reproducibility</span><span>Reporting Standards</span></div>
+    </div>
+    <div class="bib-entry-card">
+        <div class="bib-ref">Rogers, A., Boyd-Graber, J., &amp; Okazaki, N. (2023). "To Benchmark Is to Evaluate, or Is It? A Critical Look at Evaluation Methodology in NLP." <em>ACL 2023</em>. <a href="https://aclanthology.org/2023.acl-long.874/" target="_blank" rel="noopener">ACL Anthology</a></div>
+        <div class="bib-annotation">A comprehensive survey of evaluation methodology pitfalls in NLP, covering benchmark saturation, contamination, overfitting to benchmarks, and the gap between benchmark performance and real-world utility. Proposes concrete recommendations for improving evaluation practices.</div>
+        <div class="bib-meta"><span>Evaluation Methodology</span><span>Survey</span></div>
+    </div>
+    <div class="bib-entry-card">
+        <div class="bib-ref">Biderman, S., Schoelkopf, H., et al. (2024). "Lessons from the Trenches on Reproducible Evaluation of Language Models." <a href="https://arxiv.org/abs/2405.14782" target="_blank" rel="noopener">arXiv:2405.14782</a></div>
+        <div class="bib-annotation">Documents specific sources of irreproducibility in LLM evaluation, including cross-harness divergence, prompt sensitivity, and hardware-dependent results. Provides practical recommendations for evaluation reporting based on the EleutherAI team's extensive experience maintaining lm-evaluation-harness.</div>
+        <div class="bib-meta"><span>Reproducibility</span><span>Evaluation Harnesses</span></div>
+    </div>
+
+    <div class="bib-category">Statistical Methods for NLP</div>
+    <div class="bib-entry-card">
+        <div class="bib-ref">Berg-Kirkpatrick, T., Burkett, D., &amp; Klein, D. (2012). "An Empirical Investigation of Statistical Significance in NLP." <em>EMNLP 2012</em>. <a href="https://aclanthology.org/D12-1091/" target="_blank" rel="noopener">ACL Anthology</a></div>
+        <div class="bib-annotation">Introduces the paired bootstrap test and permutation test to the NLP community. Demonstrates that many published improvements in NLP are not statistically significant when proper testing is applied. Remains the standard reference for significance testing in NLP evaluation.</div>
+        <div class="bib-meta"><span>Statistical Testing</span><span>Bootstrap</span></div>
+    </div>
+    <div class="bib-entry-card">
+        <div class="bib-ref">Dror, R., Baumer, G., Bober, S., &amp; Reichart, R. (2018). "The Hitchhiker's Guide to Testing Statistical Significance in Natural Language Processing." <em>ACL 2018</em>. <a href="https://aclanthology.org/P18-1128/" target="_blank" rel="noopener">ACL Anthology</a></div>
+        <div class="bib-annotation">A practical guide to choosing and applying statistical significance tests in NLP experiments. Covers bootstrap tests, permutation tests, and multiple comparison corrections. Includes decision flowcharts for selecting the appropriate test based on experimental design.</div>
+        <div class="bib-meta"><span>Statistical Testing</span><span>Tutorial</span></div>
+    </div>
+
+    <div class="bib-category">Human Evaluation</div>
+    <div class="bib-entry-card">
+        <div class="bib-ref">Krippendorff, K. (2018). <em>Content Analysis: An Introduction to Its Methodology</em>, 4th ed. Sage Publications.</div>
+        <div class="bib-annotation">The definitive reference on content analysis methodology, including the Krippendorff's alpha measure of inter-annotator agreement. Covers annotation scheme design, reliability measurement, and quality control for human coding tasks. Essential background for any human evaluation study.</div>
+        <div class="bib-meta"><span>Inter-Annotator Agreement</span><span>Methodology</span></div>
+    </div>
+    <div class="bib-entry-card">
+        <div class="bib-ref">Clark, E., August, T., Serber, S., Haduong, N., Gururangan, S., &amp; Smith, N. A. (2021). "All That's 'Human' Is Not Gold: Evaluating Human Evaluation of Generated Text." <em>ACL 2021</em>. <a href="https://arxiv.org/abs/2107.00061" target="_blank" rel="noopener">arXiv:2107.00061</a></div>
+        <div class="bib-annotation">A critical examination of human evaluation practices in NLG research. Demonstrates that many human evaluations are unreliable due to poor task design, unclear instructions, and insufficient quality control. Provides recommendations for improving human evaluation methodology.</div>
+        <div class="bib-meta"><span>Human Evaluation</span><span>Quality Control</span></div>
+    </div>
+
+    <div class="bib-category">Documentation Standards</div>
+    <div class="bib-entry-card">
+        <div class="bib-ref">Mitchell, M., Wu, S., Zaldivar, A., et al. (2019). "Model Cards for Model Reporting." <em>FAccT 2019</em>. <a href="https://arxiv.org/abs/1810.03993" target="_blank" rel="noopener">arXiv:1810.03993</a></div>
+        <div class="bib-annotation">Introduces the model card framework for documenting machine learning models. Proposes a structured template covering intended use, training data, evaluation results, limitations, and ethical considerations. Now widely adopted as a standard for responsible model release.</div>
+        <div class="bib-meta"><span>Model Cards</span><span>Documentation</span></div>
+    </div>
+    <div class="bib-entry-card">
+        <div class="bib-ref">Gebru, T., Morgenstern, J., Vecchione, B., et al. (2021). "Datasheets for Datasets." <em>Communications of the ACM</em>, 64(12), 86-92. <a href="https://arxiv.org/abs/1803.09010" target="_blank" rel="noopener">arXiv:1803.09010</a></div>
+        <div class="bib-annotation">The dataset counterpart to model cards. Proposes a standardized documentation framework for datasets, covering motivation, composition, collection process, preprocessing, intended uses, distribution, and maintenance. Essential reading for anyone releasing a dataset or benchmark.</div>
+        <div class="bib-meta"><span>Datasheets</span><span>Documentation</span></div>
+    </div>
+
+    <div class="bib-category">Benchmark Contamination</div>
+    <div class="bib-entry-card">
+        <div class="bib-ref">Jacovi, A., Caciularu, A., Goldberg, O., &amp; Goldberg, Y. (2023). "Stop Uploading Test Data in Plain Text: Practical Strategies for Mitigating Data Contamination by Evaluation Benchmarks." <em>EMNLP 2023</em>. <a href="https://arxiv.org/abs/2305.10160" target="_blank" rel="noopener">arXiv:2305.10160</a></div>
+        <div class="bib-annotation">Analyzes the mechanisms by which benchmark test sets end up in LLM training data and proposes practical strategies for contamination prevention, including encrypted benchmarks, dynamic evaluation sets, and canary strings for contamination detection.</div>
+        <div class="bib-meta"><span>Contamination</span><span>Benchmark Integrity</span></div>
+    </div>
+</section>
+
+<nav class="chapter-nav">
+    <a class="prev" href="section-29.11.html">Long-Context Benchmarks and Context Extension Methods</a>
+    <a class="up" href="index.html">Chapter 29: Evaluation &amp; Experiment Design</a>
+    <a class="next" href="section-29.14.html">LLM Performance Benchmarking and Cross-Hardware Portability</a>
+</nav>
+
+    <footer>
+        <p class="footer-title">Building Conversational AI with LLMs and Agents, Fifth Edition</p>
+        <p>&copy; 2026 Alexander Apartsin &amp; Yehudit Aperstein &middot; <a href="../../toc.html">Contents</a></p>
+        <p class="footer-updated">Last updated: <script>document.write(new Date(document.lastModified).toLocaleDateString('en-US', {year:'numeric', month:'long', day:'numeric'}))</script></p>
+    </footer>
+</main>
+
+</body>
+</html>

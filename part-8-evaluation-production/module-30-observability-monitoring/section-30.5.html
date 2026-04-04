@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Section 30.5: OpenTelemetry for LLM Applications. A comprehensive chapter from the Building Conversational AI textbook.">
+    <title>Section 30.5: OpenTelemetry for LLM Applications</title>
+    <link rel="stylesheet" href="../../styles/book.css">
+<link rel="stylesheet" href="../../vendor/prism/prism-theme.css">
+    <script defer src="../../vendor/prism/prism-bundle.min.js"></script>
+</head>
+<body>
+<header class="chapter-header">
+    <nav class="header-nav">
+        <a href="../../index.html" class="book-title-link">Building Conversational AI with LLMs and Agents</a>
+        <a href="../../toc.html" class="toc-link" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+    </nav>
+    <div class="part-label"><a href="../index.html">Part VIII: Evaluation &amp; Production</a></div>
+    <div class="chapter-label"><a href="index.html">Chapter 30: Observability, Monitoring &amp; MLOps</a></div>
+    <h1>OpenTelemetry for LLM Applications</h1>
+</header>
+
+<main class="content">
+
+    <div class="prerequisites">
+        <h3>Prerequisites</h3>
+        <p>This section builds on the observability foundations from <a href="section-30.1.html">Section 30.1</a> and the monitoring patterns in <a href="section-30.2.html">Section 30.2</a>. Familiarity with <a class="cross-ref" href="../../part-3-working-with-llms/module-10-llm-apis/section-10.1.html">LLM API calls</a> and <a class="cross-ref" href="../../part-6-agentic-ai/module-22-ai-agents/section-22.3.html">tool use patterns</a> is recommended.</p>
+    </div>
+
+    <h2>1. Why OpenTelemetry for LLM Systems <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        OpenTelemetry (OTel) has become the industry standard for distributed tracing, metrics, and logging
+        across microservices. LLM applications introduce unique observability challenges that generic
+        application monitoring tools cannot address. A single user request may traverse an embedding model,
+        a vector database, a retrieval pipeline, one or more LLM calls, and several tool invocations. Each
+        step contributes latency, cost, and potential failure points. Without structured tracing that
+        captures LLM-specific metadata (token counts, model identifiers, prompt templates, temperature
+        settings), debugging production issues becomes guesswork.
+    </p>
+
+    <p>
+        The OpenTelemetry Semantic Conventions for Generative AI (formerly LLM Semantic Conventions)
+        define a standardized set of span attributes for model calls. These conventions ensure that traces
+        from different LLM providers, frameworks, and custom code share a common vocabulary. Attributes
+        like <code>gen_ai.system</code>, <code>gen_ai.request.model</code>,
+        <code>gen_ai.usage.input_tokens</code>, and <code>gen_ai.usage.output_tokens</code> allow you
+        to build unified dashboards regardless of whether you call OpenAI, Anthropic, or a self-hosted
+        model. The <a class="cross-ref" href="../module-31-production-engineering/section-31.1.html">deployment patterns in Section 31.1</a> benefit directly from this standardized telemetry.
+    </p>
+
+    <p>
+        The key benefit of OTel over proprietary tracing solutions (LangSmith, Langfuse) is vendor
+        neutrality. OTel traces can be exported to any compatible backend: Jaeger, Grafana Tempo,
+        Datadog, Honeycomb, or your own collector. This avoids lock-in and allows teams to integrate
+        LLM observability into their existing monitoring stack rather than maintaining a separate system.
+        That said, proprietary tools covered in <a href="section-30.1.html">Section 30.1</a> often provide
+        richer LLM-specific UIs and are easier to set up for teams without existing observability infrastructure.
+    </p>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight</div>
+        <p>OpenTelemetry is not a replacement for LLM-specific observability platforms like LangSmith or Langfuse. It is the <strong>transport and data model layer</strong> that feeds into those platforms (or any other backend). Many LLM observability tools now accept OTel data natively, meaning you instrument once with OTel and send traces to multiple destinations. The choice is not "OTel or LangSmith" but rather "OTel as the instrumentation standard, with LangSmith (or Langfuse, or Datadog) as the visualization and analysis layer."</p>
+    </div>
+
+    <h2>2. Instrumenting LLM API Calls <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        The foundation of LLM observability is instrumenting every model call with a span that captures
+        the request parameters, response metadata, and timing information. The OpenTelemetry Python SDK
+        provides the primitives; the <code>opentelemetry-instrumentation-openai</code> and similar
+        auto-instrumentation packages handle the most common providers automatically.
+    </p>
+
+<pre><code class="language-python">from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.sdk.resources import Resource
+
+# Initialize the tracer with service metadata
+resource = Resource.create({
+    "service.name": "my-llm-app",
+    "service.version": "1.2.0",
+    "deployment.environment": "production",
+})
+
+provider = TracerProvider(resource=resource)
+processor = BatchSpanProcessor(
+    OTLPSpanExporter(endpoint="http://otel-collector:4317")
+)
+provider.add_span_processor(processor)
+trace.set_tracer_provider(provider)
+
+tracer = trace.get_tracer("llm-app.tracer")
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 30.5.1:</strong> Basic OpenTelemetry setup for an LLM application. The Resource object tags every span with service metadata, making it easy to filter traces by application and environment in the backend. The BatchSpanProcessor buffers spans and sends them in batches to reduce network overhead.</div>
+
+    <p>
+        With the tracer initialized, you can instrument individual LLM calls using the GenAI semantic
+        conventions. Each span should capture the model name, provider, token usage, and any relevant
+        request parameters. This manual instrumentation gives you full control over what is captured,
+        which is important for sensitive applications where you may need to redact prompt content.
+    </p>
+
+<pre><code class="language-python">import openai
+from opentelemetry import trace
+from opentelemetry.semconv.attributes import gen_ai_attributes as GenAI
+
+tracer = trace.get_tracer("llm-app.tracer")
+
+async def traced_chat_completion(messages, model="gpt-4o", **kwargs):
+    """Wrap an OpenAI chat completion with OTel tracing."""
+    with tracer.start_as_current_span(
+        "gen_ai.chat",
+        attributes={
+            GenAI.GEN_AI_SYSTEM: "openai",
+            GenAI.GEN_AI_REQUEST_MODEL: model,
+            GenAI.GEN_AI_REQUEST_TEMPERATURE: kwargs.get("temperature", 1.0),
+            GenAI.GEN_AI_REQUEST_MAX_TOKENS: kwargs.get("max_tokens", 4096),
+        }
+    ) as span:
+        try:
+            client = openai.AsyncOpenAI()
+            response = await client.chat.completions.create(
+                model=model, messages=messages, **kwargs
+            )
+
+            # Record response metadata
+            usage = response.usage
+            span.set_attribute(GenAI.GEN_AI_RESPONSE_MODEL, response.model)
+            span.set_attribute(GenAI.GEN_AI_USAGE_INPUT_TOKENS, usage.prompt_tokens)
+            span.set_attribute(GenAI.GEN_AI_USAGE_OUTPUT_TOKENS, usage.completion_tokens)
+            span.set_attribute("gen_ai.response.finish_reason",
+                               response.choices[0].finish_reason)
+
+            # Record cost estimate (custom attribute)
+            cost = estimate_cost(model, usage.prompt_tokens, usage.completion_tokens)
+            span.set_attribute("gen_ai.usage.cost_usd", cost)
+
+            return response
+
+        except Exception as e:
+            span.set_status(trace.StatusCode.ERROR, str(e))
+            span.record_exception(e)
+            raise
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 30.5.2:</strong> Manual instrumentation of an OpenAI chat completion call using GenAI semantic conventions. The span captures request parameters (model, temperature, max_tokens), response metadata (actual model used, finish reason), token usage, and an estimated cost. Exceptions are recorded on the span for error correlation.</div>
+
+<div class="callout library-shortcut">
+<div class="callout-title">Library Shortcut</div>
+<p>The same result in 3 lines with <strong>OpenLLMetry</strong> (auto-instruments all LLM calls):</p>
+<pre><code class="language-python">
+# pip install traceloop-sdk
+from traceloop.sdk import Traceloop
+
+Traceloop.init(app_name="my-llm-app")
+# All OpenAI, Anthropic, and LangChain calls are now automatically
+# traced with GenAI semantic conventions. No manual spans needed.
+</code></pre>
+</div>
+
+    <h2>3. Trace Propagation Through Agent Chains <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>
+        Single LLM calls are straightforward to trace. The real complexity emerges in agentic systems
+        where a single user request triggers a chain of LLM calls, tool invocations, and sub-agent
+        delegations. Consider a <a class="cross-ref" href="../../part-5-retrieval-conversation/module-20-rag/index.html">RAG pipeline</a>: the user's query is first embedded, then used for
+        vector search, then the retrieved documents are assembled into a prompt, and finally the LLM
+        generates a response. Each step should be a child span under a single parent trace, preserving
+        the causal chain.
+    </p>
+
+    <p>
+        For <a class="cross-ref" href="../../part-6-agentic-ai/module-24-multi-agent-systems/index.html">multi-agent systems</a>,
+        trace context must propagate across agent boundaries. When an orchestrator agent delegates a
+        task to a specialist agent, the specialist's spans should appear as children of the orchestrator's
+        delegation span. If agents communicate via message queues or HTTP, the OTel context propagation
+        headers (<code>traceparent</code>, <code>tracestate</code>) must be injected into the message
+        metadata and extracted on the receiving side.
+    </p>
+
+<pre><code class="language-python">from opentelemetry import trace, context
+from opentelemetry.context.contextvars_context import ContextVarsRuntimeContext
+
+tracer = trace.get_tracer("llm-app.agent-chain")
+
+async def rag_pipeline(query: str):
+    """Full RAG pipeline with hierarchical tracing."""
+    with tracer.start_as_current_span("rag.pipeline") as pipeline_span:
+        pipeline_span.set_attribute("rag.query", query)
+
+        # Step 1: Embed the query
+        with tracer.start_as_current_span("rag.embed_query") as embed_span:
+            embedding = await embed_text(query)
+            embed_span.set_attribute("rag.embedding_model", "text-embedding-3-small")
+            embed_span.set_attribute("rag.embedding_dim", len(embedding))
+
+        # Step 2: Vector search
+        with tracer.start_as_current_span("rag.vector_search") as search_span:
+            results = await vector_store.search(embedding, top_k=10)
+            search_span.set_attribute("rag.results_count", len(results))
+            search_span.set_attribute("rag.top_score", results[0].score)
+
+        # Step 3: Rerank
+        with tracer.start_as_current_span("rag.rerank") as rerank_span:
+            reranked = await reranker.rerank(query, results, top_k=5)
+            rerank_span.set_attribute("rag.reranked_count", len(reranked))
+
+        # Step 4: Generate response (this creates its own child span)
+        context_text = "\n\n".join(r.text for r in reranked)
+        response = await traced_chat_completion(
+            messages=[
+                {"role": "system", "content": f"Context:\n{context_text}"},
+                {"role": "user", "content": query}
+            ],
+            model="gpt-4o"
+        )
+
+        pipeline_span.set_attribute("rag.total_tokens",
+            response.usage.prompt_tokens + response.usage.completion_tokens)
+        return response.choices[0].message.content
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 30.5.3:</strong> Hierarchical tracing for a RAG pipeline. Each step (embedding, vector search, reranking, generation) is a child span under the parent <code>rag.pipeline</code> span. The <code>traced_chat_completion</code> function from Code Fragment 30.5.7 automatically creates a nested child span for the LLM call. This structure allows you to see exactly where time is spent in the pipeline.</div>
+
+    <div class="callout practical-example">
+        <div class="callout-title">Practical Example: Agent Tool-Call Tracing</div>
+        <p>In a <a class="cross-ref" href="../../part-6-agentic-ai/module-22-ai-agents/section-22.3.html">tool-using agent</a>, each iteration of the agent loop (LLM call, tool selection, tool execution, result integration) should be a child span under the agent's main span. Record the tool name, arguments, execution time, and result size on each tool span. This makes it trivial to answer questions like "Which tool call took the longest?" or "How many tokens did the agent spend on tool result parsing?" The <a class="cross-ref" href="../../part-6-agentic-ai/module-26-agent-safety-production/section-26.3.html">cost control patterns in Section 26.3</a> rely on exactly this granularity of data.</p>
+    </div>
+
+    <h2>4. Token Tracking and Cost Attribution <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        Token usage is the primary cost driver for LLM applications. OTel tracing provides the
+        infrastructure to track tokens at every level of granularity: per call, per pipeline step,
+        per user session, per feature, and per tenant. By recording <code>gen_ai.usage.input_tokens</code>
+        and <code>gen_ai.usage.output_tokens</code> on every LLM span, you can aggregate costs across
+        any dimension using your tracing backend's query language.
+    </p>
+
+    <p>
+        Cost attribution becomes critical in multi-tenant applications where different customers or
+        features consume different amounts of LLM resources. By adding custom span attributes for
+        tenant ID, feature name, and user tier, you can build per-tenant cost dashboards. This data
+        feeds directly into billing systems and helps identify features or users that generate
+        disproportionate costs. The <a class="cross-ref" href="../../part-6-agentic-ai/module-26-agent-safety-production/section-26.3.html">cost control strategies in Section 26.3</a> depend on this level of cost visibility.
+    </p>
+
+<pre><code class="language-python">from opentelemetry import trace
+from dataclasses import dataclass
+from typing import Optional
+
+@dataclass
+class CostConfig:
+    """Per-model pricing (USD per 1K tokens)."""
+    input_cost_per_1k: float
+    output_cost_per_1k: float
+
+PRICING = {
+    "gpt-4o": CostConfig(0.0025, 0.01),
+    "gpt-4o-mini": CostConfig(0.00015, 0.0006),
+    "claude-sonnet-4-20250514": CostConfig(0.003, 0.015),
+    "claude-haiku-4-20250414": CostConfig(0.0008, 0.004),
+}
+
+class TokenTracker:
+    """Track token usage and costs across the application."""
+
+    def __init__(self):
+        self.tracer = trace.get_tracer("llm-app.cost-tracker")
+
+    def record_usage(
+        self,
+        model: str,
+        input_tokens: int,
+        output_tokens: int,
+        tenant_id: Optional[str] = None,
+        feature: Optional[str] = None,
+    ):
+        """Record token usage on the current span with cost attribution."""
+        span = trace.get_current_span()
+        pricing = PRICING.get(model, CostConfig(0.01, 0.03))
+
+        input_cost = (input_tokens / 1000) * pricing.input_cost_per_1k
+        output_cost = (output_tokens / 1000) * pricing.output_cost_per_1k
+        total_cost = input_cost + output_cost
+
+        span.set_attribute("gen_ai.usage.input_tokens", input_tokens)
+        span.set_attribute("gen_ai.usage.output_tokens", output_tokens)
+        span.set_attribute("gen_ai.usage.cost_usd", round(total_cost, 6))
+
+        if tenant_id:
+            span.set_attribute("app.tenant_id", tenant_id)
+        if feature:
+            span.set_attribute("app.feature", feature)
+
+        # Also emit as a metric for real-time dashboards
+        from opentelemetry import metrics
+        meter = metrics.get_meter("llm-app.cost-meter")
+        token_counter = meter.create_counter(
+            "gen_ai.tokens.total",
+            description="Total tokens consumed",
+        )
+        cost_counter = meter.create_counter(
+            "gen_ai.cost.usd",
+            description="Estimated cost in USD",
+        )
+        token_counter.add(input_tokens + output_tokens, {
+            "model": model, "token_type": "total",
+            "tenant_id": tenant_id or "unknown",
+        })
+        cost_counter.add(total_cost, {
+            "model": model,
+            "tenant_id": tenant_id or "unknown",
+        })
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 30.5.4:</strong> Token tracking with cost attribution. The <code>TokenTracker</code> records token counts and estimated costs both as span attributes (for per-request analysis) and as OTel metrics (for real-time dashboards and alerting). Custom attributes for tenant and feature enable cost allocation across business dimensions.</div>
+
+    <h2>5. Auto-Instrumentation with OpenLLMetry <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        Manual instrumentation provides maximum control but requires modifying every LLM call site.
+        For faster adoption, auto-instrumentation libraries can patch LLM client libraries at import
+        time to automatically generate spans. <strong>OpenLLMetry</strong> (by Traceloop) is the
+        most mature auto-instrumentation package for LLM applications. It supports OpenAI, Anthropic,
+        Cohere, LangChain, LlamaIndex, ChromaDB, Pinecone, and many other libraries.
+    </p>
+
+<pre><code class="language-python"># Auto-instrument all supported LLM libraries with one call
+from traceloop.sdk import Traceloop
+
+Traceloop.init(
+    app_name="my-llm-app",
+    # Export to any OTel-compatible backend
+    exporter_endpoint="http://otel-collector:4317",
+    # Control what gets captured
+    tracing_enabled=True,
+    metrics_enabled=True,
+    # Redact prompt/completion content for privacy
+    should_enrich_metrics=True,
+)
+
+# Now all OpenAI, Anthropic, LangChain calls are automatically traced
+import openai
+
+client = openai.OpenAI()
+# This call is automatically instrumented with GenAI semantic conventions
+response = client.chat.completions.create(
+    model="gpt-4o-mini",
+    messages=[{"role": "user", "content": "Explain observability in one sentence."}]
+)
+# A span is automatically created with model, tokens, latency, and cost
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 30.5.5:</strong> OpenLLMetry auto-instrumentation with a single initialization call. Once initialized, every call to supported LLM libraries (OpenAI, Anthropic, LangChain, LlamaIndex, vector databases) is automatically traced with GenAI semantic conventions. The <code>should_enrich_metrics</code> flag controls whether prompt and completion content is included in traces.</div>
+
+    <p>
+        Auto-instrumentation is ideal for getting started quickly, but it captures everything
+        indiscriminately. In production, you typically want a hybrid approach: auto-instrumentation
+        for baseline coverage, plus manual spans for business-critical paths where you need custom
+        attributes (tenant ID, feature flags, A/B test variants). The manual <code>@workflow</code>
+        and <code>@task</code> decorators from Traceloop can annotate specific functions with
+        semantic meaning.
+    </p>
+
+    <div class="callout warning">
+        <div class="callout-title">Warning</div>
+        <p>Recording full prompt and completion content in traces creates <strong>significant privacy and compliance risks</strong>. User messages may contain personal information, health data, or other sensitive content subject to GDPR, HIPAA, or similar regulations. Always configure content redaction in production. Most auto-instrumentation libraries support content filtering; use it. Store full prompt/completion logs only in systems with appropriate access controls and retention policies. The <a class="cross-ref" href="../../part-9-safety-strategy/module-32-safety-ethics-regulation/index.html">privacy and compliance topics in Chapter 32</a> apply directly here.</p>
+    </div>
+
+    <h2>6. Building OTel Dashboards for LLM Operations <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>
+        Raw traces are useful for debugging individual requests, but operational excellence requires
+        aggregated dashboards that show system health at a glance. The combination of OTel metrics
+        and span-derived analytics enables dashboards that answer the questions every LLM operations
+        team needs answered: What is the current P50/P95/P99 latency? How many tokens are we
+        consuming per hour? What is our error rate by model and provider? Which features are the
+        most expensive?
+    </p>
+
+    <p>
+        Grafana is the most common dashboard tool for OTel data. With Grafana Tempo for traces and
+        Prometheus (or Mimir) for metrics, you can build unified dashboards that correlate latency
+        spikes with token usage anomalies. The following example shows how to define custom OTel
+        metrics that power these dashboards.
+    </p>
+
+<pre><code class="language-python">from opentelemetry import metrics
+from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
+from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
+
+# Set up metrics export
+metric_reader = PeriodicExportingMetricReader(
+    OTLPMetricExporter(endpoint="http://otel-collector:4317"),
+    export_interval_millis=10000,  # Export every 10 seconds
+)
+meter_provider = MeterProvider(metric_readers=[metric_reader])
+metrics.set_meter_provider(meter_provider)
+
+meter = metrics.get_meter("llm-app.operations")
+
+# Define operational metrics
+llm_latency = meter.create_histogram(
+    "gen_ai.request.duration",
+    unit="s",
+    description="LLM request duration in seconds",
+)
+
+llm_tokens = meter.create_counter(
+    "gen_ai.tokens.consumed",
+    description="Total tokens consumed by model and type",
+)
+
+llm_errors = meter.create_counter(
+    "gen_ai.errors",
+    description="LLM API errors by type and model",
+)
+
+active_requests = meter.create_up_down_counter(
+    "gen_ai.requests.active",
+    description="Currently in-flight LLM requests",
+)
+
+# Usage in application code
+import time
+
+async def monitored_llm_call(model, messages, **kwargs):
+    """LLM call with full metrics instrumentation."""
+    labels = {"model": model, "provider": "openai"}
+    active_requests.add(1, labels)
+    start = time.monotonic()
+
+    try:
+        response = await client.chat.completions.create(
+            model=model, messages=messages, **kwargs
+        )
+        duration = time.monotonic() - start
+        llm_latency.record(duration, labels)
+        llm_tokens.add(response.usage.prompt_tokens,
+                       {**labels, "token_type": "input"})
+        llm_tokens.add(response.usage.completion_tokens,
+                       {**labels, "token_type": "output"})
+        return response
+
+    except Exception as e:
+        llm_errors.add(1, {**labels, "error_type": type(e).__name__})
+        raise
+
+    finally:
+        active_requests.add(-1, labels)
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 30.5.6:</strong> Custom OTel metrics for LLM operations dashboards. The histogram tracks latency distributions (enabling P50/P95/P99 calculations), the counter tracks token consumption by model and type, and the up-down counter tracks in-flight requests for concurrency monitoring. These metrics export to Prometheus or any OTel-compatible metrics backend.</div>
+
+    <p>
+        A well-designed LLM operations dashboard typically includes four panels: (1) a latency
+        panel showing P50, P95, and P99 latency by model, with alerting thresholds; (2) a token
+        consumption panel showing input and output tokens per hour, broken down by model and feature;
+        (3) an error rate panel showing errors by type (rate limit, timeout, server error) with
+        trend lines; and (4) a cost panel showing estimated spend per hour and projected monthly cost.
+        The <a href="section-30.2.html">drift monitoring from Section 30.2</a> adds a fifth dimension:
+        quality metrics derived from automated evaluation scores.
+    </p>
+
+    <h2>Exercises</h2>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 30.5.1: Basic OTel Instrumentation <span class="level-badge basic" title="Basic">BASIC</span> <span class="exercise-type coding" title="Coding">Coding</span></div>
+        <p>Set up OpenTelemetry tracing for a simple LLM application that makes a single chat completion call. Export traces to the console using <code>ConsoleSpanExporter</code>. Verify that the span includes the model name, token counts, and latency.</p>
+        <details open>
+            <summary>Answer Sketch</summary>
+            <p>Initialize a <code>TracerProvider</code> with a <code>SimpleSpanProcessor(ConsoleSpanExporter())</code>. Create a span with <code>tracer.start_as_current_span("gen_ai.chat")</code>, set attributes for model and tokens after the API call, and verify the output includes all expected fields. The console output will show the span as a JSON object with the attributes you set.</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 30.5.2: RAG Pipeline Tracing <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span> <span class="exercise-type coding" title="Coding">Coding</span></div>
+        <p>Instrument a RAG pipeline with nested spans for embedding, vector search, and generation. Use a trace visualization tool (Jaeger or the console exporter) to verify that the spans form a proper parent-child hierarchy.</p>
+        <details open>
+            <summary>Answer Sketch</summary>
+            <p>Create a parent span <code>rag.pipeline</code>, then use <code>tracer.start_as_current_span()</code> for each sub-step inside the parent's <code>with</code> block. OTel automatically links child spans to the active parent via context propagation. In Jaeger, you should see a waterfall view with the pipeline span at the top and sub-steps nested beneath it.</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 30.5.3: Cost Attribution Dashboard <span class="level-badge advanced" title="Advanced">ADVANCED</span> <span class="exercise-type project" title="Project">Project</span></div>
+        <p>Build a multi-tenant cost attribution system using OTel metrics. Create counters for token usage and cost, labeled by tenant ID and feature name. Set up a Grafana dashboard (or equivalent) that shows per-tenant cost breakdown and alerts when any tenant exceeds their monthly budget.</p>
+        <details open>
+            <summary>Answer Sketch</summary>
+            <p>Use the <code>TokenTracker</code> pattern from Code Fragment 30.5.4. Add tenant and feature labels to all metric emissions. In Grafana, create a panel with PromQL: <code>sum by (tenant_id)(rate(gen_ai_cost_usd_total[1h])) * 720</code> to project monthly costs. Set alert rules on the projected cost exceeding per-tenant thresholds.</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 30.5.4: Privacy-Safe Tracing <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span> <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+        <p>Design a content redaction strategy for OTel traces in a healthcare chatbot application subject to HIPAA. Specify which span attributes should be captured, which should be redacted, and how to handle trace storage and retention.</p>
+        <details open>
+            <summary>Answer Sketch</summary>
+            <p>Capture: model name, token counts, latency, error types, feature name. Redact: all prompt content, completion content, and user identifiers. Use an OTel Collector processor to strip sensitive attributes before export. Store traces in a HIPAA-compliant backend with encryption at rest and access logging. Set retention to the minimum required for operational debugging (7 to 30 days). Never include PHI in span attributes or events.</p>
+        </details>
+    </div>
+
+<div class="whats-next">
+    <h2>What Comes Next</h2>
+    <p>In the next chapter, <a href="../module-31-production-engineering/index.html">Chapter 31: Production Engineering &amp; Operations</a>, we move from observability to the deployment, scaling, and operational patterns that bring LLM applications to production. The OTel instrumentation you learned here becomes the foundation for monitoring those production systems.</p>
+</div>
+
+<nav class="chapter-nav">
+    <a class="prev" href="section-30.4.html">Arena-Style and Crowdsourced Evaluation</a>
+    <a class="up" href="index.html">Chapter 30: Observability, Monitoring &amp; MLOps</a>
+    <a class="next" href="../module-31-production-engineering/index.html">Chapter 31: Production Engineering &amp; Operations</a>
+</nav>
+
+    <footer>
+        <p class="footer-title">Building Conversational AI with LLMs and Agents, Fifth Edition</p>
+        <p>&copy; 2026 Alexander Apartsin &amp; Yehudit Aperstein &middot; <a href="../../toc.html">Contents</a></p>
+        <p class="footer-updated">Last updated: <script>document.write(new Date(document.lastModified).toLocaleDateString('en-US', {year:'numeric', month:'long', day:'numeric'}))</script></p>
+    </footer>
+</main>
+</body>
+</html>

@@ -3,19 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Section R.5: LLM Evaluation Dashboards and Observability. A comprehensive chapter from the Building Conversational AI textbook.">
     <title>Section R.5: LLM Evaluation Dashboards and Observability | Building Conversational AI with LLMs and Agents</title>
     <link rel="stylesheet" href="../../styles/book.css">
-    <link rel="stylesheet" href="../../vendor/katex/katex.min.css">
-    <script defer src="../../vendor/katex/katex.min.js"></script>
-    <script defer src="../../vendor/katex/contrib/auto-render.min.js"
-        onload="renderMathInElement(document.body, {
-            delimiters: [
-                {left: '$$', right: '$$', display: true},
-                {left: '$', right: '$', display: false}
-            ],
-            throwOnError: false
-        });"></script>
-    <link rel="stylesheet" href="../../vendor/prism/prism-theme.css">
+<link rel="stylesheet" href="../../vendor/prism/prism-theme.css">
     <script defer src="../../vendor/prism/prism-bundle.min.js"></script>
 </head>
 <body>
@@ -33,10 +24,375 @@
 
     <div class="callout big-picture">
         <div class="callout-title">Big Picture</div>
-        <p>This section covers lLM Evaluation Dashboards and Observability. Content will be generated using the book production pipeline.</p>
+        <p>Evaluating LLMs requires more than tracking a single loss metric. You need dashboards that surface generation quality, latency distributions, cost per request, safety violations, and drift over time. This section covers how to build LLM-specific evaluation dashboards in W&amp;B and MLflow, instrument production systems for observability, track prompt-level metrics, and set up alerting for quality regressions. The techniques here connect experiment-time evaluation (covered in <a href="section-r.3.html">Section R.3</a>) with production monitoring to create a continuous feedback loop.</p>
     </div>
 
-    <p><em>Content pending: this section will be produced by the book-writers agent pipeline.</em></p>
+    <h2>R.5.1 LLM Evaluation Metrics</h2>
+
+    <p>Traditional ML models produce predictions that are easy to score: accuracy, F1, AUC. LLM outputs are free-form text, which requires a richer set of evaluation metrics. A comprehensive evaluation dashboard should track metrics across several dimensions.</p>
+
+    <p><strong>Quality metrics</strong> include BLEU, ROUGE, BERTScore, and judge-model scores. <strong>Safety metrics</strong> capture toxicity rates, refusal accuracy, and policy violation counts. <strong>Operational metrics</strong> track latency (P50, P95, P99), throughput (tokens per second), and cost (dollars per 1,000 requests). <strong>Behavioral metrics</strong> measure hallucination rates, instruction-following accuracy, and format compliance. Logging all of these during evaluation runs creates the foundation for a useful dashboard.</p>
+
+<pre><code class="language-python">import wandb
+import numpy as np
+from datetime import datetime
+
+def run_llm_evaluation(model, eval_dataset, run_name="eval"):
+    """Run a comprehensive LLM evaluation and log to W&B."""
+    run = wandb.init(
+        project="llm-eval-dashboard",
+        name=run_name,
+        job_type="evaluation",
+        config={
+            "model": model.name,
+            "eval_dataset": eval_dataset.name,
+            "num_examples": len(eval_dataset),
+            "timestamp": datetime.now().isoformat(),
+        },
+    )
+
+    results = {"quality": [], "latency_ms": [], "tokens_out": []}
+    safety_violations = 0
+    format_failures = 0
+
+    for example in eval_dataset:
+        output, latency, token_count = model.generate_timed(example.prompt)
+
+        # Score quality with a judge model
+        quality = judge_model.score(
+            prompt=example.prompt,
+            response=output,
+            reference=example.reference,
+        )
+        is_safe = safety_classifier.check(output)
+        follows_format = check_output_format(output, example.expected_format)
+
+        results["quality"].append(quality)
+        results["latency_ms"].append(latency * 1000)
+        results["tokens_out"].append(token_count)
+        if not is_safe:
+            safety_violations += 1
+        if not follows_format:
+            format_failures += 1
+
+    # Log aggregate metrics
+    wandb.log({
+        "eval/quality_mean": np.mean(results["quality"]),
+        "eval/quality_p25": np.percentile(results["quality"], 25),
+        "eval/quality_median": np.median(results["quality"]),
+        "eval/latency_p50": np.percentile(results["latency_ms"], 50),
+        "eval/latency_p95": np.percentile(results["latency_ms"], 95),
+        "eval/latency_p99": np.percentile(results["latency_ms"], 99),
+        "eval/safety_violation_rate": safety_violations / len(eval_dataset),
+        "eval/format_compliance": 1 - format_failures / len(eval_dataset),
+        "eval/avg_tokens_out": np.mean(results["tokens_out"]),
+    })
+
+    run.finish()
+    return results
+</code></pre>
+
+    <p>Notice that we log percentiles rather than just means. For latency, the P99 value matters far more than the average because it determines worst-case user experience. For quality, the P25 value reveals how the model performs on its hardest examples, which is often more actionable than the mean.</p>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight</div>
+        <p>Mean quality scores hide bimodal distributions. A model that scores 0.95 on 80% of examples and 0.20 on the remaining 20% has a mean of 0.80, which looks acceptable. But one in five users gets a terrible response. Always log the full distribution (P25, median, P75, P99) and inspect the bottom quartile to catch these failure modes.</p>
+    </div>
+
+    <h2>R.5.2 Prediction Tables and Qualitative Review</h2>
+
+    <p>Aggregate metrics cannot tell you <em>why</em> a model fails. Prediction tables log individual examples so that you (or your domain experts) can review actual model outputs and identify patterns in failures.</p>
+
+<pre><code class="language-python">import wandb
+
+def log_prediction_table(model, eval_dataset, max_rows=200):
+    """Log a browsable table of model predictions to W&B."""
+    columns = [
+        "prompt", "reference", "generated", "quality_score",
+        "latency_ms", "is_safe", "error_category",
+    ]
+    table = wandb.Table(columns=columns)
+
+    for example in eval_dataset[:max_rows]:
+        output, latency, _ = model.generate_timed(example.prompt)
+        quality = judge_model.score(
+            prompt=example.prompt,
+            response=output,
+            reference=example.reference,
+        )
+        is_safe = safety_classifier.check(output)
+
+        # Categorize errors for filtering
+        error_cat = "none"
+        if quality < 0.5:
+            error_cat = classify_error(example.prompt, output, example.reference)
+
+        table.add_data(
+            example.prompt,
+            example.reference,
+            output,
+            round(quality, 3),
+            round(latency * 1000, 1),
+            is_safe,
+            error_cat,
+        )
+
+    wandb.log({"prediction_table": table})
+
+    # Also log a filtered table of failures only
+    failure_table = wandb.Table(columns=columns)
+    for row in table.data:
+        if row[3] < 0.5:  # quality_score column
+            failure_table.add_data(*row)
+    wandb.log({"failure_table": failure_table})
+</code></pre>
+
+    <p>The error category column is especially valuable. Classifying failures into categories (hallucination, wrong format, incomplete response, refusal on a valid query, unsafe content) lets you filter the table and focus on specific failure types. Over time, tracking the distribution of error categories reveals whether your improvements address the right problems.</p>
+
+    <h2>R.5.3 MLflow Evaluate for LLMs</h2>
+
+    <p>MLflow provides a built-in <code>mlflow.evaluate()</code> function designed for LLM evaluation. It computes standard text metrics and logs results with full artifact support.</p>
+
+<pre><code class="language-python">import mlflow
+import pandas as pd
+
+# Prepare evaluation data
+eval_data = pd.DataFrame({
+    "inputs": [
+        "Summarize the key features of Python 3.12.",
+        "Explain the difference between threads and processes.",
+        "Write a haiku about machine learning.",
+    ],
+    "ground_truth": [
+        "Python 3.12 introduces improved error messages...",
+        "Threads share memory within a process...",
+        "Data flowing through / Layers of abstraction deep / Patterns emerge clear",
+    ],
+})
+
+# Run evaluation
+with mlflow.start_run(run_name="llm-eval-gpt4"):
+    results = mlflow.evaluate(
+        model="openai:/gpt-4",
+        data=eval_data,
+        targets="ground_truth",
+        model_type="text",
+        evaluators="default",
+        extra_metrics=[
+            mlflow.metrics.latency(),
+            mlflow.metrics.toxicity(),
+            mlflow.metrics.flesch_kincaid_grade_level(),
+        ],
+    )
+
+    # Access aggregate metrics
+    print(f"ROUGE-1: {results.metrics['rouge1/v1/mean']:.3f}")
+    print(f"Toxicity: {results.metrics['toxicity/v1/mean']:.4f}")
+
+    # Access per-row results as a DataFrame
+    per_row = results.tables["eval_results_table"]
+    print(per_row[["inputs", "outputs", "rouge1/v1/score"]].head())
+</code></pre>
+
+    <p>The <code>mlflow.evaluate()</code> API handles the boilerplate of running the model on each input, computing metrics, and logging everything to the tracking server. Custom metrics can be added through the <code>extra_metrics</code> parameter, and custom evaluator functions let you plug in judge-model scoring or domain-specific checks.</p>
+
+    <div class="callout tip">
+        <div class="callout-title">Tip</div>
+        <p>For LLM evaluation at scale, combine <code>mlflow.evaluate()</code> for standardized metrics with custom judge-model scoring for nuanced quality assessment. Use the built-in metrics (ROUGE, toxicity, readability) as fast sanity checks and reserve expensive judge-model calls for a curated subset of high-stakes examples.</p>
+    </div>
+
+    <h2>R.5.4 Production Observability with W&amp;B Weave</h2>
+
+    <p>Experiment-time evaluation tells you how a model performs on a fixed dataset. Production observability tells you how it performs on real user traffic. W&amp;B Weave provides tracing and logging for LLM applications in production, capturing every call along with inputs, outputs, latency, token counts, and costs.</p>
+
+<pre><code class="language-python">import weave
+
+# Initialize Weave for production tracing
+weave.init("llm-prod-observability")
+
+@weave.op()
+def generate_response(prompt: str, system_message: str) -> dict:
+    """Generate a response and track it automatically."""
+    import openai
+    client = openai.OpenAI()
+
+    start_time = time.time()
+    response = client.chat.completions.create(
+        model="gpt-4",
+        messages=[
+            {"role": "system", "content": system_message},
+            {"role": "user", "content": prompt},
+        ],
+        temperature=0.7,
+        max_tokens=512,
+    )
+    latency = time.time() - start_time
+
+    result = {
+        "output": response.choices[0].message.content,
+        "tokens_in": response.usage.prompt_tokens,
+        "tokens_out": response.usage.completion_tokens,
+        "latency_s": latency,
+        "model": "gpt-4",
+        "cost_usd": compute_cost(response.usage),
+    }
+    return result
+
+@weave.op()
+def rag_pipeline(query: str) -> dict:
+    """Full RAG pipeline with automatic tracing of each step."""
+    # Each nested @weave.op call is traced as a child span
+    docs = retrieve_documents(query, top_k=5)
+    context = format_context(docs)
+    system_msg = f"Answer using this context:\n{context}"
+    response = generate_response(query, system_msg)
+    response["num_docs_retrieved"] = len(docs)
+    return response
+</code></pre>
+
+    <p>The <code>@weave.op()</code> decorator automatically captures the function's inputs, outputs, and execution time. When functions call other decorated functions, Weave builds a trace tree that shows the full execution path. This is invaluable for debugging RAG pipelines (see Chapter 12) where a bad answer could stem from poor retrieval, bad context formatting, or a model generation issue.</p>
+
+    <h2>R.5.5 Drift Detection and Alerting</h2>
+
+    <p>Model quality degrades over time as user behavior shifts, data distributions change, and the world moves on from the training data. Drift detection compares current production metrics against a baseline and alerts you when significant deviations occur.</p>
+
+<pre><code class="language-python">import numpy as np
+from scipy import stats
+
+class DriftDetector:
+    """Monitor LLM metrics for distribution shifts."""
+
+    def __init__(self, baseline_metrics: dict, alert_threshold: float = 0.01):
+        self.baseline = baseline_metrics
+        self.threshold = alert_threshold
+        self.alerts = []
+
+    def check_drift(self, current_metrics: dict, window_name: str):
+        """Compare current window against baseline using KS test."""
+        for metric_name in self.baseline:
+            if metric_name not in current_metrics:
+                continue
+
+            baseline_vals = np.array(self.baseline[metric_name])
+            current_vals = np.array(current_metrics[metric_name])
+
+            # Kolmogorov-Smirnov test for distribution shift
+            ks_stat, p_value = stats.ks_2samp(baseline_vals, current_vals)
+
+            if p_value < self.threshold:
+                alert = {
+                    "metric": metric_name,
+                    "window": window_name,
+                    "ks_statistic": round(ks_stat, 4),
+                    "p_value": round(p_value, 6),
+                    "baseline_mean": round(np.mean(baseline_vals), 4),
+                    "current_mean": round(np.mean(current_vals), 4),
+                    "shift_direction": (
+                        "degraded" if np.mean(current_vals) < np.mean(baseline_vals)
+                        else "improved"
+                    ),
+                }
+                self.alerts.append(alert)
+                print(f"DRIFT ALERT: {metric_name} has shifted "
+                      f"({alert['shift_direction']}), p={p_value:.6f}")
+
+        return self.alerts
+
+# Usage: compare weekly production metrics to baseline
+detector = DriftDetector(
+    baseline_metrics={
+        "quality_score": baseline_quality_scores,
+        "latency_ms": baseline_latency_values,
+        "safety_score": baseline_safety_scores,
+    },
+    alert_threshold=0.01,
+)
+
+alerts = detector.check_drift(
+    current_metrics=this_weeks_metrics,
+    window_name="2026-W14",
+)
+</code></pre>
+
+    <p>The Kolmogorov-Smirnov test detects changes in the full distribution shape, not just the mean. This catches subtle shifts where the average stays stable but the tail gets worse. For example, if P99 latency doubles while median latency is unchanged, the KS test will flag the shift even though the mean barely moves.</p>
+
+    <div class="callout warning">
+        <div class="callout-title">Warning</div>
+        <p>Drift detection on LLM quality metrics is noisier than on traditional ML metrics because quality scores from judge models are themselves imperfect. Set alert thresholds conservatively (p &lt; 0.01 rather than p &lt; 0.05) and require alerts to persist across multiple consecutive windows before triggering a retraining workflow. One bad week could be an anomaly; two consecutive bad weeks is a trend.</p>
+    </div>
+
+    <h2>R.5.6 Cost Tracking and Budget Dashboards</h2>
+
+    <p>For applications that call commercial LLM APIs, cost tracking is as important as quality tracking. A runaway prompt or an unexpectedly verbose system message can double your inference bill overnight. Log cost metrics alongside quality metrics so that cost-quality tradeoffs are visible on the same dashboard.</p>
+
+<pre><code class="language-python">import wandb
+from collections import defaultdict
+
+class CostTracker:
+    """Track LLM API costs per model, per feature, per time window."""
+
+    PRICING = {  # USD per 1M tokens (as of early 2026)
+        "gpt-4": {"input": 30.0, "output": 60.0},
+        "gpt-4o": {"input": 2.50, "output": 10.0},
+        "gpt-4o-mini": {"input": 0.15, "output": 0.60},
+        "claude-sonnet-4-20250514": {"input": 3.0, "output": 15.0},
+    }
+
+    def __init__(self):
+        self.costs = defaultdict(lambda: {"input_tokens": 0, "output_tokens": 0})
+
+    def record(self, model: str, feature: str, input_tokens: int, output_tokens: int):
+        key = f"{model}/{feature}"
+        self.costs[key]["input_tokens"] += input_tokens
+        self.costs[key]["output_tokens"] += output_tokens
+
+    def compute_costs(self) -> dict:
+        summary = {}
+        total = 0.0
+        for key, tokens in self.costs.items():
+            model = key.split("/")[0]
+            pricing = self.PRICING.get(model, {"input": 0, "output": 0})
+            cost = (
+                tokens["input_tokens"] * pricing["input"] / 1_000_000
+                + tokens["output_tokens"] * pricing["output"] / 1_000_000
+            )
+            summary[key] = {
+                "input_tokens": tokens["input_tokens"],
+                "output_tokens": tokens["output_tokens"],
+                "cost_usd": round(cost, 4),
+            }
+            total += cost
+        summary["total_cost_usd"] = round(total, 4)
+        return summary
+
+    def log_to_wandb(self, window_name: str):
+        costs = self.compute_costs()
+        wandb.log({
+            f"cost/{k}": v["cost_usd"]
+            for k, v in costs.items()
+            if isinstance(v, dict)
+        })
+        wandb.log({"cost/total_usd": costs["total_cost_usd"]})
+</code></pre>
+
+    <p>Break costs down by model and by feature (e.g., "gpt-4/summarization" vs. "gpt-4o-mini/classification"). This granularity reveals optimization opportunities. You might discover that 80% of your cost comes from a single feature that could work equally well with a smaller model.</p>
+
+    <h2>R.5.7 Building a Unified Dashboard</h2>
+
+    <p>The goal is a single dashboard that shows quality, safety, latency, and cost together. W&amp;B workspaces and MLflow's UI both support custom dashboard layouts. The key is to define standard panels that every LLM project includes.</p>
+
+    <p>A recommended dashboard layout for LLM applications includes four sections. The <strong>Quality panel</strong> shows evaluation scores over time (mean, P25, P75), error category breakdown, and a link to the latest prediction table. The <strong>Safety panel</strong> displays toxicity rates, refusal accuracy, and policy violation counts. The <strong>Performance panel</strong> tracks latency percentiles (P50, P95, P99), throughput, and error rates. The <strong>Cost panel</strong> presents daily and cumulative spend, broken down by model and feature.</p>
+
+    <p>Connecting these panels to alerting (via W&amp;B Alerts, PagerDuty, or Slack webhooks) closes the observability loop. When a metric crosses a threshold, the team is notified, and the dashboard provides the context needed to diagnose the issue. The prediction table lets reviewers inspect specific failures without re-running the evaluation. The drift detector determines whether the problem is a transient spike or a sustained trend.</p>
+
+    <div class="callout note">
+        <div class="callout-title">Note</div>
+        <p>For teams using LangChain or LlamaIndex for RAG applications, both frameworks offer built-in tracing integrations with W&amp;B Weave and LangSmith. These integrations capture retrieval, reranking, and generation steps automatically. See Chapter 12 on RAG architectures and <a href="../appendix-l-langchain/index.html">Appendix N</a> on LangChain for framework-specific setup instructions.</p>
+    </div>
+
+    <h2>R.5.8 Putting It All Together</h2>
+
+    <p>The evaluation and observability workflow forms a continuous cycle. During development, you run evaluations against curated datasets and log results to your experiment tracker. When a model passes validation gates (see <a href="section-r.4.html">Section R.4</a>), it enters production with full tracing enabled. Production traces feed back into evaluation datasets as interesting edge cases from live traffic become new test examples. Drift detection monitors for quality regressions and triggers re-evaluation when thresholds are breached. Teams that invest in this cycle catch regressions in hours instead of weeks, optimize costs with data instead of guesswork, and build a growing library of evaluation examples drawn from real-world usage.</p>
 
     <nav class="chapter-nav">
     <a class="prev" href="section-r.4.html">Model Registry and Deployment Workflows</a>

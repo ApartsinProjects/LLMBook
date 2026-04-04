@@ -3,19 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Section K.3: Training with Trainer and Accelerate. A comprehensive chapter from the Building Conversational AI textbook.">
     <title>Section K.3: Training with Trainer and Accelerate | Building Conversational AI with LLMs and Agents</title>
     <link rel="stylesheet" href="../../styles/book.css">
-    <link rel="stylesheet" href="../../vendor/katex/katex.min.css">
-    <script defer src="../../vendor/katex/katex.min.js"></script>
-    <script defer src="../../vendor/katex/contrib/auto-render.min.js"
-        onload="renderMathInElement(document.body, {
-            delimiters: [
-                {left: '$$', right: '$$', display: true},
-                {left: '$', right: '$', display: false}
-            ],
-            throwOnError: false
-        });"></script>
-    <link rel="stylesheet" href="../../vendor/prism/prism-theme.css">
+<link rel="stylesheet" href="../../vendor/prism/prism-theme.css">
     <script defer src="../../vendor/prism/prism-bundle.min.js"></script>
 </head>
 <body>
@@ -33,10 +24,354 @@
 
     <div class="callout big-picture">
         <div class="callout-title">Big Picture</div>
-        <p>This section covers training with Trainer and Accelerate. Content will be generated using the book production pipeline.</p>
+        <p>HuggingFace offers two complementary approaches to model training. The <code>Trainer</code> API provides a high-level, declarative interface that handles the training loop, evaluation, logging, and checkpointing automatically. For practitioners who need full control over the training loop, <code>Accelerate</code> provides a thin abstraction layer that makes any PyTorch training script work seamlessly across CPUs, single GPUs, multi-GPU setups, and TPUs with minimal code changes. This section covers both approaches, along with key techniques like gradient accumulation, mixed precision, and custom callbacks.</p>
     </div>
 
-    <p><em>Content pending: this section will be produced by the book-writers agent pipeline.</em></p>
+    <h2>1. TrainingArguments: Configuring the Training Run</h2>
+
+    <p>Every <code>Trainer</code>-based training run begins with a <code>TrainingArguments</code> object. This dataclass consolidates all training hyperparameters, output paths, logging settings, and hardware options into a single configuration. Understanding its parameters is essential for effective fine-tuning. For the broader context of fine-tuning strategies, see <a class="cross-ref" href="../../part-4-training-adapting/module-14-fine-tuning-fundamentals/index.html">Chapter 9: Fine-Tuning</a>.</p>
+
+    <p>The following example sets up a typical configuration for fine-tuning a classification model.</p>
+
+<pre><code class="language-python">from transformers import TrainingArguments
+
+training_args = TrainingArguments(
+    output_dir="./results",
+
+    # Training hyperparameters
+    num_train_epochs=3,
+    per_device_train_batch_size=16,
+    per_device_eval_batch_size=32,
+    learning_rate=2e-5,
+    weight_decay=0.01,
+    warmup_ratio=0.1,
+    lr_scheduler_type="cosine",
+
+    # Gradient accumulation: effective batch size = 16 * 4 = 64
+    gradient_accumulation_steps=4,
+
+    # Mixed precision for faster training and lower memory
+    bf16=True,                    # Use bfloat16 (preferred on Ampere+ GPUs)
+
+    # Evaluation and logging
+    eval_strategy="steps",
+    eval_steps=500,
+    logging_steps=100,
+    save_strategy="steps",
+    save_steps=500,
+    save_total_limit=3,           # Keep only the 3 most recent checkpoints
+    load_best_model_at_end=True,
+    metric_for_best_model="accuracy",
+
+    # Reproducibility
+    seed=42,
+
+    # Hub integration
+    push_to_hub=False,
+    report_to="tensorboard",
+)</code></pre>
+
+    <figure>
+        <table>
+            <thead>
+                <tr><th scope="col">Parameter</th><th scope="col">Purpose</th><th scope="col">Typical Values</th></tr>
+            </thead>
+            <tbody>
+                <tr><td><code>per_device_train_batch_size</code></td><td>Batch size per GPU</td><td>8, 16, 32</td></tr>
+                <tr><td><code>gradient_accumulation_steps</code></td><td>Simulate larger batches</td><td>2, 4, 8</td></tr>
+                <tr><td><code>learning_rate</code></td><td>Peak learning rate</td><td>1e-5 to 5e-5 for fine-tuning</td></tr>
+                <tr><td><code>warmup_ratio</code></td><td>Fraction of steps for LR warmup</td><td>0.05 to 0.1</td></tr>
+                <tr><td><code>bf16</code> / <code>fp16</code></td><td>Mixed-precision training</td><td><code>bf16=True</code> on Ampere+ GPUs</td></tr>
+                <tr><td><code>eval_strategy</code></td><td>When to run evaluation</td><td>"steps" or "epoch"</td></tr>
+                <tr><td><code>save_total_limit</code></td><td>Max checkpoints on disk</td><td>2 to 5</td></tr>
+            </tbody>
+        </table>
+        <figcaption>Figure K.3.1: Key TrainingArguments parameters and their typical values.</figcaption>
+    </figure>
+
+    <h2>2. The Trainer API: End-to-End Fine-Tuning</h2>
+
+    <p>The <code>Trainer</code> class accepts a model, training arguments, datasets, a tokenizer, and optional metrics, then manages the entire training lifecycle. It handles device placement, gradient computation, optimizer creation, checkpointing, and evaluation automatically.</p>
+
+    <p>The following example fine-tunes a DistilBERT model on the SST-2 sentiment classification task from start to finish.</p>
+
+<pre><code class="language-python">from datasets import load_dataset
+from transformers import (
+    AutoTokenizer,
+    AutoModelForSequenceClassification,
+    Trainer,
+    TrainingArguments,
+)
+import numpy as np
+
+# 1. Load and preprocess data
+dataset = load_dataset("glue", "sst2")
+tokenizer = AutoTokenizer.from_pretrained("distilbert-base-uncased")
+
+def tokenize_fn(examples):
+    return tokenizer(examples["sentence"], truncation=True, max_length=128)
+
+tokenized = dataset.map(tokenize_fn, batched=True)
+tokenized = tokenized.rename_column("label", "labels")
+
+# 2. Load model
+model = AutoModelForSequenceClassification.from_pretrained(
+    "distilbert-base-uncased",
+    num_labels=2,
+)
+
+# 3. Define metrics
+def compute_metrics(eval_pred):
+    logits, labels = eval_pred
+    preds = np.argmax(logits, axis=-1)
+    accuracy = (preds == labels).mean()
+    return {"accuracy": accuracy}
+
+# 4. Configure training
+training_args = TrainingArguments(
+    output_dir="./sst2-distilbert",
+    num_train_epochs=3,
+    per_device_train_batch_size=32,
+    per_device_eval_batch_size=64,
+    eval_strategy="epoch",
+    save_strategy="epoch",
+    learning_rate=2e-5,
+    load_best_model_at_end=True,
+    metric_for_best_model="accuracy",
+    bf16=True,
+)
+
+# 5. Create Trainer and train
+trainer = Trainer(
+    model=model,
+    args=training_args,
+    train_dataset=tokenized["train"],
+    eval_dataset=tokenized["validation"],
+    tokenizer=tokenizer,
+    compute_metrics=compute_metrics,
+)
+
+trainer.train()
+
+# 6. Evaluate on the validation set
+results = trainer.evaluate()
+print(f"Validation accuracy: {results['eval_accuracy']:.4f}")</code></pre>
+
+    <div class="callout note">
+        <div class="callout-title">Data Collators</div>
+        <p>The <code>Trainer</code> uses a <code>DataCollator</code> to batch examples together. By default, it uses <code>DataCollatorWithPadding</code>, which dynamically pads sequences to the longest length in each batch (rather than a fixed max length). This saves computation. For masked language modeling, use <code>DataCollatorForLanguageModeling</code>. For span corruption (T5-style), use <code>DataCollatorForT5MLM</code>. You can pass a custom collator via the <code>data_collator</code> parameter.</p>
+    </div>
+
+    <h2>3. Custom Callbacks for Training Control</h2>
+
+    <p>The <code>Trainer</code> supports a callback system that lets you inject custom logic at various points during training: after each step, after each epoch, at evaluation time, and more. Callbacks can be used for custom logging, early stopping, dynamic hyperparameter schedules, or integration with external services.</p>
+
+    <p>The following example implements a custom callback that logs the learning rate and stops training early if the loss plateaus.</p>
+
+<pre><code class="language-python">from transformers import TrainerCallback, EarlyStoppingCallback
+
+class LRLoggingCallback(TrainerCallback):
+    """Log the current learning rate at each logging step."""
+
+    def on_log(self, args, state, control, logs=None, **kwargs):
+        if logs and "learning_rate" in logs:
+            print(f"  Step {state.global_step}: "
+                  f"lr={logs['learning_rate']:.2e}, "
+                  f"loss={logs.get('loss', 'N/A')}")
+
+# Built-in early stopping callback
+early_stop = EarlyStoppingCallback(
+    early_stopping_patience=3,     # Stop after 3 evals without improvement
+    early_stopping_threshold=0.001, # Minimum improvement to count
+)
+
+# Add callbacks to the Trainer
+trainer = Trainer(
+    model=model,
+    args=training_args,
+    train_dataset=tokenized["train"],
+    eval_dataset=tokenized["validation"],
+    tokenizer=tokenizer,
+    compute_metrics=compute_metrics,
+    callbacks=[LRLoggingCallback(), early_stop],
+)
+
+trainer.train()</code></pre>
+
+    <h2>4. Custom Training Loops with Accelerate</h2>
+
+    <p>While the <code>Trainer</code> is convenient, some projects require full control over the training loop. The <code>Accelerate</code> library bridges this gap: you write a standard PyTorch training loop, and Accelerate handles device placement, distributed communication, mixed precision, and gradient accumulation transparently. The same script runs on a single CPU, a single GPU, multiple GPUs, or a TPU without modification.</p>
+
+    <p>The following example shows a complete training loop using Accelerate.</p>
+
+<pre><code class="language-python">from accelerate import Accelerator
+from torch.utils.data import DataLoader
+from torch.optim import AdamW
+from transformers import (
+    AutoTokenizer,
+    AutoModelForSequenceClassification,
+    get_linear_schedule_with_warmup,
+)
+from datasets import load_dataset
+
+# 1. Initialize Accelerator
+accelerator = Accelerator(
+    mixed_precision="bf16",
+    gradient_accumulation_steps=4,
+)
+
+# 2. Prepare data
+dataset = load_dataset("glue", "sst2")
+tokenizer = AutoTokenizer.from_pretrained("distilbert-base-uncased")
+tokenized = dataset.map(
+    lambda x: tokenizer(x["sentence"], truncation=True, max_length=128),
+    batched=True,
+)
+tokenized.set_format("torch", columns=["input_ids", "attention_mask", "label"])
+
+train_loader = DataLoader(tokenized["train"], batch_size=16, shuffle=True)
+eval_loader = DataLoader(tokenized["validation"], batch_size=32)
+
+# 3. Prepare model and optimizer
+model = AutoModelForSequenceClassification.from_pretrained(
+    "distilbert-base-uncased", num_labels=2
+)
+optimizer = AdamW(model.parameters(), lr=2e-5, weight_decay=0.01)
+num_steps = len(train_loader) * 3  # 3 epochs
+scheduler = get_linear_schedule_with_warmup(
+    optimizer, num_warmup_steps=num_steps // 10, num_training_steps=num_steps
+)
+
+# 4. Let Accelerate prepare everything for the target hardware
+model, optimizer, train_loader, eval_loader, scheduler = accelerator.prepare(
+    model, optimizer, train_loader, eval_loader, scheduler
+)
+
+# 5. Training loop
+model.train()
+for epoch in range(3):
+    total_loss = 0
+    for step, batch in enumerate(train_loader):
+        with accelerator.accumulate(model):
+            outputs = model(
+                input_ids=batch["input_ids"],
+                attention_mask=batch["attention_mask"],
+                labels=batch["label"],
+            )
+            loss = outputs.loss
+            accelerator.backward(loss)
+            optimizer.step()
+            scheduler.step()
+            optimizer.zero_grad()
+            total_loss += loss.item()
+
+    avg_loss = total_loss / len(train_loader)
+    accelerator.print(f"Epoch {epoch + 1}: avg loss = {avg_loss:.4f}")</code></pre>
+
+    <div class="callout warning">
+        <div class="callout-title">Accelerate's prepare() Is Essential</div>
+        <p>You <em>must</em> call <code>accelerator.prepare()</code> on the model, optimizer, dataloaders, and scheduler before the training loop. This method wraps each object to handle distributed communication, mixed precision scaling, and device placement. Forgetting to prepare any one of them will cause silent correctness bugs or runtime errors in multi-GPU settings.</p>
+    </div>
+
+    <h2>5. Distributed Training and Multi-GPU Strategies</h2>
+
+    <p>Both <code>Trainer</code> and <code>Accelerate</code> support distributed training out of the box. The most common strategy is Distributed Data Parallel (DDP), where each GPU processes a different batch and gradients are synchronized across GPUs at each step. For models too large to fit on a single GPU, Fully Sharded Data Parallel (FSDP) or DeepSpeed ZeRO partitions the model weights, gradients, and optimizer states across GPUs.</p>
+
+    <p>Launching distributed training requires a launcher command. The <code>accelerate</code> CLI provides a configuration wizard and launch command.</p>
+
+<pre><code class="language-python"># Step 1: Configure your distributed setup (interactive wizard)
+# $ accelerate config
+#   Asks: number of GPUs, mixed precision, DeepSpeed, FSDP, etc.
+#   Saves config to ~/.cache/huggingface/accelerate/default_config.yaml
+
+# Step 2: Launch your training script on all GPUs
+# $ accelerate launch --num_processes 4 train.py
+
+# Or, with the Trainer API, use torchrun directly:
+# $ torchrun --nproc_per_node 4 train_with_trainer.py</code></pre>
+
+    <p>For very large models, DeepSpeed integration provides advanced memory optimization. The <code>Trainer</code> API integrates with DeepSpeed through a simple JSON configuration file.</p>
+
+<pre><code class="language-python">from transformers import TrainingArguments
+
+# Enable DeepSpeed ZeRO Stage 2 via Trainer
+training_args = TrainingArguments(
+    output_dir="./output",
+    deepspeed="ds_config.json",    # Path to DeepSpeed config
+    per_device_train_batch_size=4,
+    gradient_accumulation_steps=8,
+    bf16=True,
+    num_train_epochs=3,
+)
+
+# ds_config.json example:
+# {
+#     "zero_optimization": {
+#         "stage": 2,
+#         "offload_optimizer": { "device": "cpu" },
+#         "allgather_bucket_size": 5e8,
+#         "reduce_bucket_size": 5e8
+#     },
+#     "bf16": { "enabled": true },
+#     "train_micro_batch_size_per_gpu": 4,
+#     "gradient_accumulation_steps": 8
+# }</code></pre>
+
+    <figure>
+        <table>
+            <thead>
+                <tr><th scope="col">Strategy</th><th scope="col">Model Size</th><th scope="col">What Is Distributed</th><th scope="col">When to Use</th></tr>
+            </thead>
+            <tbody>
+                <tr><td>DDP</td><td>Fits on 1 GPU</td><td>Data only</td><td>Most fine-tuning jobs</td></tr>
+                <tr><td>FSDP</td><td>Too large for 1 GPU</td><td>Weights, gradients, optimizer</td><td>7B+ parameter models</td></tr>
+                <tr><td>DeepSpeed ZeRO-2</td><td>Too large for 1 GPU</td><td>Gradients, optimizer</td><td>Memory-constrained multi-GPU</td></tr>
+                <tr><td>DeepSpeed ZeRO-3</td><td>Very large</td><td>Weights, gradients, optimizer</td><td>70B+ parameter models</td></tr>
+            </tbody>
+        </table>
+        <figcaption>Figure K.3.2: Distributed training strategies and their applicable scenarios.</figcaption>
+    </figure>
+
+    <h2>6. Evaluation During Training</h2>
+
+    <p>Monitoring model performance during training is critical for detecting overfitting, selecting the best checkpoint, and deciding when to stop. The <code>Trainer</code> supports evaluation at configurable intervals through the <code>eval_strategy</code> parameter and integrates with the <code>evaluate</code> library for computing standard metrics.</p>
+
+    <p>The following example adds multiple metrics to a Trainer-based run using the <code>evaluate</code> library.</p>
+
+<pre><code class="language-python">import evaluate
+import numpy as np
+
+# Load multiple metrics
+accuracy_metric = evaluate.load("accuracy")
+f1_metric = evaluate.load("f1")
+precision_metric = evaluate.load("precision")
+recall_metric = evaluate.load("recall")
+
+def compute_metrics(eval_pred):
+    logits, labels = eval_pred
+    preds = np.argmax(logits, axis=-1)
+    return {
+        "accuracy": accuracy_metric.compute(
+            predictions=preds, references=labels
+        )["accuracy"],
+        "f1": f1_metric.compute(
+            predictions=preds, references=labels, average="weighted"
+        )["f1"],
+        "precision": precision_metric.compute(
+            predictions=preds, references=labels, average="weighted"
+        )["precision"],
+        "recall": recall_metric.compute(
+            predictions=preds, references=labels, average="weighted"
+        )["recall"],
+    }
+
+# The Trainer will call compute_metrics at each evaluation step
+# and log all four metrics to your chosen reporter (TensorBoard, W&B, etc.)</code></pre>
+
+    <div class="callout tip">
+        <div class="callout-title">Resuming from Checkpoints</div>
+        <p>If training is interrupted, the <code>Trainer</code> can resume from the last checkpoint automatically. Simply call <code>trainer.train(resume_from_checkpoint=True)</code> and it will detect the latest checkpoint in <code>output_dir</code>, restore the model weights, optimizer state, scheduler state, and random number generator seeds, and continue training from exactly where it left off. This is especially valuable for long-running jobs on preemptible cloud instances.</p>
+    </div>
 
     <nav class="chapter-nav">
     <a class="prev" href="section-k.2.html">Datasets and Tokenizers: Loading, Preprocessing, and Stre...</a>

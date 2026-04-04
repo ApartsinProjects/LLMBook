@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Section 32.12: Privacy Attacks &amp; Differential Privacy for LLMs. A comprehensive chapter from the Building Conversational AI textbook.">
+    <title>Section 32.12: Privacy Attacks &amp; Differential Privacy for LLMs</title>
+    <link rel="stylesheet" href="../../styles/book.css">
+    <link rel="stylesheet" href="../../vendor/katex/katex.min.css">
+    <script defer src="../../vendor/katex/katex.min.js"></script>
+    <script defer src="../../vendor/katex/contrib/auto-render.min.js"
+        onload="renderMathInElement(document.body, {
+            delimiters: [
+                {left: '$$', right: '$$', display: true},
+                {left: '$', right: '$', display: false}
+            ],
+            throwOnError: false
+        });"></script>
+    <link rel="stylesheet" href="../../vendor/prism/prism-theme.css">
+    <script defer src="../../vendor/prism/prism-bundle.min.js"></script>
+</head>
+<body>
+<header class="chapter-header">
+    <nav class="header-nav">
+        <a href="../../index.html" class="book-title-link">Building Conversational AI with LLMs and Agents</a>
+        <a href="../../toc.html" class="toc-link" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+    </nav>
+    <div class="part-label"><a href="../index.html">Part IX: Safety &amp; Strategy</a></div>
+    <div class="chapter-label"><a href="index.html">Chapter 32: Safety, Ethics &amp; Regulation</a></div>
+    <h1>Privacy Attacks &amp; Differential Privacy for LLMs</h1>
+</header>
+
+<main class="content">
+
+    <blockquote class="epigraph">
+        <p>"A model that memorizes is a model that leaks. The question is not if, but when, and how much."</p>
+        <cite><span class="agent-avatar-inline" style="background-color: #c0392b;"><img src="../../front-matter/images/agents/guard.png" alt="Guard"></span> <a href="../../front-matter/wisdom-council.html#guard">Guard</a> <span class="agent-desc">AI Agent</span></cite>
+    </blockquote>
+
+    <div class="prerequisites">
+        <h3>Prerequisites</h3>
+        <p>This section expands on the privacy foundations introduced in <a href="section-32.6.html">Section 32.6: LLM Licensing, IP &amp; Privacy</a> and the security threat landscape from <a href="section-32.1.html">Section 32.1</a>. Understanding <a class="cross-ref" href="../../part-4-training-adapting/module-14-fine-tuning-fundamentals/section-14.1.html">fine-tuning fundamentals (Section 14.1)</a> is essential for the DP-SGD sections. The GDPR requirements discussed in <a href="section-32.4.html">Section 32.4</a> provide the regulatory motivation for the technical defenses presented here.</p>
+    </div>
+
+    <div class="callout big-picture">
+        <div class="callout-title">Big Picture</div>
+        <p><strong>Large language models memorize portions of their training data, and adversaries can extract that data through carefully crafted queries.</strong> Carlini et al. (2021) demonstrated that GPT-2 could be prompted to emit verbatim training sequences, including names, phone numbers, email addresses, and code snippets. This is not a bug in a specific model; it is an inherent property of how neural language models learn. Larger models memorize more, and fine-tuned models memorize their fine-tuning data at even higher rates than the base model memorizes its pretraining corpus. This section covers the attack landscape (extraction attacks, membership inference, attribute inference), the theoretical foundation of differential privacy, and the practical application of DP-SGD for privacy-preserving fine-tuning using the Opacus library. It also addresses PII detection and mitigation strategies that complement formal privacy guarantees with practical defense-in-depth.</p>
+    </div>
+
+
+    <h2>1. Training Data Extraction Attacks <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        Training data extraction attacks exploit the fact that language models assign higher probability
+        to sequences they have seen during training. An attacker generates a large number of candidate
+        sequences (either by prompting the model or by sampling from it) and then identifies which outputs
+        are likely verbatim memorized content. The key insight from Carlini et al. (2021) is the distinction
+        between <em>eidetic memorization</em> (the model can reproduce a sequence exactly when given the
+        right prefix) and <em>extractable memorization</em> (the sequence can be recovered through
+        systematic probing without knowing the prefix).
+    </p>
+
+    <p>
+        The attack surface increases with model size. Larger models have greater capacity to memorize
+        rare sequences, and they exhibit lower perplexity on memorized content, making extraction easier.
+        Fine-tuned models are particularly vulnerable because the fine-tuning dataset is typically much
+        smaller than the pretraining corpus, so each example receives far more gradient updates and is
+        memorized more thoroughly.
+    </p>
+
+    <pre><code class="language-python"># Measuring memorization: perplexity-based extraction detection
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
+import numpy as np
+
+def measure_memorization(
+    model_name: str,
+    candidate_texts: list[str],
+    device: str = "cuda",
+) -&gt; list[dict]:
+    """Score candidate texts by likelihood under the model.
+    High-likelihood (low-perplexity) texts are more likely memorized."""
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModelForCausalLM.from_pretrained(model_name).to(device)
+    model.eval()
+
+    results = []
+    for text in candidate_texts:
+        inputs = tokenizer(text, return_tensors="pt").to(device)
+        with torch.no_grad():
+            outputs = model(**inputs, labels=inputs["input_ids"])
+            loss = outputs.loss.item()
+            perplexity = np.exp(loss)
+
+        results.append({
+            "text_prefix": text[:80] + "...",
+            "perplexity": round(perplexity, 2),
+            "loss": round(loss, 4),
+            "num_tokens": inputs["input_ids"].shape[1],
+        })
+
+    # Sort by perplexity (lowest = most likely memorized)
+    results.sort(key=lambda x: x["perplexity"])
+    return results
+
+
+# Example: check if specific sequences are memorized
+candidates = [
+    "The quick brown fox jumps over the lazy dog.",
+    # In a real attack, these would be suspected training data
+    "def fibonacci(n):\n    if n &lt;= 1:\n        return n",
+]
+# results = measure_memorization("gpt2", candidates)</code></pre>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight</div>
+        <p><strong>Memorization is not uniformly distributed.</strong> Models preferentially memorize content that is (1) repeated multiple times in the training data, (2) highly structured (phone numbers, email addresses, URLs), (3) distinctive or unusual in context, and (4) present in smaller fine-tuning datasets. Carlini et al. (2023) found that data duplicated 10x in the training set is extractable at 10x higher rates than unique sequences. This has a direct practical implication: deduplicating your training data is both a data quality measure and a privacy measure. The data processing techniques from <a class="cross-ref" href="../../part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.1.html">Section 6.1</a> (deduplication, filtering) serve double duty as privacy defenses.</p>
+    </div>
+
+
+    <h2>2. Membership Inference Attacks <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        Membership inference attacks (MIAs) answer a binary question: was a specific data point used
+        in training this model? Unlike extraction attacks (which recover the data itself), MIAs reveal
+        whether an individual's data was included in the training set. This is a privacy violation in
+        itself: knowing that someone's medical records were used to train a model reveals information
+        about their health status, even without seeing the records.
+    </p>
+
+    <p>
+        The core technique exploits the observation that models behave differently on data they were
+        trained on (members) versus data they have never seen (non-members). Members typically have
+        lower loss, higher confidence, and different gradient patterns. The attacker trains a binary
+        classifier (the "attack model") to distinguish members from non-members based on these signals.
+    </p>
+
+    <pre><code class="language-python"># Membership Inference Attack: loss-threshold method
+import torch
+import numpy as np
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from sklearn.metrics import roc_auc_score, precision_recall_curve
+
+def compute_per_sample_loss(
+    model, tokenizer, texts: list[str], device: str = "cuda",
+) -&gt; np.ndarray:
+    """Compute per-sample cross-entropy loss."""
+    model.eval()
+    losses = []
+    for text in texts:
+        inputs = tokenizer(
+            text, return_tensors="pt", truncation=True, max_length=512,
+        ).to(device)
+        with torch.no_grad():
+            outputs = model(**inputs, labels=inputs["input_ids"])
+            losses.append(outputs.loss.item())
+    return np.array(losses)
+
+
+def membership_inference_attack(
+    model_name: str,
+    member_texts: list[str],    # Known training data samples
+    nonmember_texts: list[str], # Known non-training data samples
+    device: str = "cuda",
+) -&gt; dict:
+    """Run a loss-threshold membership inference attack."""
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModelForCausalLM.from_pretrained(model_name).to(device)
+
+    member_losses = compute_per_sample_loss(
+        model, tokenizer, member_texts, device
+    )
+    nonmember_losses = compute_per_sample_loss(
+        model, tokenizer, nonmember_texts, device
+    )
+
+    # Lower loss = more likely a member
+    # Negate losses so higher score = more likely member
+    scores = np.concatenate([-member_losses, -nonmember_losses])
+    labels = np.concatenate([
+        np.ones(len(member_losses)),
+        np.zeros(len(nonmember_losses)),
+    ])
+
+    auc = roc_auc_score(labels, scores)
+    precision, recall, _ = precision_recall_curve(labels, scores)
+
+    return {
+        "auc_roc": round(auc, 4),
+        "member_mean_loss": round(float(member_losses.mean()), 4),
+        "nonmember_mean_loss": round(float(nonmember_losses.mean()), 4),
+        "loss_gap": round(
+            float(nonmember_losses.mean() - member_losses.mean()), 4
+        ),
+    }</code></pre>
+
+    <p>
+        A random-guessing attacker achieves AUC-ROC of 0.5. In practice, membership inference against
+        large pretrained models typically achieves AUC between 0.55 and 0.65, a modest but statistically
+        significant advantage. Against fine-tuned models, the attack is far more effective, often achieving
+        AUC above 0.80, because the fine-tuning data is overfit to a much greater degree.
+    </p>
+
+
+    <h2>3. Differential Privacy in Fine-Tuning <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>
+        Differential privacy (DP) provides a mathematical guarantee that the output of a computation
+        does not depend "too much" on any single input record. Formally, a mechanism $\mathcal{M}$
+        satisfies $(\varepsilon, \delta)$-differential privacy if for any two datasets $D$ and $D'$
+        that differ in a single record, and for any set of outputs $S$:
+    </p>
+
+    <p>
+        $$\Pr[\mathcal{M}(D) \in S] \leq e^{\varepsilon} \cdot \Pr[\mathcal{M}(D') \in S] + \delta$$
+    </p>
+
+    <p>
+        The privacy budget $\varepsilon$ (epsilon) controls the strength of the guarantee. Smaller
+        epsilon means stronger privacy but greater utility loss. In practice, $\varepsilon$ values
+        between 1 and 10 are common for fine-tuning, with $\delta$ set to the reciprocal of the
+        training set size. An $\varepsilon$ of 1 is considered strong privacy; $\varepsilon$ of 8 is
+        moderate; values above 10 provide limited formal guarantees but may still offer practical
+        protection against known attacks.
+    </p>
+
+    <h3>3.1 DP-SGD with Opacus</h3>
+
+    <p>
+        DP-SGD (Differentially Private Stochastic Gradient Descent) modifies the training loop in two
+        ways: (1) it clips the per-sample gradient to bound the influence of any single example, and
+        (2) it adds calibrated Gaussian noise to the clipped gradients before the optimizer step. The
+        Opacus library from Meta provides a drop-in integration with PyTorch that handles both operations
+        transparently.
+    </p>
+
+    <pre><code class="language-python"># DP-SGD fine-tuning with Opacus
+import torch
+from torch.utils.data import DataLoader
+from transformers import AutoModelForSequenceClassification, AutoTokenizer
+from opacus import PrivacyEngine
+from opacus.validators import ModuleValidator
+
+model_name = "distilbert-base-uncased"
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+model = AutoModelForSequenceClassification.from_pretrained(
+    model_name, num_labels=2,
+)
+
+# Opacus requires models to pass validation
+# (e.g., BatchNorm must be replaced with GroupNorm)
+model = ModuleValidator.fix(model)
+errors = ModuleValidator.validate(model, strict=False)
+assert len(errors) == 0, f"Model validation failed: {errors}"
+
+optimizer = torch.optim.AdamW(model.parameters(), lr=5e-5)
+
+# Privacy parameters
+MAX_GRAD_NORM = 1.0     # Per-sample gradient clipping bound
+EPSILON = 8.0           # Target privacy budget
+DELTA = 1e-5            # Should be &lt; 1/N (training set size)
+EPOCHS = 3
+BATCH_SIZE = 32
+
+# Wrap model, optimizer, and dataloader with PrivacyEngine
+privacy_engine = PrivacyEngine()
+model, optimizer, train_loader = privacy_engine.make_private_with_epsilon(
+    module=model,
+    optimizer=optimizer,
+    data_loader=train_loader,      # Your DataLoader
+    epochs=EPOCHS,
+    target_epsilon=EPSILON,
+    target_delta=DELTA,
+    max_grad_norm=MAX_GRAD_NORM,
+)
+
+print(f"Using sigma={optimizer.noise_multiplier:.4f} "
+      f"for ({EPSILON}, {DELTA})-DP over {EPOCHS} epochs")
+
+# Training loop (standard PyTorch, Opacus handles DP transparently)
+for epoch in range(EPOCHS):
+    model.train()
+    total_loss = 0
+    for batch in train_loader:
+        optimizer.zero_grad()
+        outputs = model(**batch)
+        loss = outputs.loss
+        loss.backward()
+        optimizer.step()
+        total_loss += loss.item()
+
+    # Check actual privacy spent so far
+    eps = privacy_engine.get_epsilon(delta=DELTA)
+    print(f"Epoch {epoch+1}: loss={total_loss/len(train_loader):.4f}, "
+          f"epsilon_spent={eps:.2f}")</code></pre>
+
+    <div class="callout practical-example">
+        <div class="callout-title">Practical Example</div>
+        <p><strong>The privacy-utility trade-off in practice.</strong> Fine-tuning DistilBERT on SST-2 sentiment classification without DP achieves ~92% accuracy. With DP-SGD at epsilon=8, accuracy drops to ~88%. At epsilon=1 (strong privacy), accuracy falls to ~82%. The gap is larger for smaller datasets and more complex tasks. For many applications, the 4-point accuracy drop at epsilon=8 is an acceptable price for formal privacy guarantees, especially when processing sensitive data (medical records, legal documents, financial communications). The key engineering decision is selecting the right epsilon for your use case, balancing the regulatory requirement for privacy against the business requirement for utility.</p>
+    </div>
+
+    <h3>3.2 Privacy Budget Management</h3>
+
+    <p>
+        The privacy budget is a finite resource that is consumed with every access to the training data.
+        Under the composition theorem, running $k$ training runs each with privacy budget $\varepsilon$
+        consumes a total budget of approximately $\varepsilon \sqrt{k}$ (under advanced composition) or
+        $k \varepsilon$ (under basic composition). This means that hyperparameter tuning, which requires
+        many training runs, rapidly depletes the privacy budget. Strategies for managing the budget include:
+    </p>
+
+    <ul>
+        <li><strong>Public data pretuning:</strong> Perform hyperparameter search on a public dataset with similar characteristics, then run a single DP fine-tuning pass on the private data.</li>
+        <li><strong>Privacy-free validation:</strong> Hold out a validation set that is not subject to DP constraints (if your privacy policy permits this).</li>
+        <li><strong>Transfer learning:</strong> Start from a strong pre-trained model to minimize the number of DP fine-tuning steps needed.</li>
+        <li><strong>LoRA with DP:</strong> Combine parameter-efficient fine-tuning with DP-SGD. Training fewer parameters requires fewer gradient updates, consuming less privacy budget for the same number of epochs.</li>
+    </ul>
+
+
+    <h2>4. Contextual Integrity and PII Leakage <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        Helen Nissenbaum's theory of contextual integrity provides a useful framework for reasoning about
+        privacy in LLM systems. The theory holds that privacy is violated not by any disclosure of information,
+        but by information flows that violate context-specific norms. A person's medical diagnosis shared
+        with their doctor is appropriate; the same information appearing in a chatbot's response to a stranger
+        violates contextual integrity, even if the information is technically "public" in some database.
+    </p>
+
+    <p>
+        For LLM engineers, this framework suggests that privacy protection is not only about preventing
+        extraction of training data. It also encompasses ensuring that the model does not recombine
+        publicly available information in ways that violate contextual norms. A model that infers someone's
+        medical condition from their public social media posts and reveals this in a response violates
+        contextual integrity, even though no private data was used in training.
+    </p>
+
+    <h3>4.1 PII Detection and Mitigation</h3>
+
+    <pre><code class="language-python"># PII detection and scrubbing pipeline
+import re
+from dataclasses import dataclass
+
+@dataclass
+class PIIMatch:
+    category: str
+    text: str
+    start: int
+    end: int
+    confidence: float
+
+PII_PATTERNS = {
+    "email": (
+        r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", 0.95
+    ),
+    "phone_us": (
+        r"(?:\+1[-.])?\(?\d{3}\)?[-.]?\d{3}[-.]?\d{4}", 0.85
+    ),
+    "ssn": (
+        r"\b\d{3}-\d{2}-\d{4}\b", 0.95
+    ),
+    "credit_card": (
+        r"\b(?:\d{4}[-\s]?){3}\d{4}\b", 0.90
+    ),
+    "ip_address": (
+        r"\b(?:\d{1,3}\.){3}\d{1,3}\b", 0.70
+    ),
+}
+
+
+def detect_pii(text: str) -&gt; list[PIIMatch]:
+    """Detect PII using pattern matching."""
+    matches = []
+    for category, (pattern, confidence) in PII_PATTERNS.items():
+        for match in re.finditer(pattern, text):
+            matches.append(PIIMatch(
+                category=category,
+                text=match.group(),
+                start=match.start(),
+                end=match.end(),
+                confidence=confidence,
+            ))
+    return matches
+
+
+def scrub_pii(text: str, replacement: str = "[REDACTED]") -&gt; str:
+    """Replace detected PII with redaction markers."""
+    matches = detect_pii(text)
+    # Process matches in reverse order to preserve positions
+    for match in sorted(matches, key=lambda m: m.start, reverse=True):
+        tag = f"[{match.category.upper()}_REDACTED]"
+        text = text[:match.start] + tag + text[match.end:]
+    return text
+
+
+# Example
+sample = "Contact John at john.doe@example.com or 555-123-4567"
+print(scrub_pii(sample))
+# "Contact John at [EMAIL_REDACTED] or [PHONE_US_REDACTED]"</code></pre>
+
+    <p>
+        Pattern-based PII detection catches structured identifiers (emails, phone numbers, credit cards)
+        but misses unstructured PII (names in context, addresses described in prose, medical conditions).
+        For comprehensive PII detection, combine regex patterns with NER-based approaches using models
+        like Microsoft Presidio, which applies named entity recognition to identify person names, locations,
+        organizations, and other entity types that may constitute PII.
+    </p>
+
+<div class="callout library-shortcut">
+<div class="callout-title">Library Shortcut</div>
+<p>The same result in 6 lines with <strong>Presidio</strong>, which adds NER-based detection on top of regex patterns:</p>
+<pre><code class="language-python">
+# pip install presidio-analyzer presidio-anonymizer
+from presidio_analyzer import AnalyzerEngine
+from presidio_anonymizer import AnonymizerEngine
+
+analyzer = AnalyzerEngine()
+anonymizer = AnonymizerEngine()
+text = "Contact John at john.doe@example.com or 555-123-4567"
+results = analyzer.analyze(text=text, entities=["EMAIL_ADDRESS", "PHONE_NUMBER", "PERSON"], language="en")
+scrubbed = anonymizer.anonymize(text=text, analyzer_results=results)
+print(scrubbed.text)  # "Contact &lt;PERSON&gt; at &lt;EMAIL_ADDRESS&gt; or &lt;PHONE_NUMBER&gt;"
+</code></pre>
+</div>
+
+    <h2>5. Defense in Depth: Combining Privacy Techniques <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>
+        No single privacy technique provides complete protection. A robust privacy strategy layers
+        multiple defenses, each addressing a different threat vector:
+    </p>
+
+    <div class="comparison-table">
+        <div class="comparison-table-title">Privacy Defense Stack for LLM Applications</div>
+        <table>
+        <thead>
+            <tr><th scope="col">Layer</th><th scope="col">Technique</th><th scope="col">Protects Against</th><th scope="col">Limitation</th></tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>Data preprocessing</td>
+                <td>PII scrubbing, deduplication</td>
+                <td>Direct PII exposure, memorization of duplicates</td>
+                <td>Incomplete PII detection; removes but does not forget</td>
+            </tr>
+            <tr>
+                <td>Training</td>
+                <td>DP-SGD (Opacus)</td>
+                <td>Membership inference, extraction with formal guarantees</td>
+                <td>Utility degradation; requires privacy budget management</td>
+            </tr>
+            <tr>
+                <td>Post-training</td>
+                <td>Machine unlearning (<a href="section-32.7.html">Section 32.7</a>)</td>
+                <td>Specific data removal requests (GDPR)</td>
+                <td>Verification of complete removal is difficult</td>
+            </tr>
+            <tr>
+                <td>Inference</td>
+                <td>Output filtering, PII scanning</td>
+                <td>PII in model responses</td>
+                <td>Cannot catch all implicit information leakage</td>
+            </tr>
+            <tr>
+                <td>Architecture</td>
+                <td>Retrieval separation (RAG)</td>
+                <td>Reduces memorization by externalizing knowledge</td>
+                <td>Retrieved documents may themselves contain PII</td>
+            </tr>
+        </tbody>
+        </table>
+    </div>
+
+    <pre><code class="language-python"># End-to-end privacy pipeline: scrub, train with DP, filter outputs
+from dataclasses import dataclass
+from typing import Optional
+
+@dataclass
+class PrivacyConfig:
+    # Preprocessing
+    scrub_pii: bool = True
+    deduplicate: bool = True
+    min_token_count: int = 3    # Remove near-unique sequences
+
+    # Training
+    use_dp_sgd: bool = True
+    target_epsilon: float = 8.0
+    target_delta: float = 1e-5
+    max_grad_norm: float = 1.0
+
+    # Output filtering
+    scan_outputs_for_pii: bool = True
+    block_verbatim_training_matches: bool = True
+    verbatim_threshold: int = 50  # Char length for match detection
+
+
+def privacy_aware_pipeline(config: PrivacyConfig, raw_data: list[str]):
+    """Orchestrate a privacy-preserving fine-tuning pipeline."""
+    # Stage 1: Data preprocessing
+    data = raw_data
+    if config.scrub_pii:
+        data = [scrub_pii(text) for text in data]
+        print(f"PII scrubbing: processed {len(data)} samples")
+
+    if config.deduplicate:
+        data = list(set(data))  # Simplified; use MinHash in production
+        print(f"After dedup: {len(data)} samples")
+
+    # Stage 2: DP fine-tuning (pseudocode)
+    if config.use_dp_sgd:
+        print(f"Training with DP-SGD: epsilon={config.target_epsilon}")
+        # ... Opacus training loop from Section 3 ...
+    else:
+        print("Training WITHOUT differential privacy (not recommended)")
+
+    # Stage 3: Output filter setup
+    if config.scan_outputs_for_pii:
+        print("Output PII scanner: ENABLED")
+    if config.block_verbatim_training_matches:
+        print(f"Verbatim match blocking: threshold={config.verbatim_threshold}")
+
+    return data  # Return processed dataset
+
+
+config = PrivacyConfig(target_epsilon=8.0)
+# processed = privacy_aware_pipeline(config, raw_training_data)</code></pre>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight</div>
+        <p><strong>Differential privacy and PII scrubbing address different threat models.</strong> PII scrubbing removes identifiable information from the data before training, but cannot protect against inference attacks that reconstruct PII from statistical patterns. Differential privacy provides formal guarantees against such attacks, but at the cost of model utility. The optimal strategy uses both: scrub PII to remove the obvious risks (and improve data quality), then apply DP to bound the residual privacy leakage from statistical patterns. This defense-in-depth approach aligns with both GDPR's data minimization principle and the practical reality that no single technique is sufficient.</p>
+    </div>
+
+
+    <h2>6. Practical Lab: Measuring and Mitigating Memorization <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>
+        This lab walks through a complete workflow: fine-tune a small model on a dataset containing
+        synthetic PII, measure memorization rates before and after DP-SGD, and compare utility.
+    </p>
+
+    <pre><code class="language-python"># Lab: Memorization measurement and DP mitigation
+import torch
+import numpy as np
+from transformers import (
+    AutoModelForCausalLM, AutoTokenizer,
+    TrainingArguments, Trainer,
+)
+from datasets import Dataset
+
+# Step 1: Create a dataset with "canary" sequences
+# These are unique strings we embed to test for memorization
+def create_canary_dataset(n_samples: int = 1000, n_canaries: int = 50):
+    """Create training data with embedded canary sequences."""
+    import random
+    import string
+
+    base_texts = [
+        f"The capital of France is Paris. Document {i}."
+        for i in range(n_samples - n_canaries)
+    ]
+
+    # Canaries: unique sequences that should not be memorizable
+    canaries = []
+    for i in range(n_canaries):
+        # Simulated PII: fake SSN, email, phone
+        fake_ssn = f"{random.randint(100,999)}-{random.randint(10,99)}-{random.randint(1000,9999)}"
+        fake_email = (
+            ''.join(random.choices(string.ascii_lowercase, k=8))
+            + "@example.com"
+        )
+        canary = (
+            f"Patient record {i}: SSN {fake_ssn}, "
+            f"contact {fake_email}, diagnosis: common cold."
+        )
+        canaries.append(canary)
+
+    all_texts = base_texts + canaries
+    random.shuffle(all_texts)
+    return all_texts, canaries
+
+
+texts, canaries = create_canary_dataset()
+print(f"Dataset: {len(texts)} samples, {len(canaries)} canaries")
+print(f"Sample canary: {canaries[0]}")
+
+# Step 2: Fine-tune without DP, measure canary memorization
+# Step 3: Fine-tune with DP, measure canary memorization
+# Step 4: Compare utility (perplexity on held-out data)
+# See exercise 32.12.2 for the complete implementation</code></pre>
+
+
+    <h2>Exercises</h2>
+
+    <div class="exercise">
+        <h3>Exercise 32.12.1: Membership Inference Evaluation</h3>
+        <p>Fine-tune GPT-2 on a 1,000-example subset of a public dataset (e.g., Wikitext). Hold out 1,000 non-training examples from the same distribution. Implement the loss-threshold membership inference attack from Section 2 and report the AUC-ROC. Then repeat the experiment with DP-SGD at epsilon=8. How much does DP reduce the attack's effectiveness?</p>
+        <details class="exercise-answer">
+            <summary>Answer Sketch</summary>
+            <p>Without DP, the membership inference AUC is typically 0.70 to 0.85 on a small fine-tuning set, because the model overfits significantly. With DP-SGD at epsilon=8, the AUC drops to 0.55 to 0.65, close to random guessing. The noise added during DP training prevents the model from fitting closely enough to individual examples for the loss gap to be exploitable. The trade-off is a modest increase in validation perplexity (roughly 10 to 20%).</p>
+        </details>
+    </div>
+
+    <div class="exercise">
+        <h3>Exercise 32.12.2: Canary Extraction Lab</h3>
+        <p>Using the canary dataset from Section 6, complete the full lab: (1) Fine-tune GPT-2 without DP for 5 epochs. (2) Attempt to extract canaries by prompting with their prefixes and measuring completion perplexity. (3) Count how many canaries are extractable (perplexity below a threshold). (4) Repeat with DP-SGD at epsilon=4 and epsilon=8. Plot the number of extractable canaries vs. epsilon.</p>
+        <details class="exercise-answer">
+            <summary>Answer Sketch</summary>
+            <p>Without DP, 60 to 80% of canaries are extractable after 5 epochs of fine-tuning on a small dataset. At epsilon=8, this drops to 10 to 20%. At epsilon=4 (stronger privacy), fewer than 5% of canaries are extractable. The validation perplexity increases by ~15% at epsilon=8 and ~30% at epsilon=4 compared to the non-DP baseline. This demonstrates the privacy-utility trade-off quantitatively.</p>
+        </details>
+    </div>
+
+    <div class="whats-next">
+        <h2>What Comes Next</h2>
+        <p>This concludes the safety, ethics, and regulation chapter. In the next chapter, <a class="cross-ref" href="../module-33-strategy-product-roi/index.html">Chapter 33: Strategy, Product &amp; ROI</a>, we shift from regulatory compliance to business strategy, examining how to build an economic case for LLM investments and measure return on AI initiatives.</p>
+    </div>
+
+
+    <section class="bibliography">
+        <h2>Bibliography and Further Reading</h2>
+        <ul>
+            <li>Carlini, N. et al. (2021). "Extracting Training Data from Large Language Models." <em>USENIX Security Symposium</em>.</li>
+            <li>Carlini, N. et al. (2023). "Quantifying Memorization Across Neural Language Models." <em>ICLR 2023</em>.</li>
+            <li>Abadi, M. et al. (2016). "Deep Learning with Differential Privacy." <em>ACM CCS 2016</em>.</li>
+            <li>Yousefpour, A. et al. (2021). "Opacus: User-Friendly Differential Privacy Library in PyTorch." <em>arXiv:2109.12298</em>. GitHub: pytorch/opacus.</li>
+            <li>Nissenbaum, H. (2004). "Privacy as Contextual Integrity." <em>Washington Law Review</em>, 79(1).</li>
+            <li>Shokri, R. et al. (2017). "Membership Inference Attacks Against Machine Learning Models." <em>IEEE S&amp;P 2017</em>.</li>
+            <li>Li, X. et al. (2022). "Large Language Models Can Be Strong Differentially Private Learners." <em>ICLR 2022</em>.</li>
+            <li>Microsoft Presidio. "Data Protection and De-identification SDK." <em>GitHub: microsoft/presidio</em>.</li>
+        </ul>
+    </section>
+
+<nav class="chapter-nav">
+    <a class="prev" href="section-32.11.html">Environmental Impact &amp; Green AI</a>
+    <a class="up" href="index.html">Chapter 32: Safety, Ethics &amp; Regulation</a>
+    <a class="next" href="../module-33-strategy-product-roi/index.html">Chapter 33: LLM Strategy, Product Management &amp; ROI</a>
+</nav>
+
+    <footer>
+        <p class="footer-title">Building Conversational AI with LLMs and Agents, Fifth Edition</p>
+        <p>&copy; 2026 Alexander Apartsin &amp; Yehudit Aperstein &middot; <a href="../../toc.html">Contents</a></p>
+        <p class="footer-updated">Last updated: <script>document.write(new Date(document.lastModified).toLocaleDateString('en-US', {year:'numeric', month:'long', day:'numeric'}))</script></p>
+    </footer>
+</main>
+</body>
+</html>

@@ -1,0 +1,795 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Section 31.8: Reliability Engineering for LLM Applications. A comprehensive chapter from the Building Conversational AI textbook.">
+    <title>Section 31.8: Reliability Engineering for LLM Applications</title>
+    <link rel="stylesheet" href="../../styles/book.css">
+    <link rel="stylesheet" href="../../vendor/katex/katex.min.css">
+    <script defer src="../../vendor/katex/katex.min.js"></script>
+    <script defer src="../../vendor/katex/contrib/auto-render.min.js"
+        onload="renderMathInElement(document.body, {
+            delimiters: [
+                {left: '$$', right: '$$', display: true},
+                {left: '$', right: '$', display: false}
+            ],
+            throwOnError: false
+        });"></script>
+    <link rel="stylesheet" href="../../vendor/prism/prism-theme.css">
+    <script defer src="../../vendor/prism/prism-bundle.min.js"></script>
+</head>
+<body>
+<header class="chapter-header">
+    <nav class="header-nav">
+        <a href="../../index.html" class="book-title-link">Building Conversational AI with LLMs and Agents</a>
+        <a href="../../toc.html" class="toc-link" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+    </nav>
+    <div class="part-label"><a href="../index.html">Part VIII: Evaluation &amp; Production</a></div>
+    <div class="chapter-label"><a href="index.html">Chapter 31: Production Engineering &amp; Operations</a></div>
+    <h1>Reliability Engineering for LLM Applications</h1>
+    <p class="chapter-subtitle">Building resilient LLM systems with failure taxonomies, fallback chains, circuit breakers, and semantic SLOs</p>
+</header>
+
+<main class="content">
+
+    <blockquote class="epigraph">
+        <p>"A reliable system is not one that never fails. It is one that fails gracefully, recovers quickly, and tells you exactly what went wrong."</p>
+        <cite><span class="agent-avatar-inline" style="background-color: #2c3e50;"><img src="../../front-matter/images/agents/deploy.png" alt="Deploy"></span> <a href="../../front-matter/wisdom-council.html#deploy">Deploy</a> <span class="agent-desc">AI Agent</span></cite>
+    </blockquote>
+
+<div class="prerequisites">
+    <h3>Prerequisites</h3>
+    <p>This section builds on deployment concepts from <a class="cross-ref" href="section-31.1.html">Section 31.1: Application Architecture and Deployment</a>, observability patterns from <a class="cross-ref" href="../module-30-observability-monitoring/index.html">Chapter 30: Observability and Monitoring</a>, and agent architectures from <a class="cross-ref" href="../../part-6-agentic-ai/module-22-ai-agents/section-22.1.html">Section 22.1: Foundations of AI Agents</a>.</p>
+</div>
+
+    <div class="callout big-picture">
+        <div class="callout-title">Big Picture</div>
+        <p><strong>LLM applications fail in ways that traditional software reliability engineering never anticipated.</strong> A web server either returns a page or it does not. An LLM can return a response that is syntactically valid, passes all type checks, and is completely wrong. This dual nature of failures (hard infrastructure failures alongside soft semantic failures) demands a new reliability framework that combines classical patterns (retries, circuit breakers, fallback chains) with LLM-specific defenses (hallucination detection, output validation, semantic accuracy monitoring). This section presents a comprehensive reliability engineering approach covering failure taxonomy, resilience patterns, guardrails, SLO design, incident response, and chaos engineering for LLM systems.</p>
+    </div>
+
+    <h2>1. LLM Failure Taxonomy <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>Effective reliability engineering begins with a precise understanding of how systems fail. LLM application failures fall into two broad categories: <strong>hard failures</strong> where the system produces no usable response, and <strong>soft failures</strong> where the system produces a response that appears valid but contains errors. Hard failures are easier to detect and handle. Soft failures are more dangerous because they can propagate silently through downstream systems and erode user trust gradually.</p>
+
+    <h3>1.1 Hard Failures</h3>
+
+    <p>Hard failures produce clear error signals: HTTP 429 rate limits, 500 server errors, connection timeouts, context length exceeded errors, and authentication failures. These are the failures that traditional retry logic handles well. The challenge with LLM APIs is that hard failure rates vary dramatically by provider, model, time of day, and request size. A system that sees 0.1% error rates at 10 requests per second may see 5% error rates at 100 requests per second due to provider-side throttling.</p>
+
+    <h3>1.2 Soft Failures</h3>
+
+    <p>Soft failures are unique to LLM systems and far more insidious. The model returns HTTP 200, the response parses correctly, but the content is wrong. Common soft failure modes include: <strong>hallucination</strong> (factually incorrect claims presented with high confidence), <strong>refusal</strong> (the model declines a legitimate request due to overly cautious safety filters), <strong>format violation</strong> (the model returns prose when JSON was requested), <strong>instruction drift</strong> (the model ignores part of the system prompt under long contexts), and <strong>quality degradation</strong> (responses become generic or repetitive under high load or after provider-side model updates).</p>
+
+    <pre><code class="language-python"># Code Fragment 31.8.1: Classifying LLM failures into hard and soft categories
+from enum import Enum
+from dataclasses import dataclass
+from datetime import datetime
+
+class FailureCategory(str, Enum):
+    # Hard failures
+    RATE_LIMIT = "rate_limit"
+    TIMEOUT = "timeout"
+    SERVER_ERROR = "server_error"
+    AUTH_ERROR = "auth_error"
+    CONTEXT_OVERFLOW = "context_overflow"
+    # Soft failures
+    HALLUCINATION = "hallucination"
+    REFUSAL = "refusal"
+    FORMAT_VIOLATION = "format_violation"
+    INSTRUCTION_DRIFT = "instruction_drift"
+    QUALITY_DEGRADATION = "quality_degradation"
+
+@dataclass
+class FailureEvent:
+    category: FailureCategory
+    timestamp: datetime
+    model: str
+    request_id: str
+    details: str
+    is_hard: bool
+    retryable: bool
+
+def classify_failure(status_code: int, response_body: str | None, expected_format: str | None = None) -> FailureEvent | None:
+    """Classify an LLM API response into failure categories."""
+    now = datetime.now()
+    base = {"timestamp": now, "model": "", "request_id": ""}
+
+    # Hard failure classification
+    if status_code == 429:
+        return FailureEvent(
+            category=FailureCategory.RATE_LIMIT,
+            details="Rate limit exceeded",
+            is_hard=True, retryable=True, **base
+        )
+    if status_code == 408 or status_code == 504:
+        return FailureEvent(
+            category=FailureCategory.TIMEOUT,
+            details=f"Request timed out (HTTP {status_code})",
+            is_hard=True, retryable=True, **base
+        )
+    if status_code >= 500:
+        return FailureEvent(
+            category=FailureCategory.SERVER_ERROR,
+            details=f"Server error (HTTP {status_code})",
+            is_hard=True, retryable=True, **base
+        )
+
+    # Soft failure classification (HTTP 200 but bad content)
+    if status_code == 200 and response_body:
+        if expected_format == "json":
+            try:
+                import json
+                json.loads(response_body)
+            except json.JSONDecodeError:
+                return FailureEvent(
+                    category=FailureCategory.FORMAT_VIOLATION,
+                    details="Expected JSON but received non-JSON response",
+                    is_hard=False, retryable=True, **base
+                )
+
+        refusal_phrases = [
+            "I cannot", "I'm unable to", "I apologize, but I can't",
+            "I'm not able to", "As an AI, I cannot",
+        ]
+        if any(response_body.strip().startswith(p) for p in refusal_phrases):
+            return FailureEvent(
+                category=FailureCategory.REFUSAL,
+                details="Model refused the request",
+                is_hard=False, retryable=True, **base
+            )
+
+    return None  # No failure detected</code></pre>
+
+    <h2>2. Cascading Failures in Multi-Agent Systems <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>Multi-agent architectures amplify failure risks through error cascading. When Agent A calls Agent B, which calls Agent C, a single soft failure at the deepest level can propagate upward and corrupt the final output in ways that are nearly impossible to trace without structured observability. Consider a research agent that queries a retrieval agent for sources, then passes those sources to a summarization agent. If the retrieval agent hallucinates a non-existent paper, the summarization agent will faithfully summarize a paper that does not exist, and the research agent will cite it with full confidence.</p>
+
+    <p>Error amplification follows a multiplicative model. If each agent in a three-agent chain has a 5% soft failure rate, the end-to-end reliability is not 95% but roughly $0.95^3 = 85.7\%$, assuming failures are independent. In practice, failures are correlated (a model degradation event affects all agents using that model), making the actual reliability worse.</p>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Mental Model: The Telephone Game</div>
+        <p>Multi-agent cascading failures work like the children's telephone game. Each agent whispers the message to the next, and small distortions compound at every step. By the time the message reaches the last agent, it may be unrecognizable. The solution is the same one that engineers use in communication systems: error detection and correction at every hop, not just at the endpoints. Each agent should validate its inputs (did the previous agent actually return what was requested?), verify its outputs (does my response meet the quality bar?), and signal uncertainty explicitly rather than passing confident-sounding garbage downstream.</p>
+    </div>
+
+    <h2>3. Resilience Patterns <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>Three classical resilience patterns adapt well to LLM applications: retries with exponential backoff, fallback chains, and circuit breakers. The key adaptation is that these patterns must handle both hard failures (where the pattern triggers on HTTP errors) and soft failures (where the pattern triggers on content quality checks).</p>
+
+    <pre><code class="language-python"># Code Fragment 31.8.2: Retry with exponential backoff for LLM APIs
+import asyncio
+import random
+import time
+from typing import Callable, Any
+
+class RetryConfig:
+    def __init__(
+        self,
+        max_retries: int = 3,
+        base_delay: float = 1.0,
+        max_delay: float = 60.0,
+        jitter: bool = True,
+        retryable_status_codes: set[int] = None,
+    ):
+        self.max_retries = max_retries
+        self.base_delay = base_delay
+        self.max_delay = max_delay
+        self.jitter = jitter
+        self.retryable_status_codes = retryable_status_codes or {429, 500, 502, 503, 504}
+
+async def retry_with_backoff(
+    func: Callable,
+    config: RetryConfig,
+    *args,
+    **kwargs,
+) -> Any:
+    """Execute an async function with exponential backoff retry logic.
+
+    Handles both hard failures (exceptions, bad status codes) and
+    soft failures (via an optional validator function in kwargs).
+    """
+    validator = kwargs.pop("response_validator", None)
+    last_exception = None
+
+    for attempt in range(config.max_retries + 1):
+        try:
+            result = await func(*args, **kwargs)
+
+            # Check for soft failures if a validator is provided
+            if validator and not validator(result):
+                if attempt < config.max_retries:
+                    delay = min(
+                        config.base_delay * (2 ** attempt),
+                        config.max_delay,
+                    )
+                    if config.jitter:
+                        delay *= (0.5 + random.random())
+                    print(f"Soft failure on attempt {attempt + 1}, retrying in {delay:.1f}s")
+                    await asyncio.sleep(delay)
+                    continue
+                raise ValueError(f"Response failed validation after {config.max_retries + 1} attempts")
+
+            return result
+
+        except Exception as e:
+            last_exception = e
+            if attempt < config.max_retries:
+                delay = min(
+                    config.base_delay * (2 ** attempt),
+                    config.max_delay,
+                )
+                if config.jitter:
+                    delay *= (0.5 + random.random())
+                print(f"Attempt {attempt + 1} failed: {e}. Retrying in {delay:.1f}s")
+                await asyncio.sleep(delay)
+            else:
+                raise last_exception</code></pre>
+
+<div class="callout library-shortcut">
+<div class="callout-title">Library Shortcut</div>
+<p>The same result in 6 lines with <strong>Tenacity</strong>:</p>
+<pre><code class="language-python">
+# pip install tenacity
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from openai import RateLimitError, APITimeoutError
+
+@retry(
+    stop=stop_after_attempt(4),
+    wait=wait_exponential(multiplier=1, min=1, max=60),
+    retry=retry_if_exception_type((RateLimitError, APITimeoutError)),
+)
+async def resilient_completion(client, **kwargs):
+    return await client.chat.completions.create(**kwargs)
+</code></pre>
+</div>
+
+    <pre><code class="language-python"># Code Fragment 31.8.3: Fallback chain with primary, secondary, and cached responses
+from dataclasses import dataclass, field
+
+@dataclass
+class FallbackProvider:
+    name: str
+    call: Callable  # async callable that takes a prompt and returns a response
+    priority: int
+    max_latency_ms: float = 30000.0
+
+@dataclass
+class FallbackChain:
+    """Implements a fallback chain across multiple LLM providers.
+
+    If the primary provider fails or is too slow, fall back to
+    secondary providers in priority order. As a last resort,
+    return a cached or template response.
+    """
+    providers: list[FallbackProvider] = field(default_factory=list)
+    cache: dict[str, str] = field(default_factory=dict)
+    default_response: str = "I'm experiencing technical difficulties. Please try again shortly."
+
+    async def call(self, prompt: str, validator: Callable = None) -> dict:
+        """Try each provider in priority order until one succeeds."""
+        self.providers.sort(key=lambda p: p.priority)
+        errors = []
+
+        for provider in self.providers:
+            try:
+                start = time.monotonic()
+                result = await asyncio.wait_for(
+                    provider.call(prompt),
+                    timeout=provider.max_latency_ms / 1000.0,
+                )
+                latency = (time.monotonic() - start) * 1000
+
+                # Validate response quality
+                if validator and not validator(result):
+                    errors.append(f"{provider.name}: failed validation")
+                    continue
+
+                # Cache successful responses
+                cache_key = prompt[:200]
+                self.cache[cache_key] = result
+
+                return {
+                    "response": result,
+                    "provider": provider.name,
+                    "latency_ms": latency,
+                    "fallback_depth": self.providers.index(provider),
+                }
+
+            except asyncio.TimeoutError:
+                errors.append(f"{provider.name}: timeout after {provider.max_latency_ms}ms")
+            except Exception as e:
+                errors.append(f"{provider.name}: {type(e).__name__}: {e}")
+
+        # Last resort: check cache
+        cache_key = prompt[:200]
+        if cache_key in self.cache:
+            return {
+                "response": self.cache[cache_key],
+                "provider": "cache",
+                "latency_ms": 0,
+                "fallback_depth": len(self.providers),
+            }
+
+        return {
+            "response": self.default_response,
+            "provider": "default",
+            "latency_ms": 0,
+            "fallback_depth": len(self.providers) + 1,
+            "errors": errors,
+        }</code></pre>
+
+    <h2>4. Circuit Breaker Pattern <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>A circuit breaker prevents a failing provider from consuming retry budgets and adding latency when it is clearly unavailable. The circuit has three states: <strong>closed</strong> (normal operation, requests flow through), <strong>open</strong> (provider is down, requests fail immediately without attempting the call), and <strong>half-open</strong> (after a cooldown period, a single test request is sent to check if the provider has recovered).</p>
+
+    <p>For LLM applications, the circuit breaker should track both hard and soft failure rates. A provider that returns HTTP 200 but hallucinates on 30% of responses is just as unreliable as one that returns HTTP 500 on 30% of requests. The failure threshold should be configurable per failure category: you might tolerate a 5% rate limit error rate (transient, self-resolving) but open the circuit at a 2% hallucination rate (systemic, requiring investigation).</p>
+
+    <pre><code class="language-python"># Code Fragment 31.8.4: Circuit breaker with soft failure awareness
+import time
+from collections import deque
+from enum import Enum
+
+class CircuitState(str, Enum):
+    CLOSED = "closed"
+    OPEN = "open"
+    HALF_OPEN = "half_open"
+
+class LLMCircuitBreaker:
+    """Circuit breaker that monitors both hard and soft LLM failures."""
+
+    def __init__(
+        self,
+        failure_threshold: float = 0.3,
+        window_size: int = 100,
+        cooldown_seconds: float = 60.0,
+        half_open_max_calls: int = 3,
+    ):
+        self.failure_threshold = failure_threshold
+        self.window_size = window_size
+        self.cooldown_seconds = cooldown_seconds
+        self.half_open_max_calls = half_open_max_calls
+
+        self.state = CircuitState.CLOSED
+        self.results: deque[bool] = deque(maxlen=window_size)  # True = success
+        self.last_failure_time: float = 0
+        self.half_open_calls: int = 0
+
+    @property
+    def failure_rate(self) -> float:
+        if not self.results:
+            return 0.0
+        failures = sum(1 for r in self.results if not r)
+        return failures / len(self.results)
+
+    def can_execute(self) -> bool:
+        """Check if a request should be allowed through."""
+        if self.state == CircuitState.CLOSED:
+            return True
+
+        if self.state == CircuitState.OPEN:
+            # Check if cooldown has elapsed
+            if time.monotonic() - self.last_failure_time >= self.cooldown_seconds:
+                self.state = CircuitState.HALF_OPEN
+                self.half_open_calls = 0
+                return True
+            return False
+
+        if self.state == CircuitState.HALF_OPEN:
+            return self.half_open_calls < self.half_open_max_calls
+
+        return False
+
+    def record_success(self):
+        """Record a successful call (both hard and soft success)."""
+        self.results.append(True)
+        if self.state == CircuitState.HALF_OPEN:
+            self.half_open_calls += 1
+            if self.half_open_calls >= self.half_open_max_calls:
+                # All test calls succeeded; close the circuit
+                self.state = CircuitState.CLOSED
+
+    def record_failure(self):
+        """Record a failed call (hard or soft failure)."""
+        self.results.append(False)
+        self.last_failure_time = time.monotonic()
+
+        if self.state == CircuitState.HALF_OPEN:
+            # Any failure in half-open state reopens the circuit
+            self.state = CircuitState.OPEN
+        elif self.state == CircuitState.CLOSED:
+            if len(self.results) >= 10 and self.failure_rate >= self.failure_threshold:
+                self.state = CircuitState.OPEN</code></pre>
+
+<div class="callout library-shortcut">
+<div class="callout-title">Library Shortcut</div>
+<p>The same result in 5 lines with <strong>pybreaker</strong>:</p>
+<pre><code class="language-python">
+# pip install pybreaker
+import pybreaker
+
+breaker = pybreaker.CircuitBreaker(
+    fail_max=5,              # open after 5 failures
+    reset_timeout=30,        # try again after 30 seconds
+)
+
+@breaker
+async def call_llm(client, prompt):
+    return await client.chat.completions.create(
+        model="gpt-4o", messages=[{"role": "user", "content": prompt}]
+    )
+# Raises pybreaker.CircuitBreakerError when circuit is open
+</code></pre>
+</div>
+
+    <h2>5. Guardrails as Infrastructure <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>Guardrails are validation layers that sit between the LLM and the user, checking both inputs and outputs for safety, correctness, and format compliance. Unlike ad hoc validation scattered throughout application code, production guardrails should be implemented as infrastructure: a centralized, configurable, and observable validation pipeline that every request passes through.</p>
+
+    <p>A well-designed guardrail pipeline validates inputs before they reach the model (rejecting prompt injections, enforcing length limits, checking for PII) and validates outputs before they reach the user (enforcing JSON schema compliance, detecting hallucinated citations, checking response coherence). Each guardrail should be independently toggleable, measurable, and bypassable for debugging.</p>
+
+    <pre><code class="language-python"># Code Fragment 31.8.5: Guardrail pipeline with input and output validation
+import json
+import re
+from dataclasses import dataclass
+
+@dataclass
+class GuardrailResult:
+    passed: bool
+    guardrail_name: str
+    details: str = ""
+    latency_ms: float = 0.0
+
+class GuardrailPipeline:
+    """Centralized input/output validation for LLM applications."""
+
+    def __init__(self):
+        self.input_guardrails: list[Callable] = []
+        self.output_guardrails: list[Callable] = []
+
+    def add_input_guardrail(self, name: str, check_fn: Callable[[str], GuardrailResult]):
+        self.input_guardrails.append((name, check_fn))
+
+    def add_output_guardrail(self, name: str, check_fn: Callable[[str, str], GuardrailResult]):
+        self.output_guardrails.append((name, check_fn))
+
+    def validate_input(self, user_input: str) -> list[GuardrailResult]:
+        results = []
+        for name, check_fn in self.input_guardrails:
+            start = time.monotonic()
+            result = check_fn(user_input)
+            result.latency_ms = (time.monotonic() - start) * 1000
+            results.append(result)
+            if not result.passed:
+                break  # fail fast on first input guardrail failure
+        return results
+
+    def validate_output(self, prompt: str, response: str) -> list[GuardrailResult]:
+        results = []
+        for name, check_fn in self.output_guardrails:
+            start = time.monotonic()
+            result = check_fn(prompt, response)
+            result.latency_ms = (time.monotonic() - start) * 1000
+            results.append(result)
+        return results
+
+# Example guardrails
+def prompt_injection_check(user_input: str) -> GuardrailResult:
+    """Detect common prompt injection patterns."""
+    injection_patterns = [
+        r"ignore\s+(all\s+)?previous\s+instructions",
+        r"you\s+are\s+now\s+",
+        r"system\s*:\s*",
+        r"<\|im_start\|>",
+    ]
+    for pattern in injection_patterns:
+        if re.search(pattern, user_input, re.IGNORECASE):
+            return GuardrailResult(
+                passed=False,
+                guardrail_name="prompt_injection",
+                details=f"Matched injection pattern: {pattern}",
+            )
+    return GuardrailResult(passed=True, guardrail_name="prompt_injection")
+
+def json_schema_check(prompt: str, response: str) -> GuardrailResult:
+    """Validate that JSON responses conform to expected schema."""
+    try:
+        parsed = json.loads(response)
+        if not isinstance(parsed, dict):
+            return GuardrailResult(
+                passed=False,
+                guardrail_name="json_schema",
+                details="Response is valid JSON but not an object",
+            )
+        return GuardrailResult(passed=True, guardrail_name="json_schema")
+    except json.JSONDecodeError as e:
+        return GuardrailResult(
+            passed=False,
+            guardrail_name="json_schema",
+            details=f"Invalid JSON: {e}",
+        )
+
+# Assembly
+pipeline = GuardrailPipeline()
+pipeline.add_input_guardrail("prompt_injection", prompt_injection_check)
+pipeline.add_output_guardrail("json_schema", json_schema_check)</code></pre>
+
+<div class="callout library-shortcut">
+<div class="callout-title">Library Shortcut</div>
+<p>The same result in 8 lines with <strong>Guardrails AI</strong>:</p>
+<pre><code class="language-python">
+# pip install guardrails-ai
+import guardrails as gd
+from guardrails.hub import DetectPII, ToxicLanguage, ValidJSON
+
+guard = gd.Guard().use_many(
+    DetectPII(pii_entities=["EMAIL_ADDRESS", "PHONE_NUMBER"], on_fail="fix"),
+    ToxicLanguage(threshold=0.8, on_fail="noop"),
+    ValidJSON(on_fail="reask"),
+)
+result = guard(
+    llm_api=openai.chat.completions.create,
+    model="gpt-4o-mini",
+    messages=[{"role": "user", "content": user_input}],
+)
+print(result.validated_output)
+</code></pre>
+</div>
+
+    <div class="callout note">
+        <div class="callout-title">Note</div>
+        <p>Guardrail latency adds directly to user-perceived response time. A guardrail pipeline with five checks averaging 50ms each adds 250ms to every request. In practice, run input guardrails synchronously (they must complete before the LLM call) and output guardrails asynchronously where possible (stream the response to the user while validating in the background, with a mechanism to retract or flag responses that fail validation). For structured output requirements, consider using constrained decoding (via provider features like OpenAI's response_format or Anthropic's tool use) instead of post-hoc validation, which eliminates format violation failures entirely.</p>
+    </div>
+
+    <h2>6. SLOs for LLM Systems <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>Traditional Service Level Objectives (SLOs) measure availability (99.9% uptime), latency (p95 under 200ms), and error rate (under 0.1%). These metrics are necessary but insufficient for LLM systems. A chatbot that is always available and responds quickly but hallucinates 10% of the time is not meeting user expectations, even if all traditional SLOs are green.</p>
+
+    <p>LLM-specific SLOs should include: <strong>semantic accuracy</strong> (percentage of responses that are factually correct, measured by periodic human evaluation or automated judges), <strong>hallucination rate</strong> (percentage of responses containing fabricated information), <strong>time to first token</strong> (TTFT, critical for streaming applications), <strong>goodput</strong> (percentage of requests that produce a useful response, excluding refusals and format violations), and <strong>cost per useful response</strong> (total API spend divided by goodput, accounting for retries and fallbacks).</p>
+
+    <pre><code class="language-python"># Code Fragment 31.8.6: Defining and tracking LLM-specific SLOs
+from dataclasses import dataclass, field
+from collections import deque
+import time
+
+@dataclass
+class SLODefinition:
+    name: str
+    target: float  # target value (e.g., 0.99 for 99%)
+    window_minutes: int = 60
+    breach_callback: Callable | None = None
+
+@dataclass
+class SLOTracker:
+    """Track LLM-specific SLOs with rolling windows."""
+    slos: dict[str, SLODefinition] = field(default_factory=dict)
+    measurements: dict[str, deque] = field(default_factory=dict)
+
+    def define_slo(self, slo: SLODefinition):
+        self.slos[slo.name] = slo
+        self.measurements[slo.name] = deque()
+
+    def record(self, slo_name: str, value: float):
+        """Record a measurement for an SLO."""
+        if slo_name not in self.slos:
+            return
+        now = time.monotonic()
+        self.measurements[slo_name].append((now, value))
+        # Prune old measurements outside the window
+        window_seconds = self.slos[slo_name].window_minutes * 60
+        while (self.measurements[slo_name]
+               and now - self.measurements[slo_name][0][0] > window_seconds):
+            self.measurements[slo_name].popleft()
+
+    def current_value(self, slo_name: str) -> float | None:
+        """Get current SLO value over the rolling window."""
+        if slo_name not in self.measurements:
+            return None
+        values = [v for _, v in self.measurements[slo_name]]
+        if not values:
+            return None
+        return sum(values) / len(values)
+
+    def check_breaches(self) -> list[str]:
+        """Check all SLOs and return names of any that are breached."""
+        breaches = []
+        for name, slo in self.slos.items():
+            current = self.current_value(name)
+            if current is not None and current < slo.target:
+                breaches.append(name)
+                if slo.breach_callback:
+                    slo.breach_callback(name, current, slo.target)
+        return breaches
+
+# Define LLM-specific SLOs
+tracker = SLOTracker()
+tracker.define_slo(SLODefinition("availability", target=0.999, window_minutes=60))
+tracker.define_slo(SLODefinition("goodput", target=0.95, window_minutes=60))
+tracker.define_slo(SLODefinition("ttft_p95_ms", target=800.0, window_minutes=30))
+tracker.define_slo(SLODefinition("hallucination_rate", target=0.02, window_minutes=1440))
+tracker.define_slo(SLODefinition("semantic_accuracy", target=0.90, window_minutes=1440))</code></pre>
+
+    <h2>7. Incident Response for LLM Systems <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>LLM incidents differ from traditional software incidents in three important ways. First, <strong>detection is harder</strong>: a model degradation event may not trigger any alerts because the system continues returning HTTP 200 with plausible-looking responses. Second, <strong>root cause analysis is more complex</strong>: was the regression caused by a provider-side model update, a prompt change, a data distribution shift, or a combination? Third, <strong>rollback is less straightforward</strong>: you cannot simply revert a deployment if the problem is a provider-side model version change.</p>
+
+    <p>An effective LLM incident response playbook covers four phases: detection (SLO breach alerts, user complaint spikes, automated quality monitoring), triage (is this a hard failure, soft failure, cost anomaly, or security incident?), mitigation (switch to fallback provider, revert prompt changes, enable cached responses), and resolution (root cause identification, prevention measures, post-incident review).</p>
+
+    <div class="callout warning">
+        <div class="callout-title">Warning: Silent Model Updates</div>
+        <p>Cloud LLM providers routinely update model weights, safety filters, and rate limits without advance notice. OpenAI's "gpt-4o" endpoint may behave differently on Tuesday than it did on Monday with no version change visible in the API. This means that any LLM application can experience regression at any time without any deployment change on your side. The mitigation is threefold: pin model versions when available (use "gpt-4o-2024-08-06" instead of "gpt-4o"), run continuous evaluation against a fixed test set, and maintain fallback configurations that can be activated within minutes.</p>
+    </div>
+
+    <h2>8. Chaos Engineering for LLM Systems <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>Chaos engineering tests system resilience by intentionally injecting failures in controlled conditions. For LLM systems, the failure injection surface extends beyond traditional infrastructure failures to include LLM-specific scenarios: simulating hallucinations, injecting adversarial prompts, throttling API responses to test timeout handling, and corrupting tool call responses to test error propagation.</p>
+
+    <p>A practical chaos engineering program for LLM applications should test five scenarios: provider outage (block all API calls to the primary provider), latency injection (add 5 to 30 seconds of delay to test timeout and fallback behavior), response corruption (replace model responses with random text to test output validation), prompt injection (submit known adversarial inputs to test guardrail effectiveness), and cost explosion (simulate a bug that sends 100x normal request volume to test budget controls).</p>
+
+    <h2>9. Practical Lab: Resilient LLM Client <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>This lab combines all resilience patterns into a single client that handles retries, fallback chains, circuit breaking, guardrail validation, and budget-aware stopping. The client is designed for production use where reliability matters more than raw performance.</p>
+
+    <pre><code class="language-python"># Code Fragment 31.8.7: Complete resilient LLM client
+import asyncio
+import time
+
+class BudgetExhausted(Exception):
+    pass
+
+class ResilientLLMClient:
+    """Production LLM client with retries, fallback, circuit breaker,
+    guardrails, and budget controls.
+    """
+
+    def __init__(
+        self,
+        fallback_chain: FallbackChain,
+        circuit_breaker: LLMCircuitBreaker,
+        guardrail_pipeline: GuardrailPipeline,
+        retry_config: RetryConfig,
+        budget_limit_usd: float = 100.0,
+    ):
+        self.fallback_chain = fallback_chain
+        self.circuit_breaker = circuit_breaker
+        self.guardrails = guardrail_pipeline
+        self.retry_config = retry_config
+        self.budget_limit_usd = budget_limit_usd
+        self.budget_spent_usd: float = 0.0
+        self.request_count: int = 0
+        self.slo_tracker = SLOTracker()
+
+    async def complete(
+        self,
+        prompt: str,
+        expected_format: str | None = None,
+        cost_per_request: float = 0.01,
+    ) -> dict:
+        """Send a prompt through the full resilience stack.
+
+        Flow:
+          1. Budget check
+          2. Input guardrails
+          3. Circuit breaker check
+          4. Fallback chain with retries
+          5. Output guardrails
+          6. SLO recording
+        """
+        start_time = time.monotonic()
+
+        # 1. Budget check
+        if self.budget_spent_usd + cost_per_request > self.budget_limit_usd:
+            raise BudgetExhausted(
+                f"Budget exhausted: ${self.budget_spent_usd:.2f} of "
+                f"${self.budget_limit_usd:.2f} spent"
+            )
+
+        # 2. Input guardrails
+        input_results = self.guardrails.validate_input(prompt)
+        for result in input_results:
+            if not result.passed:
+                return {
+                    "response": "Request blocked by input guardrails.",
+                    "blocked": True,
+                    "guardrail": result.guardrail_name,
+                    "details": result.details,
+                }
+
+        # 3. Circuit breaker check
+        if not self.circuit_breaker.can_execute():
+            return await self._fallback_response(prompt, "circuit_open")
+
+        # 4. Call with retries and fallback
+        try:
+            def response_validator(result):
+                if not result or not result.get("response"):
+                    return False
+                output_results = self.guardrails.validate_output(
+                    prompt, result["response"]
+                )
+                return all(r.passed for r in output_results)
+
+            result = await self.fallback_chain.call(
+                prompt, validator=response_validator
+            )
+
+            self.circuit_breaker.record_success()
+            self.budget_spent_usd += cost_per_request
+            self.request_count += 1
+
+            # 6. Record SLO metrics
+            latency_ms = (time.monotonic() - start_time) * 1000
+            self.slo_tracker.record("availability", 1.0)
+            self.slo_tracker.record("ttft_p95_ms", latency_ms)
+            is_useful = result.get("provider") not in ("cache", "default")
+            self.slo_tracker.record("goodput", 1.0 if is_useful else 0.0)
+
+            result["latency_total_ms"] = latency_ms
+            result["budget_remaining_usd"] = self.budget_limit_usd - self.budget_spent_usd
+            return result
+
+        except Exception as e:
+            self.circuit_breaker.record_failure()
+            self.slo_tracker.record("availability", 0.0)
+            self.slo_tracker.record("goodput", 0.0)
+            return await self._fallback_response(prompt, str(e))
+
+    async def _fallback_response(self, prompt: str, reason: str) -> dict:
+        """Return cached or default response when all else fails."""
+        cache_key = prompt[:200]
+        if cache_key in self.fallback_chain.cache:
+            return {
+                "response": self.fallback_chain.cache[cache_key],
+                "provider": "cache",
+                "fallback_reason": reason,
+            }
+        return {
+            "response": self.fallback_chain.default_response,
+            "provider": "default",
+            "fallback_reason": reason,
+        }</code></pre>
+
+</main>
+
+<section class="bibliography">
+    <div class="bibliography-title">References and Further Reading</div>
+    <div class="bib-category">Reliability Engineering Foundations</div>
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://sre.google/sre-book/" target="_blank" rel="noopener">Beyer, B. et al. (2016). <em>Site Reliability Engineering: How Google Runs Production Systems</em>. O'Reilly.</a></p>
+        <p class="bib-annotation">The foundational text on SRE practices including SLOs, error budgets, and incident response. While not LLM-specific, the principles of service level management and on-call practices directly inform the SLO framework and incident response playbooks presented in this section.</p>
+        <span class="bib-meta">Book</span>
+    </div>
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://www.oreilly.com/library/view/release-it/9781680504552/" target="_blank" rel="noopener">Nygard, M. (2018). <em>Release It! Design and Deploy Production-Ready Software</em>. 2nd edition. Pragmatic Bookshelf.</a></p>
+        <p class="bib-annotation">Introduces the stability patterns (circuit breaker, bulkhead, timeout) that form the basis of the resilience patterns in this section. The circuit breaker pattern described here is adapted directly from Nygard's formulation with extensions for soft failure detection.</p>
+        <span class="bib-meta">Book</span>
+    </div>
+    <div class="bib-category">LLM-Specific Reliability</div>
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://arxiv.org/abs/2309.15025" target="_blank" rel="noopener">Rebedea, T. et al. (2023). <em>NeMo Guardrails: A Toolkit for Controllable and Safe LLM Applications</em>.</a></p>
+        <p class="bib-annotation">Presents NVIDIA's framework for adding programmable guardrails to LLM applications, including topical rails, safety rails, and output format enforcement. The guardrails-as-infrastructure approach in this section draws on NeMo's architecture of composable validation layers.</p>
+        <span class="bib-meta">Paper</span>
+    </div>
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://arxiv.org/abs/2401.05561" target="_blank" rel="noopener">Alon, G. et al. (2024). <em>Detecting LLM Hallucinations with Semantic Entropy</em>.</a></p>
+        <p class="bib-annotation">Proposes using semantic entropy across multiple sampled responses to detect hallucinations without external knowledge bases. This technique can be integrated into output guardrails for real-time hallucination detection in production systems.</p>
+        <span class="bib-meta">Paper</span>
+    </div>
+    <div class="bib-category">Chaos Engineering and Testing</div>
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://principlesofchaos.org/" target="_blank" rel="noopener">Rosenthal, C. et al. (2020). <em>Chaos Engineering: System Resiliency in Practice</em>. O'Reilly.</a></p>
+        <p class="bib-annotation">Defines the principles and practices of chaos engineering, including the steady-state hypothesis, blast radius control, and automated experimentation. The LLM-specific chaos engineering scenarios in this section extend these principles to cover AI-specific failure modes like hallucination injection and adversarial prompt testing.</p>
+        <span class="bib-meta">Book</span>
+    </div>
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://arxiv.org/abs/2306.09442" target="_blank" rel="noopener">Mazeika, M. et al. (2024). <em>HarmBench: A Standardized Evaluation Framework for Automated Red Teaming and Refusal Training</em>.</a></p>
+        <p class="bib-annotation">Provides a standardized framework for evaluating LLM robustness against adversarial attacks, directly relevant to the chaos engineering and adversarial testing practices described in this section.</p>
+        <span class="bib-meta">Paper</span>
+    </div>
+</section>
+
+<nav class="chapter-nav">
+    <a class="prev" href="section-31.7.html">Edge and On-Device LLM Deployment</a>
+    <a class="up" href="index.html">Production Engineering &amp; Operations</a>
+    <a class="next" href="section-31.9.html">Kubernetes-Native LLM Operations</a>
+</nav>
+</body>
+</html>

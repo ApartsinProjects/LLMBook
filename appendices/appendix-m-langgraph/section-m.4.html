@@ -3,19 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Section M.4: Persistence, Checkpointing, and Recovery. A comprehensive chapter from the Building Conversational AI textbook.">
     <title>Section M.4: Persistence, Checkpointing, and Recovery | Building Conversational AI with LLMs and Agents</title>
     <link rel="stylesheet" href="../../styles/book.css">
-    <link rel="stylesheet" href="../../vendor/katex/katex.min.css">
-    <script defer src="../../vendor/katex/katex.min.js"></script>
-    <script defer src="../../vendor/katex/contrib/auto-render.min.js"
-        onload="renderMathInElement(document.body, {
-            delimiters: [
-                {left: '$$', right: '$$', display: true},
-                {left: '$', right: '$', display: false}
-            ],
-            throwOnError: false
-        });"></script>
-    <link rel="stylesheet" href="../../vendor/prism/prism-theme.css">
+<link rel="stylesheet" href="../../vendor/prism/prism-theme.css">
     <script defer src="../../vendor/prism/prism-bundle.min.js"></script>
 </head>
 <body>
@@ -33,10 +24,246 @@
 
     <div class="callout big-picture">
         <div class="callout-title">Big Picture</div>
-        <p>This section covers persistence, Checkpointing, and Recovery. Content will be generated using the book production pipeline.</p>
+        <p>Production agent systems must survive process restarts, handle long-running workflows, and support debugging of past executions. LangGraph's <strong>checkpointing</strong> system persists the graph state after every node, enabling recovery from failures, time-travel debugging, and the interrupt mechanism covered in <a href="section-m.3.html">Section M.3</a>. This section covers the built-in checkpointer backends, thread management, replay from arbitrary checkpoints, and strategies for production deployment.</p>
     </div>
 
-    <p><em>Content pending: this section will be produced by the book-writers agent pipeline.</em></p>
+    <h2>1. What Is Checkpointing?</h2>
+
+    <p>A checkpoint is a serialized snapshot of the graph's entire state at a specific point in execution. Every time a node completes, LangGraph saves a checkpoint through the configured backend. These checkpoints serve three purposes: they enable the interrupt/resume workflow, they allow replaying a graph from any past state, and they provide a detailed audit trail for debugging.</p>
+
+    <p>Each checkpoint is identified by a <strong>thread ID</strong> (representing a conversation or workflow session) and a sequential <strong>checkpoint ID</strong> within that thread. Together, these form a complete execution history.</p>
+
+    <h2>2. MemorySaver: In-Memory Checkpointing</h2>
+
+    <p>The simplest checkpointer stores state in a Python dictionary. This is ideal for development, testing, and short-lived scripts where persistence across restarts is not needed.</p>
+
+    <pre><code class="language-python">from langgraph.checkpoint.memory import MemorySaver
+from langgraph.graph import StateGraph, START, END
+from langchain_core.messages import HumanMessage
+
+class ChatState(TypedDict):
+    messages: Annotated[list, add_messages]
+
+def echo(state: ChatState) -> dict:
+    last = state["messages"][-1].content
+    return {"messages": [("assistant", f"Echo: {last}")]}
+
+builder = StateGraph(ChatState)
+builder.add_node("echo", echo)
+builder.add_edge(START, "echo")
+builder.add_edge("echo", END)
+
+# Compile with in-memory checkpointing
+memory = MemorySaver()
+graph = builder.compile(checkpointer=memory)
+
+# Each thread_id represents an independent conversation
+config_a = {"configurable": {"thread_id": "user-alice"}}
+config_b = {"configurable": {"thread_id": "user-bob"}}
+
+graph.invoke({"messages": [HumanMessage(content="Hello")]}, config=config_a)
+graph.invoke({"messages": [HumanMessage(content="Hi there")]}, config=config_b)
+
+# States are isolated per thread
+state_a = graph.get_state(config_a)
+state_b = graph.get_state(config_b)
+print("Alice:", state_a.values["messages"][-1].content)
+print("Bob:", state_b.values["messages"][-1].content)</code></pre>
+    <div class="code-caption"><strong>Code Fragment M.4.1:</strong> Using <code>MemorySaver</code> for in-memory checkpointing. Each <code>thread_id</code> maintains an independent state history. This backend is fast but loses all data when the process exits.</div>
+
+    <div class="callout warning">
+        <div class="callout-title">Warning: MemorySaver Is Not for Production</div>
+        <p><code>MemorySaver</code> stores everything in process memory. A server restart, crash, or deployment wipes all state. For any workflow that must survive restarts or that involves human-in-the-loop delays, use a persistent backend such as <code>SqliteSaver</code> or <code>PostgresSaver</code>.</p>
+    </div>
+
+    <h2>3. SqliteSaver: File-Based Persistence</h2>
+
+    <p>For local development and single-server deployments, <code>SqliteSaver</code> writes checkpoints to a SQLite database file. State survives process restarts with zero infrastructure overhead.</p>
+
+    <pre><code class="language-python">from langgraph.checkpoint.sqlite import SqliteSaver
+
+# Store checkpoints in a local file
+with SqliteSaver.from_conn_string("checkpoints.db") as checkpointer:
+    graph = builder.compile(checkpointer=checkpointer)
+
+    config = {"configurable": {"thread_id": "persistent-thread-1"}}
+    graph.invoke(
+        {"messages": [HumanMessage(content="Remember this message.")]},
+        config=config
+    )
+
+# Later, even after restarting the process:
+with SqliteSaver.from_conn_string("checkpoints.db") as checkpointer:
+    graph = builder.compile(checkpointer=checkpointer)
+
+    config = {"configurable": {"thread_id": "persistent-thread-1"}}
+    state = graph.get_state(config)
+    print("Recovered:", state.values["messages"][-1].content)</code></pre>
+    <div class="code-caption"><strong>Code Fragment M.4.2:</strong> Using <code>SqliteSaver</code> for file-based persistence. The checkpoint file (<code>checkpoints.db</code>) survives process restarts, making this suitable for local development and prototyping.</div>
+
+    <h3>3.1 Async SQLite</h3>
+
+    <p>For async applications, use <code>AsyncSqliteSaver</code> which provides the same file-based persistence with non-blocking I/O. The API is identical except that you use <code>async with</code> and <code>await</code>.</p>
+
+    <pre><code class="language-python">from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+
+async def run():
+    async with AsyncSqliteSaver.from_conn_string("checkpoints.db") as saver:
+        graph = builder.compile(checkpointer=saver)
+        result = await graph.ainvoke(
+            {"messages": [HumanMessage(content="Async hello")]},
+            config={"configurable": {"thread_id": "async-1"}}
+        )
+        print(result["messages"][-1].content)</code></pre>
+    <div class="code-caption"><strong>Code Fragment M.4.3:</strong> The async variant of <code>SqliteSaver</code>. Use this when your application runs on an async event loop (FastAPI, for instance) to avoid blocking I/O.</div>
+
+    <h2>4. PostgresSaver: Production-Grade Persistence</h2>
+
+    <p>For multi-server deployments, <code>PostgresSaver</code> stores checkpoints in a PostgreSQL database. Multiple application instances can share the same checkpoint store, enabling load balancing and horizontal scaling.</p>
+
+    <pre><code class="language-python">from langgraph.checkpoint.postgres import PostgresSaver
+
+DB_URI = "postgresql://user:password@localhost:5432/langgraph_checkpoints"
+
+with PostgresSaver.from_conn_string(DB_URI) as checkpointer:
+    # Create the checkpoint tables on first run
+    checkpointer.setup()
+
+    graph = builder.compile(checkpointer=checkpointer)
+
+    config = {"configurable": {"thread_id": "prod-session-42"}}
+    graph.invoke(
+        {"messages": [HumanMessage(content="Production message")]},
+        config=config
+    )</code></pre>
+    <div class="code-caption"><strong>Code Fragment M.4.4:</strong> Using <code>PostgresSaver</code> for production-grade persistence. Call <code>setup()</code> once to create the required database tables. After that, checkpoints are stored automatically.</div>
+
+    <div class="callout note">
+        <div class="callout-title">Note: Connection Pooling</div>
+        <p>For high-throughput applications, pass a connection pool instead of a connection string. Both <code>psycopg</code> (sync) and <code>psycopg_pool</code> (async) are supported. Connection pooling reduces database overhead and improves response times under load.</p>
+    </div>
+
+    <h2>5. Thread Management</h2>
+
+    <p>Threads are the organizational unit for checkpoints. Each thread represents an independent execution context, typically mapped to a user session or conversation. You manage threads through the <code>thread_id</code> field in the config.</p>
+
+    <pre><code class="language-python"># Continue an existing conversation
+config = {"configurable": {"thread_id": "user-alice"}}
+
+# Add a second message to Alice's thread
+graph.invoke(
+    {"messages": [HumanMessage(content="What did I say before?")]},
+    config=config
+)
+
+# The graph sees the full message history for this thread
+state = graph.get_state(config)
+for msg in state.values["messages"]:
+    print(f"{msg.type}: {msg.content}")</code></pre>
+    <div class="code-caption"><strong>Code Fragment M.4.5:</strong> Continuing a conversation in an existing thread. LangGraph automatically loads the latest checkpoint for the given <code>thread_id</code> and appends the new input, giving the graph access to the full conversation history.</div>
+
+    <h2>6. Time-Travel Debugging</h2>
+
+    <p>Every checkpoint in a thread is preserved, creating a full execution timeline. You can list all checkpoints for a thread, inspect the state at any point, and even replay the graph from a past checkpoint. This is invaluable for debugging agent behavior.</p>
+
+    <pre><code class="language-python"># List all checkpoints for a thread
+config = {"configurable": {"thread_id": "user-alice"}}
+history = list(graph.get_state_history(config))
+
+print(f"Found {len(history)} checkpoints")
+for i, snapshot in enumerate(history):
+    print(f"  [{i}] checkpoint_id={snapshot.config['configurable']['checkpoint_id']}")
+    print(f"       next={snapshot.next}")
+    msg_count = len(snapshot.values.get("messages", []))
+    print(f"       messages={msg_count}")
+
+# Replay from an earlier checkpoint
+earlier = history[-1]  # the first checkpoint
+replay_config = {
+    "configurable": {
+        "thread_id": "user-alice",
+        "checkpoint_id": earlier.config["configurable"]["checkpoint_id"]
+    }
+}
+result = graph.invoke(
+    {"messages": [HumanMessage(content="Let me try a different approach.")]},
+    config=replay_config
+)
+print("Replayed:", result["messages"][-1].content)</code></pre>
+    <div class="code-caption"><strong>Code Fragment M.4.6:</strong> Time-travel debugging. <code>get_state_history</code> returns all checkpoints in reverse chronological order. You can resume from any checkpoint by including its <code>checkpoint_id</code> in the config, effectively "rewinding" the conversation.</div>
+
+    <figure>
+        <pre class="figure-text">
+Thread: user-alice
+═══════════════════════════════════════════════════
+
+  checkpoint_0     checkpoint_1     checkpoint_2
+  ┌──────────┐    ┌──────────┐    ┌──────────┐
+  │ messages: │───▶│ messages: │───▶│ messages: │
+  │   [msg_0] │    │ [msg_0,  │    │ [msg_0,  │
+  │           │    │  msg_1]  │    │  msg_1,  │
+  └──────────┘    └──────────┘    │  msg_2]  │
+       ▲                          └──────────┘
+       │
+  Replay from here creates a new branch
+        </pre>
+        <figcaption>Figure M.4.1: Time-travel debugging. Replaying from <code>checkpoint_0</code> creates a new branch of execution without modifying the original checkpoint history.</figcaption>
+    </figure>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight: Replay Does Not Overwrite History</div>
+        <p>Replaying from a past checkpoint does not delete or modify subsequent checkpoints. Instead, it creates a new branch in the execution history. This means you can safely experiment with alternative paths without losing the original execution trace.</p>
+    </div>
+
+    <h2>7. Choosing a Checkpointer</h2>
+
+    <p>The following table summarizes when to use each backend:</p>
+
+    <table>
+        <thead>
+            <tr>
+                <th scope="col">Backend</th>
+                <th scope="col">Persistence</th>
+                <th scope="col">Multi-Process</th>
+                <th scope="col">Best For</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><code>MemorySaver</code></td>
+                <td>None (in-process only)</td>
+                <td>No</td>
+                <td>Unit tests, quick prototyping</td>
+            </tr>
+            <tr>
+                <td><code>SqliteSaver</code></td>
+                <td>File on disk</td>
+                <td>No</td>
+                <td>Local development, single-server apps</td>
+            </tr>
+            <tr>
+                <td><code>PostgresSaver</code></td>
+                <td>Database</td>
+                <td>Yes</td>
+                <td>Production, multi-server deployment</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <h2>8. Recovery from Failures</h2>
+
+    <p>Because checkpoints are saved after every node, a failure mid-execution does not lose all progress. When the graph is re-invoked with the same <code>thread_id</code>, it automatically loads the last successful checkpoint. If the failed node was the culprit (for instance, a transient API error), the graph retries from that point rather than starting over.</p>
+
+    <p>For workflows that span hours or days (such as multi-step approval processes), this resilience is essential. Combining persistent checkpointing with the interrupt mechanism from <a href="section-m.3.html">Section M.3</a> gives you a durable workflow engine that can survive server restarts, deployments, and infrastructure failures.</p>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight: Checkpoints as an Audit Trail</div>
+        <p>Beyond recovery, checkpoints serve as a complete audit trail of every decision an agent made. For compliance-sensitive applications (financial services, healthcare, legal), this trail provides evidence of what the agent did, when it did it, and what state it had at each step. Pair this with the human approval logs from <a href="section-m.3.html">Section M.3</a> for a comprehensive audit system.</p>
+    </div>
+
+    <h2>9. Summary</h2>
+
+    <p>This section covered LangGraph's checkpointing system, from lightweight in-memory storage to production-grade PostgreSQL persistence. You learned how to configure checkpointers, manage conversation threads, perform time-travel debugging, and leverage checkpoints for failure recovery. In <a href="section-m.5.html">Section M.5</a>, you will see how to compose multiple graphs into multi-agent systems using subgraphs and supervisor patterns.</p>
 
     <nav class="chapter-nav">
     <a class="prev" href="section-m.3.html">Human-in-the-Loop and Interrupts</a>

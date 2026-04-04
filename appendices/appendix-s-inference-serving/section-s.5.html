@@ -3,19 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Section S.5: Scaling and Load Balancing for Production. A comprehensive chapter from the Building Conversational AI textbook.">
     <title>Section S.5: Scaling and Load Balancing for Production | Building Conversational AI with LLMs and Agents</title>
     <link rel="stylesheet" href="../../styles/book.css">
-    <link rel="stylesheet" href="../../vendor/katex/katex.min.css">
-    <script defer src="../../vendor/katex/katex.min.js"></script>
-    <script defer src="../../vendor/katex/contrib/auto-render.min.js"
-        onload="renderMathInElement(document.body, {
-            delimiters: [
-                {left: '$$', right: '$$', display: true},
-                {left: '$', right: '$', display: false}
-            ],
-            throwOnError: false
-        });"></script>
-    <link rel="stylesheet" href="../../vendor/prism/prism-theme.css">
+<link rel="stylesheet" href="../../vendor/prism/prism-theme.css">
     <script defer src="../../vendor/prism/prism-bundle.min.js"></script>
 </head>
 <body>
@@ -33,10 +24,409 @@
 
     <div class="callout big-picture">
         <div class="callout-title">Big Picture</div>
-        <p>This section covers scaling and Load Balancing for Production. Content will be generated using the book production pipeline.</p>
+        <p>Moving from a single-GPU inference setup to a production-grade serving cluster requires solving three problems: <strong>scaling</strong> (adding more GPU instances to handle growing traffic), <strong>load balancing</strong> (distributing requests intelligently across instances), and <strong>monitoring</strong> (knowing when to scale and diagnosing bottlenecks). This section covers horizontal and vertical scaling strategies, load balancer configurations, GPU utilization monitoring, tensor parallelism across multiple GPUs, throughput benchmarking, and cost optimization techniques.</p>
     </div>
 
-    <p><em>Content pending: this section will be produced by the book-writers agent pipeline.</em></p>
+    <h2>1. Vertical vs. Horizontal Scaling</h2>
+
+    <p>
+        There are two fundamental approaches to handling more inference traffic. <strong>Vertical scaling</strong>
+        means using a more powerful machine: more GPUs per node, faster GPUs, or more memory per GPU. This is
+        often the right first step because it avoids the complexity of distributed systems. A single node with
+        4 or 8 GPUs running tensor parallelism can serve surprisingly high throughput.
+    </p>
+
+    <p>
+        <strong>Horizontal scaling</strong> means running multiple independent inference instances behind a
+        load balancer. Each instance holds a full copy of the model (or a tensor-parallel shard) and processes
+        requests independently. This approach scales linearly: doubling the number of instances roughly doubles
+        your throughput capacity.
+    </p>
+
+    <figure class="illustration">
+        <pre>
+            ┌──────────────────────┐
+            │    Load Balancer     │
+            │  (NGINX / Envoy)    │
+            └──────┬───┬───┬──────┘
+                   │   │   │
+          ┌────────┘   │   └────────┐
+          │            │            │
+   ┌──────▼──────┐ ┌──▼──────────┐ ┌▼────────────┐
+   │  vLLM #1    │ │  vLLM #2    │ │  vLLM #3    │
+   │  GPU 0,1    │ │  GPU 0,1    │ │  GPU 0,1    │
+   │  (Node A)   │ │  (Node B)   │ │  (Node C)   │
+   └─────────────┘ └─────────────┘ └─────────────┘
+        </pre>
+        <figcaption><strong>Figure S.5.1</strong>: Horizontal scaling architecture. A load balancer distributes incoming requests across three independent vLLM instances, each running on its own node with tensor parallelism across 2 GPUs.</figcaption>
+    </figure>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight</div>
+        <p>Vertical scaling (tensor parallelism across GPUs within a node) reduces per-request latency because the model computation is split across GPUs. Horizontal scaling (multiple independent instances) increases total throughput without reducing per-request latency. In practice, you use both: tensor parallelism within each node for latency-sensitive models, and multiple nodes for capacity.</p>
+    </div>
+
+    <h2>2. Multi-GPU Tensor Parallelism</h2>
+
+    <p>
+        For models that are too large for a single GPU, or when you need lower latency than a single GPU can
+        provide, tensor parallelism splits the model across multiple GPUs within a single node. Each GPU holds
+        a shard of the model's weight matrices and processes its portion of the computation in parallel. The
+        GPUs synchronize via NVLink or PCIe after each attention and feed-forward layer.
+    </p>
+
+    <p>
+        All three serving frameworks support tensor parallelism through a simple configuration flag.
+    </p>
+
+    <pre><code class="language-bash"># vLLM: tensor parallelism across 4 GPUs
+vllm serve meta-llama/Llama-3.1-70B-Instruct \
+    --tensor-parallel-size 4 \
+    --gpu-memory-utilization 0.90
+
+# TGI: tensor parallelism across 4 GPUs
+docker run --gpus all --shm-size 2g -p 8080:80 \
+    -v /data:/data \
+    ghcr.io/huggingface/text-generation-inference:latest \
+    --model-id meta-llama/Llama-3.1-70B-Instruct \
+    --num-shard 4
+
+# SGLang: tensor parallelism across 4 GPUs
+python -m sglang.launch_server \
+    --model-path meta-llama/Llama-3.1-70B-Instruct \
+    --tp 4</code></pre>
+
+    <div class="callout tip">
+        <div class="callout-title">Tip</div>
+        <p>Tensor parallelism works best when the number of attention heads is evenly divisible by the tensor parallel size. For example, Llama 3.1 70B has 64 attention heads, so it shards cleanly across 1, 2, 4, or 8 GPUs. Using 3 or 5 GPUs would require padding and waste memory.</p>
+    </div>
+
+    <h2>3. Load Balancing Strategies</h2>
+
+    <p>
+        A load balancer sits in front of your inference instances and routes incoming requests. The choice
+        of routing algorithm significantly affects tail latency and throughput. The following configurations
+        show NGINX and Envoy setups for LLM serving.
+    </p>
+
+    <h3>3.1 NGINX Configuration</h3>
+
+    <p>
+        The following NGINX configuration uses least-connections routing, which sends each new request to
+        the instance with the fewest active connections. This works well for LLM serving because requests
+        have variable processing times.
+    </p>
+
+    <pre><code class="language-bash"># /etc/nginx/nginx.conf
+upstream vllm_cluster {
+    least_conn;  # Route to instance with fewest active connections
+
+    server node-a:8000 max_fails=3 fail_timeout=30s;
+    server node-b:8000 max_fails=3 fail_timeout=30s;
+    server node-c:8000 max_fails=3 fail_timeout=30s;
+}
+
+server {
+    listen 80;
+
+    # Increase timeouts for long-running generation requests
+    proxy_read_timeout 300s;
+    proxy_send_timeout 300s;
+
+    location /v1/ {
+        proxy_pass http://vllm_cluster;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+
+        # Enable streaming (SSE)
+        proxy_buffering off;
+        proxy_cache off;
+        chunked_transfer_encoding on;
+    }
+
+    location /health {
+        proxy_pass http://vllm_cluster;
+    }
+}</code></pre>
+
+    <h3>3.2 Routing Algorithm Comparison</h3>
+
+    <p>
+        Different routing algorithms are suited to different workload patterns. The table below compares the
+        most common options for LLM serving.
+    </p>
+
+    <figure>
+        <table>
+            <thead>
+                <tr>
+                    <th scope="col">Algorithm</th>
+                    <th scope="col">Behavior</th>
+                    <th scope="col">Best For</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td><strong>Round Robin</strong></td><td>Cycles through instances sequentially</td><td>Uniform request sizes; simple deployments</td></tr>
+                <tr><td><strong>Least Connections</strong></td><td>Routes to the instance with fewest active requests</td><td>Variable output lengths; general-purpose LLM serving</td></tr>
+                <tr><td><strong>Least Latency</strong></td><td>Routes to the instance with the lowest recent response time</td><td>Heterogeneous GPU types in the same cluster</td></tr>
+                <tr><td><strong>Session Affinity</strong></td><td>Routes all requests from the same user to the same instance</td><td>Multi-turn chat with server-side KV cache persistence</td></tr>
+            </tbody>
+        </table>
+        <figcaption><strong>Figure S.5.2</strong>: Load balancing algorithms for LLM serving. Least-connections is the recommended default because LLM request durations vary widely based on output length.</figcaption>
+    </figure>
+
+    <div class="callout warning">
+        <div class="callout-title">Warning</div>
+        <p>Avoid round-robin load balancing for LLM serving. Because requests have highly variable processing times (a 10-token response vs. a 2000-token response), round-robin frequently overloads one instance while others sit idle. Least-connections routing adapts to this variance automatically.</p>
+    </div>
+
+    <h2>4. GPU Utilization Monitoring</h2>
+
+    <p>
+        Effective scaling requires visibility into GPU utilization, memory consumption, and queue depth. The
+        following Python script collects GPU metrics using the <code>pynvml</code> library and exposes them
+        in a format suitable for Prometheus or custom dashboards.
+    </p>
+
+    <pre><code class="language-python">import pynvml
+import time
+import json
+
+def collect_gpu_metrics():
+    """Collect GPU metrics for all available devices."""
+    pynvml.nvmlInit()
+    device_count = pynvml.nvmlDeviceGetCount()
+    metrics = []
+
+    for i in range(device_count):
+        handle = pynvml.nvmlDeviceGetHandleByIndex(i)
+        util = pynvml.nvmlDeviceGetUtilizationRates(handle)
+        mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+        temp = pynvml.nvmlDeviceGetTemperature(handle, pynvml.NVML_TEMPERATURE_GPU)
+        power = pynvml.nvmlDeviceGetPowerUsage(handle) / 1000  # milliwatts to watts
+
+        metrics.append({
+            "gpu_index": i,
+            "gpu_utilization_pct": util.gpu,
+            "memory_used_gb": round(mem_info.used / (1024 ** 3), 2),
+            "memory_total_gb": round(mem_info.total / (1024 ** 3), 2),
+            "memory_utilization_pct": round(mem_info.used / mem_info.total * 100, 1),
+            "temperature_c": temp,
+            "power_watts": round(power, 1),
+        })
+
+    pynvml.nvmlShutdown()
+    return metrics
+
+# Collect and display metrics every 5 seconds
+while True:
+    for m in collect_gpu_metrics():
+        print(json.dumps(m))
+    time.sleep(5)</code></pre>
+
+    <p>
+        For production deployments, integrate these metrics with Prometheus and Grafana. vLLM and TGI both
+        expose Prometheus-format metrics at their <code>/metrics</code> endpoints. The key metrics to
+        track for scaling decisions are listed below.
+    </p>
+
+    <figure>
+        <table>
+            <thead>
+                <tr>
+                    <th scope="col">Metric</th>
+                    <th scope="col">Scaling Signal</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td>Request queue depth</td><td>Scale up when queue consistently exceeds 2x your max batch size</td></tr>
+                <tr><td>GPU memory utilization</td><td>Above 95% indicates risk of OOM under burst load</td></tr>
+                <tr><td>Time to first token (TTFT)</td><td>Rising TTFT indicates the prefill phase is becoming a bottleneck</td></tr>
+                <tr><td>Tokens per second (throughput)</td><td>Flattening throughput despite increasing requests means capacity limit</td></tr>
+                <tr><td>GPU compute utilization</td><td>Below 60% with high queue depth suggests batching is suboptimal</td></tr>
+            </tbody>
+        </table>
+        <figcaption><strong>Figure S.5.3</strong>: Key metrics for LLM serving autoscaling decisions.</figcaption>
+    </figure>
+
+    <h2>5. Benchmarking Throughput</h2>
+
+    <p>
+        Before deploying to production, benchmark your serving setup to understand its capacity limits. The
+        following script sends concurrent requests to a vLLM or TGI server and measures throughput, latency
+        percentiles, and time to first token.
+    </p>
+
+    <pre><code class="language-python">import asyncio
+import aiohttp
+import time
+import statistics
+
+async def benchmark_serving(
+    url: str,
+    num_requests: int = 100,
+    concurrency: int = 16,
+    max_tokens: int = 128,
+):
+    """Benchmark an OpenAI-compatible serving endpoint."""
+    semaphore = asyncio.Semaphore(concurrency)
+    latencies = []
+    first_token_times = []
+    total_tokens = 0
+
+    async def send_request(session, prompt):
+        nonlocal total_tokens
+        async with semaphore:
+            start = time.perf_counter()
+            first_token_time = None
+
+            async with session.post(
+                f"{url}/v1/completions",
+                json={
+                    "model": "default",
+                    "prompt": prompt,
+                    "max_tokens": max_tokens,
+                    "temperature": 0.7,
+                    "stream": True,
+                },
+            ) as resp:
+                token_count = 0
+                async for line in resp.content:
+                    decoded = line.decode().strip()
+                    if decoded.startswith("data:") and "[DONE]" not in decoded:
+                        if first_token_time is None:
+                            first_token_time = time.perf_counter() - start
+                        token_count += 1
+
+            elapsed = time.perf_counter() - start
+            latencies.append(elapsed)
+            if first_token_time:
+                first_token_times.append(first_token_time)
+            total_tokens += token_count
+
+    prompts = [f"Write a short paragraph about topic number {i}." for i in range(num_requests)]
+
+    start_time = time.perf_counter()
+    async with aiohttp.ClientSession() as session:
+        tasks = [send_request(session, p) for p in prompts]
+        await asyncio.gather(*tasks)
+    wall_time = time.perf_counter() - start_time
+
+    print(f"Total requests:       {num_requests}")
+    print(f"Concurrency:          {concurrency}")
+    print(f"Wall clock time:      {wall_time:.2f}s")
+    print(f"Throughput:           {total_tokens / wall_time:.1f} tokens/sec")
+    print(f"Median latency:       {statistics.median(latencies):.3f}s")
+    print(f"P95 latency:          {sorted(latencies)[int(0.95 * len(latencies))]:.3f}s")
+    print(f"P99 latency:          {sorted(latencies)[int(0.99 * len(latencies))]:.3f}s")
+    if first_token_times:
+        print(f"Median TTFT:          {statistics.median(first_token_times):.3f}s")
+
+# Run the benchmark
+asyncio.run(benchmark_serving("http://localhost:8000", num_requests=200, concurrency=32))</code></pre>
+
+    <h2>6. Cost Optimization Strategies</h2>
+
+    <p>
+        GPU inference is expensive, and optimizing costs requires attention at multiple levels. The following
+        strategies can reduce serving costs by 40% to 70% without sacrificing quality or availability.
+    </p>
+
+    <h3>6.1 Right-Sizing Quantization</h3>
+
+    <p>
+        As covered in Section S.4, quantization can cut GPU memory requirements by 4x. A 70B model quantized
+        to 4 bits fits on a single A100-80GB instead of requiring two GPUs, halving your compute cost
+        immediately. Benchmark your specific use case to verify that the quantized model meets your quality bar.
+    </p>
+
+    <h3>6.2 Autoscaling with Kubernetes</h3>
+
+    <p>
+        For workloads with variable traffic patterns, autoscaling inference pods based on GPU metrics avoids
+        paying for idle capacity. The following Kubernetes configuration defines a Horizontal Pod Autoscaler
+        that scales vLLM replicas based on GPU utilization.
+    </p>
+
+    <pre><code class="language-yaml"># vllm-hpa.yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: vllm-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: vllm-serving
+  minReplicas: 1
+  maxReplicas: 8
+  metrics:
+    - type: Pods
+      pods:
+        metric:
+          name: gpu_utilization
+        target:
+          type: AverageValue
+          averageValue: "75"    # Scale up when average GPU util exceeds 75%
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300  # Wait 5 min before scaling down
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      policies:
+        - type: Pods
+          value: 2
+          periodSeconds: 60</code></pre>
+
+    <h3>6.3 Spot and Preemptible Instances</h3>
+
+    <p>
+        Cloud providers offer GPU instances at 60% to 90% discounts through spot (AWS), preemptible (GCP), or
+        low-priority (Azure) pricing. For inference workloads that can tolerate occasional interruptions, running
+        a portion of your replicas on spot instances significantly reduces costs. Configure your load balancer
+        to drain connections gracefully when a spot instance receives a termination notice.
+    </p>
+
+    <div class="callout practical-example">
+        <div class="callout-title">Practical Example</div>
+        <p>A cost-effective production setup might use 2 on-demand vLLM replicas as a baseline (guaranteed availability) plus 4 spot instance replicas for burst capacity. The load balancer health checks automatically remove terminated spot instances, and the Kubernetes autoscaler replaces them when new spot capacity becomes available. This pattern reduces costs by roughly 50% compared to running all 6 replicas on-demand.</p>
+    </div>
+
+    <h2>7. Production Checklist</h2>
+
+    <p>
+        Before deploying an LLM serving cluster to production, verify each item in the following checklist.
+    </p>
+
+    <div class="callout note">
+        <div class="callout-title">Production Readiness Checklist</div>
+        <ul>
+            <li><strong>Health checks:</strong> Load balancer probes the <code>/health</code> endpoint and removes unhealthy instances automatically</li>
+            <li><strong>Graceful shutdown:</strong> Instances drain in-flight requests before terminating (set <code>terminationGracePeriodSeconds</code> to at least 120)</li>
+            <li><strong>Request timeouts:</strong> Proxy timeout set to at least 300 seconds for long completions; client-side timeout set slightly higher</li>
+            <li><strong>Rate limiting:</strong> Per-user or per-API-key rate limits prevent a single client from monopolizing the cluster</li>
+            <li><strong>Monitoring:</strong> Prometheus scraping GPU metrics, request latencies, and queue depth with Grafana dashboards and alerts</li>
+            <li><strong>Model versioning:</strong> Blue-green or canary deployment strategy for rolling out new model versions without downtime</li>
+            <li><strong>Logging:</strong> Structured request/response logging (excluding sensitive content) for debugging and audit</li>
+            <li><strong>Cost alerts:</strong> Budget alerts configured in your cloud provider to catch unexpected scaling events</li>
+        </ul>
+    </div>
+
+    <h2>Summary</h2>
+
+    <p>
+        Scaling LLM inference for production requires combining vertical scaling (tensor parallelism across
+        GPUs) with horizontal scaling (multiple instances behind a load balancer). Least-connections routing
+        handles the variable request durations inherent to autoregressive generation. Monitoring GPU
+        utilization, queue depth, and time to first token provides the signals needed for autoscaling
+        decisions. Cost optimization through quantization, spot instances, and right-sized autoscaling can
+        reduce serving costs by 50% or more. With the techniques covered in this appendix, you have the
+        tools to deploy, scale, and operate LLM inference in production across vLLM, TGI, and SGLang.
+    </p>
 
     <nav class="chapter-nav">
     <a class="prev" href="section-s.4.html">Quantization for Serving: GPTQ, AWQ, and GGUF</a>

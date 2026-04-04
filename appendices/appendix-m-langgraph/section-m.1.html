@@ -3,19 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Section M.1: Graph Fundamentals: Nodes, Edges, and State. A comprehensive chapter from the Building Conversational AI textbook.">
     <title>Section M.1: Graph Fundamentals: Nodes, Edges, and State | Building Conversational AI with LLMs and Agents</title>
     <link rel="stylesheet" href="../../styles/book.css">
-    <link rel="stylesheet" href="../../vendor/katex/katex.min.css">
-    <script defer src="../../vendor/katex/katex.min.js"></script>
-    <script defer src="../../vendor/katex/contrib/auto-render.min.js"
-        onload="renderMathInElement(document.body, {
-            delimiters: [
-                {left: '$$', right: '$$', display: true},
-                {left: '$', right: '$', display: false}
-            ],
-            throwOnError: false
-        });"></script>
-    <link rel="stylesheet" href="../../vendor/prism/prism-theme.css">
+<link rel="stylesheet" href="../../vendor/prism/prism-theme.css">
     <script defer src="../../vendor/prism/prism-bundle.min.js"></script>
 </head>
 <body>
@@ -33,10 +24,221 @@
 
     <div class="callout big-picture">
         <div class="callout-title">Big Picture</div>
-        <p>This section covers graph Fundamentals: Nodes, Edges, and State. Content will be generated using the book production pipeline.</p>
+        <p>LangGraph models agentic workflows as directed graphs. Every graph consists of <strong>nodes</strong> (functions that transform state), <strong>edges</strong> (transitions between nodes), and a shared <strong>state</strong> object that flows through the entire execution. Understanding these three primitives is the foundation for building reliable, observable agent systems. This section walks you through the <code>StateGraph</code> API, typed state definitions, reducers, and basic graph compilation and execution.</p>
     </div>
 
-    <p><em>Content pending: this section will be produced by the book-writers agent pipeline.</em></p>
+    <h2>1. Why Graphs for Agents?</h2>
+
+    <p>Traditional chain-based orchestration treats LLM pipelines as linear sequences. This works well for simple tasks, but real-world agents need to branch, loop, and coordinate multiple steps. LangGraph addresses this by exposing a graph abstraction where each step is a node and transitions are explicit edges. The result is a workflow that is easy to visualize, debug, and extend.</p>
+
+    <p>If you have already worked through the LangChain appendix (<a href="../appendix-l-langchain/index.html">Appendix L</a>), you will notice that LangGraph builds on top of LangChain's model and tool abstractions while replacing the implicit chain execution with an explicit, inspectable graph.</p>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight: Graphs versus Chains</div>
+        <p>A chain is a special case of a graph: a linear sequence with no branches or cycles. LangGraph generalizes this so you can express retry loops, conditional routing, parallel fan-out, and human-in-the-loop patterns within a single, unified API.</p>
+    </div>
+
+    <h2>2. Installing LangGraph</h2>
+
+    <p>Before writing your first graph, install the core package and the OpenAI integration used in this appendix.</p>
+
+    <pre><code class="language-bash">pip install langgraph langchain-openai</code></pre>
+    <div class="code-caption"><strong>Code Fragment M.1.1:</strong> Installing LangGraph and the OpenAI provider. You can substitute <code>langchain-anthropic</code> or another provider if you prefer a different model backend.</div>
+
+    <p>LangGraph requires Python 3.9 or later. If you need help setting up a virtual environment, see <a href="../appendix-d-environment-setup/section-d.2.html">Section D.2</a>.</p>
+
+    <h2>3. Defining State with TypedDict</h2>
+
+    <p>Every LangGraph graph operates on a shared state object. The recommended way to define this state is with Python's <code>TypedDict</code>, which provides both documentation and type-checking support. Each key in the <code>TypedDict</code> represents a <em>channel</em> of data that nodes can read from and write to.</p>
+
+    <p>The following example defines a minimal conversational state containing a list of messages and a summary string.</p>
+
+    <pre><code class="language-python">from typing import TypedDict, Annotated
+from langgraph.graph.message import add_messages
+
+class AgentState(TypedDict):
+    """State that flows through every node in our graph."""
+    messages: Annotated[list, add_messages]  # append-only message list
+    summary: str                              # latest conversation summary</code></pre>
+    <div class="code-caption"><strong>Code Fragment M.1.2:</strong> A typed state definition using <code>TypedDict</code>. The <code>Annotated</code> wrapper on <code>messages</code> attaches a <em>reducer</em>, which controls how updates are merged.</div>
+
+    <h3>3.1 State Channels</h3>
+
+    <p>Each key in the state is called a <em>channel</em>. When a node returns a dictionary, LangGraph matches returned keys to channels and applies the update. Keys that the node does not return remain unchanged. This selective update model means nodes only need to produce the data they are responsible for.</p>
+
+    <h3>3.2 Reducers</h3>
+
+    <p>By default, a returned value for a channel <strong>overwrites</strong> whatever was there before. Reducers change this behavior. The built-in <code>add_messages</code> reducer, for example, appends new messages to the existing list instead of replacing it. You can write custom reducers for any merge logic you need.</p>
+
+    <p>The following code shows how to create a custom reducer that keeps only the last <em>N</em> items.</p>
+
+    <pre><code class="language-python">from typing import TypedDict, Annotated
+
+def keep_last_n(existing: list, new: list, *, n: int = 10) -> list:
+    """Reducer that appends new items, then trims to the last n."""
+    combined = existing + new
+    return combined[-n:]
+
+class WindowedState(TypedDict):
+    events: Annotated[list, keep_last_n]  # sliding window of events
+    status: str                            # overwrite semantics (no reducer)</code></pre>
+    <div class="code-caption"><strong>Code Fragment M.1.3:</strong> A custom reducer that implements a sliding window. When a node returns new events, <code>keep_last_n</code> appends them and trims the list to the most recent 10 items.</div>
+
+    <div class="callout warning">
+        <div class="callout-title">Warning: Mutable Default State</div>
+        <p>Never use mutable default values (such as <code>[]</code> or <code>{}</code>) directly in your <code>TypedDict</code>. Python shares mutable defaults across instances, which can cause state to leak between graph invocations. Instead, let LangGraph initialize each channel from the input you pass at invocation time.</p>
+    </div>
+
+    <h2>4. Building Your First Graph</h2>
+
+    <p>With the state defined, you can construct a graph using the <code>StateGraph</code> class. The workflow has three steps: add nodes, add edges, and compile.</p>
+
+    <pre><code class="language-python">from langgraph.graph import StateGraph, START, END
+from langchain_openai import ChatOpenAI
+
+# 1. Define the state
+class ChatState(TypedDict):
+    messages: Annotated[list, add_messages]
+
+# 2. Create node functions
+llm = ChatOpenAI(model="gpt-4o-mini")
+
+def chatbot(state: ChatState) -> dict:
+    """Call the LLM with the current message history."""
+    response = llm.invoke(state["messages"])
+    return {"messages": [response]}
+
+# 3. Build the graph
+graph_builder = StateGraph(ChatState)
+graph_builder.add_node("chatbot", chatbot)
+
+# 4. Wire up the edges
+graph_builder.add_edge(START, "chatbot")
+graph_builder.add_edge("chatbot", END)
+
+# 5. Compile into a runnable
+graph = graph_builder.compile()</code></pre>
+    <div class="code-caption"><strong>Code Fragment M.1.4:</strong> A minimal single-node graph. The <code>START</code> sentinel marks the entry point and <code>END</code> marks the exit. After compilation, the graph is a standard LangChain <code>Runnable</code>.</div>
+
+    <h3>4.1 Nodes</h3>
+
+    <p>A node is any Python callable that receives the current state and returns a partial state update (a dictionary). Nodes can call LLMs, run tools, query databases, or perform arbitrary computation. The only requirement is that the returned dictionary keys must match channels declared in the state.</p>
+
+    <h3>4.2 Edges</h3>
+
+    <p>Edges define the transitions between nodes. The simplest form, <code>add_edge(a, b)</code>, creates an unconditional transition: after node <em>a</em> finishes, node <em>b</em> runs. The special constants <code>START</code> and <code>END</code> represent the entry and exit points of the graph. Conditional edges, covered in <a href="section-m.2.html">Section M.2</a>, allow dynamic routing based on state.</p>
+
+    <h3>4.3 Compilation</h3>
+
+    <p>Calling <code>compile()</code> validates the graph structure, checks for unreachable nodes, and returns an executable <code>CompiledGraph</code>. This compiled object implements the LangChain <code>Runnable</code> interface, so you can call <code>invoke</code>, <code>stream</code>, <code>batch</code>, and <code>ainvoke</code> on it.</p>
+
+    <h2>5. Running and Streaming a Graph</h2>
+
+    <p>Once compiled, a graph can be invoked synchronously or streamed token by token. The following example demonstrates both patterns.</p>
+
+    <pre><code class="language-python">from langchain_core.messages import HumanMessage
+
+# Synchronous invocation
+result = graph.invoke({
+    "messages": [HumanMessage(content="What is LangGraph?")]
+})
+print(result["messages"][-1].content)
+
+# Streaming: yields state updates after each node
+for event in graph.stream({
+    "messages": [HumanMessage(content="Explain graph theory briefly.")]
+}):
+    for node_name, node_output in event.items():
+        print(f"[{node_name}]", node_output["messages"][-1].content)</code></pre>
+    <div class="code-caption"><strong>Code Fragment M.1.5:</strong> Invoking and streaming a compiled graph. The <code>stream</code> method yields one event per node execution, making it straightforward to display incremental progress in a UI.</div>
+
+    <div class="callout note">
+        <div class="callout-title">Note: Async Support</div>
+        <p>Every compiled graph also exposes <code>ainvoke</code> and <code>astream</code> for use with Python's <code>asyncio</code>. If your application already uses an async web framework (FastAPI, for example), prefer the async variants to avoid blocking the event loop.</p>
+    </div>
+
+    <h2>6. A Multi-Node Example</h2>
+
+    <p>Real graphs have more than one node. The example below builds a two-step pipeline: the first node classifies user intent, and the second node generates a response based on that classification.</p>
+
+    <pre><code class="language-python">from langgraph.graph import StateGraph, START, END
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import HumanMessage, SystemMessage
+
+class IntentState(TypedDict):
+    messages: Annotated[list, add_messages]
+    intent: str
+
+llm = ChatOpenAI(model="gpt-4o-mini")
+
+def classify_intent(state: IntentState) -> dict:
+    """Classify the user's message as 'question' or 'command'."""
+    sys_msg = SystemMessage(
+        content="Classify the user message as 'question' or 'command'. "
+                "Reply with one word only."
+    )
+    response = llm.invoke([sys_msg] + state["messages"])
+    return {"intent": response.content.strip().lower()}
+
+def generate_response(state: IntentState) -> dict:
+    """Generate a response based on the classified intent."""
+    intent = state["intent"]
+    sys_msg = SystemMessage(
+        content=f"The user's intent is '{intent}'. Respond helpfully."
+    )
+    response = llm.invoke([sys_msg] + state["messages"])
+    return {"messages": [response]}
+
+# Build the graph
+builder = StateGraph(IntentState)
+builder.add_node("classify", classify_intent)
+builder.add_node("respond", generate_response)
+builder.add_edge(START, "classify")
+builder.add_edge("classify", "respond")
+builder.add_edge("respond", END)
+
+intent_graph = builder.compile()
+
+# Run it
+output = intent_graph.invoke({
+    "messages": [HumanMessage(content="Summarize the last quarter's report.")]
+})
+print("Intent:", output["intent"])
+print("Response:", output["messages"][-1].content)</code></pre>
+    <div class="code-caption"><strong>Code Fragment M.1.6:</strong> A two-node graph that first classifies intent and then generates a tailored response. The <code>intent</code> channel, written by the first node, is read by the second.</div>
+
+    <figure>
+        <pre class="figure-text">
+┌───────┐     ┌──────────┐     ┌──────────┐     ┌─────┐
+│ START │────▶│ classify  │────▶│ respond  │────▶│ END │
+└───────┘     └──────────┘     └──────────┘     └─────┘
+                  │                   ▲
+                  │  writes: intent   │  reads: intent
+                  └───────────────────┘
+        </pre>
+        <figcaption>Figure M.1.1: Dataflow in the two-node intent classification graph. The <code>intent</code> channel acts as a communication bridge between the classify and respond nodes.</figcaption>
+    </figure>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight: Graphs Are Runnables</div>
+        <p>Because compiled graphs implement the <code>Runnable</code> interface, they compose naturally with other LangChain components. You can embed a graph inside a chain, use it as a tool, or nest one graph inside another (see <a href="section-m.5.html">Section M.5</a> on subgraphs).</p>
+    </div>
+
+    <h2>7. Visualizing Your Graph</h2>
+
+    <p>LangGraph provides built-in visualization that renders the graph structure as a Mermaid diagram or a PNG image. This is invaluable for debugging and documentation.</p>
+
+    <pre><code class="language-python"># Print a Mermaid diagram (paste into mermaid.live to render)
+print(intent_graph.get_graph().draw_mermaid())
+
+# Or save as a PNG (requires graphviz installed)
+from IPython.display import Image, display
+display(Image(intent_graph.get_graph().draw_mermaid_png()))</code></pre>
+    <div class="code-caption"><strong>Code Fragment M.1.7:</strong> Visualizing the graph structure. The Mermaid output can be rendered in any Markdown viewer that supports Mermaid diagrams; the PNG variant is useful in Jupyter notebooks.</div>
+
+    <h2>8. Summary</h2>
+
+    <p>This section introduced the core building blocks of LangGraph. You learned how to define typed state with channels and reducers, create node functions that read and write state, connect nodes with edges, compile a graph into an executable runnable, and stream results incrementally. In <a href="section-m.2.html">Section M.2</a>, you will see how conditional edges and cycles turn these simple graphs into powerful agentic loops.</p>
 
     <nav class="chapter-nav">
     <a class="prev" href="index.html">LangGraph</a>

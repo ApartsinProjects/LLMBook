@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Section 6.8: Production LLM Training Systems: Megatron, Elastic Training, and Fault Tolerance. A comprehensive chapter from the Building Conversational AI textbook.">
+    <title>Section 6.8: Production LLM Training Systems: Megatron, Elastic Training, and Fault Tolerance</title>
+    <link rel="stylesheet" href="../../styles/book.css">
+    <link rel="stylesheet" href="../../vendor/katex/katex.min.css">
+    <script defer src="../../vendor/katex/katex.min.js"></script>
+    <script defer src="../../vendor/katex/contrib/auto-render.min.js"
+        onload="renderMathInElement(document.body, {
+            delimiters: [
+                {left: '$$', right: '$$', display: true},
+                {left: '$', right: '$', display: false}
+            ],
+            throwOnError: false
+        });"></script>
+    <link rel="stylesheet" href="../../vendor/prism/prism-theme.css">
+    <script defer src="../../vendor/prism/prism-bundle.min.js"></script>
+</head>
+<body>
+<header class="chapter-header">
+<nav class="header-nav">
+    <a href="../../index.html" class="book-title-link">Building Conversational AI with LLMs and Agents</a>
+    <a href="../../toc.html" class="toc-link" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+</nav>
+    <div class="part-label"><a href="../index.html">Part 2: Understanding LLMs</a></div>
+    <div class="chapter-label"><a href="index.html">Chapter 06: Pretraining and Scaling Laws</a></div>
+    <h1>Production LLM Training Systems: Megatron, Elastic Training, and Fault Tolerance</h1>
+</header>
+
+<main class="content">
+
+    <blockquote class="epigraph">
+        <p>"Training a 405-billion-parameter model is not a research problem. It is a systems engineering problem with research inside it."</p>
+        <cite><span class="agent-avatar-inline" style="background-color: #e67e22;"><img src="../../front-matter/images/agents/train.png" alt="Train"></span> <a href="../../front-matter/wisdom-council.html#train">Train</a> <span class="agent-desc">AI Agent</span></cite>
+    </blockquote>
+
+<div class="prerequisites">
+    <h3>Prerequisites</h3>
+    <p>This section builds directly on the distributed training primitives (DDP, FSDP, ZeRO, tensor and pipeline parallelism) covered in <a class="cross-ref" href="section-6.6.html">Section 6.6: Distributed Training at Scale</a>. Familiarity with mixed-precision training (FP16, BF16) and gradient checkpointing from that section is assumed. Understanding of pretraining data pipelines from <a class="cross-ref" href="section-6.1.html">Section 6.1</a> and scaling laws from <a class="cross-ref" href="section-6.3.html">Section 6.3</a> provides additional context.</p>
+</div>
+
+    <div class="callout big-picture">
+        <div class="callout-title">Big Picture</div>
+        <p><strong>Section 6.6 covered what distributed training is. This section covers how production teams actually do it.</strong> Training a frontier LLM (70B+ parameters) over multiple weeks on thousands of GPUs introduces engineering challenges that go far beyond choosing a parallelism strategy. You need a framework that composes multiple parallelism axes efficiently, a compiler stack that extracts maximum hardware utilization, fault tolerance that survives inevitable node failures, checkpointing that does not bottleneck training, and data pipelines that stream deterministically across ranks. This section covers the production-grade tools and techniques that make multi-week LLM training runs possible: Megatron-LM for multi-axis parallelism, torch.compile and kernel optimization for throughput, Torch Distributed Elastic for fault tolerance, PyTorch Distributed Checkpointing (DCP) for efficient state management, and streaming dataset libraries for scalable data loading.</p>
+    </div>
+
+
+    <h2>1. Megatron-LM and Multi-Axis Parallelism <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>
+        <a class="cross-ref" href="section-6.6.html">Section 6.6</a> introduced tensor parallelism (TP), pipeline parallelism (PP), and data parallelism (DP) as independent strategies. In practice, training a frontier LLM requires composing all of these simultaneously. Megatron-LM, developed by NVIDIA (Shoeybi et al., 2020; Narayanan et al., 2021), is the most widely adopted framework for multi-axis parallelism in LLM pretraining. Its successor, Megatron-Core, provides a modular library that can be integrated into custom training loops.
+    </p>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Mental Model: The Parallelism Grid</div>
+        <p>Think of multi-axis parallelism as a three-dimensional grid. The TP axis splits each layer across GPUs within a single node (fast NVLink). The PP axis distributes groups of layers across nodes in a pipeline. The DP axis replicates the entire pipeline across independent groups that process different data shards. A fourth axis, Context Parallelism (CP), splits long sequences across GPUs for models with extended context windows. Each axis addresses a different bottleneck: TP reduces per-layer memory, PP reduces total model memory per device, DP scales throughput, and CP handles sequence-length memory.</p>
+    </div>
+
+    <h3>1.1 The Four Parallelism Axes</h3>
+
+    <p>
+        A typical Megatron-LM configuration specifies four parallelism degrees: TP, PP, DP, and (optionally) CP. The total GPU count equals $\text{TP} \times \text{PP} \times \text{DP} \times \text{CP}$. Choosing the right combination depends on model size, sequence length, cluster topology, and interconnect bandwidth.
+    </p>
+
+    <p><strong>Tensor Parallelism (TP)</strong> splits individual matrix multiplications across GPUs. For a transformer's attention and MLP layers, TP partitions the weight matrices along the hidden dimension. This requires an all-reduce after each layer, so it works best within a node where NVLink provides 900 GB/s bandwidth (on H100 nodes). Typical TP degree: 2, 4, or 8 within a single node.</p>
+
+    <p><strong>Pipeline Parallelism (PP)</strong> assigns contiguous groups of transformer layers to different devices. Megatron uses an interleaved 1F1B (one-forward-one-backward) schedule to minimize pipeline bubbles. The bubble fraction is approximately $\frac{p - 1}{m}$ where $p$ is the number of pipeline stages and $m$ is the number of microbatches. With enough microbatches, bubble overhead drops below 5%.</p>
+
+    <p><strong>Data Parallelism (DP)</strong> replicates the model (or model shard) and distributes data batches across replicas. When combined with ZeRO Stage 1 (optimizer state sharding), DP scales throughput linearly with minimal memory overhead. Megatron-Core integrates distributed data parallelism with optional gradient compression.</p>
+
+    <p><strong>Context Parallelism (CP)</strong> splits the input sequence across GPUs along the sequence dimension, distributing the attention computation. This is essential for models trained on sequences longer than 8K tokens, where the quadratic attention memory becomes a bottleneck even with FlashAttention. CP uses ring attention or similar algorithms to exchange KV blocks between GPUs.</p>
+
+    <h3>1.2 Practical Configurations for Common Model Sizes</h3>
+
+    <p>The following table shows recommended parallelism configurations for training common model sizes on clusters of NVIDIA H100 GPUs. These represent starting points; actual configurations require profiling on your specific hardware and interconnect.</p>
+
+    <div class="table-container">
+        <table class="data-table">
+            <caption><strong>Table 6.8.1</strong>: Recommended Megatron parallelism configurations for H100 clusters</caption>
+            <thead>
+                <tr><th>Model Size</th><th>TP</th><th>PP</th><th>DP</th><th>CP</th><th>GPUs</th><th>Micro-batch</th><th>Global Batch</th></tr>
+            </thead>
+            <tbody>
+                <tr><td>7B</td><td>1</td><td>1</td><td>64</td><td>1</td><td>64</td><td>4</td><td>256</td></tr>
+                <tr><td>13B</td><td>2</td><td>1</td><td>64</td><td>1</td><td>128</td><td>2</td><td>128</td></tr>
+                <tr><td>70B</td><td>8</td><td>4</td><td>16</td><td>1</td><td>512</td><td>1</td><td>1024</td></tr>
+                <tr><td>70B (128K ctx)</td><td>8</td><td>4</td><td>8</td><td>4</td><td>1024</td><td>1</td><td>512</td></tr>
+                <tr><td>405B</td><td>8</td><td>16</td><td>32</td><td>1</td><td>4096</td><td>1</td><td>2048</td></tr>
+                <tr><td>405B (128K ctx)</td><td>8</td><td>16</td><td>16</td><td>4</td><td>8192</td><td>1</td><td>1024</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="callout practical-example">
+        <div class="callout-title">Practical Example</div>
+        <p><strong>Llama 3.1 405B Training Configuration.</strong> Meta's Llama 3.1 405B was trained on 16,384 H100 GPUs using TP=8, PP=16, DP=128 (approximately). Each node of 8 GPUs handled one TP group, 16 nodes formed a pipeline, and 128 pipeline replicas ran in parallel. The training consumed approximately 30.8 million GPU-hours over several months. Achieving 38-43% Model FLOPS Utilization (MFU) on this scale required careful overlap of computation and communication, interleaved pipeline schedules, and a custom network topology to minimize cross-rack traffic.</p>
+    </div>
+
+    <h3>1.3 Megatron-Core Configuration</h3>
+
+    <p>Code Fragment 6.8.1 shows how to configure multi-axis parallelism in Megatron-Core. The <code>TransformerConfig</code> object specifies the model architecture, and <code>parallel_state</code> initializes the process groups for each parallelism axis.</p>
+
+<pre><code class="language-python"># Code Fragment 6.8.1: Megatron-Core multi-axis parallelism setup
+import megatron.core as mcore
+from megatron.core.transformer.transformer_config import TransformerConfig
+from megatron.core import parallel_state
+
+# Initialize distributed process groups
+parallel_state.initialize_model_parallel(
+    tensor_model_parallel_size=8,     # TP: split layers within node
+    pipeline_model_parallel_size=4,   # PP: distribute layers across nodes
+    context_parallel_size=1,          # CP: sequence-dimension splitting
+    # DP is inferred: world_size / (TP * PP * CP)
+)
+
+# Configure transformer architecture
+config = TransformerConfig(
+    num_layers=80,                    # 70B-class model
+    hidden_size=8192,
+    num_attention_heads=64,
+    num_query_groups=8,               # GQA: 8 KV heads
+    ffn_hidden_size=28672,
+    max_position_embeddings=8192,
+    bf16=True,                        # BF16 mixed precision
+    # Pipeline parallelism schedule
+    pipeline_dtype="bfloat16",
+    num_microbatches=16,              # Reduce bubble fraction
+    overlap_p2p_comm=True,            # Overlap pipeline communication
+    # Activation checkpointing to reduce memory
+    recompute_granularity="selective",
+    recompute_method="uniform",
+)
+
+# Build the model with Megatron-Core's GPT architecture
+model = mcore.models.gpt.GPTModel(
+    config=config,
+    transformer_layer_spec=mcore.models.gpt.gpt_layer_specs.get_gpt_layer_spec(),
+    vocab_size=128256,
+    max_sequence_length=8192,
+)
+</code></pre>
+
+    <h3>1.4 MoE Load Balancing</h3>
+
+    <p>
+        Mixture-of-Experts (MoE) models (such as Mixtral 8x7B, DeepSeek-V3, and Arctic) add another layer of parallelism complexity. In an MoE transformer, each token is routed to a subset of experts (typically 2 out of 8 or 16). Without load balancing, some experts receive disproportionately more tokens, creating stragglers that slow the entire training step.
+    </p>
+
+    <p>
+        Megatron-Core implements <strong>Expert Parallelism (EP)</strong>, where experts are distributed across GPUs and tokens are communicated via all-to-all collectives. Load balancing is enforced through an auxiliary loss term added to the training objective:
+    </p>
+
+    <p>$$\mathcal{L}_{\text{aux}} = \alpha \cdot N \sum_{i=1}^{N} f_i \cdot p_i$$</p>
+
+    <p>
+        where $N$ is the number of experts, $f_i$ is the fraction of tokens routed to expert $i$, $p_i$ is the average routing probability for expert $i$, and $\alpha$ is a balancing coefficient (typically 0.01). This loss encourages uniform token distribution across experts without interfering with the primary language modeling objective.
+    </p>
+
+    <div class="callout fun-note">
+        <div class="callout-title">Fun Fact</div>
+        <p>DeepSeek-V3 (671B total, 37B active) achieved competitive performance with dense models while using only 1/18th of the parameters per forward pass. The trick was not just the MoE architecture but an auxiliary-loss-free load balancing strategy that used per-expert bias terms instead of the traditional auxiliary loss, avoiding the subtle performance degradation that auxiliary losses can cause.</p>
+    </div>
+
+
+    <h2>2. Compiler and Kernel Optimization for LLM Training <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>
+        Raw parallelism strategy determines how work is distributed across GPUs. Compiler and kernel optimization determine how efficiently each GPU executes its share of the work. The gap between theoretical peak FLOPS and actual training throughput (MFU) is where compiler and kernel optimizations make their impact.
+    </p>
+
+    <h3>2.1 torch.compile for LLM Training Loops</h3>
+
+    <p>
+        PyTorch 2.x introduced <code>torch.compile</code>, which uses TorchDynamo (a Python bytecode analyzer) and TorchInductor (a code generation backend) to automatically fuse operations and generate optimized GPU kernels. For LLM training, torch.compile can provide 10-30% throughput improvements by fusing elementwise operations, reducing kernel launch overhead, and optimizing memory access patterns.
+    </p>
+
+<pre><code class="language-python"># Code Fragment 6.8.2: Applying torch.compile to an LLM training loop
+import torch
+from transformers import AutoModelForCausalLM
+
+model = AutoModelForCausalLM.from_pretrained(
+    "meta-llama/Llama-3.1-8B",
+    torch_dtype=torch.bfloat16,
+    attn_implementation="flash_attention_2",
+)
+
+# Compile the model for training
+# mode="reduce-overhead" minimizes kernel launch overhead
+# fullgraph=True ensures the entire forward+backward is captured
+compiled_model = torch.compile(
+    model,
+    mode="reduce-overhead",
+    fullgraph=True,
+    backend="inductor",       # TorchInductor: generates Triton kernels
+)
+
+# Training loop proceeds normally; compiled model is a drop-in replacement
+optimizer = torch.optim.AdamW(compiled_model.parameters(), lr=3e-4)
+for batch in dataloader:
+    outputs = compiled_model(**batch)
+    loss = outputs.loss
+    loss.backward()
+    optimizer.step()
+    optimizer.zero_grad()
+</code></pre>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight</div>
+        <p>TorchInductor generates Triton kernels under the hood. Triton is a Python-based language for writing GPU kernels that compiles to PTX (NVIDIA) or AMDGPU IR (AMD). This means torch.compile benefits are portable across GPU vendors. The Inductor backend analyzes the computation graph, identifies fusion opportunities (such as combining layer norm, dropout, and residual addition into a single kernel), and generates Triton code that eliminates redundant memory reads and writes.</p>
+    </div>
+
+    <h3>2.2 FlashAttention Kernel Selection</h3>
+
+    <p>
+        FlashAttention (Dao et al., 2022; Dao, 2023) rewrites the attention computation to minimize HBM (High Bandwidth Memory) accesses by tiling the attention matrix and fusing softmax into the GEMM loop. FlashAttention-2 improved throughput by 2x over the original through better work partitioning across GPU thread blocks. FlashAttention-3 (2024) further optimizes for H100 Hopper architecture features, including FP8 tensor cores and asynchronous operations.
+    </p>
+
+    <p>The choice of attention kernel depends on the hardware generation and sequence length:</p>
+
+    <div class="table-container">
+        <table class="data-table">
+            <caption><strong>Table 6.8.2</strong>: Attention kernel selection guide</caption>
+            <thead>
+                <tr><th>Hardware</th><th>Sequence Length</th><th>Recommended Kernel</th><th>Notes</th></tr>
+            </thead>
+            <tbody>
+                <tr><td>A100</td><td>&lt; 8K</td><td>FlashAttention-2</td><td>Standard choice for Ampere GPUs</td></tr>
+                <tr><td>A100</td><td>8K-128K</td><td>FlashAttention-2 + CP</td><td>Combine with context parallelism</td></tr>
+                <tr><td>H100</td><td>&lt; 8K</td><td>FlashAttention-3</td><td>Exploits Hopper async features</td></tr>
+                <tr><td>H100</td><td>8K-128K</td><td>FlashAttention-3 + Ring Attention</td><td>Distributed attention across devices</td></tr>
+                <tr><td>H100 (FP8)</td><td>Any</td><td>FlashAttention-3 FP8</td><td>2x throughput, requires careful scaling</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <h3>2.3 FP8 and FP4 Training with Transformer Engine</h3>
+
+    <p>
+        NVIDIA's Transformer Engine library enables mixed-precision training with FP8 (8-bit floating point) on Hopper and later architectures. FP8 training nearly doubles the throughput of BF16 training by exploiting the H100's FP8 tensor cores, which deliver 3958 TFLOPS compared to 1979 TFLOPS for BF16 (Micikevicius et al., 2022).
+    </p>
+
+    <p>
+        FP8 training uses two formats: E4M3 (4 exponent bits, 3 mantissa bits) for forward activations and weights, and E5M2 (5 exponent bits, 2 mantissa bits) for gradients, which need the larger dynamic range. A per-tensor scaling factor is maintained and updated each iteration to keep values within the FP8 representable range.
+    </p>
+
+<pre><code class="language-python"># Code Fragment 6.8.3: Enabling FP8 training with Transformer Engine
+import transformer_engine.pytorch as te
+from transformer_engine.common.recipe import DelayedScaling, Format
+
+# FP8 recipe: delayed scaling updates the scale factor
+# based on the maximum absolute value from the previous iteration
+fp8_recipe = DelayedScaling(
+    margin=0,
+    fp8_format=Format.HYBRID,    # E4M3 for fwd, E5M2 for bwd
+    amax_history_len=16,          # Track max values over 16 iterations
+    amax_compute_algo="max",      # Use max of history for scaling
+)
+
+# Replace nn.Linear with Transformer Engine's FP8-aware version
+# in a transformer block
+class TransformerBlock(te.pytorch.module.TransformerLayer):
+    def __init__(self, hidden_size, num_heads):
+        super().__init__(
+            hidden_size=hidden_size,
+            ffn_hidden_size=4 * hidden_size,
+            num_attention_heads=num_heads,
+            # FP8 is enabled via the context manager, not here
+        )
+
+# During training, wrap the forward pass in the fp8 context
+with te.fp8_autocast(enabled=True, fp8_recipe=fp8_recipe):
+    output = model(input_ids, labels=labels)
+    loss = output.loss
+loss.backward()
+</code></pre>
+
+    <div class="callout practical-example">
+        <div class="callout-title">Practical Example</div>
+        <p><strong>FP8 training throughput gains.</strong> When training a Llama-3.1-8B model on a single DGX H100 node (8 GPUs), switching from BF16 to FP8 with Transformer Engine increased training throughput from approximately 420 tokens/sec/GPU to approximately 730 tokens/sec/GPU, a 74% improvement. Loss curves remained virtually identical, with the FP8 run's final loss within 0.02% of the BF16 baseline. The key to this stability is the delayed scaling mechanism, which adapts the per-tensor scaling factors smoothly rather than reacting to outliers.</p>
+    </div>
+
+
+    <h2>3. Elastic and Fault-Tolerant Training <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>
+        A multi-week LLM pretraining run on thousands of GPUs will experience hardware failures. At Meta's scale (16,384 GPUs for Llama 3.1), the team reported encountering over 400 unexpected interruptions during a 54-day training run. At this scale, fault tolerance is not optional; it is a fundamental requirement.
+    </p>
+
+    <h3>3.1 Torch Distributed Elastic (TorchElastic)</h3>
+
+    <p>
+        TorchElastic (accessed via <code>torchrun</code>) provides elastic training capabilities for PyTorch distributed jobs. Unlike standard <code>torch.distributed.launch</code>, TorchElastic can handle node failures and additions without requiring a complete restart of the training job. Key features include:
+    </p>
+
+    <ul>
+        <li><strong>Membership changes:</strong> Workers can join or leave the training group. When a node fails, TorchElastic detects the failure, removes the node from the group, and restarts the remaining workers with a new process group.</li>
+        <li><strong>Rendezvous:</strong> A coordination protocol (backed by etcd or C10d) that workers use to discover each other and agree on group membership. After a membership change, all surviving workers re-rendezvous before resuming.</li>
+        <li><strong>Restart semantics:</strong> On failure, TorchElastic kills all workers in the group, loads the latest checkpoint, and restarts with the new (possibly smaller) group. This "fail-stop-restart" approach is simpler and more robust than in-place recovery for LLM training.</li>
+    </ul>
+
+<pre><code class="language-bash"># Code Fragment 6.8.4: Launching an elastic LLM training job with torchrun
+# --nproc_per_node: GPUs per node
+# --nnodes: min:max node range for elasticity
+# --rdzv_backend: rendezvous backend (c10d or etcd)
+# --rdzv_endpoint: rendezvous coordinator address
+# --max_restarts: number of times to restart on failure
+
+torchrun \
+    --nproc_per_node=8 \
+    --nnodes=4:8 \
+    --rdzv_backend=c10d \
+    --rdzv_endpoint=master-node:29400 \
+    --max_restarts=3 \
+    --monitor_interval=5 \
+    train_llm.py \
+        --model_size=7b \
+        --checkpoint_dir=/shared/checkpoints \
+        --resume_from_latest
+</code></pre>
+
+    <p>
+        The <code>--nnodes=4:8</code> flag specifies that the job can run with anywhere from 4 to 8 nodes. If a node fails, training continues (after a brief restart) with the remaining nodes, as long as at least 4 are available. The data parallelism degree adjusts automatically.
+    </p>
+
+    <h3>3.2 Failure Detection and Recovery Strategies</h3>
+
+    <p>
+        Production LLM training systems employ multiple layers of failure detection and recovery:
+    </p>
+
+    <div class="table-container">
+        <table class="data-table">
+            <caption><strong>Table 6.8.3</strong>: Failure types and recovery strategies in LLM training</caption>
+            <thead>
+                <tr><th>Failure Type</th><th>Detection</th><th>Recovery</th><th>Typical Frequency</th></tr>
+            </thead>
+            <tbody>
+                <tr><td>GPU memory error (ECC)</td><td>NVIDIA DCGM monitoring</td><td>Drain node, replace, restart</td><td>1-3 per day at 4K+ GPUs</td></tr>
+                <tr><td>Network link failure</td><td>NCCL timeout + health check</td><td>Re-route or restart affected group</td><td>Weekly at 4K+ GPUs</td></tr>
+                <tr><td>NaN in loss</td><td>Loss monitoring hook</td><td>Roll back to previous checkpoint</td><td>Varies by model/data</td></tr>
+                <tr><td>Straggler node</td><td>Iteration time variance</td><td>Drain slow node, restart</td><td>Daily at scale</td></tr>
+                <tr><td>Full node crash</td><td>Heartbeat timeout</td><td>Elastic re-rendezvous</td><td>2-5 per week at 4K+ GPUs</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="callout fun-note">
+        <div class="callout-title">Fun Fact</div>
+        <p>Meta's Llama 3.1 training report revealed that their automated failure recovery system handled the vast majority of the 419 interruptions during the 54-day run. The median time to recover was under 10 minutes, meaning the system spent less than 5% of total wall-clock time on recovery. The team built a custom "training supervisor" that could diagnose the failure type, decide whether to restart on the same nodes or exclude the failed node, and resume from the latest checkpoint, all without human intervention.</p>
+    </div>
+
+
+    <h2>4. Distributed Checkpointing <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>
+        Checkpointing is the primary mechanism for both fault recovery and experiment management. For large LLM training runs, naive checkpointing (gathering all state to a single writer) is prohibitively slow. A 405B model's full state (parameters + optimizer + gradients) can exceed 8 TB. Writing this to storage as a single file would take tens of minutes, during which training is blocked.
+    </p>
+
+    <h3>4.1 PyTorch Distributed Checkpoint (DCP)</h3>
+
+    <p>
+        PyTorch Distributed Checkpoint (DCP), introduced in PyTorch 2.1, provides a native solution for saving and loading sharded model state. Each rank writes its own shard independently, and DCP handles the coordination and metadata management. Key properties include:
+    </p>
+
+    <ul>
+        <li><strong>Parallel I/O:</strong> All ranks write simultaneously. With 512 GPUs writing to a parallel file system, a 70B model checkpoint completes in seconds rather than minutes.</li>
+        <li><strong>Reshardable format:</strong> Checkpoints can be loaded with a different parallelism configuration than they were saved with. This means you can save a checkpoint from a TP=8, PP=4 configuration and load it into TP=4, PP=2 for fine-tuning on a smaller cluster.</li>
+        <li><strong>Async staging:</strong> DCP supports asynchronous checkpointing where state is first copied to CPU memory (non-blocking) and then written to storage in the background while training continues on the next iteration.</li>
+    </ul>
+
+<pre><code class="language-python"># Code Fragment 6.8.5: Saving and loading with PyTorch DCP
+import torch.distributed.checkpoint as dcp
+from torch.distributed.checkpoint.state_dict import (
+    get_model_state_dict,
+    get_optimizer_state_dict,
+    set_model_state_dict,
+    set_optimizer_state_dict,
+    StateDictOptions,
+)
+
+# --- Saving a sharded checkpoint ---
+def save_checkpoint(model, optimizer, step, checkpoint_dir):
+    """Save a reshardable distributed checkpoint."""
+    state_dict = {
+        "model": get_model_state_dict(model),
+        "optimizer": get_optimizer_state_dict(model, optimizer),
+        "step": step,
+    }
+    dcp.save(
+        state_dict=state_dict,
+        storage_writer=dcp.FileSystemWriter(
+            f"{checkpoint_dir}/step_{step}",
+            single_file_per_rank=True,  # One file per rank for parallel I/O
+        ),
+    )
+
+# --- Loading with potentially different parallelism ---
+def load_checkpoint(model, optimizer, checkpoint_dir, step):
+    """Load checkpoint; DCP handles resharding automatically."""
+    state_dict = {
+        "model": get_model_state_dict(model),
+        "optimizer": get_optimizer_state_dict(model, optimizer),
+    }
+    dcp.load(
+        state_dict=state_dict,
+        storage_reader=dcp.FileSystemReader(
+            f"{checkpoint_dir}/step_{step}"
+        ),
+    )
+    # Apply loaded state back to model and optimizer
+    set_model_state_dict(
+        model, state_dict["model"],
+        options=StateDictOptions(strict=True),
+    )
+    set_optimizer_state_dict(
+        model, optimizer, state_dict["optimizer"],
+    )
+    return state_dict.get("step", 0)
+</code></pre>
+
+    <h3>4.2 Async Checkpointing and Staging</h3>
+
+    <p>
+        For multi-week training runs, even a few minutes of blocking per checkpoint adds up to hours of wasted GPU time. Async checkpointing eliminates this bottleneck by overlapping the storage write with the next training iteration:
+    </p>
+
+    <ol>
+        <li><strong>Snapshot to CPU:</strong> Copy the model and optimizer state from GPU to pinned CPU memory. This takes seconds for a 70B model.</li>
+        <li><strong>Continue training:</strong> The GPU immediately begins the next training iteration.</li>
+        <li><strong>Background write:</strong> A separate thread writes the CPU snapshot to the parallel file system or object storage (S3, GCS).</li>
+        <li><strong>Verification:</strong> Once the write completes, the checkpoint metadata is atomically updated to mark the new checkpoint as valid.</li>
+    </ol>
+
+    <h3>4.3 Checkpoint Frequency Trade-offs</h3>
+
+    <p>
+        Choosing checkpoint frequency involves a trade-off between recovery time and storage cost. If you checkpoint every $C$ iterations and a failure occurs, you lose on average $C/2$ iterations of work. For a training run with $N$ total iterations and a mean time between failures (MTBF) of $F$ iterations, the expected wasted compute is:
+    </p>
+
+    <p>$$\text{Wasted fraction} \approx \frac{C}{2F} + \frac{t_{\text{ckpt}}}{t_{\text{iter}} \cdot C}$$</p>
+
+    <p>
+        where $t_{\text{ckpt}}$ is the checkpoint duration and $t_{\text{iter}}$ is the iteration time. The first term represents lost work from rollback; the second represents time spent checkpointing. Minimizing their sum gives the optimal checkpoint interval. With async checkpointing, $t_{\text{ckpt}}$ drops to near zero (only the GPU-to-CPU copy time), making more frequent checkpointing practical.
+    </p>
+
+    <div class="callout practical-example">
+        <div class="callout-title">Practical Example</div>
+        <p><strong>Checkpoint strategy for a 70B pretraining run.</strong> A team training a 70B model on 512 H100 GPUs with an MTBF of approximately 2,000 iterations (about 8 hours) uses async DCP checkpoints every 200 iterations (about 50 minutes). Each async checkpoint takes 15 seconds of blocking time (GPU-to-CPU copy) plus 3 minutes of background I/O. With this configuration, the expected wasted compute from failures is approximately 5% (100 iterations of rollback out of 2,000), and the checkpoint overhead is less than 0.5%. The team also saves "milestone" checkpoints every 10,000 iterations to a separate object storage bucket for long-term retention and experiment tracking.</p>
+    </div>
+
+
+    <h2>5. Streaming Dataset Pipelines <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        LLM pretraining datasets are too large to fit in local storage on training nodes. The Llama 3 training corpus was approximately 15 trillion tokens, and the full tokenized dataset can exceed 30 TB. Streaming dataset libraries solve this by loading data on-the-fly from cloud object storage, eliminating the need to pre-download the entire dataset.
+    </p>
+
+    <h3>5.1 Mosaic Streaming (StreamingDataset)</h3>
+
+    <p>
+        MosaicML's <code>streaming</code> library (now part of the Databricks ecosystem) provides a streaming dataloader purpose-built for distributed LLM training. Key properties include:
+    </p>
+
+    <ul>
+        <li><strong>Deterministic sharding:</strong> Each rank sees a deterministic, non-overlapping subset of the data, regardless of the number of workers or the order of data arrival. This ensures reproducibility across runs with different parallelism configurations.</li>
+        <li><strong>Resumable iteration:</strong> The library tracks which samples each rank has consumed. On restart after a failure, iteration resumes exactly where it left off, without replaying or skipping any samples.</li>
+        <li><strong>Local caching:</strong> Frequently accessed shards are cached on local NVMe storage, reducing repeated downloads from object storage.</li>
+        <li><strong>Data mixing:</strong> Multiple data sources (web text, code, books, conversations) can be mixed with configurable proportions that can change during training (curriculum learning).</li>
+    </ul>
+
+<pre><code class="language-python"># Code Fragment 6.8.6: Streaming dataloader for distributed LLM training
+from streaming import StreamingDataset, StreamingDataLoader
+
+# Define the dataset with multiple data sources and mixing proportions
+dataset = StreamingDataset(
+    streams=[
+        {
+            "remote": "s3://training-data/web-text/",
+            "local": "/local-nvme/cache/web-text/",
+            "proportion": 0.50,   # 50% web text
+        },
+        {
+            "remote": "s3://training-data/code/",
+            "local": "/local-nvme/cache/code/",
+            "proportion": 0.25,   # 25% code
+        },
+        {
+            "remote": "s3://training-data/books/",
+            "local": "/local-nvme/cache/books/",
+            "proportion": 0.15,   # 15% books
+        },
+        {
+            "remote": "s3://training-data/conversations/",
+            "local": "/local-nvme/cache/conversations/",
+            "proportion": 0.10,   # 10% conversational data
+        },
+    ],
+    shuffle=True,
+    shuffle_seed=42,              # Deterministic shuffling
+    num_canonical_nodes=64,       # Controls sharding granularity
+    batch_size=4,                 # Per-device micro-batch size
+)
+
+# StreamingDataLoader handles distributed rank assignment automatically
+dataloader = StreamingDataLoader(
+    dataset=dataset,
+    batch_size=4,
+    num_workers=8,
+    pin_memory=True,
+    prefetch_factor=4,            # Prefetch 4 batches ahead
+)
+
+# Resume from a specific sample index after failure
+dataloader.dataset.state_dict()   # Save state
+# ... after restart ...
+dataloader.dataset.load_state_dict(saved_state)  # Resume exactly
+</code></pre>
+
+    <h3>5.2 WebDataset</h3>
+
+    <p>
+        WebDataset takes a different approach: it stores data as tar archives containing individual samples, and streams them sequentially. This format is particularly efficient for multimodal training (image-text pairs) where each sample consists of multiple files. For text-only LLM training, WebDataset works well but offers less sophisticated mixing and resumability compared to Mosaic Streaming.
+    </p>
+
+    <h3>5.3 Data Integrity and Validation</h3>
+
+    <p>
+        At the scale of trillions of tokens, data corruption can silently degrade model quality. Production training pipelines include integrity checks at multiple levels:
+    </p>
+
+    <ul>
+        <li><strong>Shard-level checksums:</strong> Each data shard has an associated MD5 or SHA-256 hash verified on download.</li>
+        <li><strong>Sample-level validation:</strong> Each sample is checked for basic structural integrity (correct token IDs, valid sequence lengths) before entering the training batch.</li>
+        <li><strong>Epoch-level auditing:</strong> After each pass through the data, statistics on token counts, sequence lengths, and data source proportions are logged and compared against expected values.</li>
+        <li><strong>Deduplication verification:</strong> Near-duplicate detection (MinHash or suffix arrays) is run as a preprocessing step, and the streaming pipeline includes checks that no sample appears twice within a configurable window.</li>
+    </ul>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight</div>
+        <p>The choice between Mosaic Streaming and WebDataset often comes down to the training framework. Mosaic Streaming integrates tightly with the Composer/MosaicML ecosystem and offers superior resumability and mixing. WebDataset is more framework-agnostic and widely used in multimodal pipelines. Both support deterministic iteration, which is critical for reproducing training runs and debugging data-related issues. For LLM-specific pretraining, Mosaic Streaming's built-in curriculum learning support (dynamically changing data proportions during training) gives it an edge for teams that want to upweight code or instruction data in later training phases, following the approach used in Llama 3 and similar models.</p>
+    </div>
+
+
+    <h2>6. Putting It All Together: Production Training Architecture <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>
+        A production LLM training system integrates all of the components discussed in this section. The following diagram shows how they fit together for a typical 70B+ model pretraining run:
+    </p>
+
+    <div class="diagram-container">
+        <svg viewBox="0 0 800 400" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, system-ui, sans-serif" role="img" aria-label="Diagram: Production LLM Training Architecture">
+            <!-- Background -->
+            <rect x="10" y="10" width="780" height="380" rx="12" fill="#f8f9fa" stroke="#dee2e6" stroke-width="1"/>
+            <text x="400" y="38" text-anchor="middle" font-size="14" font-weight="bold" fill="#333">Production LLM Training Architecture</text>
+
+            <!-- Data Layer -->
+            <rect x="30" y="55" width="180" height="140" rx="8" fill="#e3f2fd" stroke="#1565c0" stroke-width="1.5"/>
+            <text x="120" y="78" text-anchor="middle" font-size="12" font-weight="bold" fill="#1565c0">Data Pipeline</text>
+            <text x="120" y="100" text-anchor="middle" font-size="10" fill="#333">Object Storage (S3/GCS)</text>
+            <text x="120" y="118" text-anchor="middle" font-size="10" fill="#333">Mosaic Streaming</text>
+            <text x="120" y="136" text-anchor="middle" font-size="10" fill="#333">Deterministic Sharding</text>
+            <text x="120" y="154" text-anchor="middle" font-size="10" fill="#333">Data Mixing/Curriculum</text>
+            <text x="120" y="172" text-anchor="middle" font-size="10" fill="#333">Integrity Checks</text>
+
+            <!-- Training Framework -->
+            <rect x="240" y="55" width="200" height="140" rx="8" fill="#e8f5e9" stroke="#2e7d32" stroke-width="1.5"/>
+            <text x="340" y="78" text-anchor="middle" font-size="12" font-weight="bold" fill="#2e7d32">Training Framework</text>
+            <text x="340" y="100" text-anchor="middle" font-size="10" fill="#333">Megatron-Core</text>
+            <text x="340" y="118" text-anchor="middle" font-size="10" fill="#333">TP + PP + DP + CP</text>
+            <text x="340" y="136" text-anchor="middle" font-size="10" fill="#333">torch.compile + Inductor</text>
+            <text x="340" y="154" text-anchor="middle" font-size="10" fill="#333">FlashAttention-3</text>
+            <text x="340" y="172" text-anchor="middle" font-size="10" fill="#333">FP8 Transformer Engine</text>
+
+            <!-- Fault Tolerance -->
+            <rect x="470" y="55" width="150" height="140" rx="8" fill="#fff3e0" stroke="#e65100" stroke-width="1.5"/>
+            <text x="545" y="78" text-anchor="middle" font-size="12" font-weight="bold" fill="#e65100">Fault Tolerance</text>
+            <text x="545" y="100" text-anchor="middle" font-size="10" fill="#333">TorchElastic</text>
+            <text x="545" y="118" text-anchor="middle" font-size="10" fill="#333">Health Monitoring</text>
+            <text x="545" y="136" text-anchor="middle" font-size="10" fill="#333">Auto-Recovery</text>
+            <text x="545" y="154" text-anchor="middle" font-size="10" fill="#333">Node Drain/Replace</text>
+            <text x="545" y="172" text-anchor="middle" font-size="10" fill="#333">NaN Detection</text>
+
+            <!-- Checkpointing -->
+            <rect x="650" y="55" width="130" height="140" rx="8" fill="#f3e5f5" stroke="#6a1b9a" stroke-width="1.5"/>
+            <text x="715" y="78" text-anchor="middle" font-size="12" font-weight="bold" fill="#6a1b9a">Checkpointing</text>
+            <text x="715" y="100" text-anchor="middle" font-size="10" fill="#333">PyTorch DCP</text>
+            <text x="715" y="118" text-anchor="middle" font-size="10" fill="#333">Async Staging</text>
+            <text x="715" y="136" text-anchor="middle" font-size="10" fill="#333">Reshardable</text>
+            <text x="715" y="154" text-anchor="middle" font-size="10" fill="#333">Parallel I/O</text>
+            <text x="715" y="172" text-anchor="middle" font-size="10" fill="#333">Milestone Saves</text>
+
+            <!-- Arrows between components -->
+            <line x1="210" y1="125" x2="240" y2="125" stroke="#666" stroke-width="1.5" marker-end="url(#arrow68)"/>
+            <line x1="440" y1="125" x2="470" y2="125" stroke="#666" stroke-width="1.5" marker-end="url(#arrow68)"/>
+            <line x1="620" y1="125" x2="650" y2="125" stroke="#666" stroke-width="1.5" marker-end="url(#arrow68)"/>
+
+            <!-- Monitoring layer -->
+            <rect x="30" y="220" width="750" height="70" rx="8" fill="#fce4ec" stroke="#c62828" stroke-width="1.5"/>
+            <text x="405" y="245" text-anchor="middle" font-size="12" font-weight="bold" fill="#c62828">Monitoring and Observability</text>
+            <text x="150" y="268" text-anchor="middle" font-size="10" fill="#333">Loss Curves (W&amp;B)</text>
+            <text x="310" y="268" text-anchor="middle" font-size="10" fill="#333">MFU Tracking</text>
+            <text x="460" y="268" text-anchor="middle" font-size="10" fill="#333">GPU Health (DCGM)</text>
+            <text x="630" y="268" text-anchor="middle" font-size="10" fill="#333">Network Metrics</text>
+
+            <!-- Hardware layer -->
+            <rect x="30" y="310" width="750" height="60" rx="8" fill="#e8eaf6" stroke="#283593" stroke-width="1.5"/>
+            <text x="405" y="335" text-anchor="middle" font-size="12" font-weight="bold" fill="#283593">GPU Cluster</text>
+            <text x="200" y="355" text-anchor="middle" font-size="10" fill="#333">H100/H200 Nodes (8 GPUs each, NVLink intra-node)</text>
+            <text x="580" y="355" text-anchor="middle" font-size="10" fill="#333">InfiniBand/RoCE inter-node fabric</text>
+
+            <defs>
+                <marker id="arrow68" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#666"/></marker>
+            </defs>
+        </svg>
+        <div class="diagram-caption"><strong>Figure 6.8.1</strong>: Production LLM training architecture. Data flows from object storage through streaming loaders. Megatron-Core handles multi-axis parallelism with compiler optimizations. TorchElastic provides fault tolerance. DCP manages distributed checkpoints. The monitoring layer tracks training health across all components.</div>
+    </div>
+
+
+    <div class="takeaways">
+        <h2>&#x2705; Key Takeaways</h2>
+        <ul>
+            <li>Production LLM training requires composing multiple parallelism axes (TP, PP, DP, CP) simultaneously. Megatron-LM/Megatron-Core is the standard framework for this, with configurations tailored to model size and cluster topology.</li>
+            <li>MoE models add Expert Parallelism and require load balancing (via auxiliary loss or bias terms) to prevent straggler effects from uneven token routing.</li>
+            <li>torch.compile with TorchInductor generates fused Triton kernels that improve training throughput by 10-30%. FlashAttention-2/3 is essential for efficient attention computation, and FP8 training with Transformer Engine nearly doubles H100 throughput.</li>
+            <li>Fault tolerance via TorchElastic enables automatic recovery from node failures through elastic re-rendezvous and checkpoint-based restart, essential for multi-week runs on thousands of GPUs.</li>
+            <li>PyTorch Distributed Checkpoint (DCP) provides parallel, reshardable, async-capable checkpointing that eliminates the storage bottleneck for large model states.</li>
+            <li>Streaming dataset libraries (Mosaic Streaming, WebDataset) provide deterministic, resumable data loading from cloud storage with support for data mixing and curriculum learning.</li>
+        </ul>
+    </div>
+
+    <div class="callout research-frontier">
+        <div class="callout-title">Research Frontier</div>
+        <p>Several active research directions aim to push training efficiency further. <em>Fully asynchronous pipeline parallelism</em> (e.g., PipeDream-2BW, zero-bubble PP) seeks to eliminate pipeline bubble overhead entirely. <em>Communication-computation overlap</em> research focuses on hiding all-reduce latency behind computation through fine-grained scheduling. <em>FP4 training</em> is an emerging area where 4-bit floating point could double throughput again on next-generation hardware, though maintaining training stability at this precision remains challenging. <em>Heterogeneous training</em> explores using a mix of GPU generations (A100 + H100) in the same cluster, which requires adaptive load balancing to account for different compute speeds.</p>
+    </div>
+
+<section class="exercises">
+    <h2>Exercises</h2>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 6.8.1: Parallelism configuration <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span> <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+        <p>You have a cluster of 256 H100 GPUs (32 nodes with 8 GPUs each) and want to train a 13B parameter model with a 4K context length. Design a parallelism configuration (TP, PP, DP, CP) and justify each choice. What changes if you increase the context to 32K tokens?</p>
+        <details open><summary>Answer Sketch</summary>
+            <p>For 13B at 4K context: TP=2 (model fits in 2 GPUs per layer), PP=1 (small enough for single pipeline stage), DP=128 (256/2/1), CP=1 (short context). For 32K context: increase TP=4 to handle larger activation memory, consider CP=2, giving DP=256/(4*1*2)=32. The key constraint is that TP should stay within a single node for NVLink bandwidth, and CP helps when attention memory becomes the bottleneck at longer sequences.</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 6.8.2: Checkpoint frequency <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span> <span class="exercise-type analysis" title="Analysis">Analysis</span></div>
+        <p>A 70B model training run has an MTBF of 3,000 iterations. Each iteration takes 30 seconds. A blocking checkpoint takes 5 minutes, and an async checkpoint takes 10 seconds of GPU blocking time. Calculate the optimal checkpoint frequency for both blocking and async cases. How much total GPU-time is saved by using async checkpointing over a 100,000-iteration run?</p>
+        <details open><summary>Answer Sketch</summary>
+            <p>For blocking: optimize $C/6000 + 300/(30 \cdot C)$, giving $C \approx \sqrt{300 \cdot 6000/30} \approx 245$ iterations. For async: $C/6000 + 10/(30 \cdot C)$, giving $C \approx \sqrt{10 \cdot 6000/30} \approx 45$ iterations. Over 100K iterations: blocking checkpoints ~408 times at 5 min each = 34 hours blocking. Async checkpoints ~2,222 times at 10 sec = 6.2 hours. Net saving approximately 28 hours of GPU time across the cluster.</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 6.8.3: MoE load balancing <span class="level-badge advanced" title="Advanced">ADVANCED</span> <span class="exercise-type analysis" title="Analysis">Analysis</span></div>
+        <p>Explain why unbalanced expert routing creates a training bottleneck in MoE models. Derive the auxiliary loss formula and explain how the balancing coefficient $\alpha$ affects the trade-off between load balance and model quality.</p>
+        <details open><summary>Answer Sketch</summary>
+            <p>In MoE, each training step waits for all experts to finish. If expert $i$ receives 3x more tokens than expert $j$, the step time is determined by the slowest (most loaded) expert, wasting compute on the underloaded ones. The auxiliary loss $\alpha \cdot N \sum f_i \cdot p_i$ penalizes routing probability ($p_i$) that concentrates tokens ($f_i$) on few experts. Too high $\alpha$ forces uniform routing but prevents specialization (experts cannot differentiate). Too low $\alpha$ allows imbalance. Typical values of $\alpha = 0.01$ to $0.1$ provide a good compromise.</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 6.8.4: Streaming data pipeline <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span> <span class="exercise-type coding" title="Coding">Coding</span></div>
+        <p>Write a configuration for a Mosaic StreamingDataset that mixes three data sources: 60% web text, 30% code, and 10% instruction-following data. Include local caching, deterministic shuffling, and resumability support. Explain how the data proportions would change if you were implementing a curriculum that upweights code data in the final 20% of training.</p>
+        <details open><summary>Answer Sketch</summary>
+            <p>Configure three streams with proportions [0.6, 0.3, 0.1], shuffle_seed for determinism, local cache paths on NVMe. For curriculum: at 80% completion, change proportions to [0.4, 0.5, 0.1] to upweight code. Mosaic Streaming supports dynamic proportion changes via the StreamingDataset API. Save dataset.state_dict() before changing proportions to ensure exact resumability.</p>
+        </details>
+    </div>
+</section>
+
+    <section class="bibliography">
+        <div class="bibliography-title">&#128218; References &amp; Further Reading</div>
+
+        <div class="bib-category">Megatron-LM and Multi-Axis Parallelism</div>
+
+        <div class="bib-entry-card">
+            <p class="bib-ref"><a href="https://arxiv.org/abs/1909.08053" target="_blank" rel="noopener">Shoeybi, M., Patwary, M., Puri, R., et al. (2020). Megatron-LM: Training Multi-Billion Parameter Language Models Using Model Parallelism. <em>arXiv preprint arXiv:1909.08053</em>.</a></p>
+            <p class="bib-annotation">The foundational Megatron-LM paper introducing efficient intra-layer model parallelism (tensor parallelism) for transformer models. Demonstrated that careful parallelism design enables training models up to 8.3B parameters with high throughput on GPU clusters.</p>
+            <span class="bib-meta">&#128196; Paper</span>
+        </div>
+
+        <div class="bib-entry-card">
+            <p class="bib-ref"><a href="https://arxiv.org/abs/2104.04473" target="_blank" rel="noopener">Narayanan, D., Shoeybi, M., Casper, J., et al. (2021). Efficient Large-Scale Language Model Training on GPU Clusters Using Megatron-LM. <em>SC '21</em>.</a></p>
+            <p class="bib-annotation">Extends Megatron-LM with pipeline parallelism and the interleaved 1F1B schedule. Provides the theoretical framework for combining TP, PP, and DP, and demonstrates efficient training of trillion-parameter models.</p>
+            <span class="bib-meta">&#128196; Paper</span>
+        </div>
+
+        <div class="bib-entry-card">
+            <p class="bib-ref"><a href="https://arxiv.org/abs/2407.21783" target="_blank" rel="noopener">Dubey, A., Jauhri, A., Pandey, A., et al. (2024). The Llama 3 Herd of Models. <em>arXiv preprint arXiv:2407.21783</em>.</a></p>
+            <p class="bib-annotation">Meta's detailed training report for Llama 3 and 3.1 (up to 405B parameters). Provides invaluable production details on parallelism configurations, failure rates, recovery procedures, and training infrastructure at scale.</p>
+            <span class="bib-meta">&#128196; Paper</span>
+        </div>
+
+        <div class="bib-category">FlashAttention and Kernel Optimization</div>
+
+        <div class="bib-entry-card">
+            <p class="bib-ref"><a href="https://arxiv.org/abs/2307.08691" target="_blank" rel="noopener">Dao, T. (2023). FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning. <em>ICLR 2024</em>.</a></p>
+            <p class="bib-annotation">Improves FlashAttention throughput by 2x through better work partitioning across GPU thread blocks and warps. The standard attention kernel for all modern LLM training.</p>
+            <span class="bib-meta">&#128196; Paper</span>
+        </div>
+
+        <div class="bib-entry-card">
+            <p class="bib-ref"><a href="https://arxiv.org/abs/2205.14135" target="_blank" rel="noopener">Dao, T., Fu, D. Y., Ermon, S., Rudra, A., Re, C. (2022). FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness. <em>NeurIPS 2022</em>.</a></p>
+            <p class="bib-annotation">The original FlashAttention paper that introduced IO-aware attention computation, reducing HBM accesses from quadratic to linear in sequence length. Foundational for all subsequent attention kernel optimizations.</p>
+            <span class="bib-meta">&#128196; Paper</span>
+        </div>
+
+        <div class="bib-category">FP8 Training</div>
+
+        <div class="bib-entry-card">
+            <p class="bib-ref"><a href="https://arxiv.org/abs/2209.05433" target="_blank" rel="noopener">Micikevicius, P., Stosic, D., Burgess, N., et al. (2022). FP8 Formats for Deep Learning. <em>arXiv preprint arXiv:2209.05433</em>.</a></p>
+            <p class="bib-annotation">Defines the E4M3 and E5M2 FP8 formats and demonstrates that deep learning training converges with FP8 precision when combined with appropriate per-tensor scaling strategies. The basis for NVIDIA Transformer Engine.</p>
+            <span class="bib-meta">&#128196; Paper</span>
+        </div>
+
+        <div class="bib-category">Distributed Checkpointing and Fault Tolerance</div>
+
+        <div class="bib-entry-card">
+            <p class="bib-ref"><a href="https://pytorch.org/docs/stable/distributed.checkpoint.html" target="_blank" rel="noopener">PyTorch Team (2024). PyTorch Distributed Checkpoint (DCP) Documentation.</a></p>
+            <p class="bib-annotation">Official documentation for PyTorch's distributed checkpointing API, covering sharded saves, resharding on load, and async staging. The reference implementation for production LLM checkpointing.</p>
+            <span class="bib-meta">&#128214; Documentation</span>
+        </div>
+
+        <div class="bib-entry-card">
+            <p class="bib-ref"><a href="https://pytorch.org/docs/stable/elastic/run.html" target="_blank" rel="noopener">PyTorch Team (2024). TorchElastic (torchrun) Documentation.</a></p>
+            <p class="bib-annotation">Official documentation for TorchElastic, covering elastic launch, rendezvous protocols, and fault tolerance for distributed training jobs.</p>
+            <span class="bib-meta">&#128214; Documentation</span>
+        </div>
+
+        <div class="bib-category">Streaming Datasets</div>
+
+        <div class="bib-entry-card">
+            <p class="bib-ref"><a href="https://github.com/mosaicml/streaming" target="_blank" rel="noopener">MosaicML (2023). Mosaic StreamingDataset: Fast, Accurate Streaming from Cloud Storage.</a></p>
+            <p class="bib-annotation">The Mosaic Streaming library for deterministic, resumable data loading from object storage. Supports data mixing, curriculum learning, and efficient distributed sharding for LLM pretraining at scale.</p>
+            <span class="bib-meta">&#128187; Library</span>
+        </div>
+
+        <div class="bib-entry-card">
+            <p class="bib-ref"><a href="https://github.com/webdataset/webdataset" target="_blank" rel="noopener">Aizman, A., Maltby, G., Breuel, T. (2023). WebDataset: High-Performance Dataset I/O.</a></p>
+            <p class="bib-annotation">A tar-based streaming dataset format optimized for sequential I/O patterns. Widely used in multimodal training pipelines for efficiently loading image-text pairs from cloud storage.</p>
+            <span class="bib-meta">&#128187; Library</span>
+        </div>
+    </section>
+
+<nav class="chapter-nav">
+    <a class="prev" href="section-6.7.html">In-Context Learning Theory</a>
+    <a class="up" href="index.html">Chapter 06: Pretraining and Scaling Laws</a>
+    <a class="next" href="../module-07-modern-llm-landscape/index.html">Chapter 07: Modern LLM Landscape &amp; Model Internals</a>
+</nav>
+
+    <footer>
+        <p class="footer-title">Building Conversational AI with LLMs and Agents, Fifth Edition</p>
+        <p>&copy; 2026 Alexander Apartsin &amp; Yehudit Aperstein &middot; <a href="../../toc.html">Contents</a></p>
+        <p class="footer-updated">Last updated: <script>document.write(new Date(document.lastModified).toLocaleDateString('en-US', {year:'numeric', month:'long', day:'numeric'}))</script></p>
+    </footer>
+</main>
+</body>
+</html>

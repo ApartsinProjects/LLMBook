@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Section K.4: PEFT and TRL: Parameter-Efficient Fine-Tuning and RLHF. A comprehensive chapter from the Building Conversational AI textbook.">
     <title>Section K.4: PEFT and TRL: Parameter-Efficient Fine-Tuning and RLHF | Building Conversational AI with LLMs and Agents</title>
     <link rel="stylesheet" href="../../styles/book.css">
     <link rel="stylesheet" href="../../vendor/katex/katex.min.css">
@@ -33,10 +34,340 @@
 
     <div class="callout big-picture">
         <div class="callout-title">Big Picture</div>
-        <p>This section covers pEFT and TRL: Parameter-Efficient Fine-Tuning and RLHF. Content will be generated using the book production pipeline.</p>
+        <p>Full fine-tuning of a large language model updates every parameter, requiring enormous GPU memory and risking catastrophic forgetting. Parameter-Efficient Fine-Tuning (PEFT) methods train only a small number of additional or modified parameters while keeping the base model frozen, reducing memory requirements by 10x or more. The <code>peft</code> library implements these methods, and the <code>trl</code> (Transformer Reinforcement Learning) library builds on top of it to provide supervised fine-tuning (SFT), reward modeling, and alignment algorithms like DPO and PPO. Together, these libraries make it practical to customize billion-parameter models on a single consumer GPU. For the conceptual foundations of alignment and RLHF, see <a class="cross-ref" href="../../part-4-training-adapting/module-17-alignment-rlhf-dpo/index.html">Chapter 10: Alignment and RLHF</a>.</p>
     </div>
 
-    <p><em>Content pending: this section will be produced by the book-writers agent pipeline.</em></p>
+    <h2>1. LoRA: Low-Rank Adaptation</h2>
+
+    <p>LoRA (Low-Rank Adaptation) is the most widely used PEFT method. Instead of updating a full weight matrix $W \in \mathbb{R}^{d \times k}$, LoRA freezes $W$ and learns two small matrices $A \in \mathbb{R}^{d \times r}$ and $B \in \mathbb{R}^{r \times k}$ where $r \ll \min(d, k)$. The effective weight becomes $W + BA$. A rank of 8 to 64 is typical, meaning only a fraction of a percent of the original parameters are trainable.</p>
+
+    <p>The following example applies LoRA to a causal language model and inspects the resulting parameter count.</p>
+
+<pre><code class="language-python">from transformers import AutoModelForCausalLM, AutoTokenizer
+from peft import LoraConfig, get_peft_model, TaskType
+
+# Load base model
+model_name = "mistralai/Mistral-7B-v0.3"
+model = AutoModelForCausalLM.from_pretrained(
+    model_name,
+    torch_dtype="auto",
+    device_map="auto",
+)
+
+# Configure LoRA
+lora_config = LoraConfig(
+    task_type=TaskType.CAUSAL_LM,
+    r=16,                          # Rank of the low-rank matrices
+    lora_alpha=32,                 # Scaling factor (alpha / r)
+    lora_dropout=0.05,             # Dropout on LoRA layers
+    target_modules=[               # Which layers to adapt
+        "q_proj", "k_proj", "v_proj", "o_proj",
+        "gate_proj", "up_proj", "down_proj",
+    ],
+    bias="none",                   # Don't train bias terms
+)
+
+# Wrap the model with LoRA adapters
+model = get_peft_model(model, lora_config)
+model.print_trainable_parameters()
+# trainable params: 27,262,976 || all params: 7,268,904,960 || trainable%: 0.375%</code></pre>
+
+    <div class="callout note">
+        <div class="callout-title">Choosing LoRA Rank and Target Modules</div>
+        <p>Higher rank (<code>r</code>) gives the adapter more capacity but increases memory and training time. For most fine-tuning tasks, <code>r=8</code> to <code>r=32</code> works well. The <code>target_modules</code> parameter controls which linear layers receive LoRA adapters. Applying LoRA to all attention projections (q, k, v, o) is standard; adding MLP layers (gate, up, down) can improve results for complex tasks at the cost of more trainable parameters. The <code>lora_alpha</code> parameter scales the adapter contribution: a common heuristic is to set <code>lora_alpha = 2 * r</code>.</p>
+    </div>
+
+    <h2>2. QLoRA: Quantized LoRA for Consumer GPUs</h2>
+
+    <p>QLoRA combines 4-bit quantization of the base model with LoRA adapters trained in higher precision. The base model weights are stored in 4-bit NormalFloat (NF4) format, reducing the memory footprint of a 7B model from ~14 GB to ~4 GB. The LoRA matrices are kept in bfloat16 for stable gradient computation. This makes it possible to fine-tune a 7B model on a single 8 GB GPU, or a 70B model on a single 48 GB GPU.</p>
+
+    <p>The following example sets up QLoRA training.</p>
+
+<pre><code class="language-python">from transformers import AutoModelForCausalLM, BitsAndBytesConfig
+from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+import torch
+
+# 4-bit quantization configuration
+bnb_config = BitsAndBytesConfig(
+    load_in_4bit=True,
+    bnb_4bit_quant_type="nf4",             # NormalFloat4 quantization
+    bnb_4bit_compute_dtype=torch.bfloat16, # Compute in bf16
+    bnb_4bit_use_double_quant=True,        # Quantize the quantization constants
+)
+
+# Load the model in 4-bit
+model = AutoModelForCausalLM.from_pretrained(
+    "mistralai/Mistral-7B-v0.3",
+    quantization_config=bnb_config,
+    device_map="auto",
+)
+
+# Prepare for k-bit training (enables gradient checkpointing, casts norms)
+model = prepare_model_for_kbit_training(model)
+
+# Apply LoRA on top of the quantized model
+lora_config = LoraConfig(
+    r=16,
+    lora_alpha=32,
+    target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
+    lora_dropout=0.05,
+    bias="none",
+    task_type="CAUSAL_LM",
+)
+model = get_peft_model(model, lora_config)
+model.print_trainable_parameters()
+# ~0.2% of parameters are trainable; total GPU memory ~5 GB</code></pre>
+
+    <figure>
+        <table>
+            <thead>
+                <tr><th scope="col">Method</th><th scope="col">Base Model Precision</th><th scope="col">Adapter Precision</th><th scope="col">7B Model Memory</th><th scope="col">Trainable Params</th></tr>
+            </thead>
+            <tbody>
+                <tr><td>Full fine-tuning (bf16)</td><td>bfloat16</td><td>N/A (all params)</td><td>~28 GB (with optimizer)</td><td>100%</td></tr>
+                <tr><td>LoRA (bf16)</td><td>bfloat16</td><td>bfloat16</td><td>~16 GB</td><td>0.1% to 1%</td></tr>
+                <tr><td>QLoRA (NF4 + bf16)</td><td>4-bit NF4</td><td>bfloat16</td><td>~5 GB</td><td>0.1% to 1%</td></tr>
+            </tbody>
+        </table>
+        <figcaption>Figure K.4.1: Memory comparison of fine-tuning methods for a 7-billion-parameter model.</figcaption>
+    </figure>
+
+    <h2>3. Supervised Fine-Tuning with TRL's SFTTrainer</h2>
+
+    <p>The <code>trl</code> library's <code>SFTTrainer</code> extends the HuggingFace <code>Trainer</code> with features specifically designed for instruction tuning and chat model fine-tuning. It handles chat template formatting, packing multiple short examples into a single sequence for efficiency, and integrates with PEFT out of the box.</p>
+
+    <p>The following example fine-tunes a model on instruction-following data using SFTTrainer with LoRA.</p>
+
+<pre><code class="language-python">from trl import SFTTrainer, SFTConfig
+from transformers import AutoTokenizer, AutoModelForCausalLM
+from peft import LoraConfig
+from datasets import load_dataset
+
+# Load model and tokenizer
+model_name = "mistralai/Mistral-7B-Instruct-v0.3"
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+tokenizer.pad_token = tokenizer.eos_token
+model = AutoModelForCausalLM.from_pretrained(
+    model_name, torch_dtype="auto", device_map="auto"
+)
+
+# Load instruction dataset
+dataset = load_dataset("HuggingFaceH4/ultrachat_200k", split="train_sft[:5000]")
+
+# LoRA config
+peft_config = LoraConfig(
+    r=16, lora_alpha=32,
+    target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
+    lora_dropout=0.05,
+    task_type="CAUSAL_LM",
+)
+
+# SFT configuration
+sft_config = SFTConfig(
+    output_dir="./sft-mistral",
+    num_train_epochs=1,
+    per_device_train_batch_size=4,
+    gradient_accumulation_steps=4,
+    learning_rate=2e-4,
+    lr_scheduler_type="cosine",
+    warmup_ratio=0.1,
+    bf16=True,
+    logging_steps=25,
+    save_strategy="steps",
+    save_steps=200,
+    max_seq_length=2048,
+    packing=True,            # Pack multiple examples into one sequence
+)
+
+# Create trainer and train
+trainer = SFTTrainer(
+    model=model,
+    args=sft_config,
+    train_dataset=dataset,
+    processing_class=tokenizer,
+    peft_config=peft_config,
+)
+
+trainer.train()
+trainer.save_model("./sft-mistral/final")</code></pre>
+
+    <div class="callout tip">
+        <div class="callout-title">Sequence Packing</div>
+        <p>When <code>packing=True</code>, the <code>SFTTrainer</code> concatenates multiple training examples into a single sequence (separated by EOS tokens) up to <code>max_seq_length</code>. This eliminates the wasted computation from padding short sequences and can speed up training by 2x to 5x on datasets with short examples. The loss is computed only on the response tokens, not the padding or instruction portions.</p>
+    </div>
+
+    <h2>4. Direct Preference Optimization (DPO)</h2>
+
+    <p>DPO is an alignment algorithm that trains a model to prefer "chosen" responses over "rejected" responses, without needing a separate reward model. It directly optimizes the policy using a contrastive loss derived from the Bradley-Terry preference model. The <code>trl</code> library provides a <code>DPOTrainer</code> that handles the paired data format and reference model management.</p>
+
+    <p>The following example trains a DPO model starting from an SFT checkpoint.</p>
+
+<pre><code class="language-python">from trl import DPOTrainer, DPOConfig
+from transformers import AutoTokenizer, AutoModelForCausalLM
+from peft import LoraConfig
+from datasets import load_dataset
+
+# Load the SFT model as starting point
+model_name = "./sft-mistral/final"  # Or a Hub model
+model = AutoModelForCausalLM.from_pretrained(
+    model_name, torch_dtype="auto", device_map="auto"
+)
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+tokenizer.pad_token = tokenizer.eos_token
+
+# Load preference dataset (must have "chosen" and "rejected" columns)
+dataset = load_dataset("argilla/ultrafeedback-binarized-preferences", split="train[:5000]")
+
+# LoRA for DPO
+peft_config = LoraConfig(
+    r=16, lora_alpha=32,
+    target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
+    task_type="CAUSAL_LM",
+)
+
+# DPO configuration
+dpo_config = DPOConfig(
+    output_dir="./dpo-mistral",
+    num_train_epochs=1,
+    per_device_train_batch_size=2,
+    gradient_accumulation_steps=8,
+    learning_rate=5e-5,
+    beta=0.1,                  # KL penalty coefficient
+    loss_type="sigmoid",       # Standard DPO loss
+    bf16=True,
+    logging_steps=25,
+    save_strategy="steps",
+    save_steps=200,
+    max_length=1024,
+    max_prompt_length=512,
+)
+
+# The DPOTrainer manages the reference model automatically
+trainer = DPOTrainer(
+    model=model,
+    args=dpo_config,
+    train_dataset=dataset,
+    processing_class=tokenizer,
+    peft_config=peft_config,
+)
+
+trainer.train()
+trainer.save_model("./dpo-mistral/final")</code></pre>
+
+    <h2>5. Reward Modeling and PPO</h2>
+
+    <p>For the classic RLHF pipeline, you first train a reward model that scores responses, then use Proximal Policy Optimization (PPO) to optimize the language model against that reward signal. The <code>trl</code> library provides both <code>RewardTrainer</code> for the reward model and <code>PPOTrainer</code> for the policy optimization step.</p>
+
+    <p>The following example sketches the full RLHF pipeline: reward model training followed by PPO.</p>
+
+<pre><code class="language-python">from trl import RewardTrainer, RewardConfig
+from transformers import AutoModelForSequenceClassification, AutoTokenizer
+from datasets import load_dataset
+
+# Step 1: Train a reward model
+reward_model = AutoModelForSequenceClassification.from_pretrained(
+    "distilbert-base-uncased", num_labels=1
+)
+tokenizer = AutoTokenizer.from_pretrained("distilbert-base-uncased")
+
+# Preference data: each row has "chosen" and "rejected" text
+pref_data = load_dataset("argilla/ultrafeedback-binarized-preferences",
+                         split="train[:2000]")
+
+reward_config = RewardConfig(
+    output_dir="./reward-model",
+    num_train_epochs=1,
+    per_device_train_batch_size=8,
+    learning_rate=1e-5,
+    bf16=True,
+    max_length=512,
+)
+
+reward_trainer = RewardTrainer(
+    model=reward_model,
+    args=reward_config,
+    train_dataset=pref_data,
+    processing_class=tokenizer,
+)
+reward_trainer.train()</code></pre>
+
+<pre><code class="language-python">from trl import PPOTrainer, PPOConfig, AutoModelForCausalLMWithValueHead
+from transformers import AutoTokenizer
+import torch
+
+# Step 2: PPO alignment
+model = AutoModelForCausalLMWithValueHead.from_pretrained("./sft-mistral/final")
+tokenizer = AutoTokenizer.from_pretrained("./sft-mistral/final")
+tokenizer.pad_token = tokenizer.eos_token
+
+# Load the trained reward model for scoring
+from transformers import pipeline as hf_pipeline
+reward_pipe = hf_pipeline("text-classification", model="./reward-model", device=0)
+
+ppo_config = PPOConfig(
+    learning_rate=1e-5,
+    batch_size=16,
+    mini_batch_size=4,
+    gradient_accumulation_steps=4,
+    ppo_epochs=4,
+    kl_penalty="kl",           # KL divergence penalty type
+    init_kl_coef=0.2,          # Initial KL coefficient
+)
+
+ppo_trainer = PPOTrainer(
+    config=ppo_config,
+    model=model,
+    tokenizer=tokenizer,
+)
+
+# PPO training loop (simplified)
+prompts = ["Explain quantum computing.", "Write a haiku about spring."]
+for prompt_text in prompts:
+    inputs = tokenizer(prompt_text, return_tensors="pt").input_ids.to(model.device)
+    response = model.generate(inputs, max_new_tokens=128, do_sample=True)
+    response_text = tokenizer.decode(response[0], skip_special_tokens=True)
+
+    # Score with reward model
+    reward_output = reward_pipe(response_text, truncation=True)
+    reward = torch.tensor([reward_output[0]["score"]])
+
+    # PPO step
+    ppo_trainer.step([inputs[0]], [response[0]], [reward])</code></pre>
+
+    <div class="callout warning">
+        <div class="callout-title">DPO vs. PPO: Practical Considerations</div>
+        <p>DPO is simpler to implement and more stable to train because it avoids the reward model and the complex PPO optimization loop. It requires only a preference dataset. PPO, on the other hand, can optimize for any reward signal (including non-differentiable metrics like code execution success) and can explore beyond the training distribution. In practice, DPO has become the preferred method for most alignment tasks due to its simplicity and competitive performance. Use PPO when you need to optimize for a reward signal that cannot be captured in pairwise preferences.</p>
+    </div>
+
+    <h2>6. Saving, Loading, and Merging Adapters</h2>
+
+    <p>PEFT adapters are saved separately from the base model, keeping adapter files small (typically 10 to 100 MB). You can load multiple adapters, switch between them, or merge an adapter permanently into the base model weights for deployment.</p>
+
+    <p>The following example demonstrates the adapter lifecycle: saving, loading, and merging.</p>
+
+<pre><code class="language-python">from peft import PeftModel
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+# Save adapter (only the LoRA weights, not the full model)
+model.save_pretrained("./my-adapter")
+# This creates: adapter_config.json + adapter_model.safetensors (~50 MB)
+
+# Load adapter onto a fresh base model
+base_model = AutoModelForCausalLM.from_pretrained(
+    "mistralai/Mistral-7B-v0.3",
+    torch_dtype="auto",
+    device_map="auto",
+)
+peft_model = PeftModel.from_pretrained(base_model, "./my-adapter")
+
+# Merge adapter into base model (for faster inference, no PEFT dependency)
+merged_model = peft_model.merge_and_unload()
+merged_model.save_pretrained("./merged-model")
+
+# Push to the Hub
+tokenizer = AutoTokenizer.from_pretrained("mistralai/Mistral-7B-v0.3")
+merged_model.push_to_hub("my-org/mistral-7b-finetuned")
+tokenizer.push_to_hub("my-org/mistral-7b-finetuned")</code></pre>
 
     <nav class="chapter-nav">
     <a class="prev" href="section-k.3.html">Training with Trainer and Accelerate</a>

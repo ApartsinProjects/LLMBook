@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Section 29.14: LLM Performance Benchmarking and Cross-Hardware Portability. A comprehensive chapter from the Building Conversational AI textbook.">
+    <title>Section 29.14: LLM Performance Benchmarking and Cross-Hardware Portability</title>
+    <link rel="stylesheet" href="../../styles/book.css">
+    <link rel="stylesheet" href="../../vendor/prism/prism-theme.css">
+    <script defer src="../../vendor/prism/prism-bundle.min.js"></script>
+</head>
+<body>
+<header class="chapter-header">
+    <nav class="header-nav">
+        <a href="../../index.html" class="book-title-link">Building Conversational AI with LLMs and Agents</a>
+        <a href="../../toc.html" class="toc-link" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+    </nav>
+    <div class="part-label"><a href="../index.html">Part VIII: Evaluation &amp; Production</a></div>
+    <div class="chapter-label"><a href="index.html">Chapter 29: Evaluation &amp; Experiment Design</a></div>
+    <h1>LLM Performance Benchmarking and Cross-Hardware Portability</h1>
+</header>
+
+<main class="content">
+
+    <blockquote class="epigraph">
+        <p>"You can benchmark accuracy all day, but if your model takes 10 seconds to produce the first token, users will leave before seeing how smart it is."</p>
+        <cite><span class="agent-avatar-inline" style="background-color: #7f8c8d;"><img src="../../front-matter/images/agents/eval.png" alt="Eval"></span> <a href="../../front-matter/wisdom-council.html#eval">Eval</a> <span class="agent-desc">AI Agent</span></cite>
+    </blockquote>
+
+<div class="prerequisites">
+    <h3>Prerequisites</h3>
+    <p>This section builds on the evaluation fundamentals from <a class="cross-ref" href="section-29.1.html">Section 29.1</a> and the evaluation harness ecosystems from <a class="cross-ref" href="section-29.9.html">Section 29.9</a>. Understanding of inference optimization techniques from <a class="cross-ref" href="../../part-2-understanding-llms/module-09-inference-optimization/index.html">Chapter 9</a> and the production serving architectures from <a class="cross-ref" href="../module-31-production-engineering/section-31.1.html">Section 31.1</a> provides essential context. Familiarity with GPU hardware concepts from <a class="cross-ref" href="../../appendices/appendix-g-hardware-compute/index.html">Appendix G</a> is helpful but not required.</p>
+</div>
+
+    <div class="callout big-picture">
+        <div class="callout-title">Big Picture</div>
+        <p><strong>Previous sections in this chapter covered what to measure for model quality. This section covers how to measure system performance: the speed, throughput, and hardware efficiency of LLM training and inference.</strong> Performance benchmarking is where model evaluation meets systems engineering. MLPerf provides standardized benchmarks for comparing hardware and software stacks. Inference benchmarking tools measure the metrics that directly affect user experience: Time to First Token (TTFT), Time Per Output Token (TPOT), and throughput under concurrent load. Cross-hardware portability determines whether your training or serving workload can run on TPUs, AMD GPUs, or Intel accelerators, each with its own software stack and trade-offs. Advanced inference scheduling (chunked prefill, cross-instance migration) and KV cache management (compression, reuse, tiered storage) push the boundaries of serving efficiency. Together, these topics complete the evaluation picture: not just "how good is the model?" but "how fast and cost-effective is the system?"</p>
+    </div>
+
+
+    <h2>1. MLPerf Training and Inference Suites <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        MLPerf, managed by MLCommons, is the industry-standard benchmark suite for comparing ML hardware and software performance. It provides reproducible, audited results that enable fair comparisons across vendors and configurations. For LLM workloads, MLPerf includes both training and inference benchmarks with specific rules and scenarios.
+    </p>
+
+    <h3>1.1 MLPerf Training for LLMs</h3>
+
+    <p>
+        The MLPerf Training benchmark measures the time to train a model to a specified quality target. For LLMs, the benchmark uses GPT-3 175B (or equivalent) trained on a fixed dataset to a target validation loss. Key aspects of the benchmark:
+    </p>
+
+    <ul>
+        <li><strong>Metric:</strong> Time to train (TtT) in minutes, from random initialization to the quality target.</li>
+        <li><strong>Rules:</strong> Submissions must use the reference model architecture and dataset. Optimizations to the training loop (parallelism strategies, kernel optimizations, communication overlap) are allowed and encouraged. Submissions are categorized as "closed" (strict rules) or "open" (any architecture allowed).</li>
+        <li><strong>Interpreting results:</strong> Look at both absolute TtT and the number of accelerators used. A system that trains in 5 minutes using 16,384 GPUs is less cost-efficient than one that trains in 20 minutes using 2,048 GPUs. The "performance per accelerator" metric is often more informative than raw TtT.</li>
+    </ul>
+
+    <h3>1.2 MLPerf Inference for LLMs</h3>
+
+    <p>
+        MLPerf Inference defines four scenarios that capture different deployment patterns:
+    </p>
+
+    <div class="table-container">
+        <table class="data-table">
+            <caption><strong>Table 29.14.1</strong>: MLPerf Inference scenarios and their LLM relevance</caption>
+            <thead>
+                <tr><th>Scenario</th><th>Description</th><th>LLM Relevance</th><th>Key Metric</th></tr>
+            </thead>
+            <tbody>
+                <tr><td>Single Stream</td><td>One request at a time, measure latency</td><td>Edge/mobile LLM inference</td><td>90th percentile latency</td></tr>
+                <tr><td>Multi-Stream</td><td>Multiple concurrent queries</td><td>Batch processing pipelines</td><td>Latency per stream</td></tr>
+                <tr><td>Server</td><td>Variable arrival rate, meet latency SLA</td><td>Production API serving</td><td>Max QPS within latency SLA</td></tr>
+                <tr><td>Offline</td><td>Process all samples as fast as possible</td><td>Batch inference, evaluation runs</td><td>Samples per second</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <p>
+        For production LLM serving, the <strong>Server</strong> scenario is most relevant. It measures the maximum queries per second (QPS) a system can handle while keeping the 99th percentile latency below a specified threshold. This directly maps to the production serving requirements discussed in <a class="cross-ref" href="../module-31-production-engineering/section-31.3.html">Section 31.3</a>.
+    </p>
+
+    <div class="callout practical-example">
+        <div class="callout-title">Practical Example</div>
+        <p><strong>Interpreting MLPerf Inference results for deployment decisions.</strong> In the MLPerf Inference v4.1 results (2024), an NVIDIA H100 system achieved 14,200 tokens/sec on Llama 2 70B in the Server scenario, while an AMD MI300X system achieved approximately 10,800 tokens/sec. The H100 system costs approximately $30,000 per GPU; the MI300X approximately $15,000. On a cost-per-token basis, the MI300X delivers 72% of the H100's throughput at 50% of the price, making it more cost-efficient for throughput-optimized workloads. However, the H100 has lower P99 TTFT, making it better for latency-sensitive applications. MLPerf provides the standardized data to make these trade-offs explicit.</p>
+    </div>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight</div>
+        <p>MLPerf results should be interpreted with care. Submissions are heavily optimized by hardware vendors for the specific benchmark workloads, and real-world performance often differs significantly. A system's MLPerf score reflects peak performance under ideal conditions. Production workloads introduce variable request sizes, mixed model versions, and shared infrastructure that reduce effective throughput. Use MLPerf as a directional comparison tool, not as a production capacity planning number. Always validate with your own workload.</p>
+    </div>
+
+
+    <h2>2. Benchmarking LLM Inference <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        While MLPerf provides standardized cross-vendor comparisons, production teams also need to benchmark their specific model, hardware, and serving configuration. This section covers the key metrics, tools, and methodologies for LLM inference benchmarking.
+    </p>
+
+    <h3>2.1 Key Inference Metrics</h3>
+
+    <p>LLM inference has a two-phase structure (prefill and decode) that produces distinct metrics:</p>
+
+    <ul>
+        <li><strong>Time to First Token (TTFT):</strong> The latency from request arrival to the first output token. Dominated by the prefill phase, which processes the entire input prompt. TTFT is the primary metric for perceived responsiveness in streaming applications.</li>
+        <li><strong>Time Per Output Token (TPOT):</strong> The average time between successive output tokens during the decode phase. Determines the "typing speed" of the model's response. For streaming chat interfaces, TPOT below 50ms (20 tokens/sec) is generally perceived as "instant."</li>
+        <li><strong>End-to-End Latency:</strong> Total time from request to complete response. Equals TTFT + (output_tokens * TPOT). Important for non-streaming applications and batch processing.</li>
+        <li><strong>Throughput:</strong> Total tokens generated per second across all concurrent requests. The primary metric for cost efficiency. Higher throughput means more requests served per GPU-hour.</li>
+        <li><strong>P50/P99 Latency:</strong> Percentile latencies capture tail behavior. A system with 100ms P50 TTFT but 2-second P99 TTFT has a "long tail" problem that affects 1 in 100 users. Production SLAs are typically defined on P99.</li>
+    </ul>
+
+    <h3>2.2 Benchmarking with Standard Tools</h3>
+
+    <p>
+        Several tools provide structured LLM inference benchmarking. The choice depends on whether you need quick local benchmarks or rigorous production-representative tests.
+    </p>
+
+<pre><code class="language-bash"># Code Fragment 29.14.1: Benchmarking vLLM with its built-in benchmark tool
+# This tool sends concurrent requests and measures TTFT, TPOT, throughput
+
+python -m vllm.entrypoints.openai.api_server \
+    --model meta-llama/Llama-3.1-8B-Instruct \
+    --tensor-parallel-size 1 &
+
+# Run the benchmark with a realistic request distribution
+python -m vllm.benchmark_serving \
+    --backend openai \
+    --model meta-llama/Llama-3.1-8B-Instruct \
+    --base-url http://localhost:8000 \
+    --dataset-name sharegpt \
+    --dataset-path ShareGPT_V3_unfiltered.json \
+    --num-prompts 1000 \
+    --request-rate 10 \
+    --seed 42
+
+# Output includes:
+# - Successful requests: 1000/1000
+# - Throughput: 3,245 tokens/sec
+# - Mean TTFT: 87ms, P50: 72ms, P99: 312ms
+# - Mean TPOT: 18ms, P50: 15ms, P99: 45ms
+# - Mean E2E latency: 1.23s, P50: 0.98s, P99: 3.45s
+</code></pre>
+
+    <p><strong>AIPerf</strong> is a more recent benchmarking harness designed for modern LLM inference workloads. It supports configurable request distributions, mixed model serving, and real-world traffic patterns (bursty arrivals, variable prompt/completion lengths):</p>
+
+<pre><code class="language-bash"># Code Fragment 29.14.2: Using AIPerf for comprehensive inference benchmarking
+# AIPerf supports multiple backends, realistic traffic patterns,
+# and detailed latency breakdowns
+
+aiperf benchmark \
+    --backend vllm \
+    --endpoint http://localhost:8000/v1/chat/completions \
+    --model meta-llama/Llama-3.1-70B-Instruct \
+    --concurrency-levels 1,4,8,16,32,64 \
+    --prompt-length-distribution "normal:2048:512" \
+    --completion-length-distribution "normal:256:128" \
+    --duration 300 \
+    --warmup 30 \
+    --output results.json
+
+# Generates a concurrency vs. throughput/latency report:
+# Concurrency |  QPS  | TTFT P50 | TTFT P99 | TPOT P50 | Throughput
+# -----------|-------|----------|----------|----------|----------
+#          1 |  0.8  |    45ms  |    52ms  |    12ms  |   245 t/s
+#          4 |  3.1  |    58ms  |    95ms  |    14ms  |   920 t/s
+#          8 |  5.8  |    82ms  |   180ms  |    16ms  |  1,680 t/s
+#         16 |  9.2  |   145ms  |   420ms  |    22ms  |  2,580 t/s
+#         32 | 12.1  |   310ms  |   980ms  |    35ms  |  3,100 t/s
+#         64 | 13.5  |   680ms  | 2,100ms  |    52ms  |  3,250 t/s
+</code></pre>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Mental Model: The Throughput-Latency Curve</div>
+        <p>Every LLM serving system has a characteristic throughput-latency curve. At low concurrency, latency is minimal but throughput is wasted (GPUs are idle between requests). As concurrency increases, throughput grows but latency also rises. At some point, the system saturates: throughput plateaus while latency grows rapidly. The optimal operating point is just before saturation, where throughput is near-maximum and latency is still within SLA. Benchmarking at multiple concurrency levels reveals this curve and tells you the maximum QPS your deployment can handle while meeting your latency SLA.</p>
+    </div>
+
+
+    <h2>3. Cross-Hardware Portability <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>
+        NVIDIA GPUs dominate LLM training and inference, but alternative hardware platforms offer competitive performance at different price points. Understanding the software stacks, trade-offs, and kernel gaps of each platform is essential for teams evaluating hardware options or building portable training and serving pipelines.
+    </p>
+
+    <h3>3.1 Google TPUs with JAX and MaxText</h3>
+
+    <p>
+        Google's Tensor Processing Units (TPUs) are custom accelerators designed for matrix-heavy ML workloads. TPU v5p offers 459 TFLOPS of BF16 compute and 95 GB of HBM2e per chip, connected via a high-bandwidth inter-chip interconnect (ICI) that enables efficient multi-host parallelism without InfiniBand.
+    </p>
+
+    <p>
+        <strong>MaxText</strong> is Google's reference implementation for LLM training on TPUs. It demonstrates best practices for JAX-based distributed training, including FSDP, tensor parallelism, and XLA compiler optimization:
+    </p>
+
+<pre><code class="language-python"># Code Fragment 29.14.3: MaxText configuration for Llama-style model on TPU v5p
+# MaxText uses a YAML config + Python to define the model and training loop
+
+# maxtext_config.yaml
+"""
+model_name: "llama-3-8b"
+base_output_directory: "gs://my-bucket/maxtext-runs/"
+dataset_path: "gs://my-bucket/tokenized-data/"
+
+# Model architecture (Llama 3 8B equivalent)
+num_layers: 32
+num_heads: 32
+num_kv_heads: 8          # GQA
+head_dim: 128
+mlp_dim: 14336
+vocab_size: 128256
+max_target_length: 8192
+
+# Training configuration
+per_device_batch_size: 4
+learning_rate: 3e-4
+adam_b1: 0.9
+adam_b2: 0.95
+weight_decay: 0.1
+
+# Parallelism (for a v5p-256 pod: 256 chips)
+ici_fsdp_parallelism: 64    # FSDP across 64 chips on ICI
+ici_tensor_parallelism: 4    # TP across 4 chips
+dcn_data_parallelism: 1     # No cross-pod DP
+
+# Precision
+dtype: "bfloat16"
+quantization: ""             # Options: "int8", "fp8"
+"""
+
+# Launch training on TPU v5p-256
+# python3 MaxText/train.py MaxText/configs/base.yml \
+#     run_name=llama-8b-tpu \
+#     load_parameters_path="" \
+#     steps=100000
+</code></pre>
+
+    <p>
+        <strong>Trade-offs of TPU vs. NVIDIA GPU:</strong>
+    </p>
+
+    <ul>
+        <li><strong>Advantages:</strong> Tight integration with JAX/XLA compiler produces highly optimized code. ICI interconnect avoids the need for InfiniBand. TPU pods scale to thousands of chips with uniform topology. Cost-per-FLOP can be 30-50% lower than equivalent NVIDIA hardware on Google Cloud.</li>
+        <li><strong>Disadvantages:</strong> JAX ecosystem is smaller than PyTorch (fewer libraries, less community support). Custom CUDA kernels (FlashAttention, Triton kernels) must be rewritten in Pallas (JAX's kernel language). Debugging is harder because XLA compilation abstracts away the hardware. TPU is only available on Google Cloud.</li>
+    </ul>
+
+    <h3>3.2 AMD GPUs with ROCm</h3>
+
+    <p>
+        AMD's Instinct MI300X (192 GB HBM3, 1,307 TFLOPS BF16) competes directly with the NVIDIA H100. The ROCm (Radeon Open Compute) software stack provides a CUDA-compatible interface, and many CUDA applications can be ported with the <code>hipify</code> tool.
+    </p>
+
+    <p>
+        <strong>vLLM on ROCm</strong> provides production-ready LLM serving on AMD GPUs. As of 2025, vLLM supports MI250X, MI300X, and MI300A on ROCm 6.x:
+    </p>
+
+<pre><code class="language-bash"># Code Fragment 29.14.4: Running vLLM on AMD MI300X with ROCm
+# Pull the ROCm-specific vLLM image
+docker pull vllm/vllm-rocm:v0.6.4
+
+# Launch vLLM serving on MI300X
+docker run --device=/dev/kfd --device=/dev/dri \
+    --group-add video \
+    --shm-size 32g \
+    -p 8000:8000 \
+    vllm/vllm-rocm:v0.6.4 \
+    --model meta-llama/Llama-3.1-70B-Instruct \
+    --tensor-parallel-size 4 \
+    --max-model-len 8192 \
+    --gpu-memory-utilization 0.90 \
+    --dtype bfloat16
+
+# Benchmark on MI300X
+python -m vllm.benchmark_serving \
+    --backend openai \
+    --model meta-llama/Llama-3.1-70B-Instruct \
+    --base-url http://localhost:8000 \
+    --dataset-name sharegpt \
+    --num-prompts 500 \
+    --request-rate 8
+</code></pre>
+
+    <p><strong>Kernel gaps on ROCm:</strong> While most PyTorch operations work on ROCm via HIP translation, some specialized kernels have reduced performance or are missing entirely:</p>
+
+    <div class="table-container">
+        <table class="data-table">
+            <caption><strong>Table 29.14.2</strong>: Kernel support comparison: CUDA vs. ROCm for LLM workloads (as of early 2025)</caption>
+            <thead>
+                <tr><th>Kernel/Feature</th><th>CUDA/NVIDIA</th><th>ROCm/AMD</th><th>Performance Gap</th></tr>
+            </thead>
+            <tbody>
+                <tr><td>FlashAttention-2</td><td>Native, optimized</td><td>CK (Composable Kernel) port</td><td>~15% slower</td></tr>
+                <tr><td>FP8 tensor cores</td><td>Transformer Engine</td><td>Partial support (MI300X)</td><td>~30% slower</td></tr>
+                <tr><td>Triton kernels</td><td>Native</td><td>ROCm Triton backend</td><td>Varies, 0-25%</td></tr>
+                <tr><td>NCCL collectives</td><td>NCCL</td><td>RCCL (ROCm fork)</td><td>~10% slower</td></tr>
+                <tr><td>PagedAttention (vLLM)</td><td>Optimized</td><td>Supported</td><td>~10% slower</td></tr>
+                <tr><td>AWQ/GPTQ quantization</td><td>Native</td><td>Supported</td><td>~5-15% slower</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <h3>3.3 Intel Gaudi with SynapseAI</h3>
+
+    <p>
+        Intel Gaudi (formerly Habana Labs) accelerators target cost-effective LLM training and inference. The Gaudi 3 chip offers 1,835 TFLOPS BF16 and 128 GB HBM2e. The SynapseAI software stack provides a PyTorch-compatible interface through the Habana PyTorch Bridge.
+    </p>
+
+    <p>
+        <strong>Trade-offs:</strong> Gaudi offers competitive price-performance for training workloads (available as AWS DL1/DL2q instances), but the ecosystem is much smaller than NVIDIA's. Custom kernels are written in TPC (Tensor Processing Core) ISA, which has a steep learning curve. Model support in the optimum-habana library covers major architectures (Llama, Mistral, Falcon) but lags behind NVIDIA's ecosystem for newer model families.
+    </p>
+
+    <div class="callout fun-note">
+        <div class="callout-title">Fun Fact</div>
+        <p>The cross-hardware portability landscape changes remarkably fast. In 2023, running vLLM on AMD GPUs required significant manual patching. By mid-2024, vLLM's ROCm support was production-ready with CI/CD pipelines running on MI300X. By 2025, AMD GPUs were being used in production LLM serving at several hyperscalers. The pace of improvement in alternative hardware ecosystems means that benchmarks and portability assessments have a shelf life of about 6 months.</p>
+    </div>
+
+
+    <h2>4. Advanced Inference Scheduling <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>
+        Standard LLM serving processes requests sequentially through the prefill and decode phases. Advanced scheduling techniques optimize how requests share GPU resources, reducing latency and improving throughput.
+    </p>
+
+    <h3>4.1 Sarathi-Serve: Chunked Prefill</h3>
+
+    <p>
+        The core insight of Sarathi-Serve (Agrawal et al., 2024) is that long prefill requests (processing thousands of input tokens) block the GPU for extended periods, creating "head-of-line blocking" that starves decode requests of GPU time. Chunked prefill breaks the prefill phase into smaller chunks that are interleaved with decode iterations from other requests.
+    </p>
+
+    <p>
+        Without chunked prefill, a request with 8,000 input tokens monopolizes the GPU for the entire prefill duration (potentially hundreds of milliseconds). Concurrent decode requests must wait, causing their TPOT to spike. With chunked prefill, the 8,000-token prefill is split into 8 chunks of 1,000 tokens each, and each chunk is interleaved with a decode iteration for waiting requests. This bounds the maximum interruption to the decode phase and dramatically reduces TPOT tail latency.
+    </p>
+
+    <p>
+        vLLM (v0.5+) implements chunked prefill with the <code>--enable-chunked-prefill</code> flag. The chunk size is configurable via <code>--max-num-batched-tokens</code>:
+    </p>
+
+<pre><code class="language-bash"># Enable chunked prefill in vLLM for reduced decode latency
+vllm serve meta-llama/Llama-3.1-70B-Instruct \
+    --tensor-parallel-size 4 \
+    --enable-chunked-prefill \
+    --max-num-batched-tokens 2048    # Chunk size for prefill
+</code></pre>
+
+    <h3>4.2 Llumnix: Cross-Instance Scheduling and Request Migration</h3>
+
+    <p>
+        Llumnix (2024) addresses the scheduling problem across multiple vLLM instances behind a load balancer. In a typical deployment, a load balancer assigns each request to an instance at arrival time. If the assignment is suboptimal (one instance becomes overloaded while another is idle), there is no way to rebalance without dropping and retrying the request.
+    </p>
+
+    <p>
+        Llumnix enables <strong>live request migration</strong>: transferring an in-progress request (including its KV cache) from one instance to another without interrupting the generation. This requires serializing the KV cache state, transferring it over the network, and deserializing it on the target instance, all while the generation continues. The overhead is proportional to the KV cache size, which can be significant for long contexts.
+    </p>
+
+    <p>
+        The scheduling algorithm considers both current load (queue depth, GPU utilization) and predicted load (estimated remaining tokens for in-flight requests) to make migration decisions. In benchmarks, Llumnix reduces P99 TTFT by 30-50% compared to static load balancing under bursty traffic.
+    </p>
+
+
+    <h2>5. KV Cache as a Distributed Resource <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>
+        The KV cache is the dominant memory consumer during LLM inference (see <a class="cross-ref" href="../../part-2-understanding-llms/module-09-inference-optimization/index.html">Chapter 9</a>). For a 70B model with 128K context, the KV cache alone can consume over 40 GB per request. Managing the KV cache as a distributed, shareable resource rather than a per-request allocation opens significant efficiency opportunities.
+    </p>
+
+    <h3>5.1 CacheGen: KV Cache Compression</h3>
+
+    <p>
+        CacheGen (Zheng et al., 2024) compresses KV cache tensors using a learned codec that exploits the statistical properties of attention key and value vectors. The compressed representations are 3-5x smaller than the original tensors, enabling more concurrent requests per GPU and faster KV cache transfer between instances.
+    </p>
+
+    <p>
+        The compression operates on a per-layer, per-head basis, applying a lightweight quantization scheme that preserves the attention distribution with minimal quality loss. Empirically, CacheGen achieves 3.7x compression with less than 1% quality degradation on standard benchmarks.
+    </p>
+
+    <h3>5.2 LMCache: KV Cache Reuse Across Requests</h3>
+
+    <p>
+        Many LLM applications use a shared system prompt or context prefix across all requests. Without cache reuse, the KV cache for this shared prefix is recomputed for every request, wasting GPU compute. LMCache (and similar approaches like SGLang's RadixAttention) stores and reuses KV cache entries across requests that share a common prefix.
+    </p>
+
+<pre><code class="language-python"># Code Fragment 29.14.5: Conceptual KV cache reuse with prefix caching
+# Most serving engines now support this natively
+
+# In vLLM, prefix caching is enabled by default (v0.5+)
+# The engine automatically detects shared prefixes and reuses KV cache
+
+# Example: 100 requests sharing a 2000-token system prompt
+# Without prefix caching: 100 * prefill(2000 tokens) = 200K prefill tokens
+# With prefix caching: 1 * prefill(2000 tokens) + 100 * prefill(user_tokens)
+# Savings: ~90% reduction in prefill compute for the shared prefix
+
+# SGLang provides explicit prefix caching via RadixAttention:
+import sglang as sgl
+
+@sgl.function
+def chat_with_context(s, system_prompt, user_message):
+    s += sgl.system(system_prompt)    # KV cache shared across calls
+    s += sgl.user(user_message)       # Only this part is recomputed
+    s += sgl.assistant(sgl.gen("response", max_tokens=512))
+</code></pre>
+
+    <h3>5.3 InfiniGen: Predictive KV Cache Prefetch</h3>
+
+    <p>
+        InfiniGen (2024) addresses the memory limitation of KV caches by storing inactive cache entries in CPU memory or disk, and predictively prefetching entries back to GPU memory before they are needed. The prediction is based on the attention patterns of previous layers: by observing which KV entries receive high attention scores in early layers, InfiniGen predicts which entries will be needed in later layers and prefetches them during the compute phase.
+    </p>
+
+    <p>
+        This tiered storage approach enables serving much longer contexts than GPU memory alone would allow:
+    </p>
+
+    <div class="table-container">
+        <table class="data-table">
+            <caption><strong>Table 29.14.3</strong>: KV cache storage tiers and their characteristics</caption>
+            <thead>
+                <tr><th>Tier</th><th>Capacity</th><th>Bandwidth</th><th>Latency</th><th>Cost per GB</th></tr>
+            </thead>
+            <tbody>
+                <tr><td>GPU HBM</td><td>80 GB (H100)</td><td>3.35 TB/s</td><td>&lt; 1 us</td><td>Highest</td></tr>
+                <tr><td>CPU DRAM</td><td>512 GB - 2 TB</td><td>200 GB/s</td><td>~100 ns</td><td>Medium</td></tr>
+                <tr><td>NVMe SSD</td><td>4-16 TB</td><td>7 GB/s</td><td>~10 us</td><td>Low</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <p>
+        With InfiniGen's predictive prefetching, the effective KV cache capacity extends to CPU DRAM size (hundreds of gigabytes) while maintaining near-HBM access patterns for the active cache entries. The decode latency overhead is typically 5-15% compared to an all-HBM cache, which is acceptable for most serving scenarios.
+    </p>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight</div>
+        <p>The KV cache management landscape is converging toward treating the cache as a distributed, multi-tier resource rather than a per-request GPU allocation. This shift parallels the evolution of CPU memory management from per-process physical allocation to virtual memory with demand paging. The "virtual KV cache" paradigm (PagedAttention in vLLM was the first step) is extending to cross-instance sharing (LMCache), compression (CacheGen), and tiered storage (InfiniGen). Together, these techniques can increase the effective serving capacity of a GPU cluster by 3-10x for long-context workloads, without any changes to the model itself.</p>
+    </div>
+
+
+    <div class="takeaways">
+        <h2>&#x2705; Key Takeaways</h2>
+        <ul>
+            <li>MLPerf provides standardized benchmarks for comparing LLM training and inference across hardware platforms. The Server scenario is most relevant for production LLM serving, measuring throughput within a latency SLA.</li>
+            <li>LLM inference benchmarking requires measuring TTFT, TPOT, and throughput at multiple concurrency levels to reveal the throughput-latency curve and find the optimal operating point.</li>
+            <li>Cross-hardware portability is increasingly viable: TPU/JAX for cost-effective training at Google Cloud scale, AMD MI300X with ROCm for competitive inference, and Intel Gaudi for budget-conscious training. Each platform has kernel gaps that narrow with each release.</li>
+            <li>Chunked prefill (Sarathi-Serve) interleaves prefill and decode phases to eliminate head-of-line blocking, reducing TPOT tail latency by 30-50% for mixed workloads.</li>
+            <li>Llumnix enables live request migration between serving instances for dynamic load balancing, addressing the fundamental limitation of static request assignment.</li>
+            <li>KV cache management (compression, prefix reuse, tiered storage with predictive prefetch) extends effective serving capacity by 3-10x, making the KV cache a first-class distributed resource.</li>
+        </ul>
+    </div>
+
+    <div class="callout research-frontier">
+        <div class="callout-title">Research Frontier</div>
+        <p>Several research directions are pushing the boundaries of LLM performance and portability. <em>Disaggregated inference</em> (Splitwise, DistServe) separates the prefill and decode phases onto different hardware, using high-compute GPUs for prefill and high-memory GPUs for decode. <em>Speculative decoding with hardware co-design</em> explores using small, fast accelerators (FPGAs or NPUs) to run draft models while large GPUs verify and accept tokens. <em>Compiler-level portability</em> through OpenXLA and MLIR aims to provide a single compilation path that targets NVIDIA, AMD, TPU, and custom accelerators from a single source. <em>KV cache disaggregation</em> (Mooncake, MemServe) moves the KV cache to a dedicated memory pool accessible by any GPU in the cluster, fully decoupling compute from cache storage.</p>
+    </div>
+
+<section class="exercises">
+    <h2>Exercises</h2>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 29.14.1: Inference benchmarking <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span> <span class="exercise-type coding" title="Coding">Coding</span></div>
+        <p>Set up a vLLM server with a 7B model and run the benchmark_serving tool at concurrency levels 1, 4, 8, 16, and 32. Plot the throughput-latency curve (TTFT P99 vs. throughput). Identify the concurrency level at which the system saturates and explain what limits further throughput.</p>
+        <details open><summary>Answer Sketch</summary>
+            <p>Launch vLLM with Llama-3.1-8B-Instruct, run benchmark_serving with --request-rate values of 1, 4, 8, 16, 32. Plot shows throughput increasing linearly to ~8 RPS then plateauing while TTFT P99 grows exponentially. Saturation occurs when the GPU's compute capacity is fully utilized (decode phase becomes bottleneck) or when KV cache memory is exhausted. The limiting factor is usually GPU compute at short contexts and memory at long contexts.</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 29.14.2: Cross-hardware cost analysis <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span> <span class="exercise-type analysis" title="Analysis">Analysis</span></div>
+        <p>Compare the cost-per-million-tokens for serving Llama 3.1 70B on: (a) 4x NVIDIA H100 on AWS p5, (b) 4x AMD MI300X on a cloud provider, (c) a single TPU v5p pod-8 via GCP. Use published benchmarks or estimates for throughput on each platform and current cloud pricing to calculate the cost.</p>
+        <details open><summary>Answer Sketch</summary>
+            <p>Research current pricing: AWS p5.24xlarge (8x H100) ~$98/hr, estimate ~14K tokens/sec for 70B on 4 GPUs. AMD MI300X: estimate ~10.8K tokens/sec, ~$45/hr equivalent. TPU v5p pod-8: ~$40/hr, ~8K tokens/sec. Calculate tokens per dollar: H100 ~514K tokens/$, MI300X ~864K tokens/$, TPU ~720K tokens/$. MI300X wins on cost-efficiency for throughput, H100 wins on latency, TPU wins on total cost for sustained workloads. Note: actual numbers vary significantly; the exercise teaches the methodology.</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 29.14.3: KV cache sizing <span class="level-badge advanced" title="Advanced">ADVANCED</span> <span class="exercise-type analysis" title="Analysis">Analysis</span></div>
+        <p>For a Llama 3.1 70B model (80 layers, 8 KV heads, head_dim=128, BF16), calculate the KV cache size per token, per request at 4K context, and the maximum concurrent requests on an 8x H100 system (640 GB total HBM) assuming the model weights consume 140 GB. How does CacheGen's 3.7x compression change the concurrency limit?</p>
+        <details open><summary>Answer Sketch</summary>
+            <p>KV cache per token: 80 layers * 2 (K+V) * 8 heads * 128 dim * 2 bytes (BF16) = 327,680 bytes = 320 KB. Per request at 4K: 320 KB * 4096 = 1.28 GB. Available memory: 640 - 140 = 500 GB. Max concurrent: 500/1.28 = 390 requests. With CacheGen 3.7x: effective per-request = 1.28/3.7 = 0.346 GB, max concurrent = 500/0.346 = 1,445 requests. This 3.7x increase in concurrency translates directly to 3.7x throughput improvement.</p>
+        </details>
+    </div>
+
+    <div class="callout exercise">
+        <div class="callout-title">Exercise 29.14.4: MLPerf interpretation <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span> <span class="exercise-type discussion" title="Discussion">Discussion</span></div>
+        <p>Look up the latest MLPerf Inference results for an LLM benchmark. Compare two submissions on different hardware (e.g., NVIDIA H100 vs. H200, or NVIDIA vs. AMD). Discuss: What scenarios were tested? How do the results differ on throughput vs. latency? What can and cannot be concluded from these results for a production deployment?</p>
+        <details open><summary>Answer Sketch</summary>
+            <p>Access results at mlcommons.org. Compare Server and Offline scenarios. Note that submissions use optimized software stacks that may not reflect default vLLM/TGI performance. Can conclude: relative hardware throughput, approximate performance scaling. Cannot conclude: actual production latency (depends on serving software, request distribution, batch size), cost-per-token (depends on pricing and utilization), quality differences (MLPerf does not measure model quality for same-model benchmarks).</p>
+        </details>
+    </div>
+</section>
+
+    <section class="bibliography">
+        <div class="bibliography-title">&#128218; References &amp; Further Reading</div>
+
+        <div class="bib-category">MLPerf and Benchmarking</div>
+
+        <div class="bib-entry-card">
+            <p class="bib-ref"><a href="https://www.mlcommons.org/" target="_blank" rel="noopener">MLCommons (2024). MLPerf Training and Inference Benchmarks.</a></p>
+            <p class="bib-annotation">The industry-standard benchmarking suite for ML hardware and software performance. Includes LLM-specific benchmarks with standardized rules, scenarios, and audited results across hardware platforms.</p>
+            <span class="bib-meta">&#128214; Documentation</span>
+        </div>
+
+        <div class="bib-category">Advanced Inference Scheduling</div>
+
+        <div class="bib-entry-card">
+            <p class="bib-ref"><a href="https://arxiv.org/abs/2308.16369" target="_blank" rel="noopener">Agrawal, A., Panwar, A., Mohan, J., et al. (2024). Sarathi-Serve: Efficient Chunked-Prefills for SLO-compliant LLM Serving.</a></p>
+            <p class="bib-annotation">Introduces chunked prefill scheduling for LLM serving, which interleaves prefill and decode phases to eliminate head-of-line blocking. Demonstrates 30-50% reduction in decode tail latency for mixed workloads.</p>
+            <span class="bib-meta">&#128196; Paper</span>
+        </div>
+
+        <div class="bib-entry-card">
+            <p class="bib-ref"><a href="https://arxiv.org/abs/2406.03243" target="_blank" rel="noopener">Sun, B., Huang, Z., Zhao, H., et al. (2024). Llumnix: Dynamic Scheduling for Large Language Model Serving. <em>OSDI 2024</em>.</a></p>
+            <p class="bib-annotation">Proposes cross-instance request migration for LLM serving, enabling dynamic load balancing by transferring in-progress requests (including KV cache state) between serving instances.</p>
+            <span class="bib-meta">&#128196; Paper</span>
+        </div>
+
+        <div class="bib-category">KV Cache Management</div>
+
+        <div class="bib-entry-card">
+            <p class="bib-ref"><a href="https://arxiv.org/abs/2310.07240" target="_blank" rel="noopener">Zheng, Y., Liu, Z., Wang, Z., et al. (2024). CacheGen: KV Cache Compression and Streaming for Fast Large Language Model Serving.</a></p>
+            <p class="bib-annotation">Introduces learned compression for KV cache tensors, achieving 3.7x compression with minimal quality degradation. Enables higher concurrency and faster cache transfer between serving instances.</p>
+            <span class="bib-meta">&#128196; Paper</span>
+        </div>
+
+        <div class="bib-entry-card">
+            <p class="bib-ref"><a href="https://arxiv.org/abs/2406.12274" target="_blank" rel="noopener">Lee, J., Kim, K., et al. (2024). InfiniGen: Efficient Generative Inference of Large Language Models with Dynamic KV Cache Management.</a></p>
+            <p class="bib-annotation">Proposes predictive KV cache prefetching between GPU, CPU, and disk storage tiers. Uses attention pattern prediction from early layers to prefetch entries for later layers during compute.</p>
+            <span class="bib-meta">&#128196; Paper</span>
+        </div>
+
+        <div class="bib-category">Cross-Hardware Portability</div>
+
+        <div class="bib-entry-card">
+            <p class="bib-ref"><a href="https://github.com/google/maxtext" target="_blank" rel="noopener">Google (2024). MaxText: A Simple, Performant, and Scalable Jax LLM.</a></p>
+            <p class="bib-annotation">Google's reference implementation for LLM training on TPUs using JAX. Demonstrates best practices for distributed training, FSDP, and XLA compiler optimization on TPU v5p hardware.</p>
+            <span class="bib-meta">&#128187; Library</span>
+        </div>
+
+        <div class="bib-entry-card">
+            <p class="bib-ref"><a href="https://rocm.docs.amd.com/" target="_blank" rel="noopener">AMD (2024). ROCm Documentation: Open Software Platform for GPU Computing.</a></p>
+            <p class="bib-annotation">Documentation for AMD's ROCm software stack, covering HIP (CUDA compatibility layer), MIOpen (cuDNN equivalent), RCCL (NCCL equivalent), and integration with PyTorch and vLLM.</p>
+            <span class="bib-meta">&#128214; Documentation</span>
+        </div>
+    </section>
+
+<nav class="chapter-nav">
+    <a class="prev" href="section-29.13.html">Research Methodology for LLM Papers</a>
+    <a class="up" href="index.html">Chapter 29: Evaluation &amp; Experiment Design</a>
+    <a class="next" href="../module-30-observability-monitoring/index.html">Chapter 30: Observability and Monitoring</a>
+</nav>
+
+    <footer>
+        <p class="footer-title">Building Conversational AI with LLMs and Agents, Fifth Edition</p>
+        <p>&copy; 2026 Alexander Apartsin &amp; Yehudit Aperstein &middot; <a href="../../toc.html">Contents</a></p>
+        <p class="footer-updated">Last updated: <script>document.write(new Date(document.lastModified).toLocaleDateString('en-US', {year:'numeric', month:'long', day:'numeric'}))</script></p>
+    </footer>
+</main>
+</body>
+</html>

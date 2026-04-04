@@ -1,0 +1,798 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Section 29.11: Long-Context Benchmarks and Context Extension Methods. A comprehensive chapter from the Building Conversational AI textbook.">
+    <title>Section 29.11: Long-Context Benchmarks and Context Extension Methods</title>
+    <link rel="stylesheet" href="../../styles/book.css">
+    <link rel="stylesheet" href="../../vendor/katex/katex.min.css">
+    <script defer src="../../vendor/katex/katex.min.js"></script>
+    <script defer src="../../vendor/katex/contrib/auto-render.min.js"
+        onload="renderMathInElement(document.body, {
+            delimiters: [
+                {left: '$$', right: '$$', display: true},
+                {left: '$', right: '$', display: false}
+            ],
+            throwOnError: false
+        });"></script>
+    <link rel="stylesheet" href="../../vendor/prism/prism-theme.css">
+    <script defer src="../../vendor/prism/prism-bundle.min.js"></script>
+</head>
+<body>
+<header class="chapter-header">
+    <nav class="header-nav">
+        <a href="../../index.html" class="book-title-link">Building Conversational AI with LLMs and Agents</a>
+        <a href="../../toc.html" class="toc-link" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+    </nav>
+    <div class="part-label"><a href="../index.html">Part VIII: Evaluation &amp; Production</a></div>
+    <div class="chapter-label"><a href="index.html">Chapter 29: Evaluation &amp; Experiment Design</a></div>
+    <h1>Long-Context Benchmarks and Context Extension Methods</h1>
+</header>
+
+<main class="content">
+
+    <blockquote class="epigraph">
+        <p>A model that claims to read a novel but forgets the first chapter by the last page has a context window in name only.</p>
+        <cite><span class="agent-avatar-inline" style="background-color: #7f8c8d;"><img src="../../front-matter/images/agents/eval.png" alt="Eval"></span> <a href="../../front-matter/wisdom-council.html#eval">Eval</a> <span class="agent-desc">AI Agent</span></cite>
+    </blockquote>
+
+    <div class="prerequisites">
+        <h3>Prerequisites</h3>
+        <p>This section builds on the evaluation fundamentals from <a href="section-29.1.html">Section 29.1</a> and the experimental design principles in <a href="section-29.2.html">Section 29.2</a>. Understanding <a class="cross-ref" href="../../part-1-foundations/module-04-transformer-architecture/section-4.2.html">positional encoding and attention mechanisms</a> from the Transformer architecture chapter will help with the context extension methods. Familiarity with <a class="cross-ref" href="../../part-2-understanding-llms/module-09-inference-optimization/index.html">inference optimization</a> provides useful context for the computational aspects of long-context processing.</p>
+    </div>
+
+    <div class="callout big-picture">
+        <div class="callout-title">Big Picture</div>
+        <p><strong>The "context length" listed on a model card is a theoretical maximum, not a guarantee of effective utilization.</strong> A model advertised with a 128K token context window may lose significant accuracy when relevant information is placed in the middle of a long document (the "lost-in-the-middle" effect from <a href="../../part-5-retrieval-conversation/module-20-rag/section-20.1.html">Section 20.1</a>). This section covers the benchmarks designed to measure real context utilization (LongBench v2, RULER, Needle-in-a-Haystack), the methods developed to extend context windows beyond training-time limits (YaRN, NTK-aware scaling, position interpolation), and the evaluation pitfalls that make long-context assessment surprisingly difficult. For practitioners building <a class="cross-ref" href="../../part-5-retrieval-conversation/module-20-rag/index.html">RAG systems</a>, understanding effective context length determines whether to rely on long-context models or external retrieval.</p>
+    </div>
+
+    <h2>1. The Gap Between Claimed and Effective Context Length <span class="level-badge basic" title="Basic">Basic</span></h2>
+
+    <p>
+        When a model provider advertises a 128K or 1M token context window, that number represents the
+        maximum sequence length the model can accept as input. It does not guarantee that the model
+        will accurately attend to, reason about, or recall information at every position within that window.
+        Several factors contribute to degraded performance at long context lengths:
+    </p>
+
+    <ul>
+        <li><strong>Attention dilution:</strong> As sequence length grows, attention weights spread across more tokens. Information at positions that receive low attention scores is effectively invisible to the model, even though it is technically within the context window.</li>
+        <li><strong>Position bias:</strong> Models trained predominantly on shorter sequences develop a bias toward information near the beginning and end of the context, with reduced recall for content in the middle. This is the "lost-in-the-middle" phenomenon documented by Liu et al. (2023).</li>
+        <li><strong>Training distribution mismatch:</strong> If a model was pre-trained on 4K token sequences and then extended to 128K through positional extrapolation, its ability to reason over the extended range may be significantly weaker than at the original training length.</li>
+        <li><strong>Task complexity interaction:</strong> Simple retrieval (finding a specific fact) degrades more gracefully than complex reasoning (synthesizing information from multiple positions) as context grows.</li>
+    </ul>
+
+    <p>
+        This gap between claimed and effective context length has practical consequences. A developer who
+        stuffs 100K tokens of context into a prompt, assuming the model will use it all, may get worse
+        results than one who carefully selects 10K tokens of highly relevant content. Benchmarks in the
+        following sections provide the tools to measure this gap empirically.
+    </p>
+
+    <h2>2. Needle-in-a-Haystack (NIAH) and Multi-Needle Variants <span class="level-badge basic" title="Basic">Basic</span></h2>
+
+    <p>
+        The Needle-in-a-Haystack (NIAH) test, popularized by Greg Kamradt in late 2023, is the simplest
+        and most intuitive long-context benchmark. A synthetic "needle" (a specific fact, such as
+        "The best thing to do in San Francisco is eat a sandwich and sit in Dolores Park on a sunny day")
+        is inserted at a controlled position within a large "haystack" of irrelevant text. The model is
+        then asked to retrieve the needle.
+    </p>
+
+    <p>
+        By varying both the total context length and the needle position (from 0% to 100% depth), NIAH
+        produces a two-dimensional heatmap showing retrieval accuracy across the entire context window.
+        This reveals position-dependent failure patterns that a single aggregate accuracy number would hide.
+    </p>
+
+    <h3>2.1 Multi-Needle and Reasoning Variants</h3>
+
+    <p>
+        The basic single-needle test has been extended in several ways to increase difficulty:
+    </p>
+
+    <ul>
+        <li><strong>Multi-needle:</strong> Multiple facts are scattered throughout the context, and the model must retrieve all of them. This tests whether the model can attend to multiple positions simultaneously.</li>
+        <li><strong>Reasoning needles:</strong> Instead of retrieving a verbatim fact, the model must combine information from two or more needles placed at different positions to produce the correct answer.</li>
+        <li><strong>Adversarial needles:</strong> Distractor facts similar to the target needle are inserted at other positions, testing whether the model can distinguish the correct needle from plausible alternatives.</li>
+    </ul>
+
+<pre><code class="language-python"># Code Fragment 29.11.1: Needle-in-a-Haystack evaluation
+# Key operations: needle insertion, position sweep, heatmap generation
+import numpy as np
+from openai import OpenAI
+
+client = OpenAI()
+
+def run_niah_test(
+    model: str,
+    context_lengths: list[int],
+    depth_percents: list[float],
+    needle: str = "The secret project code name is AURORA-7.",
+    question: str = "What is the secret project code name?",
+    expected: str = "AURORA-7",
+    filler_text: str = None,
+) -> np.ndarray:
+    """Run NIAH across context lengths and needle positions."""
+    results = np.zeros((len(context_lengths), len(depth_percents)))
+
+    for i, ctx_len in enumerate(context_lengths):
+        # Generate filler text to fill the context
+        haystack = generate_filler(ctx_len, filler_text)
+
+        for j, depth in enumerate(depth_percents):
+            # Insert needle at the specified depth
+            insert_pos = int(len(haystack) * depth)
+            prompt = (
+                haystack[:insert_pos]
+                + f"\n{needle}\n"
+                + haystack[insert_pos:]
+            )
+
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system",
+                     "content": "Answer based on the provided context."},
+                    {"role": "user",
+                     "content": f"Context:\n{prompt}\n\n{question}"},
+                ],
+                max_tokens=50,
+                temperature=0.0,
+            )
+
+            answer = response.choices[0].message.content
+            results[i, j] = 1.0 if expected.lower() in answer.lower() else 0.0
+
+    return results
+
+# Run across multiple context lengths and positions
+context_lengths = [1_000, 4_000, 16_000, 32_000, 64_000, 128_000]
+depth_percents = [0.0, 0.1, 0.25, 0.5, 0.75, 0.9, 1.0]
+
+scores = run_niah_test(
+    model="gpt-4o",
+    context_lengths=context_lengths,
+    depth_percents=depth_percents,
+)
+print(f"Overall retrieval accuracy: {scores.mean():.1%}")
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 29.11.1:</strong> A basic NIAH implementation that sweeps across context lengths and needle depths, producing a 2D accuracy matrix suitable for heatmap visualization.</div>
+
+<div class="callout library-shortcut">
+<div class="callout-title">Library Shortcut</div>
+<p>The same result in 8 lines with <strong>Inspect AI</strong>, which ships with a built-in NIAH evaluation task:</p>
+<pre><code class="language-python">
+# pip install inspect-ai
+from inspect_ai import eval
+from inspect_ai.dataset import Sample
+from inspect_evals.niah import niah
+
+# Run NIAH across context lengths with one call
+results = eval(
+    niah(min_context=1_000, max_context=128_000, n_contexts=6, n_positions=7),
+    model="openai/gpt-4o",
+    log_dir="./niah_logs",
+)
+# Results include a 2D accuracy matrix and interactive log viewer
+</code></pre>
+</div>
+
+    <div class="callout fun-note">
+        <div class="callout-title">Fun Fact</div>
+        <p>The original Needle-in-a-Haystack test went viral on Twitter/X in November 2023 when Greg Kamradt published colorful heatmaps showing that Claude 2.1 had a "blind spot" in the middle of its context window. Anthropic responded within days with a system prompt fix that significantly improved mid-context retrieval. The episode demonstrated both the power of simple, visual benchmarks and the surprising sensitivity of LLM performance to system prompt phrasing.</p>
+    </div>
+
+    <h2>3. RULER: Parametric Context Utilization Benchmark <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        RULER (Hsieh et al., 2024) addresses the limitations of NIAH by providing a parametric benchmark
+        with configurable task complexity. While NIAH tests simple retrieval of a single fact, RULER
+        includes tasks that require reasoning, aggregation, and multi-step operations across the context.
+        RULER defines four task categories:
+    </p>
+
+    <ol>
+        <li><strong>Retrieval (NIAH variants):</strong> Single-key, multi-key, multi-value, and multi-query needle retrieval at controlled positions.</li>
+        <li><strong>Multi-hop tracing:</strong> Variable-length chains where the model must follow a sequence of references (e.g., "X is stored in Y, Y is stored in Z; where is X?").</li>
+        <li><strong>Aggregation:</strong> The model must count, sum, or find the most frequent item among values scattered throughout the context.</li>
+        <li><strong>Question answering:</strong> Complex questions requiring information from multiple context positions.</li>
+    </ol>
+
+    <p>
+        The key insight of RULER is that model performance degrades at very different rates depending on
+        task complexity. A model that achieves 95% on single-needle retrieval at 128K tokens may drop to
+        40% on multi-hop tracing at the same length. RULER's parametric design allows benchmarking at any
+        target sequence length, producing "RULER curves" that show how each task type degrades with context.
+    </p>
+
+<pre><code class="language-python"># Code Fragment 29.11.2: RULER-style multi-hop tracing task
+# Key operations: chain generation, context construction, evaluation
+import random
+import string
+
+def generate_ruler_tracing_task(
+    context_length: int,
+    chain_length: int = 3,
+    num_distractors: int = 20,
+) -> dict:
+    """Generate a RULER-style variable-length tracing task.
+
+    Creates a chain: X is in box A, box A is in box B, ...
+    The model must determine the final location of X.
+    """
+    # Generate unique variable names
+    names = [
+        "".join(random.choices(string.ascii_uppercase, k=4))
+        for _ in range(chain_length + 1 + num_distractors)
+    ]
+
+    target = names[0]
+    chain_locations = names[1:chain_length + 1]
+    distractor_names = names[chain_length + 1:]
+
+    # Build the chain statements
+    chain_facts = []
+    chain_facts.append(
+        f"The item '{target}' is stored in container '{chain_locations[0]}'."
+    )
+    for k in range(len(chain_locations) - 1):
+        chain_facts.append(
+            f"Container '{chain_locations[k]}' is inside "
+            f"container '{chain_locations[k+1]}'."
+        )
+
+    # Build distractor statements
+    distractor_facts = []
+    for name in distractor_names:
+        loc = random.choice(distractor_names)
+        distractor_facts.append(
+            f"The item '{name}' is stored in container '{loc}'."
+        )
+
+    # Interleave chain facts at random positions among distractors
+    all_facts = distractor_facts.copy()
+    for fact in chain_facts:
+        pos = random.randint(0, len(all_facts))
+        all_facts.insert(pos, fact)
+
+    # Pad to target context length with filler
+    context = "\n".join(all_facts)
+    context = pad_to_length(context, context_length)
+
+    return {
+        "context": context,
+        "question": f"Where is '{target}' ultimately stored? "
+                    f"Follow the chain of containers.",
+        "expected": chain_locations[-1],
+        "chain_length": chain_length,
+    }
+
+# Evaluate across context lengths and chain depths
+for ctx_len in [4_000, 32_000, 128_000]:
+    for chain_len in [2, 3, 5, 7]:
+        task = generate_ruler_tracing_task(ctx_len, chain_len)
+        result = evaluate_model(task)
+        print(f"Context: {ctx_len:>7,} | Chain: {chain_len} | "
+              f"Correct: {result}")
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 29.11.2:</strong> A RULER-style multi-hop tracing task generator. Chain length controls reasoning difficulty independently of context length, revealing how models degrade under compound complexity.</div>
+
+    <h2>4. LongBench v2: Multi-Task Long-Context Evaluation <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        LongBench v2 (Bai et al., 2024) provides a comprehensive, multi-task evaluation suite for
+        long-context language models. Unlike synthetic benchmarks (NIAH, RULER), LongBench v2 uses
+        real-world documents and tasks that reflect actual long-context use cases. The benchmark spans
+        six task categories:
+    </p>
+
+    <ul>
+        <li><strong>Single-document QA:</strong> Questions answerable from a single long document (academic papers, legal contracts, technical manuals).</li>
+        <li><strong>Multi-document QA:</strong> Questions requiring synthesis across multiple documents concatenated into a single context.</li>
+        <li><strong>Summarization:</strong> Producing summaries of long documents that capture key information without hallucination.</li>
+        <li><strong>Few-shot learning:</strong> In-context learning with many demonstration examples, testing whether models can leverage large example sets effectively.</li>
+        <li><strong>Code completion:</strong> Completing code given a large repository context with cross-file dependencies.</li>
+        <li><strong>Synthetic tasks:</strong> Controlled tasks (including NIAH variants) for isolating specific capabilities.</li>
+    </ul>
+
+    <p>
+        LongBench v2 addresses several shortcomings of earlier benchmarks. It uses a "length-instruction-enhanced" evaluation protocol
+        that controls for the confound between task difficulty and context length. Tasks are designed so that
+        the relevant information truly requires the full context, preventing models from "cheating" by
+        ignoring the long context and relying on parametric knowledge.
+    </p>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight</div>
+        <p>A critical finding from LongBench v2 is that model rankings change significantly across task categories and context lengths. A model that leads on single-document QA at 32K tokens may rank last on multi-document synthesis at 128K tokens. This means that a single "long-context score" is misleading. Practitioners should evaluate on the specific task type and context length that matches their production use case, not rely on aggregate leaderboard positions.</p>
+    </div>
+
+    <h2>5. Context Extension Methods <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>
+        Models trained with a fixed maximum sequence length face a hard boundary: they cannot process
+        inputs longer than their training context. Positional encoding extension methods address this by
+        modifying the position representation so that the model can generalize to longer sequences without
+        full retraining. The key methods are:
+    </p>
+
+    <h3>5.1 Position Interpolation</h3>
+
+    <p>
+        Position interpolation (Chen et al., 2023) is the simplest extension method. Instead of
+        extrapolating RoPE (Rotary Position Embedding) frequencies beyond the training range, it
+        rescales all positions to fit within the original range. For a model trained on $L$ tokens
+        extended to $L' > L$ tokens, position $i$ is mapped to $i \cdot L / L'$.
+    </p>
+
+    <p>
+        The intuition is that interpolation between known positions is more stable than extrapolation
+        beyond them. A model trained on positions 0 through 4,096 can reasonably estimate what position
+        2,048.5 "looks like," but has no reliable basis for estimating position 8,192. After interpolation,
+        a small amount of fine-tuning (typically 1,000 steps) adapts the model to the compressed position
+        representation.
+    </p>
+
+    <h3>5.2 NTK-Aware Scaling</h3>
+
+    <p>
+        NTK-aware scaling (bloc97, 2023) observes that position interpolation compresses high-frequency
+        RoPE components too aggressively, destroying local position information. Instead of applying a
+        uniform scaling factor, NTK-aware scaling adjusts the RoPE base frequency:
+    </p>
+
+    $$\theta'_i = \theta_{\text{base}}^{\prime -2i/d} \quad \text{where} \quad \theta_{\text{base}}' = \theta_{\text{base}} \cdot \alpha^{d/(d-2)}$$
+
+    <p>
+        Here, $\alpha = L'/L$ is the extension ratio and $d$ is the embedding dimension. This preserves
+        high-frequency (local) positional information while stretching low-frequency (global) components to
+        accommodate longer sequences. NTK-aware scaling often works without any fine-tuning at moderate
+        extension ratios (2x to 4x).
+    </p>
+
+    <h3>5.3 YaRN (Yet another RoPE extensioN)</h3>
+
+    <p>
+        YaRN (Peng et al., 2023) combines the best ideas from position interpolation and NTK-aware scaling
+        into a unified framework. It introduces a per-dimension scaling strategy that treats RoPE frequency
+        bands differently based on their wavelength relative to the original context length:
+    </p>
+
+    <ul>
+        <li><strong>High-frequency dimensions</strong> (wavelength much shorter than training length): No scaling needed; these encode local position information that transfers directly.</li>
+        <li><strong>Low-frequency dimensions</strong> (wavelength comparable to or longer than training length): Apply NTK-aware scaling to stretch these for the extended context.</li>
+        <li><strong>Intermediate dimensions:</strong> Blend between no scaling and full scaling using a smooth ramp function.</li>
+    </ul>
+
+    <p>
+        YaRN also applies a temperature scaling factor to the attention logits to compensate for the increased
+        entropy of attention distributions at longer sequence lengths. This correction prevents the "attention
+        dilution" that would otherwise degrade performance.
+    </p>
+
+<pre><code class="language-python"># Code Fragment 29.11.3: Implementing YaRN-style RoPE extension
+# Key operations: frequency scaling, dimension-wise interpolation
+import torch
+import math
+
+def yarn_rope_scaling(
+    dim: int,
+    max_position: int,
+    original_max: int = 4096,
+    base: float = 10000.0,
+    beta_fast: int = 32,
+    beta_slow: int = 1,
+) -> torch.Tensor:
+    """Compute YaRN-scaled RoPE frequencies.
+
+    Args:
+        dim: RoPE embedding dimension
+        max_position: target context length
+        original_max: original training context length
+        base: RoPE base frequency
+        beta_fast: fast (high-freq) interpolation boundary
+        beta_slow: slow (low-freq) interpolation boundary
+    """
+    scale = max_position / original_max
+
+    # Compute original frequencies
+    freqs = 1.0 / (base ** (torch.arange(0, dim, 2).float() / dim))
+
+    # Compute wavelengths for each frequency dimension
+    wavelengths = 2 * math.pi / freqs
+
+    # Determine per-dimension scaling using ramp function
+    low_bound = original_max / beta_fast
+    high_bound = original_max / beta_slow
+
+    # Ramp: 0 for high-freq (no scaling), 1 for low-freq (full scaling)
+    ramp = ((wavelengths - low_bound) / (high_bound - low_bound)).clamp(0, 1)
+
+    # Interpolate between original freqs and NTK-scaled freqs
+    ntk_factor = base * (scale ** (dim / (dim - 2)))
+    ntk_freqs = 1.0 / (ntk_factor ** (torch.arange(0, dim, 2).float() / dim))
+
+    # Blend: high-freq keeps original, low-freq uses NTK scaling
+    scaled_freqs = (1 - ramp) * freqs + ramp * ntk_freqs
+
+    return scaled_freqs
+
+# Example: extend a 4K model to 128K
+freqs_4k = yarn_rope_scaling(dim=128, max_position=4096,
+                              original_max=4096)
+freqs_128k = yarn_rope_scaling(dim=128, max_position=131072,
+                                original_max=4096)
+
+print(f"Scaling ratio: {131072 / 4096}x")
+print(f"Low-freq stretch: {freqs_4k[-1] / freqs_128k[-1]:.1f}x")
+print(f"High-freq stretch: {freqs_4k[0] / freqs_128k[0]:.1f}x")
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 29.11.3:</strong> YaRN computes per-dimension RoPE scaling factors, preserving high-frequency local position signals while stretching low-frequency global dimensions for extended context.</div>
+
+    <div class="comparison-table">
+        <div class="comparison-table-title">Context Extension Methods Comparison</div>
+        <table>
+        <tr>
+            <th scope="col">Method</th>
+            <th scope="col">Approach</th>
+            <th scope="col">Fine-tuning?</th>
+            <th scope="col">Max Extension</th>
+            <th scope="col">Quality</th>
+        </tr>
+        <tr>
+            <td>Position Interpolation</td>
+            <td>Uniform position rescaling</td>
+            <td>~1,000 steps required</td>
+            <td>~8x</td>
+            <td>Good with fine-tuning</td>
+        </tr>
+        <tr>
+            <td>NTK-Aware Scaling</td>
+            <td>Base frequency adjustment</td>
+            <td>Often not needed (2-4x)</td>
+            <td>~4x without fine-tuning</td>
+            <td>Moderate</td>
+        </tr>
+        <tr>
+            <td>YaRN</td>
+            <td>Per-dimension ramp + attention temperature</td>
+            <td>~400 steps (minimal)</td>
+            <td>~64x demonstrated</td>
+            <td>Best overall</td>
+        </tr>
+        <tr>
+            <td>Dynamic NTK</td>
+            <td>Adapts scaling at inference based on input length</td>
+            <td>None</td>
+            <td>~4x</td>
+            <td>Moderate, no training needed</td>
+        </tr>
+        </table>
+    </div>
+
+    <h2>6. Evaluation Pitfalls <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        Evaluating long-context models involves several subtle pitfalls that can produce misleading results:
+    </p>
+
+    <h3>6.1 Contamination in Long Documents</h3>
+
+    <p>
+        Long-context benchmarks that use real documents (academic papers, books, Wikipedia articles) risk
+        contamination: the model may have seen these documents during pre-training and can answer questions
+        from parametric memory rather than from the provided context. This inflates apparent long-context
+        performance. Mitigation strategies include using post-training-cutoff documents, synthetic tasks,
+        or "unanswerable question" controls where the context is replaced with irrelevant text to measure
+        the parametric knowledge baseline.
+    </p>
+
+    <h3>6.2 Position Bias Effects</h3>
+
+    <p>
+        The "lost-in-the-middle" phenomenon means that where information appears in the context affects
+        whether the model uses it. Evaluations that place key information only at the beginning or end of
+        the context will overestimate performance. Robust evaluation requires systematic position sweeps
+        (as in NIAH) or randomized placement with averaging.
+    </p>
+
+    <h3>6.3 Length vs. Difficulty Confounds</h3>
+
+    <p>
+        Longer contexts often correlate with harder tasks (more documents to synthesize, more complex
+        reasoning chains). Separating the effect of context length from task difficulty requires
+        controlled experiments where the same task is embedded in contexts of varying length with
+        irrelevant padding. RULER's parametric design and LongBench v2's length-instruction protocol
+        both attempt to address this confound.
+    </p>
+
+<pre><code class="language-python"># Code Fragment 29.11.4: Detecting contamination in long-context evaluation
+# Key operations: baseline measurement, contamination detection
+def measure_contamination_baseline(
+    model: str,
+    questions: list[dict],
+    client: OpenAI,
+) -> dict:
+    """Measure how many questions the model can answer without context.
+
+    If the model answers correctly without the long context,
+    the question may be contaminated (answerable from parametric memory).
+    """
+    results = {"answerable_without_context": 0, "total": 0}
+
+    for q in questions:
+        # Ask without providing the document context
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system",
+                 "content": "Answer the question. If you are unsure, "
+                            "say 'I don't know'."},
+                {"role": "user", "content": q["question"]},
+            ],
+            max_tokens=100,
+            temperature=0.0,
+        )
+
+        answer = response.choices[0].message.content
+        if check_answer(answer, q["expected"]):
+            results["answerable_without_context"] += 1
+        results["total"] += 1
+
+    contamination_rate = (
+        results["answerable_without_context"] / results["total"]
+    )
+    print(f"Contamination baseline: {contamination_rate:.1%} of questions "
+          f"answerable without context")
+    return results
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 29.11.4:</strong> Measuring the contamination baseline by testing whether the model can answer benchmark questions without the long context. High baseline accuracy indicates the evaluation may not be measuring context utilization at all.</div>
+
+    <h2>7. Practical Lab: Reproducing RULER Curves <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>
+        This lab walks through reproducing RULER-style evaluation curves for an open-weight model,
+        measuring how performance degrades across task types and context lengths. The experiment
+        uses the Hugging Face Transformers library with a locally hosted model to avoid API costs
+        for the hundreds of evaluations required.
+    </p>
+
+<pre><code class="language-python"># Code Fragment 29.11.5: RULER curve reproduction for open-weight models
+# Key operations: model loading, task generation, batch evaluation
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
+import numpy as np
+from collections import defaultdict
+
+# Load an open-weight long-context model
+model_name = "meta-llama/Llama-3.1-8B-Instruct"
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+model = AutoModelForCausalLM.from_pretrained(
+    model_name,
+    torch_dtype=torch.bfloat16,
+    device_map="auto",
+    attn_implementation="flash_attention_2",
+)
+
+# Define evaluation grid
+context_lengths = [4_096, 8_192, 16_384, 32_768, 65_536, 131_072]
+task_types = ["single_niah", "multi_niah", "tracing", "aggregation"]
+num_samples_per_cell = 20
+
+# Generate and evaluate tasks
+results = defaultdict(lambda: defaultdict(list))
+
+for task_type in task_types:
+    for ctx_len in context_lengths:
+        for _ in range(num_samples_per_cell):
+            # Generate task based on type and target length
+            task = generate_ruler_task(
+                task_type=task_type,
+                target_length=ctx_len,
+                tokenizer=tokenizer,
+            )
+
+            # Tokenize and generate
+            inputs = tokenizer(
+                task["prompt"],
+                return_tensors="pt",
+                truncation=True,
+                max_length=ctx_len + 256,
+            ).to(model.device)
+
+            with torch.no_grad():
+                outputs = model.generate(
+                    **inputs,
+                    max_new_tokens=64,
+                    temperature=0.0,
+                    do_sample=False,
+                )
+
+            response = tokenizer.decode(
+                outputs[0][inputs.input_ids.shape[1]:],
+                skip_special_tokens=True,
+            )
+
+            correct = evaluate_ruler_answer(
+                response, task["expected"], task_type
+            )
+            results[task_type][ctx_len].append(correct)
+
+# Print RULER curves
+print(f"{'Task Type':<16} " + " ".join(
+    f"{l//1000:>5}K" for l in context_lengths
+))
+print("-" * 60)
+for task_type in task_types:
+    scores = [
+        np.mean(results[task_type][l]) for l in context_lengths
+    ]
+    row = " ".join(f"{s:>5.0%}" for s in scores)
+    print(f"{task_type:<16} {row}")
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 29.11.5:</strong> A complete RULER curve reproduction pipeline. For each task type and context length, multiple samples are evaluated and averaged to produce degradation curves that reveal how different capabilities scale with context.</div>
+
+<pre><code class="language-python"># Code Fragment 29.11.6: Visualizing RULER curves with matplotlib
+# Key operations: plotting, multi-line chart, annotation
+import matplotlib.pyplot as plt
+
+fig, ax = plt.subplots(figsize=(10, 6))
+
+colors = {
+    "single_niah": "#2196F3",
+    "multi_niah": "#FF9800",
+    "tracing": "#F44336",
+    "aggregation": "#4CAF50",
+}
+
+labels = {
+    "single_niah": "Single-Needle Retrieval",
+    "multi_niah": "Multi-Needle Retrieval",
+    "tracing": "Multi-Hop Tracing",
+    "aggregation": "Aggregation",
+}
+
+x_labels = [f"{l//1000}K" for l in context_lengths]
+
+for task_type in task_types:
+    scores = [np.mean(results[task_type][l]) for l in context_lengths]
+    ax.plot(
+        range(len(context_lengths)), scores,
+        marker="o", linewidth=2,
+        color=colors[task_type],
+        label=labels[task_type],
+    )
+
+ax.set_xticks(range(len(context_lengths)))
+ax.set_xticklabels(x_labels)
+ax.set_xlabel("Context Length (tokens)")
+ax.set_ylabel("Accuracy")
+ax.set_title(f"RULER Curves: {model_name}")
+ax.set_ylim(0, 1.05)
+ax.legend(loc="lower left")
+ax.grid(True, alpha=0.3)
+
+plt.tight_layout()
+plt.savefig("ruler_curves.png", dpi=150)
+plt.show()
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 29.11.6:</strong> Visualizing RULER degradation curves. Each line shows how a different task type degrades as context length increases, making it easy to identify the "effective" context length for each capability.</div>
+
+    <div class="callout research-frontier">
+        <div class="callout-title">Research Frontier</div>
+        <p><strong>Ring Attention and Sequence Parallelism</strong> distribute long sequences across multiple GPUs, with each device processing a segment and passing KV-cache "rings" to neighbors. This enables training and inference at sequence lengths of 1M+ tokens without the quadratic memory cost of standard attention. <strong>Infini-Attention</strong> (Google, 2024) introduces a compressive memory mechanism that maintains a fixed-size state for unbounded context, combining local attention with a compressed global summary. <strong>Landmark Attention</strong> selectively attends to "landmark" tokens rather than the full sequence, reducing complexity while preserving retrieval accuracy. On the benchmark side, <strong>HELMET</strong> (Yen et al., 2024) provides a more holistic long-context evaluation that tests not only retrieval but also instruction following, summarization, and reasoning at length. The convergence of hardware-efficient attention methods and increasingly rigorous benchmarks is pushing the boundary of what "long context" means from 128K toward 10M tokens.</p>
+    </div>
+
+    <!-- Quiz -->
+    <div class="quiz">
+        <h3>Section 29.11 Quiz</h3>
+
+        <div class="quiz-question">1. Why is the "claimed" context length on a model card not the same as "effective" context length?</div>
+        <details open>
+            <summary>Show Answer</summary>
+            <div class="answer">The claimed context length is the maximum input the model can accept. Effective context length is the range within which the model reliably attends to and uses information. Attention dilution, position bias (lost-in-the-middle), and training distribution mismatch all cause accuracy to degrade before the maximum is reached. A model with a 128K context window may effectively use only 32K to 64K tokens depending on the task.</div>
+        </details>
+
+        <div class="quiz-question">2. What advantage does RULER have over basic Needle-in-a-Haystack?</div>
+        <details open>
+            <summary>Show Answer</summary>
+            <div class="answer">RULER tests multiple task types (retrieval, multi-hop tracing, aggregation, QA) at configurable complexity levels, while NIAH only tests single-fact retrieval. RULER reveals that different capabilities degrade at different rates with context length. A model might pass NIAH at 128K but fail RULER's multi-hop tracing at 32K. RULER provides a more complete picture of real context utilization.</div>
+        </details>
+
+        <div class="quiz-question">3. How does YaRN differ from simple position interpolation?</div>
+        <details open>
+            <summary>Show Answer</summary>
+            <div class="answer">Position interpolation applies a uniform scaling factor to all RoPE dimensions, which over-compresses high-frequency (local position) information. YaRN applies per-dimension scaling: high-frequency dimensions keep their original scale, low-frequency dimensions receive NTK-style scaling, and intermediate dimensions blend smoothly between the two. YaRN also adds attention temperature scaling to counteract attention dilution at longer sequences.</div>
+        </details>
+
+        <div class="quiz-question">4. How can contamination inflate long-context benchmark scores?</div>
+        <details open>
+            <summary>Show Answer</summary>
+            <div class="answer">If the model saw the benchmark documents during pre-training, it can answer questions from parametric memory rather than from the provided context. This makes it appear that the model is successfully processing the long context when it is actually ignoring it. Testing whether the model can answer questions without the context (baseline contamination check) reveals this issue.</div>
+        </details>
+    </div>
+
+    <!-- Key Takeaways -->
+    <div class="takeaways">
+        <h2>Key Takeaways</h2>
+        <ul>
+            <li><strong>Claimed context length is not effective context length:</strong> Attention dilution, position bias, and training distribution mismatch cause real performance to degrade well before the advertised maximum.</li>
+            <li><strong>NIAH is necessary but insufficient:</strong> Single-needle retrieval is the easiest long-context task. Multi-needle, tracing, and aggregation tasks (as in RULER) reveal much steeper degradation curves.</li>
+            <li><strong>LongBench v2 bridges synthetic and real tasks:</strong> By combining controlled evaluations with real-world documents and tasks, LongBench v2 provides the most comprehensive picture of long-context capability.</li>
+            <li><strong>YaRN offers the best extension quality:</strong> Per-dimension RoPE scaling with attention temperature correction extends context windows up to 64x with minimal fine-tuning, outperforming uniform interpolation and basic NTK scaling.</li>
+            <li><strong>Evaluate on your production task:</strong> Model rankings change across task types and context lengths. A single leaderboard score is misleading; benchmark with the task complexity and sequence length that matches your application.</li>
+            <li><strong>Watch for contamination:</strong> Always run a no-context baseline to verify that benchmark performance reflects genuine context utilization rather than parametric recall.</li>
+        </ul>
+    </div>
+
+    <div class="callout practical-example">
+        <div class="callout-title">Choosing Between RAG and Long Context for a Legal Search System</div>
+        <p><strong>Who:</strong> A platform engineer evaluating architecture options for a legal document analysis system processing contracts of 50K to 200K tokens each.</p>
+        <p><strong>Situation:</strong> The team debated whether to use a 128K-context model with full document input or a RAG pipeline that chunks and retrieves relevant sections.</p>
+        <p><strong>Problem:</strong> Initial tests with the long-context model showed excellent results on questions about the first and last sections of contracts, but missed critical clauses buried in the middle (the "lost-in-the-middle" effect).</p>
+        <p><strong>Dilemma:</strong> RAG added retrieval complexity and could miss relevant context if the chunking strategy split important clauses. Long context was simpler but unreliable for mid-document information.</p>
+        <p><strong>Decision:</strong> The team ran RULER-style evaluations on their specific model and task type. They discovered that the model's effective context for clause retrieval dropped below 80% accuracy at 64K tokens, far short of the 128K advertised limit.</p>
+        <p><strong>How:</strong> They adopted a hybrid approach: RAG for initial retrieval of relevant sections (reducing context to 20K to 30K tokens), followed by long-context processing of the assembled chunks. They also applied YaRN extension to a fine-tuned open-weight model to achieve reliable 64K effective context.</p>
+        <p><strong>Result:</strong> The hybrid system achieved 91% clause retrieval accuracy compared to 74% for long-context-only and 83% for RAG-only approaches. RULER curves became part of their model selection process.</p>
+        <p><strong>Lesson:</strong> <strong>Empirical measurement of effective context length on your specific task type is essential. Advertised context windows are upper bounds, not performance guarantees, and the right architecture often combines both retrieval and long context.</strong></p>
+    </div>
+
+<section class="bibliography">
+    <div class="bibliography-title">References &amp; Further Reading</div>
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://arxiv.org/abs/2402.13718" target="_blank" rel="noopener">Hsieh, C. et al. (2024). "RULER: What's the Real Context Size of Your Long-Context Language Models?" <em>arXiv preprint arXiv:2402.13718</em>.</a></p>
+        <p class="bib-annotation">Introduces RULER, a parametric benchmark with configurable task complexity for evaluating real context utilization. Demonstrates that models claiming 128K context often fail on complex tasks at much shorter lengths. Essential for anyone evaluating long-context models.</p>
+        <span class="bib-meta">Paper</span>
+    </div>
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://arxiv.org/abs/2308.01950" target="_blank" rel="noopener">Bai, Y. et al. (2024). "LongBench: A Bilingual, Multitask Benchmark for Long Context Understanding." <em>arXiv preprint arXiv:2308.01950</em>.</a></p>
+        <p class="bib-annotation">A comprehensive multi-task benchmark for long-context evaluation spanning QA, summarization, few-shot learning, and code completion. Uses real-world documents to complement synthetic benchmarks like NIAH and RULER.</p>
+        <span class="bib-meta">Paper</span>
+    </div>
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://arxiv.org/abs/2309.00071" target="_blank" rel="noopener">Peng, B. et al. (2023). "YaRN: Efficient Context Window Extension of Large Language Models." <em>arXiv preprint arXiv:2309.00071</em>.</a></p>
+        <p class="bib-annotation">Introduces YaRN, combining per-dimension RoPE scaling with attention temperature correction. Achieves 64x context extension with minimal fine-tuning. The current state-of-the-art for RoPE-based context extension methods.</p>
+        <span class="bib-meta">Paper</span>
+    </div>
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://arxiv.org/abs/2306.15595" target="_blank" rel="noopener">Chen, S. et al. (2023). "Extending Context Window of Large Language Models via Positional Interpolation." <em>arXiv preprint arXiv:2306.15595</em>.</a></p>
+        <p class="bib-annotation">The foundational position interpolation paper showing that rescaling positions within the training range is more stable than extrapolation. A key predecessor to YaRN and NTK-aware methods.</p>
+        <span class="bib-meta">Paper</span>
+    </div>
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://arxiv.org/abs/2307.03172" target="_blank" rel="noopener">Liu, N. et al. (2023). "Lost in the Middle: How Language Models Use Long Contexts." <em>arXiv preprint arXiv:2307.03172</em>.</a></p>
+        <p class="bib-annotation">Documents the "lost-in-the-middle" phenomenon where models attend poorly to information in the center of long contexts. A seminal paper that motivated many of the benchmarks and methods in this section.</p>
+        <span class="bib-meta">Paper</span>
+    </div>
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://arxiv.org/abs/2404.06654" target="_blank" rel="noopener">Munkhdalai, T. et al. (2024). "Leave No Context Behind: Efficient Infinite Context Transformers with Infini-attention." <em>arXiv preprint arXiv:2404.06654</em>.</a></p>
+        <p class="bib-annotation">Introduces Infini-attention, which combines local attention with compressive memory for unbounded context. Represents an alternative paradigm to RoPE extension for handling very long sequences.</p>
+        <span class="bib-meta">Paper</span>
+    </div>
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://arxiv.org/abs/2410.02694" target="_blank" rel="noopener">Yen, H. et al. (2024). "HELMET: How to Evaluate Long-Context Language Models Effectively and Thoroughly." <em>arXiv preprint arXiv:2410.02694</em>.</a></p>
+        <p class="bib-annotation">A holistic long-context evaluation framework that tests retrieval, reasoning, instruction following, and summarization. Addresses gaps in existing benchmarks and provides practical recommendations for evaluation design.</p>
+        <span class="bib-meta">Paper</span>
+    </div>
+</section>
+
+<div class="whats-next">
+    <h2>What Comes Next</h2>
+    <p>This section completes the evaluation chapter's coverage of long-context assessment. For practical guidance on managing context windows in <a class="cross-ref" href="../../part-5-retrieval-conversation/module-20-rag/section-20.1.html">RAG systems</a>, see Section 20.1's treatment of chunking strategies and context window management. For the attention mechanisms that underlie positional encoding, see <a class="cross-ref" href="../../part-1-foundations/module-04-transformer-architecture/section-4.2.html">Section 4.2: Attention Mechanisms</a>.</p>
+</div>
+
+<nav class="chapter-nav">
+    <a class="prev" href="section-29.10.html">LLM-as-Judge: Reliability, Debiasing, and Training Judge Models</a>
+    <a class="up" href="index.html">Chapter 29: Evaluation &amp; Experiment Design</a>
+    <a class="next" href="../module-30-observability-monitoring/index.html">Chapter 30: Observability and Monitoring</a>
+</nav>
+    <footer>
+        <p class="footer-title">Building Conversational AI with LLMs and Agents, Fifth Edition</p>
+        <p>&copy; 2026 Alexander Apartsin &amp; Yehudit Aperstein &middot; <a href="../../toc.html">Contents</a></p>
+        <p class="footer-updated">Last updated: <script>document.write(new Date(document.lastModified).toLocaleDateString('en-US', {year:'numeric', month:'long', day:'numeric'}))</script></p>
+    </footer>
+</main>
+</body>
+</html>
