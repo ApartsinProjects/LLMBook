@@ -273,8 +273,10 @@ print(result)</code></pre>
 
     <h3>Tools and Libraries</h3>
 
+    <p>A growing ecosystem of libraries implements grammar-constrained decoding. The table below provides a quick overview; each tool is covered in depth later in this section, and a comprehensive comparison table (including model support and best-fit scenarios) appears in the "Comprehensive Tool Comparison" subsection below.</p>
+
     <div class="comparison-table">
-        <div class="comparison-table-title">Tools and Libraries Comparison</div>
+        <div class="comparison-table-title">Tools and Libraries: Quick Reference</div>
         <table>
         <tr>
             <th scope="col">Library</th>
@@ -293,18 +295,28 @@ print(result)</code></pre>
         </tr>
         <tr>
             <td><strong>LMQL</strong></td>
-            <td>Query language for LM constraints</td>
-            <td>Arbitrary Python constraints, types</td>
+            <td>Query language with eager constraint evaluation</td>
+            <td>Types, regex, length, arbitrary Python predicates</td>
         </tr>
         <tr>
             <td><strong>llama.cpp grammars</strong></td>
-            <td>GBNF grammar specification</td>
+            <td>GBNF grammar specification (pushdown automaton)</td>
             <td>Any context-free grammar</td>
         </tr>
         <tr>
             <td><strong>SGLang</strong></td>
-            <td>Radix attention and structured generation primitives</td>
-            <td>JSON, regex, grammar-guided decoding</td>
+            <td>RadixAttention with structured generation primitives</td>
+            <td>JSON, regex, choices, grammar-guided decoding</td>
+        </tr>
+        <tr>
+            <td><strong>Instructor</strong></td>
+            <td>Wraps provider-native structured output APIs</td>
+            <td>Pydantic models (compiled to JSON schema)</td>
+        </tr>
+        <tr>
+            <td><strong>jsonformer</strong></td>
+            <td>Structural generation (LLM fills values only)</td>
+            <td>JSON only</td>
         </tr>
     </table>
     </div>
@@ -358,6 +370,285 @@ print(result["sentiment"])   # "mixed"
 print(result["score"])       # "3/5"
 </code></pre>
 </div>
+
+    <h3>Under the Hood: Finite-State Machines for Token Masking</h3>
+
+    <p>
+        Understanding <em>how</em> grammar-constrained decoding achieves its guarantees requires a brief excursion
+        into formal language theory. The key insight, formalized by Willard and Louf (2023), is that
+        regular expressions and JSON schemas can be compiled into <strong>finite-state machines</strong> (FSMs),
+        where each state represents a position in the grammar and each transition corresponds to a set of
+        valid tokens. At each decoding step, the system looks up the current FSM state, retrieves the
+        set of allowed token IDs, and masks everything else to negative infinity.
+    </p>
+
+    <p>
+        For JSON schemas specifically, the compilation works as follows. The schema is first converted into a
+        regular expression that matches all valid JSON strings conforming to the schema. That regex is then
+        compiled into a deterministic finite automaton (DFA). Finally, the DFA transitions are mapped to
+        vocabulary token IDs by checking which tokens can extend a partial match from each state. This
+        mapping is precomputed once per schema, so the per-token overhead at generation time is just a
+        lookup and a mask application.
+    </p>
+
+    <p>
+        Context-free grammars (CFGs) require a pushdown automaton rather than a simple FSM, because they
+        need a stack to track nested structures (e.g., matching braces in JSON). Libraries like llama.cpp
+        use GBNF (a variant of BNF notation) to specify arbitrary CFGs and enforce them during generation.
+        The overhead is slightly higher than for regular expressions, but still negligible compared to
+        the cost of the model forward pass itself.
+    </p>
+
+    <h3>LMQL: A Query Language for Constrained LLM Generation</h3>
+
+    <p>
+        <strong>LMQL</strong> (Language Model Query Language, developed by Beurer-Kellner et al. at ETH Zurich)
+        takes a fundamentally different approach from token-level masking. Instead of compiling grammars
+        into FSMs, LMQL provides a Python-embedded query language that lets you express constraints
+        declaratively: type constraints, length limits, regex patterns, stopping conditions, and
+        even arbitrary Python predicates. The LMQL runtime then translates these constraints into
+        token masks at each decoding step through <em>eager constraint evaluation</em>, checking
+        whether partial completions can still satisfy the declared constraints and pruning branches
+        that cannot.
+    </p>
+
+<pre><code class="language-python"># LMQL: declarative constraints on LLM output
+# pip install lmql
+import lmql
+
+@lmql.query
+async def analyze_product(review: str):
+    '''lmql
+    argmax
+        "Review: {review}\n"
+        "Analyze this product review.\n"
+        "Sentiment: [SENTIMENT]\n"
+        "Rating: [RATING]/5\n"
+        "Key issues: [ISSUES]\n"
+    from
+        "openai/gpt-4o-mini"
+    where
+        SENTIMENT in ["positive", "negative", "mixed"] and
+        INT(RATING) >= 1 and INT(RATING) <= 5 and
+        len(ISSUES) < 200
+    '''
+
+# The constraints are enforced at the token level during generation
+result = await analyze_product("Battery dies after 2 hours but the camera is superb.")
+print(result.variables)
+# {"SENTIMENT": "mixed", "RATING": "3", "ISSUES": "Short battery life limits usability..."}
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 5.3.3b:</strong> LMQL uses declarative constraints (type, value range, length) to guide generation. The <code>where</code> clause is evaluated eagerly at each token to mask invalid continuations.</div>
+
+    <p>
+        The key advantage of LMQL over FSM-based approaches is expressiveness. You can write arbitrary
+        Python predicates in the <code>where</code> clause, not just patterns that compile to regular expressions.
+        The tradeoff is that arbitrary predicates may require speculative evaluation (trying partial
+        completions to see if they can still satisfy the constraint), which adds computational overhead.
+        For simple type and choice constraints, LMQL's performance is comparable to Outlines. For complex
+        predicates, it may be slower but is often the only practical option.
+    </p>
+
+    <h3>SGLang: Structured Generation with RadixAttention</h3>
+
+    <p>
+        <strong>SGLang</strong> (Structured Generation Language, from the LMSYS team at UC Berkeley)
+        addresses a different bottleneck: when you run many structured generation requests that share
+        common prefixes (system prompts, few-shot examples, shared context), the KV cache for the
+        shared prefix is recomputed for every request. SGLang introduces <strong>RadixAttention</strong>,
+        a radix-tree-based KV cache that automatically detects and reuses shared prefixes across
+        requests, dramatically reducing redundant computation.
+    </p>
+
+    <p>
+        Beyond caching, SGLang provides a frontend DSL (domain-specific language) for expressing
+        structured generation programs as Python functions. You compose primitives like
+        <code>gen()</code> for unconstrained generation, <code>select()</code> for choosing among
+        options, and <code>regex()</code> for pattern-constrained generation. These primitives are
+        compiled into an optimized execution plan that minimizes the number of forward passes.
+    </p>
+
+<pre><code class="language-python"># SGLang: structured generation with prefix caching
+# pip install sglang
+import sglang as sgl
+
+@sgl.function
+def classify_and_extract(s, text):
+    s += sgl.system("You are a structured data extractor.")
+    s += sgl.user(f"Extract information from: {text}")
+    s += sgl.assistant(
+        "Category: " + sgl.gen("category", regex=r"(tech|finance|health|sports|other)") + "\n"
+        + "Confidence: " + sgl.gen("confidence", regex=r"0\.\d{2}") + "\n"
+        + "Summary: " + sgl.gen("summary", max_tokens=50, stop="\n")
+    )
+
+# Run with a local model via SGLang's serving backend
+runtime = sgl.Runtime(model_path="meta-llama/Llama-3.1-8B-Instruct")
+sgl.set_default_backend(runtime)
+
+# Multiple calls with the same system prompt share the KV cache via RadixAttention
+texts = [
+    "Apple announced record Q4 earnings driven by iPhone 16 sales.",
+    "New study links sleep quality to gut microbiome diversity.",
+    "Lakers secure playoff berth with overtime victory against Celtics.",
+]
+results = [classify_and_extract.run(text=t) for t in texts]
+for r in results:
+    print(r["category"], r["confidence"], r["summary"])
+
+runtime.shutdown()
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 5.3.3c:</strong> SGLang combines structured generation primitives with RadixAttention for efficient prefix caching. Multiple requests sharing the same system prompt avoid redundant KV cache computation.</div>
+
+    <div class="callout tip">
+        <div class="callout-title">Tip: Choosing Between Outlines, LMQL, and SGLang</div>
+        <p>These tools solve overlapping but distinct problems. <strong>Outlines</strong> is the best choice when you need
+        guaranteed schema compliance with a local model and want minimal dependencies; it integrates with
+        vLLM and Hugging Face Transformers. <strong>LMQL</strong> is ideal when your constraints go beyond
+        regular patterns (e.g., numeric ranges, cross-field dependencies, arbitrary Python predicates).
+        <strong>SGLang</strong> shines in high-throughput serving scenarios where many requests share common
+        prefixes, because RadixAttention can deliver 3 to 5x throughput improvements over naive serving.
+        For API-based models (OpenAI, Anthropic), use the provider's native structured output features
+        or the <strong>Instructor</strong> library, which wraps them with a clean Pydantic interface.</p>
+    </div>
+
+    <h3>jsonformer: Lightweight Structured Generation</h3>
+
+    <p>
+        For simpler use cases, <strong>jsonformer</strong> takes a minimalist approach to structured JSON generation.
+        Rather than masking logits via an FSM, jsonformer generates JSON <em>structurally</em>: it produces the
+        JSON skeleton (braces, brackets, colons, commas, key names) deterministically, and only invokes the
+        LLM to fill in the <em>values</em>. This means the LLM never generates structural tokens at all, eliminating
+        the possibility of malformed JSON without any logit manipulation. The tradeoff is that jsonformer only
+        supports JSON (not arbitrary grammars) and requires the schema to be known at generation time.
+    </p>
+
+    <h3>Comprehensive Tool Comparison</h3>
+
+    <div class="comparison-table">
+        <div class="comparison-table-title">Grammar-Constrained Generation Tools</div>
+        <table>
+        <tr>
+            <th scope="col">Tool</th>
+            <th scope="col">Mechanism</th>
+            <th scope="col">Formats</th>
+            <th scope="col">Model Support</th>
+            <th scope="col">Best For</th>
+        </tr>
+        <tr>
+            <td><strong>Outlines</strong></td>
+            <td>Precomputed FSM token masks</td>
+            <td>JSON, regex, CFG, Pydantic</td>
+            <td>HF Transformers, vLLM, llama.cpp</td>
+            <td>Local models, production serving</td>
+        </tr>
+        <tr>
+            <td><strong>LMQL</strong></td>
+            <td>Eager constraint evaluation</td>
+            <td>Types, regex, Python predicates</td>
+            <td>OpenAI, HF Transformers, llama.cpp</td>
+            <td>Complex multi-variable constraints</td>
+        </tr>
+        <tr>
+            <td><strong>SGLang</strong></td>
+            <td>RadixAttention + constrained primitives</td>
+            <td>JSON, regex, choices</td>
+            <td>Local models via SGLang runtime</td>
+            <td>High-throughput serving with shared prefixes</td>
+        </tr>
+        <tr>
+            <td><strong>Guidance</strong> (Microsoft)</td>
+            <td>Template interleaving with constrained gen</td>
+            <td>Custom grammars, JSON, regex</td>
+            <td>HF Transformers, OpenAI, Anthropic</td>
+            <td>Mixed fixed/generated templates</td>
+        </tr>
+        <tr>
+            <td><strong>Instructor</strong></td>
+            <td>Wraps provider-native structured output</td>
+            <td>Pydantic models (compiled to JSON schema)</td>
+            <td>OpenAI, Anthropic, Gemini, Mistral, Cohere</td>
+            <td>API-based models, type-safe extraction</td>
+        </tr>
+        <tr>
+            <td><strong>jsonformer</strong></td>
+            <td>Structural generation (LLM fills values only)</td>
+            <td>JSON only</td>
+            <td>HF Transformers</td>
+            <td>Simple schemas, minimal dependencies</td>
+        </tr>
+        <tr>
+            <td><strong>llama.cpp grammars</strong></td>
+            <td>GBNF pushdown automaton</td>
+            <td>Any context-free grammar</td>
+            <td>GGUF models via llama.cpp</td>
+            <td>Local inference, custom grammar formats</td>
+        </tr>
+    </table>
+    </div>
+
+    <h3>Performance Implications of Constrained Decoding</h3>
+
+    <p>
+        Grammar-constrained decoding is not free. Several sources of overhead deserve consideration
+        when deciding whether to use it in production.
+    </p>
+
+    <p>
+        <strong>Precomputation cost.</strong> Compiling a JSON schema or regex into an FSM and mapping
+        its transitions to vocabulary token IDs is a one-time cost, but it can be significant for large
+        vocabularies (50,000+ tokens) and complex schemas. Outlines caches these compiled masks, so the
+        cost is amortized across requests using the same schema. For a typical JSON schema with 10 to 20
+        fields, precomputation takes 1 to 5 seconds; for deeply nested schemas it can take longer.
+    </p>
+
+    <p>
+        <strong>Per-token overhead.</strong> At each decoding step, the system must look up the current
+        FSM state and apply the token mask. This is a fast operation (microseconds) compared to the
+        model forward pass (milliseconds), so it adds less than 1% latency in practice. The exception
+        is LMQL with complex Python predicates, where constraint evaluation may take longer.
+    </p>
+
+    <p>
+        <strong>Batching challenges.</strong> When serving multiple requests with different schemas in a
+        batch, each request needs its own FSM state and token mask. This means the logit masking step
+        cannot be fully vectorized across the batch, which can reduce throughput on GPU-based serving
+        systems. SGLang and vLLM handle this by applying masks per-request within a continuous batch,
+        but the overhead scales linearly with the number of distinct schemas in a batch.
+    </p>
+
+    <p>
+        <strong>Output quality.</strong> Constraining the token space can occasionally degrade output
+        quality if the schema is very restrictive and forces the model into low-probability regions of
+        its distribution. For example, if the schema requires an integer between 1 and 5 but the model's
+        probability mass is spread across textual representations ("one", "two") rather than digits,
+        the constraint forces selection from low-probability digit tokens. In practice, this is rarely
+        a problem for well-prompted models, but it is worth monitoring.
+    </p>
+
+    <div class="callout library-shortcut">
+        <div class="callout-title">When to Use Structured Output vs. Post-Processing</div>
+        <p><strong>Use grammar-constrained decoding when:</strong></p>
+        <ul>
+            <li>Output feeds directly into code (API responses, database writes, function arguments)</li>
+            <li>Schema violations cause downstream failures that are expensive to handle</li>
+            <li>You need 100% reliability, not 98%</li>
+            <li>The schema is known at generation time and does not change per-token</li>
+        </ul>
+        <p><strong>Use post-processing/parsing instead when:</strong></p>
+        <ul>
+            <li>The output format is loosely defined or varies by context</li>
+            <li>You are using an API that does not support constrained decoding (some older or smaller providers)</li>
+            <li>The "schema" involves semantic constraints (e.g., "the summary must be factually consistent with the source") that cannot be expressed as a grammar</li>
+            <li>You need maximum generation speed and can tolerate occasional parsing failures with retry logic</li>
+        </ul>
+        <p><strong>Hybrid approach:</strong> Use constrained decoding for structural validity (valid JSON, correct types) and post-processing for semantic validation (value ranges, cross-field consistency, business rules). This gives you the reliability of grammar constraints with the flexibility of programmatic checks.</p>
+    </div>
+
+    <div class="callout research-frontier">
+        <div class="callout-title">Research Frontier: Constrained Decoding at Scale</div>
+        <p>Several open problems remain in grammar-constrained generation. <strong>Speculative decoding with constraints</strong> is nontrivial: the draft model may propose tokens that are valid unconstrained but violate the grammar, reducing acceptance rates and negating speed gains. <strong>Streaming with constraints</strong> is another challenge, because partial JSON is not valid JSON, and it is unclear how to stream structured output while maintaining grammar guarantees. <strong>Semantic constraints</strong> (e.g., "the generated SQL must be executable against this database schema") go beyond what FSMs can express and may require integrating grammar constraints with verification oracles. Finally, <strong>multi-modal constrained generation</strong> (e.g., generating an image description that matches a specific JSON structure while also being faithful to the image) remains largely unexplored.</p>
+    </div>
 
     <h2>4. Watermarking Generated Text <span class="level-badge advanced" title="Advanced">ADVANCED</span></h2>
 
@@ -672,7 +963,8 @@ print(result.reasoning)    # "The user expresses frustration about a broken work
         <ul>
             <li><strong>Contrastive decoding</strong> subtracts an amateur model's preferences from an expert's, amplifying the unique qualities of the larger model and suppressing generic text.</li>
             <li><strong>Speculative decoding</strong> uses a fast draft model plus batch verification to achieve lossless speedup (2x to 3x typical) without changing the output distribution.</li>
-            <li><strong>Grammar-constrained decoding</strong> (Outlines, Guidance, LMQL) masks invalid tokens at the logit level, guaranteeing output conforms to JSON schemas, regex patterns, or arbitrary grammars. This is essential for production systems that need reliable structured output.</li>
+            <li><strong>Grammar-constrained decoding</strong> (Outlines, Guidance, LMQL, SGLang) masks invalid tokens at the logit level, guaranteeing output conforms to JSON schemas, regex patterns, or arbitrary grammars. Outlines uses precomputed FSM token masks; LMQL offers declarative Python constraints; SGLang adds RadixAttention for efficient prefix caching in high-throughput scenarios. This is essential for production systems that need reliable structured output.</li>
+            <li><strong>Choosing structured output vs. post-processing</strong> depends on the use case: use constrained decoding when schema violations cause downstream failures and 100% reliability is required; use post-processing when formats are loosely defined or constraints are semantic rather than structural.</li>
             <li><strong>Watermarking</strong> embeds a detectable statistical signal by biasing token selection toward a context-dependent "green list." It is useful but not robust against determined paraphrasing.</li>
             <li><strong>MBR decoding</strong> generates N candidates and selects the most central one by average utility. It consistently outperforms single-pass decoding at the cost of N&times; more generation plus O(N&sup2;) utility evaluations.</li>
         </ul>
@@ -742,6 +1034,30 @@ print(result.reasoning)    # "The user expresses frustration about a broken work
         <p class="bib-ref"><a href="https://arxiv.org/abs/2301.10226" target="_blank" rel="noopener">Kirchenbauer, J. et al. (2023). "A Watermark for Large Language Models." <em>ICML 2023</em>.</a></p>
         <p class="bib-annotation">Introduces a statistical watermarking scheme that subtly biases token selection during generation. Demonstrates how decoding-time interventions can embed detectable signals without significantly affecting text quality.</p>
         <span class="bib-meta">📄 Paper</span>
+    </div>
+
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://arxiv.org/abs/2212.06094" target="_blank" rel="noopener">Beurer-Kellner, L., Fischer, M. &amp; Vechev, M. (2023). "Prompting Is Programming: A Query Language for Large Language Models." <em>PLDI 2023</em>.</a></p>
+        <p class="bib-annotation">Introduces LMQL, a query language that combines natural language prompting with declarative constraints (types, length, regex, stopping conditions). Enables expressive constrained generation through eager evaluation of partial completions.</p>
+        <span class="bib-meta">📄 Paper</span>
+    </div>
+
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://arxiv.org/abs/2312.07104" target="_blank" rel="noopener">Zheng, L. et al. (2024). "SGLang: Efficient Execution of Structured Language Model Programs." <em>arXiv preprint arXiv:2312.07104</em>.</a></p>
+        <p class="bib-annotation">Presents SGLang, a structured generation language with RadixAttention for automatic KV cache reuse across requests sharing common prefixes. Achieves significant throughput improvements for structured generation workloads.</p>
+        <span class="bib-meta">📄 Paper</span>
+    </div>
+
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://github.com/1rgs/jsonformer" target="_blank" rel="noopener">jsonformer: Structured JSON Generation from Language Models. (2023).</a></p>
+        <p class="bib-annotation">A lightweight library that generates JSON structurally by producing the skeleton deterministically and invoking the LLM only for value generation, ensuring valid output without logit manipulation.</p>
+        <span class="bib-meta">🔧 Tool</span>
+    </div>
+
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://github.com/jxnl/instructor" target="_blank" rel="noopener">Instructor: Structured Outputs for LLMs. (2024).</a></p>
+        <p class="bib-annotation">A Python library by Jason Liu that wraps provider APIs (OpenAI, Anthropic, Gemini, and others) with Pydantic-based structured output, providing type-safe extraction from LLM responses.</p>
+        <span class="bib-meta">🔧 Tool</span>
     </div>
 
 </section>
