@@ -67,19 +67,38 @@ def run(filepath, html, context):
                 positions["prerequisites"],
                 "Prerequisites appears after big-picture callout (swap them)"))
 
-    # Check: big-picture should be within first 100 lines of <main>
+    # Check: big-picture should be within first 100 lines of <main>,
+    # unless it is in the last 40% of the file (end-of-section summary pattern)
     main_line = _find_first_line(lines, re.compile(r'<main\b'))
     if "big-picture" in positions and main_line:
         offset = positions["big-picture"] - main_line
-        if offset > 100:
+        position_pct = positions["big-picture"] / len(lines) * 100
+        if offset > 100 and position_pct < 40:
             issues.append(Issue(PRIORITY, CHECK_ID, filepath,
                 positions["big-picture"],
                 f"Big-picture callout is {offset} lines into content (should be near top)"))
 
-    # Check: nothing should come after bibliography except nav/footer
+    # Check: nothing should come after bibliography except nav/footer/whats-next
     bib_line = positions.get("bibliography")
     if bib_line:
-        for i in range(bib_line, len(lines)):
+        # Find the end of the bibliography div to skip internal headings
+        bib_end = bib_line
+        depth = 0
+        for i in range(bib_line - 1, len(lines)):
+            depth += lines[i].count('<div')
+            depth -= lines[i].count('</div')
+            if depth <= 0 and i > bib_line - 1:
+                bib_end = i + 1
+                break
+
+        # Bibliography-related heading patterns to exclude
+        bib_heading_re = re.compile(
+            r'(References|Bibliography|Further Reading|Foundational Papers|'
+            r'Tools and Frameworks|Annotated Bibliography|Exercises)',
+            re.IGNORECASE
+        )
+
+        for i in range(bib_end, len(lines)):
             line_text = lines[i]
             line_num = i + 1
             if CALLOUT_RE.search(line_text):
@@ -89,7 +108,7 @@ def run(filepath, html, context):
                 # Exclude headings that are part of whats-next
                 if not re.search(r'class="whats-next"', line_text):
                     heading_text = re.sub(r'<[^>]+>', '', line_text).strip()[:50]
-                    if heading_text and heading_text not in ("", "References", "Bibliography"):
+                    if heading_text and not bib_heading_re.search(heading_text):
                         issues.append(Issue(PRIORITY, CHECK_ID, filepath, line_num,
                             f'Heading after bibliography: "{heading_text}"'))
 

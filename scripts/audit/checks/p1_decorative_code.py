@@ -52,7 +52,9 @@ def _count_signals(code):
 
     if DATACLASS_RE.search(code):
         str_fields = STR_FIELDS_RE.findall(code)
-        if len(str_fields) >= 3:
+        non_str_fields = re.findall(r':\s*(bool|int|float|list|dict|Optional)\b', code)
+        # Only flag if mostly string fields (data-only lookup class)
+        if len(str_fields) >= 3 and len(non_str_fields) == 0:
             signals += 1
 
     if_count = len(IF_RETURN_CHAIN_RE.findall(code))
@@ -80,9 +82,10 @@ def run(filepath, html, context):
 
         signals = _count_signals(code)
 
-        # In non-engineering chapters: 2+ signals is enough
-        # In engineering chapters: 3+ signals (stricter threshold)
-        threshold = 2 if is_non_eng else 3
+        # Require 4+ signals in all chapters (thresholds of 2-3 produced
+        # false positives on legitimate teaching code that uses
+        # Enum + dataclass + dict patterns for demonstration)
+        threshold = 4
 
         if signals >= threshold:
             issues.append(Issue(

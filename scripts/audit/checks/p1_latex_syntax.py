@@ -72,8 +72,9 @@ def run(filepath, html, context):
             continue
 
         # Check 1: Unescaped function names
-        # First strip \text{...} regions to avoid false positives
+        # First strip \text{...} and \operatorname{...} regions to avoid false positives
         formula_no_text = PROSE_IN_TEXT.sub('', formula)
+        formula_no_text = re.sub(r'\\operatorname\{[^}]*\}', '', formula_no_text)
         for func_m in UNESCAPED_FUNCS.finditer(formula_no_text):
             func_name = func_m.group(1)
             issues.append(Issue(

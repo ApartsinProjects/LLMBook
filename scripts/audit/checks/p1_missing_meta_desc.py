@@ -14,6 +14,11 @@ META_DESC_RE = re.compile(r'<meta\s+name=["\']description["\']', re.IGNORECASE)
 
 def run(filepath, html, context):
     issues = []
+
+    # Skip HTML fragments (no <head> expected)
+    if "_lab_fragments" in str(filepath).replace("\\", "/"):
+        return issues
+
     head_match = HEAD_RE.search(html)
     if not head_match:
         issues.append(Issue(PRIORITY, CHECK_ID, filepath, 1,
