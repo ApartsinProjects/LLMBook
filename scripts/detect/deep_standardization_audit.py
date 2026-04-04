@@ -38,7 +38,7 @@ def find_html_files():
         if any(part in EXCLUDE_DIRS for part in f.parts):
             continue
         # Skip non-content files
-        if f.name in ("toc.html", "team.html", "how-to-use.html"):
+        if f.name in ("toc.html", "section-fm.7.html", "how-to-use.html"):
             continue
         files.append(f)
     return sorted(files)

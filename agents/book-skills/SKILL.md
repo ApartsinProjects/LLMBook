@@ -1072,7 +1072,7 @@ When agents are added or removed from the pipeline:
 1. Update the agent count in this file's frontmatter description
 2. Add/remove the agent definition in `agents/`
 3. Regenerate avatars using `{project}/agents/avatars/generate_all_avatars.py`
-4. Update `{project}/team.html` with the new agent card and description
+4. Update `{project}/front-matter/section-fm.7.html` with the new agent card and description
 5. Update the pipeline overview diagram in this file
 
 ## Compact Mode

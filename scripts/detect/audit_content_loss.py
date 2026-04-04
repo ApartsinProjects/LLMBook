@@ -171,7 +171,7 @@ def check_appendices():
 def check_front_matter():
     """Check front matter completeness."""
     fm = ROOT / "front-matter"
-    expected = ["index.html", "about-authors.html", "team.html"]
+    expected = ["index.html", "about-authors.html", "section-fm.7.html"]
     for fname in expected:
         if not (fm / fname).exists():
             warn("MISSING_FM", f"Missing front-matter/{fname}")

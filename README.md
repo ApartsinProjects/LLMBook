@@ -90,7 +90,7 @@ LLMBook/
 
 ## How This Book Is Built
 
-Each chapter is produced by a **42-agent AI team** orchestrated through **13 phases** ([meet the team](https://apartsinprojects.github.io/LLMBook/team.html)):
+Each chapter is produced by a **42-agent AI team** orchestrated through **13 phases** ([meet the team](https://apartsinprojects.github.io/LLMBook/front-matter/section-fm.7.html)):
 
 1. **Setup**: Chapter Lead defines scope, outline, and coordination plan
 2. **Planning**: Curriculum alignment, deep explanation design, teaching flow review
