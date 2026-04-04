@@ -101,10 +101,15 @@
 ## Phase 6: Pre-commit Tasks
 
 - [ ] Launch scout agents for all new chapters/sections (search content, libs, 2025-2026 trends)
-- [ ] Update Table of Contents (toc.html) with all new sections (6.8, 11.6, 24.8, 24.9, 25.8, 27.6, 27.7, 29.14, 31.9, 34.4)
+- [x] Update Table of Contents (toc.html) with all new sections and appendices K-T
 - [x] Fix math blocks across entire book ($$\textbf mixing prose with LaTeX) - script + audit check completed
 - [x] SVG text clipping audit check + fix (128 issues fixed, 5 intentional remaining)
 - [x] Math blocks fix script (fix_math_blocks.py ran, 0 remaining issues)
+- [x] LaTeX formula fixes: Bradley-Terry, DPO, PPO, KTO, IPO, SimPO, ORPO across 4 alignment files
+- [x] LaTeX syntax audit check (p1_latex_syntax.py) + fix script (fix_latex_funcs.py): 16 blocks in 15 files
+- [x] Prose-in-formula fixes: 11 files cleaned by background agent
+- [x] SVG text right-clip audit check (p1_svg_text_right_clip.py) + fix script: 37 SVGs in 35 files
+- [x] KV memory formula fix (section-9.2.html)
 - [~] Extend audit script with new checks, run full audit, fix all issues
   - [x] 7 new audit checks created: BROKEN_FIGURE_REF, FIGURE_SEQUENCE, MIXED_CAPTION_STYLE, TOC_LINK_TARGET, ORPHAN_TAG_BEFORE_MAIN, UNESCAPED_AMPERSAND_TITLE, TRIPLE_DOLLAR_MATH
   - [x] Fixed: 74 unescaped ampersands in titles, 6 triple-dollar math, 7 TOC links, 2 orphan divs
@@ -113,15 +118,41 @@
   - [x] Fix 937 th scope mismatch issues (fix_th_scope.py, 161 files)
   - [x] Fix 91 unclosed p-in-div issues (fix_unclosed_p.py, 32 files)
   - [x] Fix 1439 manual highlight spans in code blocks (fix_manual_highlights.py, 31 files)
-  - [ ] Fix remaining 29 broken figure refs, 148 figure sequence issues
+  - [~] Fix remaining 29 broken figure refs, 148 figure sequence issues
   - [ ] Consolidate agent results and run final full audit
 - [x] Create CONTENT_GUIDELINES.md (prevention guide for content-generating agents)
 - [x] Audit appendices vs book content for duplication (5 critical, 390 missing cross-refs)
   - [ ] Add cross-reference callouts to top chapters (Appendix K in Part 4, Appendix S in Module 9, Appendix G in hardware sections)
   - [ ] Deduplicate Appendix B vs Module 0 (ML Essentials overlap)
   - [ ] Deduplicate Appendix S vs Module 9.2/9.4 (inference serving overlap)
-- [ ] Update front matter to reflect current book content and features
+- [x] Split FM.1 into FM.1a (What This Book Covers) + FM.1b (Who Should Read This Book)
+- [x] Renumber front matter index (FM.1 through FM.9)
+- [x] Fix appendix header font color in CSS (#5a6672 to #ffffff)
+- [x] Author bio updates (removed workshop line from first author, added defense/grants to second author)
+- [~] Update front matter to reflect current book content and features
+- [x] Resolve duplicate content in sections 29.6 and 30.2 (30.2 kept as canonical, 29.6 redirects)
+- [x] Reorganize scripts/ into subfolders: fix/ (24), detect/ (18), generate/ (8), data/ (4), _archive/ (113)
+- [x] Archive 23 root-level one-shot _*.py scripts into scripts/_archive/
+- [x] Merge old _scripts_archive/ (64 files) into scripts/_archive/
+- [x] Move author photos to images/, remove empty dirs, clean root
+- [x] Add scripts/README.md to book-skills documenting generalizable scripts
+- [x] Resolve duplicate content in sections 29.6 and 30.2 (30.2 kept as canonical, 29.6 redirects)
+- [~] Update front matter to reflect current book content and features
+- [x] Merge duplicate part-6 directories (88 files rewritten, old archived to _archive/old-part-dirs/)
+- [x] Merge duplicate part-7 directories (same pass, 114 total path rewrites)
+- [x] Clean each subfolder of old/orphan files (132 build artifacts + 99 old part files archived)
+- [x] Cross-reference hyperlinks pass (346 links across 166 files)
+- [x] Fix 22 broken figure refs across 12 files
+- [x] Fix P0 audit issues (broken xrefs, dup figures, SVG title)
+- [x] Update front matter to reflect current 10-part structure and appendices A-V
 - [ ] Commit and push all changes
+
+## Phase 6b: Depth and Cross-referencing
+
+- [~] Model internals depth pass, Parts 1-4 (reasoning models, architectures, DPO variants, PEFT)
+- [~] Model internals depth pass, Parts 5-10 (RAG, agents, multimodal, evaluation, safety)
+- [~] Cross-reference hyperlinks pass across all HTML (agent completed, needs review)
+- [ ] Update MetaAgent skills for depth/inner working requirements
 
 ## Phase 7: Full Agent Passes
 

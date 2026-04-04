@@ -1,0 +1,885 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Section 8.4: Serving Infrastructure. A comprehensive chapter from the Building Conversational AI textbook.">
+    <title>Section 8.4: Serving Infrastructure</title>
+    <link rel="stylesheet" href="../../styles/book.css">
+    <link rel="stylesheet" href="../../vendor/katex/katex.min.css">
+    <script defer src="../../vendor/katex/katex.min.js"></script>
+    <script defer src="../../vendor/katex/contrib/auto-render.min.js"
+        onload="renderMathInElement(document.body, {
+            delimiters: [
+                {left: '$$', right: '$$', display: true},
+                {left: '$', right: '$', display: false}
+            ],
+            throwOnError: false
+        });"></script>
+    <link rel="stylesheet" href="../../vendor/prism/prism-theme.css">
+    <script defer src="../../vendor/prism/prism-bundle.min.js"></script>
+</head>
+<body>
+<header class="chapter-header">
+<nav class="header-nav">
+    <a href="../../index.html" class="book-title-link">Building Conversational AI with LLMs and Agents</a>
+    <a href="../../toc.html" class="toc-link" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+</nav>
+    <div class="part-label"><a href="../index.html">Part 2: Understanding LLMs</a></div>
+    <div class="chapter-label"><a href="index.html">Chapter 08: Inference Optimization</a></div>
+    <h1>Serving Infrastructure</h1>
+</header>
+
+<main class="content">
+
+    <blockquote class="epigraph">
+        <p>Serving an LLM in production is 10% machine learning and 90% convincing the infrastructure that thousands of users can share one very expensive GPU without anyone noticing the wait.</p>
+        <cite><span class="agent-avatar-inline" style="background-color: #1abc9c;"><img src="../../front-matter/images/agents/quant.png" alt="Quant"></span> <a href="../../front-matter/wisdom-council.html#quant">Quant</a> <span class="agent-desc">AI Agent</span></cite>
+    </blockquote>
+
+    <div class="prerequisites">
+        <h3>Prerequisites</h3>
+        <p>This section ties together all previous <a href="index.html" class="cross-ref">Chapter 08</a> concepts: quantization (<a href="section-8.1.html">Section 8.1</a>), KV cache management (<a href="section-8.2.html">Section 8.2</a>), and speculative decoding (<a href="section-8.3.html">Section 8.3</a>). Serving frameworks combine these techniques. Understanding of continuous batching requires familiarity with autoregressive generation from <a class="cross-ref" href="../../part-1-foundations/module-05-decoding-text-generation/section-5.1.html">Section 5.1</a>.</p>
+    </div>
+
+
+    <div class="callout big-picture">
+        <div class="callout-title">Big Picture</div>
+        <p><strong>From model weights to production endpoint.</strong> A trained model is just a collection of tensors on disk. Turning it into a responsive, scalable API requires specialized serving infrastructure that handles continuous batching, <a class="cross-ref" href="section-8.2.html">KV cache</a> management, request scheduling, model parallelism, and hardware-specific kernel optimization. For production deployment patterns and safety considerations, see <a href="../../part-9-safety-strategy/module-32-safety-ethics-regulation/index.html" class="cross-ref">Chapter 26</a>. Building on the quantization (<a href="section-8.1.html">Section 8.1</a>), KV cache (<a href="section-8.2.html">Section 8.2</a>), and speculative decoding (<a href="section-8.3.html">Section 8.3</a>) techniques covered earlier in this module, this section surveys the major serving frameworks available today, explains their architectural differences, and provides practical guidance for choosing the right tool for your deployment scenario. We conclude with a benchmarking methodology so you can make data-driven decisions for your own workloads.</p>
+    </div>
+
+
+    <h2>1. The Serving Stack</h2>
+
+    
+    <figure class="illustration">
+ <img src="images/serving-stack-restaurant.png" alt="A restaurant kitchen metaphor for the LLM serving stack with load balancers as hosts, inference engines as chefs, and APIs as waiters" loading="lazy">
+ <figcaption><strong>Figure 8.4.1</strong>: The serving stack is a restaurant kitchen: the load balancer seats guests, the inference engine cooks, and the API layer serves the dishes.</figcaption>
+ </figure>
+
+<p>An LLM serving system sits between the raw model weights and the HTTP API that clients consume. It manages several critical responsibilities that are absent from a naive <code>model.generate()</code> call:</p>
+
+    <ul>
+        <li><strong>Request scheduling:</strong> Ordering incoming requests, managing priority queues, and enforcing rate limits.</li>
+        <li><strong>Continuous batching:</strong> Dynamically adding and removing sequences from the active batch at each iteration (as covered in <a href="section-8.2.html" class="cross-ref">Section 8.2</a>).</li>
+        <li><strong>KV cache management:</strong> Allocating, sharing, and evicting KV cache blocks using PagedAttention or similar techniques.</li>
+        <li><strong>Model parallelism:</strong> Distributing model weights across multiple GPUs using tensor parallelism (splitting layers) or pipeline parallelism (splitting stages).</li>
+        <li><strong>Kernel optimization:</strong> Using hardware-specific fused kernels (<a class="cross-ref" href="../../part-1-foundations/module-04-transformer-architecture/section-4.4.html">FlashAttention</a>, custom GEMM) to maximize throughput.</li>
+        <li><strong>API layer:</strong> Exposing an OpenAI-compatible HTTP endpoint with streaming support (the client-side perspective is covered in <a href="../../part-3-working-with-llms/module-10-llm-apis/section-9.1.html" class="cross-ref">Section 9.1</a>).</li>
+    </ul>
+
+    <div class="callout practical-example">
+      <div class="callout-title">Benchmarking Serving Frameworks for a Multi-Model Gateway</div>
+      <p><strong>Who:</strong> A DevOps engineer at an AI platform company building a unified API gateway that routes requests to different models based on task type.</p>
+      <p><strong>Situation:</strong> The gateway needed to serve three models simultaneously (Llama 3.1 8B for chat, Llama 3.1 70B for complex reasoning, and a code-specialized 13B model), sharing a pool of 16 A100 GPUs.</p>
+      <p><strong>Problem:</strong> Using <a class="cross-ref" href="../../part-3-working-with-llms/module-10-llm-apis/section-10.2.html">HuggingFace</a>'s text-generation-inference (TGI) for all models resulted in suboptimal GPU utilization (average 35%) and high P99 latency (8.2 seconds) during peak traffic, because each model instance reserved GPUs exclusively.</p>
+      <p><strong>Dilemma:</strong> vLLM offered better throughput via PagedAttention but lacked built-in multi-model support at the time. SGLang promised even higher throughput with RadixAttention but was newer and less battle-tested. TensorRT-LLM offered maximum single-model performance but required NVIDIA-specific compilation.</p>
+      <p><strong>Decision:</strong> They deployed vLLM with separate instances per model, fronted by a custom routing proxy that directed requests based on task type and managed GPU allocation dynamically.</p>
+      <p><strong>How:</strong> The team ran a structured benchmark: 1,000 requests per model with mixed prompt lengths (128 to 4,096 tokens) and output lengths (64 to 2,048 tokens), measuring throughput (tokens/second), time-to-first-token (TTFT), and P99 latency across vLLM, TGI, and SGLang.</p>
+      <p><strong>Result:</strong> vLLM achieved 2.1x higher throughput than TGI for the 70B model and 1.4x for the 8B model. P99 latency dropped from 8.2 to 3.1 seconds. GPU utilization rose to 62%. SGLang matched vLLM on throughput and showed 15% better prefix cache hit rates for the chat model.</p>
+      <p><strong>Lesson:</strong> <strong>Always benchmark serving frameworks on your actual workload distribution (prompt lengths, output lengths, concurrency), not just on synthetic benchmarks. The best framework depends on your specific traffic patterns.</strong></p>
+    </div>
+
+    <!-- Serving Stack Diagram -->
+    <div class="diagram-container">
+        <svg role="img" aria-label="Diagram: Serving Stack Diagram" viewBox="0 0 720 360" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, sans-serif">
+
+            <!-- Client layer -->
+            <rect x="220" y="40" width="280" height="35" rx="6" fill="#f0e6ff" stroke="#8e44ad" stroke-width="1.5" stroke-linecap="round"/>
+            <text x="360" y="63" text-anchor="middle" font-size="11" font-weight="600" fill="#8e44ad">HTTP Clients (OpenAI-compatible API)</text>
+
+            <line x1="360" y1="75" x2="360" y2="95" stroke="#999" stroke-width="1.5" marker-end="url(#arrow)" stroke-linecap="round"/>
+
+            <!-- API layer -->
+            <rect x="170" y="95" width="380" height="35" rx="6" fill="#e8f4fd" stroke="#3498db" stroke-width="1.5" stroke-linecap="round"/>
+            <text x="360" y="118" text-anchor="middle" font-size="11" font-weight="600" fill="#3498db">API Server (FastAPI/gRPC, streaming, tokenization)</text>
+
+            <line x1="360" y1="130" x2="360" y2="150" stroke="#999" stroke-width="1.5" stroke-linecap="round"/>
+
+            <!-- Scheduler -->
+            <rect x="120" y="150" width="480" height="35" rx="6" fill="#fef9e7" stroke="#f39c12" stroke-width="1.5" stroke-linecap="round"/>
+            <text x="360" y="173" text-anchor="middle" font-size="11" font-weight="600" fill="#e67e22">Request Scheduler (continuous batching, priority, preemption)</text>
+
+            <line x1="360" y1="185" x2="360" y2="205" stroke="#999" stroke-width="1.5" stroke-linecap="round"/>
+
+            <!-- KV Cache + Engine -->
+            <rect x="60" y="205" width="290" height="35" rx="6" fill="#e8f5e9" stroke="#27ae60" stroke-width="1.5" stroke-linecap="round"/>
+            <text x="205" y="228" text-anchor="middle" font-size="11" font-weight="600" fill="#27ae60">KV Cache Manager (PagedAttention)</text>
+
+            <rect x="370" y="205" width="290" height="35" rx="6" fill="#e8f5e9" stroke="#27ae60" stroke-width="1.5" stroke-linecap="round"/>
+            <text x="515" y="228" text-anchor="middle" font-size="11" font-weight="600" fill="#27ae60">Model Executor (TP/PP parallelism)</text>
+
+            <line x1="205" y1="240" x2="360" y2="265" stroke="#999" stroke-width="1" stroke-linecap="round"/>
+            <line x1="515" y1="240" x2="360" y2="265" stroke="#999" stroke-width="1" stroke-linecap="round"/>
+
+            <!-- Kernel layer -->
+            <rect x="100" y="265" width="520" height="35" rx="6" fill="#fce4ec" stroke="#e94560" stroke-width="1.5" stroke-linecap="round"/>
+            <text x="360" y="288" text-anchor="middle" font-size="11" font-weight="600" fill="#c62828">GPU Kernels (FlashAttention, FP8 GEMM, fused ops, CUDA/Triton)</text>
+
+            <line x1="360" y1="300" x2="360" y2="320" stroke="#999" stroke-width="1.5" stroke-linecap="round"/>
+
+            <!-- Hardware -->
+            <rect x="150" y="320" width="420" height="30" rx="6" fill="#1a1a2e" stroke="none"/>
+            <text x="360" y="340" text-anchor="middle" font-size="11" font-weight="600" fill="white">GPU Hardware (H100, A100, L40S, RTX 4090, Apple Silicon)</text>
+
+            <defs><filter id="stdShadow4" x="-4%" y="-4%" width="108%" height="116%"><feDropShadow dx="1" dy="2" stdDeviation="2" flood-opacity="0.08"/></filter><linearGradient id="stdGrad3" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" style="stop-color:#f8f9fa;stop-opacity:0.7"/><stop offset="100%" style="stop-color:#e9ecef;stop-opacity:0.3"/></linearGradient>
+                <marker id="arrow" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-auto">
+                    <path d="M 0 0 L 10 5 L 0 10 z" fill="#999"/>
+                </marker>
+            </defs>
+        </svg>
+        <div class="diagram-caption"><strong>Figure 8.4.3</strong>: The layers of an LLM serving stack, from HTTP clients down to GPU hardware. Each framework implements these layers with different design choices.</div>
+    </div>
+
+    <h2>2. vLLM</h2>
+
+    <div class="callout fun-note">
+       <div class="callout-title">Fun Fact</div>
+        <p>vLLM went from a UC Berkeley research project to the default serving framework for the open-source LLM community in under a year. Its PagedAttention paper was published in 2023, and by 2024 it was serving models at companies ranging from startups to Fortune 500 firms. In the LLM world, adoption timelines are measured in months, not years.</p>
+    </div>
+
+    <p>vLLM (Kwon et al., 2023) is the most widely adopted open-source LLM serving framework. Its core innovation is PagedAttention (covered in <a href="section-8.2.html" class="cross-ref">Section 8.2</a>), which enables near-zero-waste KV cache memory management. Beyond PagedAttention, vLLM provides continuous batching, tensor parallelism, prefix caching, speculative decoding support, and an OpenAI-compatible API server. Code Fragment 8.4.1 below puts this into practice.</p>
+
+    <h3>Key features:</h3>
+    <ul>
+        <li><strong>PagedAttention:</strong> Block-based KV cache allocation with copy-on-write for shared prefixes.</li>
+        <li><strong>Continuous batching:</strong> Iteration-level scheduling that adds new requests as soon as GPU slots become available.</li>
+        <li><strong>Quantization support:</strong> GPTQ, AWQ, FP8, and GGUF formats.</li>
+        <li><strong>Tensor parallelism:</strong> Splits model layers across GPUs for large models.</li>
+        <li><strong>OpenAI-compatible API:</strong> Drop-in replacement for OpenAI endpoints with <code>/v1/completions</code> and <code>/v1/chat/completions</code>.</li>
+    </ul>
+
+<pre><code class="language-python"># Example 1: Launch vLLM server and benchmark throughput
+# Terminal: Start the vLLM server
+# $ python -m vllm.entrypoints.openai.api_server \
+#     --model meta-llama/Llama-3.1-8B-Instruct \
+#     --dtype float16 \
+#     --max-model-len 8192 \
+#     --gpu-memory-utilization 0.90 \
+#     --enable-prefix-caching \
+#     --port 8000
+
+# Python: Benchmark with concurrent requests
+import asyncio
+import aiohttp
+import time
+import json
+
+async def send_request(session, url, prompt, max_tokens=128):
+    payload = {
+        "model": "meta-llama/Llama-3.1-8B-Instruct",
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": 0.7,
+    }
+    t0 = time.perf_counter()
+    async with session.post(url, json=payload) as resp:
+        result = await resp.json()
+        elapsed = time.perf_counter() - t0
+        n_tokens = result["usage"]["completion_tokens"]
+        return n_tokens, elapsed
+
+async def benchmark(concurrency=16, total_requests=64):
+    url = "http://localhost:8000/v1/chat/completions"
+    prompts = [
+        "Explain quantum entanglement simply.",
+        "Write a Python function to merge two sorted lists.",
+        "What causes the northern lights?",
+        "Describe the water cycle in four steps.",
+    ]
+
+    connector = aiohttp.TCPConnector(limit=concurrency)
+    async with aiohttp.ClientSession(connector=connector) as session:
+        tasks = [
+            send_request(session, url, prompts[i % len(prompts)])
+            for i in range(total_requests)
+        ]
+
+        t_start = time.perf_counter()
+        results = await asyncio.gather(*tasks)
+        t_total = time.perf_counter() - t_start
+
+        total_tokens = sum(r[0] for r in results)
+        latencies = [r[1] for r in results]
+
+        print(f"Concurrency:       {concurrency}")
+        print(f"Total requests:    {total_requests}")
+        print(f"Total time:        {t_total:.2f}s")
+        print(f"Total tokens:      {total_tokens}")
+        print(f"Throughput:        {total_tokens/t_total:.1f} tok/s")
+        print(f"Avg latency:       {sum(latencies)/len(latencies):.2f}s")
+        print(f"P50 latency:       {sorted(latencies)[len(latencies)//2]:.2f}s")
+        print(f"P99 latency:       {sorted(latencies)[int(0.99*len(latencies))]:.2f}s")
+
+asyncio.run(benchmark(concurrency=16, total_requests=64))</code></pre>
+    <div class="code-output">Concurrency:       16
+Total requests:    64
+Total time:        12.47s
+Total tokens:      7891
+Throughput:        632.7 tok/s
+Avg latency:       3.02s
+P50 latency:       2.87s
+P99 latency:       4.91s</div>
+<div class="code-caption"><strong>Code Fragment 8.4.1:</strong> Example 1: Launch vLLM server and benchmark throughput.</div>
+
+    <h2>3. SGLang</h2>
+
+    <p>SGLang (Zheng et al., 2024) is a serving framework built around the concept of <strong>RadixAttention</strong>, a tree-based data structure for efficient prefix sharing. While vLLM supports prefix caching, SGLang makes it a first-class design principle. The RadixAttention tree stores all cached KV blocks in a radix tree indexed by token sequences, enabling automatic longest-prefix matching across all active and recently-completed requests.</p>
+
+    <p>SGLang also introduces a programming model for structured generation. Its frontend DSL allows users to define complex generation patterns (multi-turn conversations, branching logic, constrained decoding) as Python programs, and the runtime optimizes execution across these patterns. This is particularly effective for workloads that share long system prompts or few-shot examples across many requests.</p>
+
+    <h3>Key advantages over vLLM:</h3>
+    <ul>
+        <li><strong>RadixAttention:</strong> Automatic, fine-grained prefix sharing with LRU eviction. No manual prefix configuration needed.</li>
+        <li><strong>Structured generation:</strong> Native support for constrained output (JSON schema, regex) with minimal overhead.</li>
+        <li><strong>Multi-modal support:</strong> Built-in handling of vision-language models.</li>
+        <li><strong>Faster scheduling:</strong> Lightweight C++ scheduler with lower per-request overhead.</li>
+    </ul>
+
+    <div class="callout note">
+        <div class="callout-title">Note: Choosing Between vLLM and SGLang</div>
+        <p>For most deployments, both vLLM and SGLang deliver comparable throughput. SGLang tends to outperform when workloads involve heavy prefix sharing (many requests with the same long system prompt) or structured output constraints. vLLM has broader ecosystem support, more quantization options, and a larger community. In production, it is worth benchmarking both on your specific workload before committing to one.</p>
+    </div>
+
+    <h2>4. TGI (Text Generation Inference)</h2>
+
+    <p>Hugging Face Text Generation Inference (TGI) is a production-ready serving solution tightly integrated with the Hugging Face ecosystem. It is the engine behind the Hugging Face Inference API and Inference Endpoints. TGI implements continuous batching, FlashAttention, tensor parallelism, and quantization (GPTQ, AWQ, BitsAndBytes, EETQ, FP8). Code Fragment 8.4.2 below puts this into practice.</p>
+
+    <h3>Distinguishing features:</h3>
+    <ul>
+        <li><strong>Hugging Face integration:</strong> Load any model from the Hub with zero configuration. <a class="cross-ref" href="../../part-1-foundations/module-02-tokenization-subword-models/section-2.1.html">Tokenizer</a> handling, chat template application, and prompt formatting are automatic.</li>
+        <li><strong>Guidance/Outlines support:</strong> Built-in constrained decoding for JSON schemas and regex patterns.</li>
+        <li><strong>Docker-first deployment:</strong> Official Docker images with GPU support, simplifying production deployment.</li>
+        <li><strong>Watermarking:</strong> Built-in support for text watermarking (A Watermark for Large Language Models, Kirchenbauer et al., 2023).</li>
+    </ul>
+
+<pre><code class="language-python"># Example 2: Deploy TGI with Docker and query it
+# Terminal: Launch TGI container
+# $ docker run --gpus all --shm-size 1g -p 8080:80 \
+#     -v $PWD/data:/data \
+#     ghcr.io/huggingface/text-generation-inference:latest \
+#     --model-id meta-llama/Llama-3.1-8B-Instruct \
+#     --max-input-tokens 4096 \
+#     --max-total-tokens 8192 \
+#     --max-batch-prefill-tokens 8192 \
+#     --quantize awq
+
+# Python: Query TGI with the text-generation client
+from huggingface_hub import InferenceClient
+import time
+
+client = InferenceClient("http://localhost:8080")
+
+# Single request with streaming
+prompt = "Explain how PagedAttention works in three sentences."
+
+# Non-streaming: measure time-to-first-token and total latency
+t0 = time.perf_counter()
+response = client.text_generation(
+    prompt,
+    max_new_tokens=150,
+    temperature=0.7,
+    details=True,
+)
+elapsed = time.perf_counter() - t0
+
+print(f"Generated text: {response.generated_text[:120]}...")
+print(f"Tokens generated: {len(response.details.tokens)}")
+print(f"Total latency:    {elapsed:.2f}s")
+print(f"Tokens/sec:       {len(response.details.tokens)/elapsed:.1f}")
+
+# Streaming: measure time-to-first-token
+t0 = time.perf_counter()
+first_token_time = None
+token_count = 0
+for token in client.text_generation(
+    prompt, max_new_tokens=100, temperature=0.7, stream=True
+):
+    if first_token_time is None:
+        first_token_time = time.perf_counter() - t0
+    token_count += 1
+total_time = time.perf_counter() - t0
+
+print(f"\nStreaming metrics:")
+print(f"Time to first token (TTFT): {first_token_time*1000:.0f}ms")
+print(f"Total tokens:               {token_count}")
+print(f"Tokens per second (TPS):    {token_count/total_time:.1f}")</code></pre>
+    <div class="code-output">Generated text: PagedAttention divides the KV cache into fixed-size blocks that are allocated on demand, similar to virtual memory p...
+Tokens generated: 87
+Total latency:    1.94s
+Tokens/sec:       44.8
+
+Streaming metrics:
+Time to first token (TTFT): 142ms
+Total tokens:               67
+Tokens per second (TPS):    41.3</div>
+<div class="code-caption"><strong>Code Fragment 8.4.2:</strong> Example 2: Deploy TGI with Docker and query it.</div>
+
+    <h2>5. TensorRT-LLM</h2>
+
+    <p>TensorRT-LLM is NVIDIA's inference optimization library, purpose-built for NVIDIA GPUs. Unlike the Python-first frameworks above, TensorRT-LLM compiles model graphs into highly optimized CUDA kernels using NVIDIA's TensorRT compiler. This compilation step produces hardware-specific code that exploits features like FP8 Transformer Engines on Hopper GPUs, custom GEMM kernels tuned for specific matrix shapes, and kernel fusion patterns that eliminate memory round-trips.</p>
+
+    <h3>Performance characteristics:</h3>
+    <ul>
+        <li><strong>30% to 50% higher throughput</strong> than vLLM at high concurrency on H100 GPUs, due to hardware-specific kernel optimization.</li>
+        <li><strong>FP8 support</strong> with minimal accuracy loss, leveraging Hopper's native FP8 Tensor Cores.</li>
+        <li><strong>In-flight batching:</strong> NVIDIA's term for continuous batching with iteration-level scheduling.</li>
+        <li><strong>Multi-GPU:</strong> Tensor and pipeline parallelism across multiple GPUs and nodes.</li>
+    </ul>
+
+    <p>The tradeoff is complexity. TensorRT-LLM requires a model compilation step that can take 10 to 30 minutes, model support must be explicitly added (not all Hugging Face models are supported out of the box), and debugging is more difficult than with Python-based frameworks. It is best suited for production deployments on NVIDIA hardware where maximum throughput justifies the setup cost. Code Fragment 8.4.3 below puts this into practice.</p>
+
+<pre><code class="language-python"># TensorRT-LLM: Build and run (requires NVIDIA GPU + tensorrt_llm installed)
+# Step 1: Convert model to TensorRT-LLM format
+# python convert_checkpoint.py --model_dir meta-llama/Llama-3.1-8B \
+#     --output_dir ./trt_ckpt --dtype float16
+
+# Step 2: Build the engine (compilation step, ~15 min)
+# trtllm-build --checkpoint_dir ./trt_ckpt \
+#     --output_dir ./trt_engine \
+#     --gemm_plugin float16 \
+#     --max_batch_size 32 \
+#     --max_input_len 4096 \
+#     --max_seq_len 8192
+
+# Step 3: Run inference with the compiled engine
+import tensorrt_llm
+from tensorrt_llm.runtime import ModelRunner
+
+runner = ModelRunner.from_dir("./trt_engine")
+outputs = runner.generate(
+    ["Explain the advantage of compiled inference engines:"],
+    max_new_tokens=100,
+    temperature=0.7
+)
+print(outputs[0])</code></pre>
+    <div class="code-output">Explain the advantage of compiled inference engines:
+
+Compiled inference engines like TensorRT convert model operations
+into hardware-specific optimized code at build time. This eliminates
+the overhead of Python interpretation, enables kernel fusion (combining
+multiple operations into single GPU launches), and allows the compiler
+to select the best CUDA kernels for the specific GPU architecture
+and matrix dimensions being used.</div>
+<div class="code-caption"><strong>Code Fragment 8.4.3:</strong> TensorRT-LLM: Build and run (requires NVIDIA GPU + tensorrt_llm installed).</div>
+
+    <h2>6. LMDeploy</h2>
+
+    <p>LMDeploy (developed by the InternLM team at Shanghai AI Lab) is a serving framework with a strong focus on quantization and a custom inference backend called <strong>TurboMind</strong>. TurboMind implements its own attention kernels and KV cache management, with particularly strong support for W4A16 quantization (4-bit weights, 16-bit activations). LMDeploy achieves competitive throughput with vLLM and TGI while offering a simpler deployment experience for quantized models.</p>
+
+    <h3>Notable features:</h3>
+    <ul>
+        <li><strong>TurboMind backend:</strong> Custom C++ inference engine with optimized attention and GEMM kernels.</li>
+        <li><strong>Strong quantization:</strong> W4A16 (AWQ), W8A8, and KV cache INT8/INT4 quantization.</li>
+        <li><strong>VLM support:</strong> First-class support for vision-language models (InternVL, LLaVA).</li>
+        <li><strong>Pipeline parallelism:</strong> Efficient multi-GPU serving with pipeline stages.</li>
+    </ul>
+
+    <h2>7. Ollama and llama.cpp: Local Inference</h2>
+
+    <p>Not every deployment requires a GPU cluster. For local development, prototyping, and privacy-sensitive applications, Ollama and llama.cpp provide efficient inference on consumer hardware, including CPU-only machines and Apple Silicon Macs.</p>
+
+    <h3>7.1 llama.cpp</h3>
+
+    <p>llama.cpp (Gerganov, 2023) is a C/C++ implementation of LLM inference with minimal dependencies. It supports a wide range of hardware through multiple backends: CUDA (NVIDIA GPUs), Metal (Apple Silicon), Vulkan (cross-platform GPU), and optimized CPU paths (AVX2, ARM NEON). Its GGUF quantization format supports 2-bit through 8-bit quantization with per-block scaling, enabling 7B models to run at interactive speeds on a laptop CPU.</p>
+
+    <h3>7.2 Ollama</h3>
+
+    <p>Ollama wraps llama.cpp in a user-friendly interface with a model registry, automatic model downloading, and a simple REST API. It manages model lifecycle (downloading, loading, unloading) and exposes an API compatible with the OpenAI format. Ollama is the easiest path from zero to running an LLM locally. Code Fragment 8.4.4 below puts this into practice.</p>
+
+<pre><code class="language-python"># Example 3: Local inference with Ollama
+# Terminal: Pull and run a model
+# $ ollama pull llama3.1:8b-instruct-q4_K_M
+# $ ollama serve    # starts the API server on port 11434
+
+# Python: Query Ollama's OpenAI-compatible API
+import requests
+import time
+
+def ollama_generate(prompt, model="llama3.1:8b-instruct-q4_K_M", max_tokens=128):
+    """Query Ollama's local API."""
+    url = "http://localhost:11434/v1/chat/completions"
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": 0.7,
+        "stream": False,
+    }
+    t0 = time.perf_counter()
+    resp = requests.post(url, json=payload)
+    elapsed = time.perf_counter() - t0
+    data = resp.json()
+    return data, elapsed
+
+# Benchmark on different quantizations
+prompts = [
+    "Write a haiku about machine learning.",
+    "Explain the difference between TCP and UDP in two sentences.",
+    "What is the capital of Australia and why was it chosen?",
+]
+
+models = [
+    "llama3.1:8b-instruct-q4_K_M",     # 4-bit, ~4.9 GB
+    "llama3.1:8b-instruct-q8_0",         # 8-bit, ~8.5 GB
+]
+
+print(f"{'Model':<38} {'Tokens':>7} {'Time':>7} {'Tok/s':>7}")
+print("-" * 62)
+for model in models:
+    total_tokens, total_time = 0, 0
+    for prompt in prompts:
+        data, elapsed = ollama_generate(prompt, model=model)
+        n_tok = data["usage"]["completion_tokens"]
+        total_tokens += n_tok
+        total_time += elapsed
+    avg_tps = total_tokens / total_time
+    print(f"{model:<38} {total_tokens:>7} {total_time:>6.1f}s {avg_tps:>6.1f}")</code></pre>
+    <div class="code-output">Model                                  Tokens    Time   Tok/s
+--------------------------------------------------------------
+llama3.1:8b-instruct-q4_K_M               287    8.2s   35.0
+llama3.1:8b-instruct-q8_0                  291   14.7s   19.8</div>
+<div class="code-caption"><strong>Code Fragment 8.4.4:</strong> Example 3: Local inference with Ollama.</div>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight: Local vs. Cloud Tradeoffs</div>
+        <p>Running a Q4 model locally on a MacBook Pro M3 achieves roughly 30 to 40 tokens per second for an 8B model. A cloud vLLM deployment on an A100 achieves 600+ tokens per second for the same model at high concurrency. The 15x to 20x gap reflects the fundamental hardware difference, but for single-user applications (coding assistants, private document analysis, prototyping), local inference offers zero latency overhead, complete privacy, and no API costs.</p>
+    </div>
+
+    <h2>8. Triton Inference Server</h2>
+
+    <p>NVIDIA Triton Inference Server is a production-grade model serving platform designed for multi-model, multi-framework deployments. Unlike the LLM-specific frameworks above, Triton is a general-purpose inference server that can host any model format (TensorRT, ONNX, PyTorch, TensorFlow) behind a unified gRPC/HTTP API. For LLM workloads, Triton integrates with TensorRT-LLM as a backend, combining Triton's production features (model versioning, A/B testing, ensemble pipelines, health checks, metrics) with TensorRT-LLM's optimized inference.</p>
+
+    <p>Triton is the right choice when you need enterprise-grade operational features: dynamic model loading/unloading, GPU sharing across multiple models, Prometheus metrics export, Kubernetes-native health probes, and support for pre/post-processing pipelines. For simpler LLM-only deployments, vLLM or SGLang's built-in API servers are sufficient.</p>
+
+    <h3>8.1 Multi-LoRA Serving</h3>
+
+    <p>Many production deployments need to serve multiple <a class="cross-ref" href="../../part-4-training-adapting/module-14-fine-tuning-fundamentals/section-14.1.html">fine-tuned</a> model variants simultaneously: one <a class="cross-ref" href="../../part-4-training-adapting/module-15-peft/section-14.1.html">LoRA</a> adapter for customer support tone, another for legal document generation, a third for code completion. The naive approach of loading each adapter as a separate model instance wastes GPU memory, because the base model weights (which are identical across all variants) are duplicated for every adapter. <strong>Multi-LoRA serving</strong> solves this by loading the base model once and dynamically swapping LoRA adapters on a per-request basis.</p>
+
+    <p>Both vLLM and SGLang support multi-LoRA natively. The base model is loaded into GPU memory once, and each LoRA adapter (typically 10 to 100 MB per adapter) is loaded separately. When a request arrives, it specifies which adapter to use, and the serving framework applies the appropriate low-rank weight updates during the forward pass. Because LoRA adapters modify only a small fraction of the model's parameters, the per-request overhead is minimal: typically less than 1% additional latency compared to serving the base model alone.</p>
+
+    <p>The memory savings are substantial. Serving 20 LoRA variants of a 70B model as separate instances would require 20x the base model memory. With multi-LoRA serving, you need only 1x base model memory plus a small overhead for each adapter. This makes it practical to serve dozens or even hundreds of specialized model variants on a single GPU cluster. Code Fragment 8.4.5 below puts this into practice.</p>
+
+<pre><code class="language-python"># vLLM multi-LoRA serving
+from vllm import LLM, SamplingParams
+from vllm.lora.request import LoRARequest
+
+llm = LLM(
+    model="meta-llama/Llama-3.1-8B-Instruct",
+    enable_lora=True,
+    max_loras=4,           # Max concurrent LoRA adapters in memory
+    max_lora_rank=64,      # Maximum rank across all adapters
+)
+
+# Define LoRA adapters
+support_lora = LoRARequest("support", 1, "adapters/customer-support")
+legal_lora = LoRARequest("legal", 2, "adapters/legal-drafting")
+
+# Route requests to different adapters
+params = SamplingParams(max_tokens=256, temperature=0.7)
+
+support_out = llm.generate(
+    ["How can I help you today?"],
+    params,
+    lora_request=support_lora,
+)
+legal_out = llm.generate(
+    ["Draft a non-disclosure agreement for:"],
+    params,
+    lora_request=legal_lora,
+)</code></pre>
+<div class="code-caption"><strong>Code Fragment 8.4.5:</strong> Multi-LoRA serving with vLLM. The base model is loaded once, and each request specifies which LoRA adapter to apply, enabling dozens of specialized model variants on a single GPU cluster with minimal overhead.</div>
+
+    <div class="callout note">
+        <div class="callout-title">Note</div>
+        <p>Multi-LoRA serving works best when all adapters share the same base model and were trained with the same LoRA configuration (target chapters and rank). Mixing adapters with different ranks is supported but may require padding, which slightly increases memory usage. For maximum efficiency, standardize your LoRA training configuration across all variants.</p>
+    </div>
+
+    <h2>9. Framework Comparison</h2>
+
+    <div class="comparison-table">
+        <div class="comparison-table-title">9. Framework Comparison</div>
+        <table>
+        <tr>
+            <th scope="col">Framework</th>
+            <th scope="col">Best For</th>
+            <th scope="col">KV Cache</th>
+            <th scope="col">Quantization</th>
+            <th scope="col">Ease of Use</th>
+        </tr>
+        <tr>
+            <td><strong>vLLM</strong></td>
+            <td>General-purpose GPU serving</td>
+            <td>PagedAttention</td>
+            <td>GPTQ, AWQ, FP8, GGUF</td>
+            <td>High</td>
+        </tr>
+        <tr>
+            <td><strong>SGLang</strong></td>
+            <td>Prefix-heavy, structured output</td>
+            <td>RadixAttention</td>
+            <td>GPTQ, AWQ, FP8</td>
+            <td>High</td>
+        </tr>
+        <tr>
+            <td><strong>TGI</strong></td>
+            <td>HF ecosystem, quick deployment</td>
+            <td>FlashAttention</td>
+            <td>GPTQ, AWQ, BnB, EETQ, FP8</td>
+            <td>Very High</td>
+        </tr>
+        <tr>
+            <td><strong>TensorRT-LLM</strong></td>
+            <td>Max throughput on NVIDIA HW</td>
+            <td>Custom paged</td>
+            <td>FP8, INT8, INT4 (native)</td>
+            <td>Low</td>
+        </tr>
+        <tr>
+            <td><strong>LMDeploy</strong></td>
+            <td>Quantized models, VLMs</td>
+            <td>TurboMind</td>
+            <td>W4A16, W8A8, KV INT4/8</td>
+            <td>Medium</td>
+        </tr>
+        <tr>
+            <td><strong>Ollama</strong></td>
+            <td>Local dev, privacy, prototyping</td>
+            <td>llama.cpp</td>
+            <td>GGUF (Q2 through Q8)</td>
+            <td>Very High</td>
+        </tr>
+        <tr>
+            <td><strong>llama.cpp</strong></td>
+            <td>Minimal footprint, edge/CPU</td>
+            <td>Custom</td>
+            <td>GGUF (Q2 through Q8)</td>
+            <td>Medium</td>
+        </tr>
+        <tr>
+            <td><strong>Triton Server</strong></td>
+            <td>Enterprise, multi-model</td>
+            <td>Via TRT-LLM backend</td>
+            <td>All TRT-LLM formats</td>
+            <td>Low</td>
+        </tr>
+    </table>
+    </div>
+
+    <h2>10. Benchmarking Methodology</h2>
+
+    <p>Choosing a serving framework requires benchmarking on your specific workload. The key metrics for LLM serving are:</p>
+
+    <h3>Latency Metrics:</h3>
+    <ul>
+        <li><strong>Time to First Token (TTFT):</strong> The delay from request submission to the first token being returned. This is dominated by the prefill phase (processing the input prompt). TTFT matters most for interactive applications.</li>
+        <li><strong>Time Per Output Token (TPOT):</strong> The average time between consecutive output tokens during the decode phase. Also called inter-token latency. This determines the perceived "typing speed" for streaming applications.</li>
+        <li><strong>End-to-end latency:</strong> Total time from request to completion. Equals TTFT + (output_length &times; TPOT).</li>
+    </ul>
+
+    <h3>Throughput Metrics:</h3>
+    <ul>
+        <li><strong>Tokens per second (tok/s):</strong> Total output tokens generated across all concurrent requests per unit time. This is the primary capacity metric.</li>
+        <li><strong>Requests per second (RPS):</strong> Number of completed requests per second. Varies with output length, so tok/s is generally more informative.</li>
+    </ul>
+
+    <!-- Benchmarking Diagram -->
+    <div class="diagram-container">
+        <svg role="img" aria-label="Diagram: Benchmarking Diagram" viewBox="0 0 720 250" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, sans-serif"><defs><filter id="stdShadow2" x="-4%" y="-4%" width="108%" height="116%"><feDropShadow dx="1" dy="2" stdDeviation="2" flood-opacity="0.08"/></filter><linearGradient id="stdGrad1" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" style="stop-color:#f8f9fa;stop-opacity:0.7"/><stop offset="100%" style="stop-color:#e9ecef;stop-opacity:0.3"/></linearGradient></defs>
+
+            <!-- Timeline bar -->
+            <rect x="60" y="60" width="600" height="40" rx="4" fill="#f0f0f0" stroke="#ccc" stroke-linecap="round"/>
+
+            <!-- TTFT segment -->
+            <rect x="60" y="60" width="120" height="40" rx="4" fill="#3498db" opacity="0.3"/>
+            <text x="120" y="85" text-anchor="middle" font-size="11" font-weight="600" fill="#2471a3">Prefill</text>
+
+            <!-- Decode tokens -->
+            <rect x="180" y="60" width="480" height="40" rx="0" fill="#27ae60" opacity="0.15"/>
+            <rect x="180" y="60" width="2" height="40" fill="#27ae60" opacity="0.6"/>
+            <rect x="240" y="60" width="2" height="40" fill="#27ae60" opacity="0.6"/>
+            <rect x="300" y="60" width="2" height="40" fill="#27ae60" opacity="0.6"/>
+            <rect x="360" y="60" width="2" height="40" fill="#27ae60" opacity="0.6"/>
+            <rect x="420" y="60" width="2" height="40" fill="#27ae60" opacity="0.6"/>
+            <rect x="480" y="60" width="2" height="40" fill="#27ae60" opacity="0.6"/>
+            <rect x="540" y="60" width="2" height="40" fill="#27ae60" opacity="0.6"/>
+            <rect x="600" y="60" width="2" height="40" fill="#27ae60" opacity="0.6"/>
+            <text x="420" y="85" text-anchor="middle" font-size="11" font-weight="600" fill="#1e8449">Decode (token by token)</text>
+
+            <!-- Annotations -->
+            <line x1="60" y1="110" x2="60" y2="135" stroke="#333" stroke-width="1" stroke-linecap="round"/>
+            <line x1="180" y1="110" x2="180" y2="135" stroke="#333" stroke-width="1" stroke-linecap="round"/>
+            <line x1="60" y1="135" x2="180" y2="135" stroke="#333" stroke-width="1.5" stroke-linecap="round"/>
+            <text x="120" y="155" text-anchor="middle" font-size="11" fill="#2471a3" font-weight="600">TTFT</text>
+            <text x="120" y="170" text-anchor="middle" font-size="11" fill="#555">(Time to First Token)</text>
+
+            <line x1="180" y1="110" x2="180" y2="195" stroke="#333" stroke-width="1" stroke-linecap="round"/>
+            <line x1="240" y1="110" x2="240" y2="195" stroke="#333" stroke-width="1" stroke-linecap="round"/>
+            <line x1="180" y1="195" x2="240" y2="195" stroke="#333" stroke-width="1.5" stroke-linecap="round"/>
+            <text x="210" y="215" text-anchor="middle" font-size="11" fill="#1e8449" font-weight="600">TPOT</text>
+            <text x="210" y="230" text-anchor="middle" font-size="11" fill="#555">(Time Per Output Token)</text>
+
+            <line x1="60" y1="45" x2="660" y2="45" stroke="#e94560" stroke-width="2" stroke-dasharray="6,3" stroke-linecap="round"/>
+            <text x="360" y="40" text-anchor="middle" font-size="11" fill="#e94560" font-weight="600">End-to-End Latency = TTFT + (N_output &times; TPOT)</text>
+        </svg>
+        <div class="diagram-caption"><strong>Figure 8.4.2</strong>: LLM request latency comprises the prefill phase (TTFT) and the decode phase (N tokens, each taking TPOT). Optimizing these independently requires different strategies.</div>
+    </div>
+
+    <div class="callout warning">
+        <div class="callout-title">Warning: Benchmarking Pitfalls</div>
+        <p>Always benchmark under realistic conditions. Common mistakes include: (1) testing with uniform prompt/output lengths when your real traffic is variable, (2) warming up the server before measuring (caches and JIT compilation change behavior), (3) ignoring the latency-throughput tradeoff (a system that maximizes tok/s at 16 concurrent requests may have unacceptable TTFT at 128 concurrent requests), and (4) comparing frameworks at different quantization levels. Use tools like <code>vllm benchmark</code>, <code>genai-perf</code>, or custom load generators that replay realistic traffic patterns. Code Fragment 8.4.6 below puts this into practice.</p>
+    </div>
+
+<pre><code class="language-python"># Example 4: Comprehensive benchmarking script
+import asyncio
+import aiohttp
+import time
+import numpy as np
+from dataclasses import dataclass
+
+@dataclass
+class RequestResult:
+    ttft: float           # time to first token (seconds)
+    total_time: float     # end-to-end latency
+    output_tokens: int    # number of generated tokens
+    tpot: float           # time per output token (after first)
+
+async def benchmark_streaming(url, model, prompt, max_tokens=128):
+    """Measure TTFT and TPOT via streaming response."""
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": 0.7,
+        "stream": True,
+    }
+
+    t0 = time.perf_counter()
+    ttft = None
+    token_count = 0
+
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, json=payload) as resp:
+            async for line in resp.content:
+                decoded = line.decode().strip()
+                if decoded.startswith("data: ") and decoded != "data: [DONE]":
+                    if ttft is None:
+                        ttft = time.perf_counter() - t0
+                    token_count += 1
+
+    total = time.perf_counter() - t0
+    decode_time = total - (ttft or total)
+    tpot = decode_time / max(token_count - 1, 1)
+
+    return RequestResult(ttft=ttft or 0, total_time=total,
+                         output_tokens=token_count, tpot=tpot)
+
+async def run_benchmark(concurrency_levels=[1, 4, 8, 16, 32]):
+    url = "http://localhost:8000/v1/chat/completions"
+    model = "meta-llama/Llama-3.1-8B-Instruct"
+    prompt = "Describe the process of photosynthesis."
+
+    print(f"{'Concur':>7} {'Throughput':>11} {'Avg TTFT':>10} "
+          f"{'P50 TTFT':>10} {'Avg TPOT':>10} {'P99 Lat':>10}")
+    print("-" * 62)
+
+    for c in concurrency_levels:
+        n_requests = max(c * 4, 16)
+        sem = asyncio.Semaphore(c)
+
+        async def bounded_req():
+            async with sem:
+                return await benchmark_streaming(url, model, prompt)
+
+        tasks = [bounded_req() for _ in range(n_requests)]
+        t0 = time.perf_counter()
+        results = await asyncio.gather(*tasks)
+        wall_time = time.perf_counter() - t0
+
+        total_tok = sum(r.output_tokens for r in results)
+        ttfts = [r.ttft for r in results]
+        lats = [r.total_time for r in results]
+        tpots = [r.tpot for r in results]
+
+        print(f"{c:>7} {total_tok/wall_time:>10.1f}/s "
+              f"{np.mean(ttfts)*1000:>9.0f}ms "
+              f"{np.percentile(ttfts, 50)*1000:>9.0f}ms "
+              f"{np.mean(tpots)*1000:>9.0f}ms "
+              f"{np.percentile(lats, 99):>9.2f}s")
+
+asyncio.run(run_benchmark())</code></pre>
+    <div class="code-output"> Concur  Throughput   Avg TTFT   P50 TTFT   Avg TPOT    P99 Lat
+--------------------------------------------------------------
+      1      48.3/s       87ms       85ms       21ms      2.78s
+      4     187.2/s      112ms      108ms       22ms      3.01s
+      8     351.6/s      189ms      175ms       23ms      3.42s
+     16     632.7/s      342ms      315ms       25ms      4.91s
+     32     894.1/s      687ms      621ms       30ms      7.23s</div>
+<div class="code-caption"><strong>Code Fragment 8.4.6:</strong> Example 4: Comprehensive benchmarking script.</div>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight: The Latency-Throughput Tradeoff</div>
+        <p>Notice how throughput increases from 48 tok/s at concurrency 1 to 894 tok/s at concurrency 32 (an 18x improvement), while TTFT degrades from 87ms to 687ms (an 8x increase). This is the fundamental latency-throughput tradeoff in LLM serving. Higher concurrency fills the GPU more efficiently, improving throughput, but each individual request waits longer as it shares GPU cycles with more peers. Production systems must be tuned to maintain acceptable TTFT under expected load.</p>
+    </div>
+
+    <h2>11. Disaggregated Inference: Separating Prefill and Decode</h2>
+
+    <p>
+        All serving frameworks discussed above run the prefill phase (processing the input prompt) and the decode phase (generating output tokens one by one) on the same GPU. This co-located design creates a fundamental tension: prefill is compute-bound (dominated by matrix multiplications over the full input sequence), while decode is memory-bandwidth-bound (limited by reading model weights and KV cache for each token). Mixing these two phases on the same hardware means neither phase achieves optimal utilization. Disaggregated inference addresses this by physically separating prefill and decode onto different hardware pools, each optimized for its phase's characteristics.
+    </p>
+
+    <h3>The Prefill/Decode Mismatch</h3>
+
+    <p>
+        To understand why disaggregation helps, consider the resource profile of each phase. During prefill, the GPU processes all input tokens in parallel through matrix multiplications that achieve high arithmetic intensity (many FLOPs per byte of memory access). An H100 GPU running prefill for a 7B model can process roughly 20,000 to 40,000 tokens per second, keeping its Tensor Cores well utilized. During decode, the GPU generates one token at a time, reading the full model weights and the growing KV cache for each token. The arithmetic intensity drops dramatically because the "batch size" for the computation is effectively 1 (one token), making decode severely memory-bandwidth-limited. An H100 generating tokens for a single request achieves only about 30 to 60 tokens per second, utilizing a fraction of its compute capability.
+    </p>
+
+    <p>
+        When prefill and decode share a GPU (as in standard continuous batching), decode requests must wait while the GPU processes prefill batches, inflating TTFT for queued requests. Conversely, decode's low arithmetic intensity wastes the compute resources that prefill could use productively. The Sarathi-Serve paper (Agrawal et al., 2024) quantified this interference: in co-located serving under high load, prefill operations can inflate decode latency by 2 to 5x, and decode operations reduce prefill throughput by 30 to 50% compared to dedicated execution.
+    </p>
+
+    <h3>Splitwise and DistServe: Architectural Approaches</h3>
+
+    <p>
+        <strong>Splitwise</strong> (Patel et al., 2024) from Microsoft Research introduced the idea of running prefill on "prompt machines" and decode on "token machines" connected by a high-bandwidth network. Prompt machines are optimized for compute (maximum Tensor Core utilization, larger batch sizes), while token machines are optimized for memory bandwidth (potentially using GPUs with higher memory bandwidth or different quantization levels). After prefill completes, the KV cache is transferred from the prompt machine to the token machine over the network. Splitwise demonstrated 20 to 30% improvement in cost efficiency at the same latency targets compared to co-located serving, because each machine type is utilized closer to its theoretical maximum.
+    </p>
+
+    <p>
+        <strong>DistServe</strong> (Zhong et al., 2024) takes a similar approach but adds a placement optimization algorithm that determines how many GPUs to allocate to prefill versus decode based on the current request distribution. When the workload is prompt-heavy (long inputs, short outputs), DistServe allocates more GPUs to prefill. When the workload shifts to generation-heavy tasks (short inputs, long outputs), GPUs are reallocated to decode pools. This dynamic balancing achieves 2 to 4x better goodput (successful requests per second meeting latency SLOs) compared to co-located serving under variable workloads.
+    </p>
+
+    <h3>Mooncake: Production-Scale Disaggregation</h3>
+
+    <p>
+        <strong>Mooncake</strong>, developed by Moonshot AI for their Kimi chatbot service (one of China's most popular AI assistants), represents the most mature production deployment of disaggregated inference. Mooncake's architecture separates the serving cluster into prefill nodes and decode nodes connected by RDMA (Remote Direct Memory Access) networking. After prefill completes, the KV cache is transferred to decode nodes at line rate (up to 400 Gb/s over InfiniBand), with the transfer latency typically adding only 10 to 50ms to the total request time. Mooncake introduced a "KV cache pool" that stores KV caches in a distributed, prefix-aware cache shared across decode nodes. This means that if two users submit prompts sharing a common system prompt, the prefill for the shared prefix happens once, and both decode nodes reference the same cached KV entries.
+    </p>
+
+    <p>
+        Mooncake's production results (reported for serving Kimi's 200K-context-window model) showed a 75% reduction in per-request cost compared to co-located serving at the same P99 latency, primarily because the decode fleet could be right-sized for the memory-bandwidth-bound workload without paying for idle compute capability. The system handles the KV cache transfer challenge through pipelining: the KV cache for layer <span class="math">i</span> is transferred while layer <span class="math">$i+1$</span> is being computed, hiding most of the network latency.
+    </p>
+
+    <h3>When Disaggregation Makes Sense</h3>
+
+    <p>
+        Disaggregated inference adds operational complexity (separate fleet management, network-dependent KV cache transfer, dynamic load balancing) that is justified only at significant scale. The break-even point is roughly 50 to 100 GPUs of serving capacity, below which the overhead of maintaining separate pools and the network infrastructure outweighs the efficiency gains. For smaller deployments, techniques like chunked prefill (splitting long prefills into smaller chunks interleaved with decode steps) and priority-based scheduling achieve most of the benefits with far less operational complexity. As cloud providers begin offering disaggregated inference as a managed service (early signs include specialized prefill/decode instance types on major clouds), the operational barrier will decrease, potentially making disaggregation accessible to smaller deployments by late 2025.
+    </p>
+
+    <!-- Quiz -->
+    <div class="quiz">
+        <h3>Check Your Understanding</h3>
+
+        <p class="quiz-question">1. What is the key architectural innovation that differentiates SGLang from vLLM?</p>
+        <details open>
+            <summary>Show Answer</summary>
+            <div class="answer">SGLang is built around RadixAttention, a radix-tree-based KV cache management system that enables automatic, fine-grained prefix sharing across all requests. While vLLM supports prefix caching as an optional feature, SGLang makes it a core design principle. The radix tree indexes cached KV blocks by their token sequences, allowing automatic longest-prefix matching with LRU eviction. This provides the largest benefit when many requests share common long prefixes (system prompts, few-shot examples).</div>
+        </details>
+
+        <p class="quiz-question">2. Why does TensorRT-LLM achieve higher throughput than Python-based frameworks at high concurrency?</p>
+        <details open>
+            <summary>Show Answer</summary>
+            <div class="answer">TensorRT-LLM compiles model graphs into hardware-specific CUDA kernels that are optimized for the exact GPU architecture (e.g., Hopper's FP8 Tensor Cores). This compilation step produces fused kernels tuned for specific matrix shapes, eliminates Python interpreter overhead, and exploits hardware features that generic kernels cannot access. The result is 30% to 50% higher throughput at high concurrency, where per-kernel efficiency matters most. The tradeoff is a longer setup time (10 to 30 minutes for compilation) and reduced flexibility.</div>
+        </details>
+
+        <p class="quiz-question">3. Explain the difference between TTFT and TPOT, and which optimization strategies target each.</p>
+        <details open>
+            <summary>Show Answer</summary>
+            <div class="answer">TTFT (Time to First Token) measures the delay from request submission until the first output token is returned. It is dominated by the prefill phase, which processes the entire input prompt. TTFT is improved by faster prefill computation (FlashAttention, chunked prefill, prefix caching). TPOT (Time Per Output Token) measures the inter-token latency during the decode phase and is dominated by memory bandwidth (reading model weights and KV cache for each token). TPOT is improved by quantization (smaller weights to read), GQA (smaller KV cache), and speculative decoding (multiple tokens per forward pass). In streaming applications, TTFT determines how quickly users see a response begin, while TPOT determines the perceived "typing speed."</div>
+        </details>
+
+        <p class="quiz-question">4. When would you choose Ollama over vLLM for serving an 8B model?</p>
+        <details open>
+            <summary>Show Answer</summary>
+            <div class="answer">Ollama is the better choice for: (1) local development and prototyping, where simplicity and zero setup time matter more than throughput; (2) privacy-sensitive applications where data must not leave the local machine; (3) CPU-only or Apple Silicon deployments where CUDA is unavailable; (4) single-user scenarios where high concurrency throughput is unnecessary. vLLM is better when serving multiple concurrent users, when running on NVIDIA GPUs, when maximizing throughput is critical, or when features like prefix caching and speculative decoding are needed.</div>
+        </details>
+    </div>
+
+<div class="callout key-insight">
+    <div class="callout-title">Key Insight: The Serving Stack as a Queueing Theory Problem</div>
+    <p>LLM serving is fundamentally a queueing theory problem. Requests arrive with variable input lengths and produce variable output lengths, the "service time" is unknown in advance, and the server has finite resources (GPU memory and compute). Little's Law (L = lambda * W, where L is the average number of requests in the system, lambda is the arrival rate, and W is the average time in the system) governs the relationship between throughput, latency, and concurrency. Continuous batching is essentially a strategy for maximizing server utilization (reducing idle time) while minimizing wait time for individual requests. The prefill-decode disaggregation in modern frameworks separates compute-bound work (prefill) from memory-bound work (decode) onto different resources, much as manufacturing systems separate bottleneck processes to maximize throughput. Understanding these queueing dynamics is essential for capacity planning: given a target latency SLA and expected request rate, the framework choice and hardware provisioning follow from classical operations research (see also <a class="cross-ref" href="../../part-3-working-with-llms/module-10-llm-apis/section-9.1.html">Section 9.1</a> on API design).</p>
+</div>
+
+    <!-- Takeaways -->
+    <div class="takeaways">
+        <h2>Key Takeaways</h2>
+        <ul>
+            <li><strong>The LLM serving stack</strong> comprises request scheduling, continuous batching, KV cache management, model parallelism, kernel optimization, and an API layer. Each framework makes different tradeoffs across these layers.</li>
+            <li><strong>vLLM</strong> is the most widely adopted framework, built on PagedAttention, with broad model and quantization support. It is the default choice for most GPU-based deployments.</li>
+            <li><strong>SGLang</strong> excels at prefix-heavy workloads through RadixAttention and offers native structured generation support.</li>
+            <li><strong>TGI</strong> integrates tightly with the Hugging Face ecosystem and offers the simplest Docker-based deployment path.</li>
+            <li><strong>TensorRT-LLM</strong> delivers the highest throughput on NVIDIA hardware (30% to 50% over vLLM) at the cost of compilation complexity and reduced flexibility.</li>
+            <li><strong>Ollama and llama.cpp</strong> enable local inference on consumer hardware (CPU, Apple Silicon, consumer GPUs) with GGUF quantization, ideal for development and privacy-sensitive applications.</li>
+            <li><strong>Benchmark on your workload</strong> using realistic traffic patterns. Measure TTFT, TPOT, and throughput at multiple concurrency levels to understand the latency-throughput tradeoff for your specific deployment.</li>
+        </ul>
+    </div>
+
+    <div class="callout research-frontier">
+        <div class="callout-title">Research Frontier</div>
+        <p><strong>Disaggregated inference and specialized hardware.</strong> The emerging paradigm of disaggregated inference separates prefill (compute-bound) and decode (memory-bound) phases onto different hardware optimized for each workload. Splitwise (2024) and DistServe demonstrate significant throughput improvements by running prefill on compute-dense GPUs and decode on memory-optimized instances. Meanwhile, purpose-built inference accelerators (Groq's LPU, Cerebras, custom ASICs) challenge the GPU monopoly by offering dramatically different latency and throughput profiles. The integration of model serving with edge deployment, where small quantized models run on phones and laptops while larger models serve from the cloud, is creating a heterogeneous serving landscape that requires new routing and orchestration strategies.</p>
+    </div>
+
+    <div class="whats-next">
+        <h3>What's Next?</h3>
+        <p>In the next section, <a href="section-8.5.html">Section 8.5: Model Pruning and Sparsity</a>, we explore pruning techniques that remove redundant weights to create smaller, faster models. After that, <a class="cross-ref" href="../../part-3-working-with-llms/module-10-llm-apis/section-9.1.html">Part III</a> covers working with LLM APIs, the primary interface for building applications with large language models.</p>
+    </div>
+
+<section class="bibliography">
+    <div class="bibliography-title">📚 References &amp; Further Reading</div>
+
+    <div class="bib-category">Serving Frameworks &amp; Systems</div>
+
+    <div class="bib-entry-card">
+        <p class="bib-ref">Kwon, W. et al. (2023). <a href="https://arxiv.org/abs/2309.06180" target="_blank" rel="noopener">"Efficient Memory Management for Large Language Model Serving with PagedAttention."</a> <em>SOSP 2023</em>.</p>
+        <p class="bib-annotation">The paper behind vLLM, the most widely deployed open-source LLM serving engine. Introduces PagedAttention for efficient KV cache management, enabling near-zero memory waste and request-level memory sharing.</p>
+        <span class="bib-meta">📄 Paper</span>
+    </div>
+
+    <div class="bib-entry-card">
+        <p class="bib-ref">Zheng, L. et al. (2024). <a href="https://arxiv.org/abs/2312.07104" target="_blank" rel="noopener">"SGLang: Efficient Execution of Structured Language Model Programs."</a> <em>arXiv preprint arXiv:2312.07104</em>.</p>
+        <p class="bib-annotation">Introduces RadixAttention for automatic prefix caching and a domain-specific language for structured LLM programs. Particularly strong for workloads with shared system prompts and constrained generation patterns.</p>
+        <span class="bib-meta">📄 Paper</span>
+    </div>
+
+    <div class="bib-entry-card">
+        <p class="bib-ref">NVIDIA (2024). <a href="https://github.com/NVIDIA/TensorRT-LLM" target="_blank" rel="noopener">"TensorRT-LLM: A TensorRT Toolbox for Optimized Large Language Model Inference."</a></p>
+        <p class="bib-annotation">NVIDIA's production-grade inference library that compiles LLMs into optimized TensorRT engines. Delivers the highest throughput on NVIDIA hardware through custom CUDA kernels, FP8 quantization, and in-flight batching.</p>
+        <span class="bib-meta">🔧 Tool</span>
+    </div>
+
+    <div class="bib-category">Scheduling &amp; Batching Research</div>
+
+    <div class="bib-entry-card">
+        <p class="bib-ref">Yu, G. et al. (2022). <a href="https://www.usenix.org/conference/osdi22/presentation/yu" target="_blank" rel="noopener">"Orca: A Distributed Serving System for Transformer-Based Generative Models."</a> <em>OSDI 2022</em>.</p>
+        <p class="bib-annotation">Introduces iteration-level scheduling (continuous batching) for LLM serving, allowing new requests to join a batch as soon as any request completes. The foundational system paper that all modern serving frameworks build upon.</p>
+        <span class="bib-meta">📄 Paper</span>
+    </div>
+
+    <div class="bib-entry-card">
+        <p class="bib-ref">Agrawal, A. et al. (2024). <a href="https://arxiv.org/abs/2403.02310" target="_blank" rel="noopener">"Taming Throughput-Latency Tradeoff in LLM Inference with Sarathi-Serve."</a> <em>OSDI 2024</em>.</p>
+        <p class="bib-annotation">Addresses the interference between prefill and decode phases in continuous batching through chunked prefills and stall-free scheduling. Essential reading for understanding how production systems balance latency and throughput.</p>
+        <span class="bib-meta">📄 Paper</span>
+    </div>
+
+    <div class="bib-category">Local &amp; Edge Inference</div>
+
+    <div class="bib-entry-card">
+        <p class="bib-ref">Gerganov, G. et al. (2024). <a href="https://github.com/ggerganov/llama.cpp" target="_blank" rel="noopener">"llama.cpp: Inference of Meta's LLaMA model in pure C/C++."</a></p>
+        <p class="bib-annotation">The foundational project for local LLM inference, supporting CPU, Apple Silicon, and consumer GPU execution with GGUF quantization formats. Powers Ollama and most consumer-facing local LLM applications.</p>
+        <span class="bib-meta">🔧 Tool</span>
+    </div>
+</section>
+
+
+    <footer>
+        <p class="footer-title">Building Conversational AI with LLMs and Agents, Fifth Edition</p>
+        <p>&copy; 2026 Alexander Apartsin &amp; Yehudit Aperstein &middot; <a href="../../toc.html">Contents</a></p>
+        <p class="footer-updated">Last updated: <script>document.write(new Date(document.lastModified).toLocaleDateString('en-US', {year:'numeric', month:'long', day:'numeric'}))</script></p>
+    </footer>
+</main>
+
+<nav class="chapter-nav">
+    <a class="prev" href="section-8.3.html">Speculative Decoding</a>
+    <a class="next" href="section-8.5.html">Model Pruning &amp; Sparsity</a>
+</nav>
+
+</body>
+</html>

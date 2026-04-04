@@ -694,7 +694,43 @@ Summary tables ("Decision Framework", "Method Comparison", "When to Use",
 "Choosing Between") must appear after the content they compare, not in the
 first 20% of the file.
 
-### 8.6 Callout Type Consistency (CALLOUT_TYPE_MISMATCH, P2)
+### 8.6 No Decorative Code Blocks (DECORATIVE_CODE, P1)
+
+Code blocks must teach an engineering concept, not encode a decision tree, lookup
+table, or classification taxonomy. If the logic is a simple mapping from inputs to
+categories, use an HTML table instead. Code is appropriate when it demonstrates an
+API, algorithm, data pipeline, or technique the reader will adapt in their own work.
+
+```html
+<!-- DO: use a table for classification/taxonomy -->
+<table>
+  <thead><tr><th scope="col">Risk Tier</th><th scope="col">Criteria</th><th scope="col">Examples</th></tr></thead>
+  <tbody>
+    <tr><td>High</td><td>Annex III domain + automated decisions</td><td>Resume screener</td></tr>
+    <tr><td>Minimal</td><td>Internal tool, no rights impact</td><td>Code assistant</td></tr>
+  </tbody>
+</table>
+
+<!-- DON'T: encode the same thing as Python -->
+<pre><code class="language-python">
+class RiskTier(Enum):
+    HIGH = "high"
+    MINIMAL = "minimal"
+
+def classify(app):
+    if app.domain in HIGH_RISK_DOMAINS:
+        return RiskTier.HIGH
+    return RiskTier.MINIMAL
+</code></pre>
+```
+
+Signals that a code block is decorative (2+ in non-engineering chapters triggers the audit):
+- Enum class with 3+ string-valued members
+- Dict literal with 3+ keys mapping to string lists
+- @dataclass with all-string fields and no computation
+- if/elif chain with 3+ branches returning enum/string values
+
+### 8.7 Callout Type Consistency (CALLOUT_TYPE_MISMATCH, P2)
 
 The callout CSS class must match its title text. For example, a callout with
 title "Fun Fact" must use class `callout fun-note`, not `callout hands-on`.

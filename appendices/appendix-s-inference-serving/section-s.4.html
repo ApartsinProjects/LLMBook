@@ -24,86 +24,15 @@
 
     <div class="callout big-picture">
         <div class="callout-title">Big Picture</div>
-        <p>Quantization reduces model weights from 16-bit or 32-bit floating point to lower precision formats (8-bit, 4-bit, or even 2-bit integers), dramatically shrinking memory requirements and often increasing inference speed. This section compares the four most widely used quantization methods for LLM serving: <strong>GPTQ</strong>, <strong>AWQ</strong>, <strong>GGUF</strong>, and <strong>bitsandbytes</strong>. Each method makes different tradeoffs between quality, speed, and ease of use, and each integrates differently with the serving frameworks covered in previous sections.</p>
+        <p>This section is a practical companion to the quantization theory in Chapter 9. It focuses on the serving-specific workflow: how to load pre-quantized models in vLLM, TGI, and SGLang; how to convert models to GGUF for llama.cpp; and how to choose the right format for your deployment target.</p>
     </div>
 
-    <h2>1. Why Quantize for Serving?</h2>
-
-    <p>
-        A 70-billion parameter model stored in FP16 requires approximately 140 GB of GPU memory just for the
-        weights. That exceeds the capacity of any single consumer GPU and requires at least two A100-80GB cards.
-        Quantization to 4-bit precision reduces this to roughly 35 GB, fitting on a single GPU. Beyond memory
-        savings, quantized models benefit from higher memory bandwidth utilization: since each token generation
-        step is memory-bound (not compute-bound), moving fewer bytes per parameter directly translates to more
-        tokens per second.
-    </p>
-
-    <p>
-        The key question is how much quality is lost. Modern quantization methods are remarkably effective at
-        preserving model quality. A well-quantized 4-bit model typically scores within 1 to 3 percentage points
-        of the original FP16 model on standard benchmarks, while using 4x less memory and often running 2x
-        faster.
-    </p>
-
-    <div class="callout key-insight">
-        <div class="callout-title">Key Insight</div>
-        <p>LLM inference is <strong>memory-bandwidth bound</strong>, not compute-bound. During token generation, each parameter is read once per token but participates in only a single multiply-accumulate operation. The GPU's computational throughput is vastly underutilized while it waits for weights to arrive from memory. Quantization helps because it reduces the number of bytes transferred per parameter, directly increasing the effective memory bandwidth.</p>
+    <div class="callout note">
+        <div class="callout-title">Covered in Detail</div>
+        <p>For the mathematics of quantization (absmax, zero-point, per-group schemes), the algorithms behind GPTQ, AWQ, and bitsandbytes, calibration strategies, quality degradation analysis, and hands-on quantization labs, see <a href="../../part-2-understanding-llms/module-09-inference-optimization/section-9.1.html">Section 9.1: Model Quantization</a>. This section assumes you have already quantized your model (or downloaded a pre-quantized checkpoint) and focuses on loading and serving it.</p>
     </div>
 
-    <h2>2. GPTQ: Post-Training Quantization with Calibration</h2>
-
-    <p>
-        GPTQ (Generative Pre-Trained Transformer Quantization) is a one-shot, weight-only quantization method
-        that uses a small calibration dataset to minimize the quantization error layer by layer. It works by
-        solving an optimization problem: for each layer, find the quantized weights that minimize the difference
-        between the original and quantized layer outputs on the calibration data.
-    </p>
-
-    <p>
-        GPTQ quantizes weights to 4-bit or 8-bit integers while keeping activations in FP16. The calibration
-        process typically requires 128 to 256 samples and takes 1 to 4 hours depending on model size. Once
-        quantized, the model can be loaded instantly without further calibration.
-    </p>
-
-    <p>
-        The following example demonstrates quantizing a model using the <code>auto-gptq</code> library.
-    </p>
-
-    <pre><code class="language-python">from transformers import AutoTokenizer
-from auto_gptq import AutoGPTQForCausalLM, BaseQuantizeConfig
-
-model_id = "meta-llama/Llama-3.1-8B-Instruct"
-quant_output = "./llama-3.1-8b-gptq-4bit"
-
-# Define quantization configuration
-quantize_config = BaseQuantizeConfig(
-    bits=4,              # 4-bit quantization
-    group_size=128,      # Quantize in groups of 128 weights
-    desc_act=True,       # Use activation ordering for better quality
-    sym=False,           # Asymmetric quantization
-)
-
-# Load model and tokenizer
-tokenizer = AutoTokenizer.from_pretrained(model_id)
-model = AutoGPTQForCausalLM.from_pretrained(
-    model_id,
-    quantize_config=quantize_config,
-)
-
-# Prepare calibration dataset (128 samples from wikitext)
-from datasets import load_dataset
-calib_data = load_dataset("wikitext", "wikitext-2-raw-v1", split="train")
-calib_texts = [tokenizer(t["text"], return_tensors="pt", max_length=512, truncation=True)
-               for t in calib_data.select(range(128)) if len(t["text"]) > 50]
-
-# Quantize (takes 1-4 hours for 70B models)
-model.quantize(calib_texts)
-
-# Save the quantized model
-model.save_quantized(quant_output)
-tokenizer.save_pretrained(quant_output)</code></pre>
-
-    <h3>2.1 Serving GPTQ Models</h3>
+    <h2>1. Serving GPTQ and AWQ Models</h2>
 
     <p>
         Both vLLM and TGI natively support GPTQ models. Simply point the server at a GPTQ-quantized model
@@ -123,50 +52,12 @@ docker run --gpus all --shm-size 1g -p 8080:80 \
     --model-id TheBloke/Llama-2-70B-Chat-GPTQ \
     --quantize gptq</code></pre>
 
-    <h2>3. AWQ: Activation-Aware Weight Quantization</h2>
-
-    <p>
-        AWQ (Activation-Aware Weight Quantization) takes a different approach from GPTQ. Instead of
-        minimizing layer-wise reconstruction error, AWQ observes that a small fraction of weights (roughly 1%)
-        are disproportionately important because they correspond to large activation magnitudes. AWQ protects
-        these salient weights by scaling them up before quantization and scaling them back down during
-        inference. This per-channel scaling approach is simpler than GPTQ's optimization and often produces
-        comparable or better quality.
-    </p>
-
-    <p>
-        The following example shows how to quantize a model using the <code>autoawq</code> library.
-    </p>
-
-    <pre><code class="language-python">from awq import AutoAWQForCausalLM
-from transformers import AutoTokenizer
-
-model_id = "meta-llama/Llama-3.1-8B-Instruct"
-quant_output = "./llama-3.1-8b-awq-4bit"
-
-# Load model
-model = AutoAWQForCausalLM.from_pretrained(model_id)
-tokenizer = AutoTokenizer.from_pretrained(model_id)
-
-# Quantize with AWQ (faster than GPTQ, typically 30-60 minutes for 70B)
-quant_config = {
-    "zero_point": True,
-    "q_group_size": 128,
-    "w_bit": 4,
-    "version": "GEMM",  # Use GEMM kernel for serving (vs. GEMV for batch-1)
-}
-model.quantize(tokenizer, quant_config=quant_config)
-
-# Save
-model.save_quantized(quant_output)
-tokenizer.save_pretrained(quant_output)</code></pre>
-
     <div class="callout tip">
         <div class="callout-title">Tip</div>
-        <p>AWQ with the GEMM kernel version is generally recommended for serving scenarios where batch sizes exceed 1. The GEMV version is optimized for single-request (batch size 1) latency. If your workload mixes both, GEMM is the safer default.</p>
+        <p>AWQ with the GEMM kernel version is generally recommended for serving scenarios where batch sizes exceed 1. The GEMV version is optimized for single-request (batch size 1) latency. If your workload mixes both, GEMM is the safer default. See <a href="../../part-2-understanding-llms/module-09-inference-optimization/section-9.1.html">Section 9.1</a> for the full AWQ quantization procedure.</p>
     </div>
 
-    <h2>4. GGUF and llama.cpp: CPU-Friendly Quantization</h2>
+    <h2>2. GGUF and llama.cpp: CPU-Friendly Serving</h2>
 
     <p>
         GGUF (GPT-Generated Unified Format) is the file format used by <strong>llama.cpp</strong>, the popular
@@ -224,7 +115,7 @@ python convert_hf_to_gguf.py \
 # Quantize to Q4_K_M
 ./build/bin/llama-quantize llama-3.1-8b.gguf llama-3.1-8b-Q4_K_M.gguf Q4_K_M</code></pre>
 
-    <h3>4.1 Running a GGUF Server</h3>
+    <h3>2.1 Running a GGUF Server</h3>
 
     <p>
         llama.cpp includes a built-in HTTP server with an OpenAI-compatible API. This makes it a viable
@@ -246,41 +137,21 @@ python convert_hf_to_gguf.py \
         acceptable performance on modern processors.
     </p>
 
-    <h2>5. bitsandbytes: On-the-Fly Quantization</h2>
+    <h2>3. bitsandbytes for Serving</h2>
 
-    <p>
-        Unlike the previous methods, which require a separate quantization step, <code>bitsandbytes</code>
-        quantizes model weights during loading. This is the simplest approach: you load any HuggingFace model
-        with a single flag, and it is automatically quantized to 4-bit or 8-bit precision using the NF4
-        (NormalFloat4) or INT8 data types.
-    </p>
-
-    <pre><code class="language-python">from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
-
-quantization_config = BitsAndBytesConfig(
-    load_in_4bit=True,
-    bnb_4bit_quant_type="nf4",           # NormalFloat4 data type
-    bnb_4bit_compute_dtype="float16",     # Compute in FP16
-    bnb_4bit_use_double_quant=True,       # Quantize the quantization constants too
-)
-
-model = AutoModelForCausalLM.from_pretrained(
-    "meta-llama/Llama-3.1-8B-Instruct",
-    quantization_config=quantization_config,
-    device_map="auto",
-)
-tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.1-8B-Instruct")
-
-inputs = tokenizer("The capital of France is", return_tensors="pt").to("cuda")
-outputs = model.generate(**inputs, max_new_tokens=50)
-print(tokenizer.decode(outputs[0], skip_special_tokens=True))</code></pre>
-
-    <div class="callout warning">
-        <div class="callout-title">Warning</div>
-        <p>bitsandbytes quantization is convenient for development and prototyping, but it produces lower throughput than GPTQ or AWQ for serving. The lack of optimized CUDA kernels for the NF4 format means that decoding speed is typically 30% to 50% slower than a pre-quantized GPTQ model at the same bit width. For production serving, prefer GPTQ or AWQ.</p>
+    <div class="callout note">
+        <div class="callout-title">Covered in Detail</div>
+        <p>For the bitsandbytes NF4 data type, double quantization, and complete code examples, see <a href="../../part-2-understanding-llms/module-09-inference-optimization/section-9.1.html">Section 9.1: Model Quantization</a> (subsection 5).</p>
     </div>
 
-    <h2>6. Comparison: Choosing the Right Quantization Method</h2>
+    <p>
+        TGI supports bitsandbytes quantization at startup with <code>--quantize bitsandbytes-nf4</code>,
+        quantizing on the fly without a pre-quantized checkpoint. This is convenient for prototyping but
+        produces 30% to 50% lower throughput than pre-quantized GPTQ or AWQ models due to the lack of
+        optimized CUDA kernels. For production serving, prefer GPTQ or AWQ.
+    </p>
+
+    <h2>4. Comparison: Choosing the Right Format for Serving</h2>
 
     <p>
         The choice of quantization method depends on your deployment environment, performance requirements,
