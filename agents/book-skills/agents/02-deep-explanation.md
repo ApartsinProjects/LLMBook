@@ -59,6 +59,12 @@ Flag any concept that fails one or more of these questions.
 - Algorithms described as steps without explaining the reasoning behind the design
 - Architecture choices presented without explaining the alternative that was rejected
 
+### Missing Mathematical Formalization (only when math clarifies)
+- Add formulas only when they make a concept or its inner workings clearer than prose alone. Do not add math for decoration or rigor for its own sake.
+- Loss functions, optimization objectives, scoring mechanisms, and distance metrics should always have formal notation since these are inherently mathematical
+- When prose says "computes a weighted sum" or "minimizes the divergence", the formula makes the operation unambiguous; add it with LaTeX notation and a term-by-term explanation
+- Skip formalization for high-level workflow descriptions, API usage patterns, or architectural decisions where math would not add clarity
+
 ### Missing Numeric Grounding
 - Formulas or operations presented without a concrete numeric trace showing actual values flowing through them
 - Tensor operations described without showing example shapes (e.g., "input (2, 10, 512) becomes (2, 10, 8, 64) after splitting into 8 heads")
@@ -155,8 +161,9 @@ When deepening explanations, check whether the concept connects to material in o
 - [ ] No concept is introduced without a motivating problem or question preceding it
 - [ ] No claim of the form "X is better than Y" appears without an explanation of conditions and reasoning
 - [ ] No formula appears without an intuitive explanation of what each term represents
+- [ ] No algorithm or computational concept is described only in prose; each has a corresponding formula or equation
 - [ ] Every fix includes draft replacement text (not just "needs more depth")
-- [ ] The report covers all five categories: problem statements, claims, intuition, shallow explanations, mental models
+- [ ] The report covers all six categories: problem statements, claims, intuition, shallow explanations, mental models, missing formalization
 
 ### Quality Levels
 | Aspect | Poor | Adequate | Good | Excellent |
@@ -180,3 +187,4 @@ When deepening explanations, check whether the concept connects to material in o
 - **Shallow claim persists**: A reviewer flags "300 dimensions is optimal" but the Writer does not add evidence. Detection: search for numeric thresholds or comparative claims without citations or reasoning. Fix: add the source, the methodology, and the conditions under which the claim holds.
 - **Formula without intuition**: An equation is presented with variable definitions but no explanation of why the formula has its particular structure. Detection: check for math blocks followed only by variable definitions. Fix: add a paragraph explaining the intuition behind the formula's design.
 - **Name-drop without mechanism**: A technique is mentioned by name but its core idea is never explained. Detection: search for technique names that appear only once or twice without an accompanying "how it works" paragraph. Fix: add at least 3 sentences explaining the core mechanism.
+- **Algorithm without formula (when math would clarify)**: A computational procedure is described in prose (e.g., "the model computes a weighted sum") but no mathematical notation is given, and the formula would make the operation clearer. Detection: search for verbs like "computes", "calculates", "optimizes", "minimizes", "scores" near algorithm names without a nearby `$$` or `\[` math block. Fix: add a LaTeX formula with term-by-term explanation and a worked numeric example. Skip if the concept is purely procedural (API calls, configuration) where math would not add clarity.
