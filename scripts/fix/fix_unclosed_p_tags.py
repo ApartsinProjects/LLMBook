@@ -39,18 +39,24 @@ def fix_pattern_a(text: str) -> tuple[str, int]:
 
 
 def fix_pattern_b(text: str) -> tuple[str, int]:
-    """Fix <p class="quiz-question"> wrapping another <p> by converting to <div>."""
+    """Fix <p class="quiz-question"> that contains a nested <p> by converting to <div>.
+
+    Only applies when the next line after the opening <p class="quiz-question">
+    starts with another <p> tag (indicating nesting).
+    """
     count = 0
-    # Replace <p class="quiz-question"> with <div class="quiz-question">
-    new_text = text
-    # Opening tag
-    new_text, n = re.subn(
-        r'<p\s+class="quiz-question"\s*>',
-        '<div class="quiz-question">',
-        new_text,
-    )
-    count += n
-    return new_text, count
+    lines = text.split("\n")
+    i = 0
+    while i < len(lines) - 1:
+        line = lines[i]
+        next_line = lines[i + 1]
+        m = re.search(r'<p\s+class="quiz-question"\s*>', line)
+        if m and re.search(r"^\s*<p\b", next_line):
+            # This <p class="quiz-question"> wraps another <p>: convert to <div>
+            lines[i] = line[:m.start()] + '<div class="quiz-question">' + line[m.end():]
+            count += 1
+        i += 1
+    return "\n".join(lines), count
 
 
 def fix_pattern_c(text: str) -> tuple[str, int]:
