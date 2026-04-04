@@ -105,11 +105,11 @@ Keep the composition simple and focused on one clear visual metaphor."
 
 ## Batch Image Generation Workflow
 
-For generating multiple illustrations at once, use the **batch generation script** instead of single-image generation. This is significantly faster and more reliable for illustration passes.
+For generating multiple illustrations at once, use the **Gemini Batch API** via the batch generation script. This submits all requests as a single batch job at **50% cost** compared to synchronous requests. Results are typically ready within minutes (24-hour SLA).
 
 ### Step 1: Create a Prompts File
 
-Create a text file with one prompt per line. The script will generate images concurrently using multiple workers.
+Create a text file with one prompt per line. Each prompt becomes one image in the batch.
 
 ```
 Simple cartoon-like educational illustration with clean lines: [detailed scene 1]
@@ -124,25 +124,26 @@ Simple cartoon-like educational illustration with clean lines: A confused robot 
 Simple cartoon-like educational illustration with clean lines: A scientist robot carefully adding a glowing ingredient labeled "Context" into a bubbling cauldron labeled "AI Model". Warm educational cartoon style.
 ```
 
-### Step 2: Generate All Images at Once
+### Step 2: Submit Batch Job
 
-Run the batch generation script with multiple workers for parallel processing:
+Run the batch generation script. By default it uses the Gemini Batch API (async, 50% cost). The script submits all prompts as one batch, polls for completion, then saves all images.
 
 ```bash
 python "C:/Users/apart/.claude/skills/gemini-imagegen/scripts/batch_generate.py" \
   --prompts /tmp/book-illustrations.txt \
   --output-dir "{BOOK_ROOT}/part-X/chapter-Y/images" \
   --aspect-ratio 4:3 \
-  --image-size 1K \
-  --workers 4 \
-  --model gemini
+  --image-size 1K
 ```
 
 **Parameters:**
-- `--workers N` — Number of concurrent requests (3-5 recommended, 4 is optimal for most systems)
-- `--model gemini` — Use Gemini for illustrations (default; use `imagen` for photorealism only)
-- `--aspect-ratio 4:3` — Standard book illustration ratio
-- `--image-size 1K` — 1024px (good balance of quality and generation speed)
+- `--aspect-ratio 4:3` : Standard book illustration ratio
+- `--image-size 1K` : 1024px (good balance of quality and generation speed)
+- `--poll 15` : Poll interval in seconds while waiting for batch completion (default: 15)
+- `--sync` : (Optional) Use synchronous API instead of batch (full price, immediate results)
+- `--workers N` : (Only with --sync) Number of concurrent requests for synchronous mode
+
+**IMPORTANT:** Do NOT pass `--sync` or `--workers` unless you need immediate results. The default batch mode is preferred because it costs 50% less.
 
 ### Step 3: Verify and Embed
 
@@ -271,18 +272,16 @@ echo "Simple cartoon-like illustration: A confused robot chef staring at floatin
 echo "Simple cartoon-like illustration: A scientist robot adding glowing 'Context' to a cauldron" >> /tmp/prompts.txt
 ```
 
-2. Run batch generation with 4 concurrent workers:
+2. Submit as a Gemini Batch API job (50% cost, async):
 ```bash
 python "C:/Users/apart/.claude/skills/gemini-imagegen/scripts/batch_generate.py" \
   --prompts /tmp/prompts.txt \
   --output-dir "{BOOK_ROOT}/part-X/chapter-Y/images" \
   --aspect-ratio 4:3 \
-  --image-size 1K \
-  --workers 4 \
-  --model gemini
+  --image-size 1K
 ```
 
-3. Wait for completion (batch script handles retries automatically)
+3. Wait for completion (script polls automatically until the batch job finishes)
 
 4. Verify generated files:
 ```bash
