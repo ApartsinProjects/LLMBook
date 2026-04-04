@@ -6,117 +6,85 @@
 
 ## Active Tasks
 
-### TASK-002: Illustration coverage expansion
-- **Status**: IN_PROGRESS (audit complete, generation pending)
-- **Priority**: MEDIUM
-- **Description**: Full illustration audit completed 2026-03-29. Found 91 opportunities (47 HIGH, 30 MEDIUM, 5 LOW). Worst gaps: Modules 3-5 (zero illustrations), Parts 9-10 (zero section-level illustrations).
-- **Requested**: 2026-03-28
-- **Audit**: See ILLUSTRATION_OPPORTUNITIES.md for full report with prompts, captions, and priorities.
-- **Next step**: Generate illustrations using Gemini image generation skill, starting with Batch 1 (Modules 3-5).
-
-### TASK-006: SVG rebuild (worst quality)
-- **Status**: PENDING
-- **Priority**: MEDIUM
-- **Description**: Rebuild 13 worst-quality SVGs identified by diagnostic sweep. Apply mandatory visual polish standards.
-- **Requested**: 2026-03-28
-
-### TASK-008: Compact all agent skills (Meta Agent pass)
-- **Status**: PENDING
-- **Priority**: LOW
-- **Description**: Make all 42+ agent skill files denser without losing instructions.
-- **Requested**: 2026-03-28
-
-### TASK-011: SVG quality and correctness improvement
-- **Status**: PENDING
-- **Priority**: HIGH
-- **Description**: Systematic approach to increase quality and correctness of all SVG diagrams/graphs/figures across the book.
-- **Requested**: 2026-03-28
-
-### TASK-025: Rebuild 13 worst-quality SVGs
-- **Status**: PENDING
-- **Priority**: MEDIUM
-- **Description**: Manually redesign the 13 worst-quality SVGs identified by prior diagnostic sweep. Apply full visual polish standards (gradients, shadows, rounded corners, good typography, annotation lines).
-- **Requested**: 2026-03-28
-
-### TASK-026: SVG dashed annotation lines sweep
-- **Status**: PENDING
-- **Priority**: LOW
-- **Description**: Add dashed stroke annotation lines where labels point to diagram elements. Currently 250 instances exist; many SVGs with labels lack connecting lines.
-- **Requested**: 2026-03-28
-
-### TASK-085: Meta agent skills update
-- **Status**: PENDING
-- **Priority**: LOW
-- **Description**: Review and update agent skill files based on recent requests. Keep skills general for future books.
-- **Requested**: 2026-03-28
-
-### TASK-110: Illustration generation (remaining batches)
-- **Status**: PENDING
-- **Priority**: MEDIUM
-- **Description**: Generate illustrations for Batches 2-4 from ILLUSTRATION_OPPORTUNITIES.md. Batch 1 (Modules 3-5, 14 illustrations) complete. Remaining: Batch 2 (Parts 9-10, 8 HIGH), Batch 3 (Chapters 20, 22, 24), Batch 4 (scattered gaps Parts 4-8).
-- **Requested**: 2026-03-29
-
-### TASK-115: Missing illustration images (146 placeholders)
-- **Status**: PENDING (blocked on TASK-110)
-- **Priority**: MEDIUM
-- **Description**: 146 img tags reference images that don't exist on disk, across 83 files. Concentrated in Parts 3-7 (modules 08-26). These are illustration placeholders added to HTML but never generated. Requires Gemini image generation.
-- **Requested**: 2026-03-29
-
-### TASK-117: Deep philosophical key-insight sweep
-- **Status**: DONE
-- **Priority**: MEDIUM
-- **Description**: Add thought-provoking key-insight callouts connecting concepts to information theory, cognitive science, physics, economics, etc. Targeting Parts 1-6.
-- **Requested**: 2026-03-29
-- **Completed**: 2026-03-29
-- **Result**: Only 1 section (25.4) was missing a key-insight across Parts 2-10. Added. All main chapter sections now have key-insight callouts.
-
-### TASK-120: Python library code examples sweep (round 2)
-- **Status**: DONE
-- **Priority**: MEDIUM
-- **Description**: Fresh sweep for library code snippets covering tiktoken, datasets, accelerate, bitsandbytes, peft, vllm, guidance, ragas, chromadb, sentence-transformers, unsloth, mergekit, dspy, instructor, litellm, etc.
-- **Requested**: 2026-03-29
-- **Completed**: 2026-03-29
-- **Result**: 1 deprecated OpenAI API updated (GPTCache), 2 LangChain imports fixed, ~100 code blocks retagged to correct language, 2 pip instructions updated.
-
-### TASK-123: Code syntax highlighting (Prism.js/highlight.js)
-- **Status**: IN_PROGRESS
-- **Priority**: MEDIUM
-- **Description**: Add JS-based syntax highlighting for all 726+ code blocks. Auto-colors Python, bash, JSON, SQL, YAML, JS, HTML. Local bundle in vendor/, single source of truth.
-- **Requested**: 2026-03-29
-
-### TASK-124: Connecting prose between consecutive math blocks
-- **Status**: DONE
-- **Completed**: 2026-03-29
-- **Result**: 8 prose passages added across 7 files bridging consecutive math blocks.
-- **Priority**: MEDIUM
-- **Description**: 21 consecutive math-block pairs in 9 files have no connecting text. Adding brief explanatory phrases between formulas.
-- **Requested**: 2026-03-29
-
-### TASK-128: Short TOC redesign (compact, matching long TOC style)
-- **Status**: IN_PROGRESS
-- **Priority**: HIGH
-- **Description**: Make short TOC more compact and readable, matching dense style of long/detailed TOC. Card-based layout felt too spacious.
-- **Requested**: 2026-03-29
-
-### TASK-129: Cover page animations (reproduce earlier version)
-- **Status**: PENDING
-- **Priority**: MEDIUM
-- **Description**: Earlier sessions had cover with "magic book aesthetic, star burst animation, floating motes, Easter egg hover animations on key terms (engineers, researchers, leaders)". Current cover has basic particle animation. Need to enhance with richer animations.
-- **Requested**: 2026-03-29
-
-### TASK-130: Caption numbering standardization
-- **Status**: IN_PROGRESS
-- **Priority**: HIGH
-- **Description**: All code captions use bare "Code Fragment 1:" instead of section-aligned "Code Fragment 4.2.1:". Standardize across all 250+ pages.
-- **Requested**: 2026-03-29
-
-### TASK-131: Non-standard callout titles fix
-- **Status**: IN_PROGRESS
-- **Priority**: MEDIUM
-- **Description**: 14 instances in 9 files use bare <strong> instead of <div class="callout-title"> for callout titles.
-- **Requested**: 2026-03-29
+(none)
 
 ## Archive (Completed)
+
+### TASK-C141: Non-standard callout titles fix
+- **Completed**: 2026-04-04
+- **Description**: 14 instances of bare <strong> callout titles in 9 files converted to <div class="callout-title">. Verified: 0 instances remain.
+
+### TASK-C142: Front matter reorganization and pathway redesign
+- **Completed**: 2026-04-04
+- **Description**: Front matter index cleaned to 8 sections (FM.0-FM.7). Pathways redesigned as card grid with 20 inline SVG avatars. Tracks T1-T5 removed from syllabi. cover.html deleted; index.html is single landing page with author names and separator.
+
+### TASK-C143: Gemini Batch API migration
+- **Completed**: 2026-04-04
+- **Description**: 5 image generation scripts updated to use Gemini Batch API (50% cost) with proper SDK types (types.InlinedRequest, not raw dicts). Fixed Pydantic validation error caused by camelCase/dict keys. Batch API verified working. All scripts default to batch mode with explicit --sync fallback.
+
+### TASK-C144: Generate 146 missing illustrations
+- **Completed**: 2026-04-04
+- **Description**: 146 illustrations generated and deployed to target paths across 21 modules. Prompts auto-generated from ILLUSTRATION_OPPORTUNITIES.md. Images moved from staging dir to final locations via illustration_mapping.json.
+
+### TASK-C145: SVG rebuild (13 worst quality)
+- **Completed**: 2026-04-04
+- **Description**: All 13 worst-quality SVGs (score 55/100) rebuilt in 5 files. Added gradients, drop shadows, rounded corners, proper typography, stroke-linecap, accessibility attributes, and dashed annotation lines. Unique ID prefixes per SVG.
+
+### TASK-C146: SVG quality improvement sweep
+- **Completed**: 2026-04-04
+- **Description**: 540 SVGs upgraded across 240 files with 8,526 changes. Script: scripts/svg_quality_upgrade.py. Changes: stroke-linecap, font-size minimum 11px, standard gradients, drop shadows, rounded corners, role="img", aria-label. Idempotent.
+
+### TASK-C147: SVG dashed annotation lines sweep
+- **Completed**: 2026-04-04
+- **Description**: 179 annotation lines added across 76 files. Script: scripts/svg_add_annotation_lines.py. Conservative heuristics skip titles, axis labels, interior text. Idempotent.
+
+### TASK-C148: Meta agent skills update
+- **Completed**: 2026-04-04
+- **Description**: 11 missing agent HTML files created (agents 36-46): illustrator, epigraph writer, application example, fun injector, bibliography, meta-agent, controller, publication QA, figure fact-checker, code caption agent, lab designer.
+
+### TASK-C149: Caption numbering standardization (final 61)
+- **Completed**: 2026-04-04
+- **Description**: 61 bare "Code Fragment N:" captions converted to section-aligned format (A.1, B.1, C.1, etc.) in 6 appendix index files, plus 32 inline references updated. Zero bare patterns remain.
+
+### TASK-C131: Cover page animations
+- **Completed**: 2026-03-29
+- **Description**: All animations already present: 20 particles (star, cool, twinkle variants), title shimmer, starburst ring, Easter egg hovers on subtitle terms, peeping robot with blinking eyes. No work needed.
+
+### TASK-C132: Code syntax highlighting (Prism.js)
+- **Completed**: 2026-03-29
+- **Description**: Prism.js bundle built with 11 languages (python, js, bash, json, yaml, sql, markup, css, toml, diff, core). Bundle deployed to vendor/prism/. Script tags added to 300+ HTML files. Code blocks tagged with language classes.
+
+### TASK-C133: Short TOC redesign
+- **Completed**: 2026-03-29
+- **Description**: Short TOC compacted to dense inline layout with middot separators, matching long TOC style.
+
+### TASK-C134: Deep philosophical key-insight sweep
+- **Completed**: 2026-03-29
+- **Description**: Only 1 section (25.4) was missing a key-insight across Parts 2-10. Added. All main chapter sections now have key-insight callouts.
+
+### TASK-C135: Python library code examples sweep (round 2)
+- **Completed**: 2026-03-29
+- **Description**: 1 deprecated OpenAI API updated, 2 LangChain imports fixed, ~100 code blocks retagged, 2 pip instructions updated.
+
+### TASK-C136: Connecting prose between consecutive math blocks
+- **Completed**: 2026-03-29
+- **Description**: 8 prose passages added across 7 files bridging consecutive math blocks.
+
+### TASK-C137: Compact agent skills (agent-shared.css)
+- **Completed**: 2026-03-29
+- **Description**: Created agents/agent-shared.css extracting common CSS from 32 agent skill files, ~50% size reduction.
+
+### TASK-C138: SVG accessibility (role="img" + aria-label)
+- **Completed**: 2026-03-29
+- **Description**: 306 SVGs fixed across 138 files with role="img" and aria-label attributes.
+
+### TASK-C139: Frontmatter nav consistency
+- **Completed**: 2026-03-29
+- **Description**: All 38 front matter files checked for navigation consistency, fixes applied.
+
+### TASK-C140: Cover/index consolidation
+- **Completed**: 2026-03-29
+- **Description**: Deleted redundant cover.html. index.html is single landing page with author names, star canvas, shooting stars, constellation lines, motes, Easter eggs.
 
 ### TASK-C01: Fix Figure 0.1.1 global minima position
 - **Completed**: 2026-03-28

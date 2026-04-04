@@ -1,15 +1,15 @@
 """
-Generate 10 callout-box icons for the LLMCourse textbook using Gemini native image generation.
+Generate 10 callout-box icons for the LLMCourse textbook using the Gemini Batch API (50% cost).
 Each icon is 128x128, flat design, consistent style, suitable for display at 24x24.
 """
 
+import base64
+import io
 import json
-import time
 import sys
+import time
 from pathlib import Path
 
-from google import genai
-from google.genai import types
 from PIL import Image
 
 # ---------------------------------------------------------------------------
@@ -21,11 +21,10 @@ if not config_path.exists():
     sys.exit(1)
 
 config = json.loads(config_path.read_text())
-client = genai.Client(api_key=config["api_key"])
-MODEL = config.get("default_model", "gemini-3.1-flash-image-preview")
 
+MODEL = config.get("default_model", "gemini-3.1-flash-image-preview")
 OUTPUT_DIR = Path(r"E:\Projects\LLMCourse\styles\icons")
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+POLL_INTERVAL = 15  # seconds
 
 # ---------------------------------------------------------------------------
 # Icon definitions: (filename, prompt)
@@ -90,81 +89,175 @@ ICONS = [
     ),
 ]
 
-# ---------------------------------------------------------------------------
-# Generate each icon
-# ---------------------------------------------------------------------------
-def generate_icon(filename: str, prompt: str, retries: int = 3) -> bool:
-    """Generate a single icon, resize to 128x128, save as PNG."""
-    out_path = OUTPUT_DIR / filename
-    if out_path.exists():
-        print(f"  SKIP (already exists): {filename}")
-        return True
 
-    for attempt in range(1, retries + 1):
-        try:
-            print(f"  Attempt {attempt}/{retries} for {filename} ...")
-            response = client.models.generate_content(
-                model=MODEL,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_modalities=["IMAGE"],
-                    image_config=types.ImageConfig(
-                        aspect_ratio="1:1",
-                        image_size="512",
-                    ),
-                ),
-            )
+# ---------------------------------------------------------------------------
+# Batch generation (default, 50% cost)
+# ---------------------------------------------------------------------------
+def run_batch(client, force=False):
+    """Submit all icons as a single batch job at 50% cost."""
+    from google.genai import types
+    requests = []
+    indices = []
 
-            # Extract image from response
-            for part in response.parts:
-                if part.inline_data is not None:
-                    genai_img = part.as_image()
-                    # Convert genai Image to PIL Image via bytes
-                    import io
-                    pil_img = Image.open(io.BytesIO(genai_img.image_bytes))
+    for i, (filename, prompt) in enumerate(ICONS):
+        out_path = OUTPUT_DIR / filename
+        if out_path.exists() and not force:
+            print(f"  SKIP (exists): {filename}")
+            continue
+
+        requests.append(types.InlinedRequest(
+            contents=[types.Content(parts=[types.Part(text=prompt)], role="user")],
+            config=types.GenerateContentConfig(
+                response_modalities=["IMAGE"],
+                image_config=types.ImageConfig(aspect_ratio="1:1", image_size="512"),
+            ),
+        ))
+        indices.append(i)
+
+    if not requests:
+        print("All icons already exist. Use --force to regenerate.")
+        return
+
+    print(f"Submitting batch of {len(requests)} icon requests to {MODEL}...")
+    print("  (Batch API: 50% cost, async processing)")
+
+    batch_job = client.batches.create(
+        model=MODEL,
+        src=requests,
+        config={"display_name": f"callout-icons-{int(time.time())}"},
+    )
+
+    job_name = batch_job.name
+    print(f"  Job: {job_name}")
+    print(f"  Polling every {POLL_INTERVAL}s...")
+
+    while True:
+        batch_job = client.batches.get(name=job_name)
+        state = batch_job.state.name if hasattr(batch_job.state, "name") else str(batch_job.state)
+        if state in ("JOB_STATE_SUCCEEDED", "JOB_STATE_FAILED", "JOB_STATE_CANCELLED"):
+            break
+        print(f"  State: {state}")
+        time.sleep(POLL_INTERVAL)
+
+    if state != "JOB_STATE_SUCCEEDED":
+        print(f"Batch job {state}.")
+        return
+
+    print("Batch complete. Saving icons...")
+    saved = 0
+    failed = 0
+
+    for resp_idx, resp_wrapper in enumerate(batch_job.dest.inlined_responses):
+        if resp_idx >= len(indices):
+            break
+        icon_idx = indices[resp_idx]
+        filename = ICONS[icon_idx][0]
+        out_path = OUTPUT_DIR / filename
+
+        response = resp_wrapper.response
+        if not response or not response.candidates:
+            print(f"  FAIL: {filename} (no image returned)")
+            failed += 1
+            continue
+
+        image_saved = False
+        for candidate in response.candidates:
+            for part in candidate.content.parts:
+                if part.inline_data and part.inline_data.data:
+                    img_data = part.inline_data.data
+                    if isinstance(img_data, str):
+                        img_data = base64.b64decode(img_data)
+                    pil_img = Image.open(io.BytesIO(img_data))
                     pil_img = pil_img.resize((128, 128), Image.LANCZOS)
                     pil_img.save(str(out_path), "PNG")
-                    print(f"  OK: {filename} ({pil_img.size})")
-                    return True
+                    print(f"  OK: {filename} (128x128)")
+                    saved += 1
+                    image_saved = True
+                    break
+            if image_saved:
+                break
 
-            print(f"  WARNING: No image returned for {filename}")
+        if not image_saved:
+            print(f"  FAIL: {filename} (no image data)")
+            failed += 1
 
-        except Exception as e:
-            print(f"  ERROR on attempt {attempt}: {e}")
-            if attempt < retries:
-                wait = 5 * attempt
-                print(f"  Waiting {wait}s before retry ...")
-                time.sleep(wait)
-
-    print(f"  FAILED: {filename}")
-    return False
+    print(f"\nDone: {saved} saved, {failed} failed out of {len(requests)} requested")
 
 
-def main():
-    print(f"Generating {len(ICONS)} callout icons into {OUTPUT_DIR}")
-    print(f"Model: {MODEL}\n")
+# ---------------------------------------------------------------------------
+# Sync generation (fallback, full price)
+# ---------------------------------------------------------------------------
+def run_sync(client, force=False):
+    """Synchronous generation, one at a time (full price)."""
+    from google.genai import types
 
     results = {}
     for i, (filename, prompt) in enumerate(ICONS, 1):
+        out_path = OUTPUT_DIR / filename
+        if out_path.exists() and not force:
+            print(f"  SKIP (exists): {filename}")
+            results[filename] = True
+            continue
+
         print(f"[{i}/{len(ICONS)}] {filename}")
-        ok = generate_icon(filename, prompt)
+        ok = False
+        for attempt in range(1, 4):
+            try:
+                response = client.models.generate_content(
+                    model=MODEL,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        response_modalities=["IMAGE"],
+                        image_config=types.ImageConfig(aspect_ratio="1:1", image_size="512"),
+                    ),
+                )
+                for part in response.parts:
+                    if part.inline_data is not None:
+                        genai_img = part.as_image()
+                        pil_img = Image.open(io.BytesIO(genai_img.image_bytes))
+                        pil_img = pil_img.resize((128, 128), Image.LANCZOS)
+                        pil_img.save(str(out_path), "PNG")
+                        print(f"  OK: {filename} (128x128)")
+                        ok = True
+                        break
+                if ok:
+                    break
+            except Exception as e:
+                print(f"  ERROR attempt {attempt}: {e}")
+                if attempt < 3:
+                    time.sleep(5 * attempt)
+
         results[filename] = ok
-        # Small delay between requests to avoid rate limits
+        if not ok:
+            print(f"  FAILED: {filename}")
         if i < len(ICONS):
             time.sleep(2)
 
-    # Summary
-    print("\n" + "=" * 50)
-    print("SUMMARY")
-    print("=" * 50)
     success = sum(1 for v in results.values() if v)
-    print(f"  Success: {success}/{len(ICONS)}")
-    for filename, ok in results.items():
-        status = "OK" if ok else "FAILED"
-        print(f"  [{status}] {filename}")
+    print(f"\nDone: {success}/{len(ICONS)} icons generated")
 
-    if success < len(ICONS):
-        sys.exit(1)
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+def main():
+    import argparse
+    parser = argparse.ArgumentParser(description="Generate callout icons via Gemini Batch API (50% cost)")
+    parser.add_argument("--force", action="store_true", help="Regenerate even if file exists")
+    parser.add_argument("--sync", action="store_true", help="Use synchronous API (full price, immediate)")
+    args = parser.parse_args()
+
+    from google import genai
+    client = genai.Client(api_key=config["api_key"])
+
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    print(f"Generating {len(ICONS)} callout icons into {OUTPUT_DIR}")
+    print(f"Model: {MODEL}\n")
+
+    if args.sync:
+        run_sync(client, args.force)
+    else:
+        run_batch(client, args.force)
 
 
 if __name__ == "__main__":

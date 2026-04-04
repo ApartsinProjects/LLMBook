@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""Generate avatar images for all 42 agents using Gemini."""
+"""Generate avatar images for all 42 agents using Gemini Batch API (50% cost)."""
 
-import subprocess
+import base64
+import json
 import sys
 import time
-import concurrent.futures
+from pathlib import Path
 
-SCRIPT = r"C:/Users/apart/.claude/skills/gemini-imagegen/scripts/generate_image.py"
-OUTPUT_DIR = r"E:/Projects/LLMCourse/agents/avatars"
+SCRIPT_DIR = Path(__file__).resolve().parent
+OUTPUT_DIR = SCRIPT_DIR
 
 # Agent definitions: (filename, character description)
 AGENTS = [
@@ -57,51 +58,176 @@ AGENTS = [
 
 BASE_STYLE = "Digital art avatar portrait, Kurzgesagt-inspired minimal cartoon style, clean vector lines, vibrant flat colors, circular composition, gradient background, friendly and professional, no text"
 
+POLL_INTERVAL = 15  # seconds
 
-def generate_avatar(agent_file, description):
-    """Generate a single avatar."""
-    output = f"{OUTPUT_DIR}/{agent_file}.png"
-    prompt = f"Portrait avatar of a friendly AI agent character: {description}. {BASE_STYLE}"
 
-    result = subprocess.run(
-        [
-            sys.executable, SCRIPT,
-            "--prompt", prompt,
-            "--output", output,
-            "--aspect-ratio", "1:1",
-            "--image-size", "1K",
-        ],
-        capture_output=True, text=True, timeout=120
-    )
+def load_config():
+    config_path = Path.home() / ".gemini-imagegen.json"
+    if not config_path.exists():
+        print("ERROR: ~/.gemini-imagegen.json not found", file=sys.stderr)
+        sys.exit(1)
+    return json.loads(config_path.read_text())
 
-    if result.returncode == 0:
-        print(f"  OK: {agent_file}.png")
-        return True
-    else:
-        print(f"  FAIL: {agent_file}.png - {result.stderr[:200]}")
-        return False
+
+def build_batch_requests(agents, force=False):
+    """Build inline batch requests, skipping agents that already have avatars."""
+    from google.genai import types
+    requests = []
+    indices = []  # track which agent index maps to which request
+
+    for i, (agent_file, description) in enumerate(agents):
+        output = OUTPUT_DIR / f"{agent_file}.png"
+        if output.exists() and not force:
+            print(f"  SKIP (exists): {agent_file}.png")
+            continue
+
+        prompt = f"Portrait avatar of a friendly AI agent character: {description}. {BASE_STYLE}"
+        requests.append(types.InlinedRequest(
+            contents=[types.Content(parts=[types.Part(text=prompt)], role="user")],
+            config=types.GenerateContentConfig(
+                response_modalities=["IMAGE"],
+                image_config=types.ImageConfig(aspect_ratio="1:1", image_size="1K"),
+            ),
+        ))
+        indices.append(i)
+
+    return requests, indices
 
 
 def main():
-    print(f"Generating {len(AGENTS)} avatars...")
+    import argparse
+    parser = argparse.ArgumentParser(description="Generate 42 agent avatars via Gemini Batch API (50% cost)")
+    parser.add_argument("--force", action="store_true", help="Regenerate even if file exists")
+    parser.add_argument("--sync", action="store_true", help="Use synchronous API (full price, immediate)")
+    parser.add_argument("--poll", type=int, default=POLL_INTERVAL, help="Batch poll interval in seconds")
+    args = parser.parse_args()
+
+    config = load_config()
+    from google import genai
+    client = genai.Client(api_key=config["api_key"])
+    model = config.get("default_model", "gemini-3.1-flash-image-preview")
+
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    if args.sync:
+        run_sync(client, model, args.force)
+    else:
+        run_batch(client, model, args.force, args.poll)
+
+
+def run_batch(client, model, force, poll_interval):
+    """Submit all avatars as a single batch job at 50% cost."""
+    requests, indices = build_batch_requests(AGENTS, force)
+
+    if not requests:
+        print("All avatars already exist. Use --force to regenerate.")
+        return
+
+    print(f"Submitting batch of {len(requests)} avatar requests to {model}...")
+    print("  (Batch API: 50% cost, async processing)")
+
+    batch_job = client.batches.create(
+        model=model,
+        src=requests,
+        config={"display_name": f"avatars-batch-{int(time.time())}"},
+    )
+
+    job_name = batch_job.name
+    print(f"  Job: {job_name}")
+    print(f"  Polling every {poll_interval}s...")
+
+    while True:
+        batch_job = client.batches.get(name=job_name)
+        state = batch_job.state.name if hasattr(batch_job.state, "name") else str(batch_job.state)
+        if state in ("JOB_STATE_SUCCEEDED", "JOB_STATE_FAILED", "JOB_STATE_CANCELLED"):
+            break
+        print(f"  State: {state}")
+        time.sleep(poll_interval)
+
+    if state != "JOB_STATE_SUCCEEDED":
+        print(f"Batch job {state}.")
+        return
+
+    print("Batch complete. Saving avatars...")
+    saved = 0
+    failed = 0
+
+    for resp_idx, resp_wrapper in enumerate(batch_job.dest.inlined_responses):
+        if resp_idx >= len(indices):
+            break
+        agent_idx = indices[resp_idx]
+        agent_file = AGENTS[agent_idx][0]
+        output_path = OUTPUT_DIR / f"{agent_file}.png"
+
+        response = resp_wrapper.response
+        if not response or not response.candidates:
+            print(f"  FAIL: {agent_file}.png (no image returned)")
+            failed += 1
+            continue
+
+        image_saved = False
+        for candidate in response.candidates:
+            for part in candidate.content.parts:
+                if part.inline_data and part.inline_data.data:
+                    img_data = part.inline_data.data
+                    if isinstance(img_data, str):
+                        img_data = base64.b64decode(img_data)
+                    output_path.write_bytes(img_data)
+                    print(f"  OK: {agent_file}.png")
+                    saved += 1
+                    image_saved = True
+                    break
+            if image_saved:
+                break
+
+        if not image_saved:
+            print(f"  FAIL: {agent_file}.png (no image data)")
+            failed += 1
+
+    print(f"\nDone: {saved} saved, {failed} failed out of {len(requests)} requested")
+
+
+def run_sync(client, model, force):
+    """Fallback: synchronous generation (full price, immediate results)."""
+    from google.genai import types
+
     success = 0
     fail = 0
 
-    # Run 3 at a time to avoid rate limits
-    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-        futures = {}
-        for agent_file, desc in AGENTS:
-            future = executor.submit(generate_avatar, agent_file, desc)
-            futures[future] = agent_file
-            time.sleep(2)  # Stagger requests
+    for i, (agent_file, description) in enumerate(AGENTS):
+        output = OUTPUT_DIR / f"{agent_file}.png"
+        if output.exists() and not force:
+            print(f"  SKIP (exists): {agent_file}.png")
+            continue
 
-        for future in concurrent.futures.as_completed(futures):
-            if future.result():
-                success += 1
+        prompt = f"Portrait avatar of a friendly AI agent character: {description}. {BASE_STYLE}"
+        print(f"[{i+1}/{len(AGENTS)}] Generating {agent_file}...")
+
+        try:
+            response = client.models.generate_content(
+                model=model,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_modalities=["IMAGE"],
+                    image_config=types.ImageConfig(aspect_ratio="1:1", image_size="1K"),
+                ),
+            )
+            for part in response.parts:
+                if part.inline_data is not None:
+                    part.as_image().save(str(output))
+                    print(f"  OK: {agent_file}.png")
+                    success += 1
+                    break
             else:
+                print(f"  FAIL: {agent_file}.png (no image)")
                 fail += 1
+        except Exception as e:
+            print(f"  FAIL: {agent_file}.png: {e}")
+            fail += 1
 
-    print(f"\nDone: {success} succeeded, {fail} failed out of {len(AGENTS)} total")
+        time.sleep(2)
+
+    print(f"\nDone: {success} succeeded, {fail} failed")
 
 
 if __name__ == "__main__":
