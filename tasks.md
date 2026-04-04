@@ -81,18 +81,21 @@
 ## Phase 4c: Frontier Topics (10 candidates under evaluation)
 
 ### Group A: Engineering Frontier
-- [ ] Reliability engineering for agents under production stress
-- [ ] Observability, testing, and CI/CD for agent workflows
-- [ ] Memory architectures that improve execution
-- [ ] Efficient multi-tool orchestration and tool economy
-- [ ] Self-improving and adaptive agents in deployment loops
+- [x] Reliability engineering for agents under production stress (section-35.5)
+- [x] Observability, testing, and CI/CD for agent workflows (section-35.6)
+- [x] Memory architectures that improve execution (section-35.7)
+- [x] Efficient multi-tool orchestration and tool economy (section-34.9)
+- [x] Self-improving and adaptive agents in deployment loops (section-35.8)
 
 ### Group B: Foundational/Theoretical
-- [ ] A theory of reasoning in LLMs
-- [ ] World models and internal representations of reality
-- [ ] Memory as a computational primitive
-- [ ] Mechanistic understanding and interpretability of learned computation
-- [ ] The nature of agency: when does a model become an agent?
+- [x] A theory of reasoning in LLMs (section-34.5)
+- [x] World models and internal representations of reality (covered in existing section-34.4)
+- [x] Memory as a computational primitive (section-34.6)
+- [x] Mechanistic understanding and interpretability of learned computation (section-34.7)
+- [x] The nature of agency: when does a model become an agent? (section-34.8)
+
+### Additional
+- [x] The future of human-AI collaboration (section-35.9)
 
 ## Phase 5: Low Priority / Optional
 

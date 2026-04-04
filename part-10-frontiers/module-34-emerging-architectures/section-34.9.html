@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Section 34.9: Efficient Multi-Tool Orchestration and Tool Economy. Token-efficient tool calling, tool routing, caching, parallel execution, economic models, and benchmarking tool efficiency.">
+    <title>Section 34.9: Efficient Multi-Tool Orchestration and Tool Economy</title>
+    <link rel="stylesheet" href="../../styles/book.css">
+    <link rel="stylesheet" href="../../vendor/katex/katex.min.css">
+    <script defer src="../../vendor/katex/katex.min.js"></script>
+    <script defer src="../../vendor/katex/contrib/auto-render.min.js"
+        onload="renderMathInElement(document.body, {
+            delimiters: [
+                {left: '$$', right: '$$', display: true},
+                {left: '$', right: '$', display: false}
+            ],
+            throwOnError: false
+        });"></script>
+    <link rel="stylesheet" href="../../vendor/prism/prism-theme.css">
+    <script defer src="../../vendor/prism/prism-bundle.min.js"></script>
+</head>
+<body>
+<header class="chapter-header">
+    <nav class="header-nav">
+        <a href="../../index.html" class="book-title-link">Building Conversational AI with LLMs and Agents</a>
+        <a href="../../toc.html" class="toc-link" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+    </nav>
+    <div class="part-label"><a href="../index.html">Part X: Frontiers</a></div>
+    <div class="chapter-label"><a href="index.html">Chapter 34: Emerging Architectures</a></div>
+    <h1>Efficient Multi-Tool Orchestration and Tool Economy</h1>
+</header>
+
+<main class="content">
+
+    <blockquote class="epigraph">
+    <p>"The best tool call is the one you did not make, because the answer was already cached from last time."</p>
+    <cite><span class="agent-avatar-inline" style="background-color: #e94560;"><img src="../../front-matter/images/agents/frontier.png" alt="Frontier"></span> <a href="../../front-matter/wisdom-council.html#frontier">Frontier</a> <span class="agent-desc">AI Agent</span></cite>
+</blockquote>
+
+    <div class="prerequisites">
+        <h3>Prerequisites</h3>
+        <p>This section builds on the <a class="cross-ref" href="../../part-6-agentic-ai/module-22-ai-agents/section-22.2.html">tool use and function calling</a> patterns from Section 22.2, the <a class="cross-ref" href="../../part-6-agentic-ai/module-24-multi-agent-systems/index.html">multi-agent orchestration</a> from Chapter 24, and the <a class="cross-ref" href="../../part-8-evaluation-production/module-31-production-engineering/section-31.2.html">production engineering</a> material from Chapter 31. Familiarity with API design and basic cost optimization is assumed.</p>
+    </div>
+
+    <div class="callout big-picture">
+        <div class="callout-title">Big Picture</div>
+        <p><strong>As LLM agents gain access to more tools, the economics of tool use become a first-class engineering concern.</strong> Every tool call consumes tokens (for the schema, the request, and the response), incurs API latency, and may have direct monetary cost (paid APIs, compute resources, database queries). An agent with 50 available tools that makes inefficient tool selections will be slower, more expensive, and less reliable than one with disciplined tool orchestration. This section treats tool use as an economic optimization problem, providing frameworks for minimizing cost while maximizing task completion.</p>
+    </div>
+
+    <h2>1. The Cost Anatomy of a Tool Call <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        Every tool call in an LLM agent system incurs multiple types of cost. Understanding this cost structure is essential for optimization.
+    </p>
+
+    <h3>Token Costs</h3>
+
+    <p>
+        The most significant and often overlooked cost is token consumption. When an agent has access to tools, the tool schemas (names, descriptions, parameter definitions) must be included in the system prompt or function definitions. For a typical tool with a description and three parameters, the schema consumes 100 to 300 tokens. An agent with 50 tools may spend 5,000 to 15,000 tokens on tool schemas alone, before any conversation begins.
+    </p>
+
+    <p>
+        Beyond the schema overhead, each tool call round-trip consumes tokens for: the model's reasoning about which tool to call and with what arguments; the structured tool call output (function name and JSON arguments); the tool's response (which is inserted back into the conversation); and the model's interpretation of the tool response. A single tool call round-trip typically costs 200 to 2,000 tokens depending on the tool and response size.
+    </p>
+
+    <h3>Latency Costs</h3>
+
+    <p>
+        Each tool call introduces a round-trip to an external service. For local tools (file reads, calculations), this adds milliseconds. For remote APIs (web search, database queries, third-party services), this adds hundreds of milliseconds to seconds. In a multi-step agent loop, sequential tool calls accumulate latency that can make the system feel unresponsive to users.
+    </p>
+
+    <h3>Monetary Costs</h3>
+
+    <p>
+        Some tools have direct per-call costs: search APIs charge per query, database services charge per read, and cloud functions charge per invocation. Even "free" tools have indirect costs through the token consumption they trigger. At scale, these costs compound rapidly.
+    </p>
+
+    <p>
+        We can formalize the total cost of a tool call as:
+    </p>
+
+$$C_{\text{total}} = C_{\text{tokens}} + C_{\text{latency}} + C_{\text{api}}$$
+
+$$C_{\text{tokens}} = (T_{\text{schema}} + T_{\text{request}} + T_{\text{response}} + T_{\text{interpretation}}) \times P_{\text{per\_token}}$$
+
+    <p>
+        where $T$ represents token counts and $P_{\text{per\_token}}$ is the price per token for the model being used.
+    </p>
+
+    <h2>2. Token-Efficient Tool Calling Patterns <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        Several engineering patterns reduce the token cost of tool use without sacrificing capability.
+    </p>
+
+    <h3>Dynamic Tool Loading</h3>
+
+    <p>
+        Rather than including all tool schemas in every request, dynamically select a subset of tools relevant to the current task. This can be done with a lightweight classifier that maps the user's query to a set of relevant tools, or by using semantic similarity between the query and tool descriptions.
+    </p>
+
+    <p>
+        The following implementation demonstrates a tool router that selects relevant tools based on query similarity.
+    </p>
+
+<pre><code class="language-python">from dataclasses import dataclass
+import numpy as np
+
+
+@dataclass
+class ToolDefinition:
+    """A tool available to the agent."""
+    name: str
+    description: str
+    schema: dict
+    token_cost: int          # Approximate tokens for schema
+    avg_response_tokens: int # Average tokens in tool response
+    avg_latency_ms: int      # Average response latency
+    monetary_cost: float     # Cost per call in USD
+
+
+class ToolRouter:
+    """Selects relevant tools for each query to minimize schema overhead.
+
+    Instead of sending all 50 tool schemas with every request (costing
+    ~10K tokens), the router selects the top-k most relevant tools,
+    typically reducing schema tokens by 70-90%.
+    """
+    def __init__(
+        self,
+        tools: list[ToolDefinition],
+        max_tools: int = 8,
+        always_include: list[str] | None = None,
+    ):
+        self.tools = {t.name: t for t in tools}
+        self.max_tools = max_tools
+        self.always_include = set(always_include or [])
+        # In production, use embedding similarity; here we use keyword overlap
+        self._tool_keywords: dict[str, set[str]] = {}
+        for tool in tools:
+            words = set(tool.description.lower().split())
+            self._tool_keywords[tool.name] = words
+
+    def select_tools(self, query: str) -> list[ToolDefinition]:
+        """Select the most relevant tools for the given query."""
+        query_words = set(query.lower().split())
+
+        # Always-included tools (e.g., "respond_to_user")
+        selected = [
+            self.tools[name] for name in self.always_include
+            if name in self.tools
+        ]
+
+        # Score remaining tools by keyword overlap
+        candidates = []
+        for name, keywords in self._tool_keywords.items():
+            if name in self.always_include:
+                continue
+            overlap = len(query_words & keywords)
+            if overlap > 0:
+                candidates.append((overlap, name))
+
+        candidates.sort(reverse=True)
+        remaining_slots = self.max_tools - len(selected)
+        for _, name in candidates[:remaining_slots]:
+            selected.append(self.tools[name])
+
+        return selected
+
+    def estimate_schema_savings(self, query: str) -> dict:
+        """Estimate token savings from dynamic tool loading."""
+        selected = self.select_tools(query)
+        all_schema_tokens = sum(t.token_cost for t in self.tools.values())
+        selected_schema_tokens = sum(t.token_cost for t in selected)
+        return {
+            "total_tools": len(self.tools),
+            "selected_tools": len(selected),
+            "all_schema_tokens": all_schema_tokens,
+            "selected_schema_tokens": selected_schema_tokens,
+            "tokens_saved": all_schema_tokens - selected_schema_tokens,
+            "savings_pct": (
+                (all_schema_tokens - selected_schema_tokens) / all_schema_tokens * 100
+                if all_schema_tokens > 0 else 0
+            ),
+        }
+</code></pre>
+
+    <h3>Compressed Tool Schemas</h3>
+
+    <p>
+        Tool descriptions are often verbose, written for human readability rather than token efficiency. Compressing descriptions (removing redundant words, using abbreviations, omitting obvious parameters) can reduce schema tokens by 30 to 50% without affecting the model's ability to select and use tools correctly. Several studies have shown that frontier models are robust to compressed tool descriptions as long as the core semantics are preserved.
+    </p>
+
+    <h3>Tool Call Batching</h3>
+
+    <p>
+        When an agent needs to make multiple independent tool calls, batching them into a single step (parallel tool calling) reduces the number of round-trips. Most frontier model APIs support parallel function calling, where the model generates multiple tool calls in a single response. This reduces both latency (calls execute concurrently) and token overhead (the model reasons about all calls together rather than one at a time).
+    </p>
+
+    <h2>3. Tool Caching Strategies <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        Many tool calls are repetitive within and across conversations. Caching tool results can eliminate redundant calls, reducing cost and latency.
+    </p>
+
+    <h3>Result Caching</h3>
+
+    <p>
+        The simplest caching strategy stores tool results keyed by the tool name and arguments. If the same tool is called with the same arguments within a configurable time window, the cached result is returned without making the actual call. This is effective for tools with deterministic or slowly-changing outputs (database lookups, API calls for static data, calculations).
+    </p>
+
+    <h3>Semantic Caching</h3>
+
+    <p>
+        For search-like tools, semantic caching stores results keyed by the semantic meaning of the query rather than the exact query string. If a user asks "What is the weather in Paris?" and then "Paris weather today?", semantic caching recognizes these as equivalent queries and returns the cached result for the second call. This requires embedding the query and checking cosine similarity against cached queries, with a configurable similarity threshold.
+    </p>
+
+    <p>
+        The implementation below demonstrates both exact and semantic caching for tool results.
+    </p>
+
+<pre><code class="language-python">import hashlib
+import time
+from dataclasses import dataclass, field
+
+
+@dataclass
+class CacheEntry:
+    """A cached tool result with expiration."""
+    result: str
+    timestamp: float
+    ttl_seconds: float
+    hit_count: int = 0
+
+    @property
+    def is_expired(self) -> bool:
+        return (time.time() - self.timestamp) > self.ttl_seconds
+
+
+class ToolCache:
+    """Cache for tool call results with exact and semantic matching.
+
+    Exact cache: hash(tool_name + json(args)) -> result
+    Semantic cache: embedding similarity for search-like queries
+    """
+    def __init__(self, default_ttl: float = 300.0):
+        self.default_ttl = default_ttl
+        self.exact_cache: dict[str, CacheEntry] = {}
+        self._stats = {"hits": 0, "misses": 0, "savings_usd": 0.0}
+
+    def _make_key(self, tool_name: str, args: dict) -> str:
+        """Create a deterministic cache key from tool name and arguments."""
+        import json
+        raw = f"{tool_name}:{json.dumps(args, sort_keys=True)}"
+        return hashlib.sha256(raw.encode()).hexdigest()
+
+    def get(self, tool_name: str, args: dict) -> str | None:
+        """Check exact cache for a matching result."""
+        key = self._make_key(tool_name, args)
+        entry = self.exact_cache.get(key)
+        if entry and not entry.is_expired:
+            entry.hit_count += 1
+            self._stats["hits"] += 1
+            return entry.result
+        if entry and entry.is_expired:
+            del self.exact_cache[key]
+        self._stats["misses"] += 1
+        return None
+
+    def put(
+        self, tool_name: str, args: dict, result: str,
+        ttl: float | None = None,
+    ):
+        """Store a tool result in the cache."""
+        key = self._make_key(tool_name, args)
+        self.exact_cache[key] = CacheEntry(
+            result=result,
+            timestamp=time.time(),
+            ttl_seconds=ttl or self.default_ttl,
+        )
+
+    def evict_expired(self):
+        """Remove all expired entries."""
+        expired = [
+            k for k, v in self.exact_cache.items() if v.is_expired
+        ]
+        for k in expired:
+            del self.exact_cache[k]
+
+    @property
+    def hit_rate(self) -> float:
+        total = self._stats["hits"] + self._stats["misses"]
+        return self._stats["hits"] / total if total > 0 else 0.0
+
+
+# Usage example
+cache = ToolCache(default_ttl=600)  # 10-minute TTL
+
+# First call: cache miss, execute tool
+result = cache.get("web_search", {"query": "LLM memory architectures"})
+if result is None:
+    result = "MemGPT, Letta, and retrieval-augmented memory..."  # actual tool call
+    cache.put("web_search", {"query": "LLM memory architectures"}, result)
+
+# Second identical call: cache hit, no tool execution needed
+cached = cache.get("web_search", {"query": "LLM memory architectures"})
+print(f"Cache hit rate: {cache.hit_rate:.0%}")  # 50% (1 hit, 1 miss)
+</code></pre>
+
+    <h2>4. Parallel Execution and Dependency Graphs <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
+
+    <p>
+        When an agent needs to make multiple tool calls, the optimal execution strategy depends on the dependency structure between calls. Independent calls can be executed in parallel; dependent calls must be sequential.
+    </p>
+
+    <p>
+        A dependency graph for tool calls is a directed acyclic graph (DAG) where each node is a tool call and edges represent data dependencies (the output of one call is needed as input to another). The optimal execution schedule is the longest path through the DAG (the critical path); all other paths can execute concurrently.
+    </p>
+
+    <p>
+        For example, consider a research agent that needs to: (1) search the web for "transformer alternatives 2025," (2) search the web for "state space models benchmarks," (3) read the top result from search 1, (4) read the top result from search 2, and (5) synthesize both readings into a summary. Calls 1 and 2 are independent (parallel). Calls 3 and 4 depend on 1 and 2 respectively. Call 5 depends on both 3 and 4. The critical path is three steps (search, read, synthesize), not five.
+    </p>
+
+    <p>
+        Frontier model APIs increasingly support expressing these dependency structures through parallel function calling. The model generates multiple tool calls in a single response, the orchestration layer executes them concurrently, and the results are returned together. This reduces the number of LLM round-trips from the number of tool calls to the depth of the dependency DAG.
+    </p>
+
+    <h2>5. Economic Models for Tool Use <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        Treating tool use as an economic decision means that each tool call should be evaluated against its expected benefit. The decision to call a tool should consider: the probability that the tool will provide useful information, the cost of the call (tokens, latency, money), and the cost of not calling the tool (lower answer quality, task failure).
+    </p>
+
+    <h3>The Tool Call Value Equation</h3>
+
+    <p>
+        For a given tool call, the expected net value is:
+    </p>
+
+$$V_{\text{net}} = P(\text{useful}) \times \Delta Q - C_{\text{total}}$$
+
+    <p>
+        where $P(\text{useful})$ is the probability the tool returns information that improves the answer, $\Delta Q$ is the quality improvement (measured in whatever metric is relevant: accuracy, completeness, user satisfaction), and $C_{\text{total}}$ is the total cost of the call. A rational agent should make the call if and only if $V_{\text{net}} > 0$.
+    </p>
+
+    <p>
+        In practice, $P(\text{useful})$ and $\Delta Q$ are difficult to estimate precisely, but rough estimates are often sufficient. For example, if a search tool returns useful results 70% of the time and each useful result improves answer quality by an estimated 20%, the expected quality improvement is $0.7 \times 0.2 = 0.14$. If the cost of the call is $0.01, the call is worthwhile as long as a 14% quality improvement is worth more than one cent, which it almost always is.
+    </p>
+
+    <h3>Cost-Aware Tool Selection</h3>
+
+    <p>
+        When multiple tools could provide the needed information, the agent should prefer the cheapest tool that meets the quality threshold. For instance, if the agent needs current stock prices, a cached database lookup ($0.001, 10ms) is preferable to a web search ($0.01, 500ms), even if the web search might return slightly more recent data. The cost difference is 10x and the latency difference is 50x, while the data quality difference is marginal.
+    </p>
+
+    <p>
+        This principle extends to choosing between tool use and pure reasoning. If the model can answer a factual question from its training data with 95% accuracy, and a tool call would increase accuracy to 99% at a cost of 500 tokens and 200ms, the decision depends on the application's accuracy requirements and cost sensitivity.
+    </p>
+
+    <h2>6. Benchmarking Tool Efficiency <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        Several benchmarks have been developed to evaluate LLM tool use, though most focus on capability (can the agent use the tool correctly?) rather than efficiency (does the agent use the tool economically?).
+    </p>
+
+    <h3>Existing Benchmarks</h3>
+
+    <ul>
+        <li><strong>ToolBench</strong> (Qin et al., 2024): evaluates tool use across 16,000+ APIs, testing the model's ability to select the right tool, construct correct arguments, and handle multi-tool sequences. Focuses on capability rather than efficiency.</li>
+        <li><strong>API-Bank</strong> (Li et al., 2023): tests tool use in a conversational setting with 73 APIs, including multi-step tool chains and error recovery. Includes metrics for unnecessary API calls.</li>
+        <li><strong>T-Bench</strong> (Wang et al., 2024): evaluates tool-augmented reasoning with emphasis on when to use tools versus when to rely on internal knowledge. Includes an "efficiency score" penalizing unnecessary tool calls.</li>
+        <li><strong>BFCL (Berkeley Function Calling Leaderboard)</strong>: focuses on the accuracy of function call generation (correct function name, correct arguments, correct types) across multiple models. Does not measure efficiency.</li>
+    </ul>
+
+    <h3>Efficiency Metrics</h3>
+
+    <p>
+        A comprehensive tool efficiency evaluation should include:
+    </p>
+
+    <ul>
+        <li><strong>Task completion rate:</strong> the fraction of tasks completed successfully (the baseline capability metric).</li>
+        <li><strong>Tool calls per task:</strong> the average number of tool calls made to complete a task. Lower is better, conditional on maintaining task completion rate.</li>
+        <li><strong>Tokens per task:</strong> total tokens consumed (input + output) including all tool schemas, calls, and responses. This captures the full economic cost.</li>
+        <li><strong>Unnecessary call rate:</strong> the fraction of tool calls that did not contribute useful information to the final answer (measured by ablating each call and checking if the answer quality changes).</li>
+        <li><strong>Parallel utilization:</strong> the fraction of independent tool calls that were batched into parallel calls versus executed sequentially.</li>
+        <li><strong>Cache hit rate:</strong> if caching is enabled, the fraction of tool calls served from cache.</li>
+    </ul>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight</div>
+        <p><strong>Tool efficiency is not just a cost optimization; it is a reliability optimization.</strong> Every unnecessary tool call is an opportunity for failure: the API might be slow, return an error, or return stale data. Reducing the number of tool calls reduces the surface area for failures, making the agent more robust. The most efficient agent is not the one that calls the most tools, but the one that calls the fewest tools necessary to complete the task reliably. This parallels the software engineering principle of minimizing external dependencies.</p>
+    </div>
+
+    <h2>7. Design Patterns for Production Tool Orchestration <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
+
+    <p>
+        Several patterns have emerged for managing tools at scale in production systems.
+    </p>
+
+    <h3>Pattern 1: Tool Tiers</h3>
+
+    <p>
+        Organize tools into tiers based on cost and reliability. Tier 1 (local, fast, free): calculations, string manipulation, cached data. Tier 2 (moderate cost, moderate latency): database queries, internal APIs. Tier 3 (expensive, slow): web search, third-party APIs, compute-intensive operations. The agent should prefer lower tiers when possible, escalating to higher tiers only when lower-tier tools are insufficient.
+    </p>
+
+    <h3>Pattern 2: Speculative Execution</h3>
+
+    <p>
+        When the model is likely to need a tool result but has not yet decided, speculatively execute the tool call in parallel with the model's reasoning. If the model ends up needing the result, it is already available (zero additional latency). If the model does not need it, the speculative call is discarded. This pattern trades compute cost for latency reduction and is most effective when tool calls are cheap but slow.
+    </p>
+
+    <h3>Pattern 3: Tool Composition</h3>
+
+    <p>
+        Rather than exposing many fine-grained tools, compose them into higher-level tools that perform common multi-step operations in a single call. For example, instead of exposing separate "search," "fetch_page," and "extract_text" tools, expose a single "research" tool that performs all three steps internally. This reduces the number of LLM round-trips and eliminates the token overhead of intermediate tool calls.
+    </p>
+
+    <h3>Pattern 4: Budget-Constrained Execution</h3>
+
+    <p>
+        Set explicit budgets for tool use per task: maximum number of calls, maximum tokens, maximum latency, maximum monetary cost. The agent must operate within these constraints, prioritizing the most valuable calls when the budget is tight. This prevents runaway costs from agent loops that make excessive tool calls.
+    </p>
+
+    <div class="callout tip">
+        <div class="callout-title">Tip</div>
+        <p>Instrument your agent's tool calls from day one. Log every tool call with its name, arguments, response size, latency, and whether the result was used in the final answer. This telemetry data is essential for identifying optimization opportunities: which tools are called most frequently? Which calls are cacheable? Which calls are made unnecessarily? The monitoring patterns from <a class="cross-ref" href="../../part-8-evaluation-production/module-29-evaluation-observability/section-29.3.html">Section 29.3</a> apply directly to tool call observability.</p>
+    </div>
+
+    <h2>8. Future Directions <span class="level-badge research" title="Research">Research</span></h2>
+
+    <p>
+        The field of tool-augmented LLMs is evolving rapidly. Several directions are likely to shape the next generation of tool orchestration systems:
+    </p>
+
+    <ul>
+        <li><strong>Learned tool selection.</strong> Rather than relying on heuristics or keyword matching for tool routing, training models specifically for tool selection using reinforcement learning from tool outcomes. The model learns which tools are most useful for which types of queries through experience.</li>
+        <li><strong>Tool markets.</strong> As the ecosystem of available tools grows (MCP servers, API marketplaces, plugin ecosystems), agents will need to discover, evaluate, and select tools from large catalogs at runtime. This creates a "tool economy" where tools compete on quality, cost, and reliability.</li>
+        <li><strong>Automated tool creation.</strong> Agents that can create their own tools (writing and deploying functions as needed) rather than being limited to a predefined tool set. This is already emerging with code execution tools that allow agents to write arbitrary programs, as demonstrated in <a class="cross-ref" href="../../part-6-agentic-ai/module-23-tool-use-protocols/index.html">Chapter 23</a>.</li>
+        <li><strong>Cross-agent tool sharing.</strong> In multi-agent systems, one agent's tool results can be shared with other agents, avoiding redundant calls. This requires a shared tool result cache and a protocol for agents to advertise available cached results.</li>
+    </ul>
+
+
+    <div class="whats-next">
+        <h2>What Comes Next</h2>
+        <p>This concludes Chapter 34 on emerging architectures and scaling frontiers. The next chapter, <a class="cross-ref" href="../module-35-ai-society/index.html">Chapter 35: AI and Society</a>, shifts from technical architecture to the broader societal context in which these systems are deployed, examining economic impact, governance, and the evolving relationship between humans and AI.</p>
+    </div>
+
+    <section class="bibliography">
+        <h2>Bibliography</h2>
+        <ul>
+            <li>Qin, Y., Liang, S., Ye, Y., et al. (2024). "ToolLLM: Facilitating Large Language Models to Master 16000+ Real-World APIs." <em>ICLR 2024</em>.</li>
+            <li>Li, M., Song, F., Yu, B., et al. (2023). "API-Bank: A Comprehensive Benchmark for Tool-Augmented LLMs." <em>EMNLP 2023</em>.</li>
+            <li>Schick, T., Dwivedi-Yu, J., Dessì, R., et al. (2023). "Toolformer: Language Models Can Teach Themselves to Use Tools." <em>NeurIPS 2023</em>.</li>
+            <li>Patil, S. G., Zhang, T., Wang, X., and Gonzalez, J. E. (2023). "Gorilla: Large Language Model Connected with Massive APIs." <em>arXiv:2305.15334</em>.</li>
+            <li>Anthropic (2024). "Model Context Protocol (MCP) Specification." <em>Anthropic Technical Documentation</em>.</li>
+            <li>Wang, X., Ma, W., Meng, Y., et al. (2024). "T-Bench: Benchmarking Tool Use of Large Language Models." <em>arXiv:2406.10573</em>.</li>
+        </ul>
+    </section>
+
+<nav class="chapter-nav">
+    <a class="prev" href="section-34.8.html">The Nature of Agency: When Does a Model Become an Agent?</a>
+    <a class="up" href="index.html">Chapter 34: Emerging Architectures &amp; Scaling Frontiers</a>
+    <a class="next" href="../module-35-ai-society/index.html">Chapter 35: AI, Society &amp; Open Problems</a>
+</nav>
+
+    <footer>
+        <p class="footer-title">Building Conversational AI with LLMs and Agents, Fifth Edition</p>
+        <p>&copy; 2026 Alexander Apartsin &amp; Yehudit Aperstein &middot; <a href="../../toc.html">Contents</a></p>
+        <p class="footer-updated">Last updated: <script>document.write(new Date(document.lastModified).toLocaleDateString('en-US', {year:'numeric', month:'long', day:'numeric'}))</script></p>
+    </footer>
+</main>
+</body>
+</html>
