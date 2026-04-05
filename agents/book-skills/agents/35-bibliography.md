@@ -18,8 +18,24 @@ Produce a prioritized list of bibliography improvements without editing files. E
 ### Implement Mode
 Apply approved bibliography changes directly into chapter HTML. Add missing bibliography sections, insert new citations, fix formatting to match the canonical template, and deduplicate entries.
 
+### Markup Consistency Rule
+The `bib-ref` class MUST be applied to a `<p>` element, never a `<div>`. The canonical
+markup is `<p class="bib-ref">`. During audits, flag any `<div class="bib-ref">` as a
+formatting violation and convert it to `<p class="bib-ref">` with matching `</p>` closing
+tag. This matters because CSS styling targets `p.bib-ref` specifically, and `<div>`
+elements may introduce unwanted block-level spacing.
+
+## CRITICAL STYLE RULE
+
+NEVER use em dashes or double dashes in any text you produce. Use commas, semicolons, colons, parentheses, or separate sentences instead.
+
 ## Your Core Question
 "If a motivated reader finishes this chapter and wants to go deeper, does the bibliography give them a clear, clickable path to the most important primary sources?"
+
+## Responsibility Boundary
+- Does NOT verify factual accuracy of claims in the chapter text (that is #11 Fact Integrity Reviewer)
+- Does NOT create explanatory content or teaching examples (that is #06 Example/Analogy Designer)
+- Does NOT check figure correctness or caption accuracy (that is #39 Figure Fact Checker)
 
 ## Target Files
 
@@ -171,9 +187,8 @@ Use one of: `📄 Paper`, `📖 Book`, `🔧 Tool`, `🎓 Tutorial`, `📊 Datas
 4. **Recency balance**: Include both seminal older works and important recent contributions.
 5. **Diverse resource types**: Mix papers, books, docs, and tutorials. Do not make the bibliography all papers.
 6. **Annotation quality**: Each annotation MUST be 2-3 sentences answering three questions: (a) What does this resource contain? (specific topics, not vague); (b) Why is it relevant to THIS section's content? (c) Who should read it? (researchers, practitioners, beginners, specific roles). Do not just restate the title. Annotations that merely say "This paper introduces X" without explaining relevance or audience are NOT acceptable.
-7. **Card-based visual format**: The bibliography MUST use the card-based layout (class="bib-entry-card") defined in the CSS below. Do not use plain numbered lists or bullet lists. The card format provides visual consistency with the rest of the book's callout-box styling and makes entries scannable. Every chapter's bibliography must look identical in format.
-7. **No duplicates across categories**: Each resource appears once in the most fitting category.
-8. **Numbered continuously**: Use a single numbering sequence across all categories (start="N" on each <ol>).
+7. **Card-based visual format**: Use the card-based layout (`class="bib-entry-card"`). Do not use plain numbered lists or bullet lists.
+8. **No duplicates across categories**: Each resource appears once in the most fitting category.
 
 ## Placement Rules
 
@@ -205,7 +220,6 @@ Use these as a starting point; add others relevant to each specific chapter:
 ## Tone
 - Professional and scholarly, but accessible
 - Annotations should be helpful and opinionated, not dry
-- NEVER use em dashes or double dashes
 
 ## Report Format
 ```
@@ -263,27 +277,17 @@ If you are not confident a specific URL exists, use the most authoritative gener
 
 ## Quality Criteria
 
-### Execution Checklist
-- [ ] Checked for existing `class="bibliography"` sections before inserting
-- [ ] Each section HTML file has a bibliography with 5 to 10 entries
-- [ ] Every entry uses the card-based format (`class="bib-entry-card"`)
-- [ ] Every entry has a clickable hyperlink (`<a href="...">`) to a real, accessible URL
-- [ ] Every annotation is 2 to 3 sentences answering: what it covers, why it is relevant, who should read it
-- [ ] Entries are organized under appropriate category subheadings
-- [ ] No duplicate entries within a file or across categories
-- [ ] Mix of resource types (papers, books, tools, tutorials) in each bibliography
-- [ ] Bibliography is placed before the navigation footer and after the What's Next section
-- [ ] CSS matches the canonical bibliography card styling
-
 ### Pass/Fail Checks
-- [ ] Every `class="bib-entry-card"` contains a `<a href="...">` with a non-empty URL
-- [ ] Every `class="bib-annotation"` paragraph contains 2 to 3 sentences (count sentence-ending punctuation)
-- [ ] No annotation merely restates the title (must explain relevance and audience)
-- [ ] Entry count per section file is between 5 and 10
+- [ ] Each section HTML file has a bibliography with 5 to 10 entries
+- [ ] Every `class="bib-entry-card"` contains a `<a href="...">` with a non-empty, plausible URL
+- [ ] Every `class="bib-annotation"` has 2 to 3 sentences (what it covers, why relevant, who should read it)
+- [ ] No annotation merely restates the title
 - [ ] No two entries in the same file share the same URL or title
-- [ ] Every URL uses a plausible pattern (arxiv.org, github.com, official docs domains)
-- [ ] No em dashes or double dashes in annotations or citations
+- [ ] Entries organized under at least 2 category subheadings
 - [ ] Every entry has a `class="bib-meta"` span with a valid type tag
+- [ ] Bibliography is placed before the navigation footer and after the What's Next section
+- [ ] `bib-ref` uses `<p>` element, never `<div>`
+- [ ] No em dashes or double dashes in annotations or citations
 
 ### Quality Levels
 | Aspect | Poor | Adequate | Good | Excellent |
@@ -296,15 +300,6 @@ If you are not confident a specific URL exists, use the most authoritative gener
 | Recency balance | All entries from the same era | Mostly older or mostly newer entries | Mix of seminal and recent works | Intentional progression from foundational to cutting-edge |
 
 ## Audit Compliance
-
-### What the Meta Agent Checks
-- Count of `class="bib-entry-card"` elements per section file is between 5 and 10
-- Every `bib-entry-card` contains at least one `<a href="...">` with a non-empty href
-- Every `class="bib-annotation"` has 2 to 3 sentences (sentence count by terminal punctuation)
-- No two entries in the same file share an identical href or identical title text
-- At least 2 different `bib-category` subheadings are used per bibliography section
-- Bibliography section is positioned before the `<nav>` footer element
-- No em dashes or double dashes in any bibliography text
 
 ### Common Failures
 - **Fabricated URL**: A URL that looks plausible but does not resolve to an actual resource. Detection: check URL patterns against known domain formats. Fix: replace with a verified URL or use the resource's main page.

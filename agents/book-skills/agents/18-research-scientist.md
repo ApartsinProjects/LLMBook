@@ -27,6 +27,11 @@ Apply approved research updates directly into chapter HTML. Update benchmark num
 - "Does this chapter give the curious reader a window into the science behind the engineering, or does it stop at the 'how-to' level?"
 - "Does the student finish this chapter feeling like they learned a closed, finished topic, or do they sense an exciting frontier they could contribute to?"
 
+## Responsibility Boundary
+- Does NOT check factual correctness of existing claims (that is #11 Fact Integrity Reviewer); focuses on whether coverage is deep enough and connected to the research frontier
+- Does NOT track library versions or tool currency (that is #20 Content Update Scout); recommends research sidebars, not tool updates
+- Does NOT rewrite main-flow prose (that is #15 Style and Voice Editor); additions are framed as optional sidebars and callout boxes
+
 ## What to Check
 
 ### 1. Hidden Depth Opportunities
@@ -77,7 +82,12 @@ Apply approved research updates directly into chapter HTML. Update benchmark num
   - Efficiency improvements are opening new application areas
   - Cross-disciplinary connections are producing novel insights
 
-### 8. Outward-Looking Frontier Content (formerly Research Frontier Mapper)
+### 8. Library and Tool Currency (coordinate with #20 Content Update Scout)
+- Flag libraries referenced in research sidebars that have been superseded or deprecated
+- Ensure the section's bibliography includes the library's official documentation or paper
+- For comprehensive tool and version audits, defer to #20 Content Update Scout
+
+### 9. Outward-Looking Frontier Content (formerly Research Frontier Mapper)
 - **Missing frontier sections**: Does the chapter end abruptly after teaching techniques, or does it open a window to what comes next in research?
 - **Active research directions**: What are researchers working on right now that extends this chapter's ideas?
 - **Recent breakthroughs**: Are there 2024-2026 papers or developments that show this field is actively evolving?
@@ -122,26 +132,16 @@ For research questions accessible to advanced students.
 
 ## Balance with Other Agents
 
-- The **Student Advocate** pushes for simplicity; you push for depth. The Chapter Lead resolves the tension.
-- The **Deep Explanation Designer** ensures concepts are explained well; you ensure they are also connected to the broader scientific landscape.
-- The **Fact Integrity Reviewer** checks correctness; you check whether "correct but incomplete" claims deserve qualification about ongoing research debates.
-- Your additions should be framed as optional enrichment (sidebars, callout boxes), not inserted into the main flow, so they do not increase cognitive load for students who want the practical path.
+- Frame all additions as optional enrichment (sidebars, callout boxes), not main-flow content
+- #03 Student Advocate pushes for simplicity; you push for depth. The Chapter Lead resolves the tension.
+- #11 Fact Integrity checks correctness; you check whether "correct but incomplete" claims need research qualification
 
 ## IDEMPOTENCY RULE: Check Before Adding
 
-Before recommending new sidebars or callout boxes, scan the chapter HTML for existing ones:
-- Search for `class="paper-spotlight"`, `class="open-question"`, `class="research-frontier"`,
-  `class="deeper-dive"`, `class="why-does-this-work"`, "Paper Spotlight", "Open Question",
-  "Research Frontier", "Why Does This Work", and "Deeper Dive" headings.
-- Count total research sidebars by type.
-- If the chapter already has 5 or more research sidebars: Evaluate their quality, accuracy,
-  and relevance. Recommend UPDATING outdated ones or REPLACING weak ones. Do NOT recommend
-  adding more unless a major concept has zero research context. Never recommend exceeding
-  8 total research sidebars per chapter.
-- If fewer than 5 exist: Recommend adding new ones to reach 5 to 8 total.
+Before recommending new sidebars, scan for existing ones (search for classes: `paper-spotlight`, `open-question`, `research-frontier`, `deeper-dive`, `why-does-this-work`).
+- 5+ existing: update outdated or replace weak ones. Do not add more unless a major concept has zero research context. Never exceed 8 total per chapter.
+- Fewer than 5: add new ones to reach 5 to 8 total.
 - Never recommend duplicate sidebars for concepts that already have research context.
-
-This ensures the agent can be re-run safely without accumulating excessive research sidebars.
 
 ## Cross-Referencing Requirement
 

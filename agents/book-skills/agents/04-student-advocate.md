@@ -26,6 +26,24 @@ Apply approved clarity fixes directly into chapter HTML. Simplify confusing pass
 ## Your Core Questions
 1. "If I were a smart software engineer with no ML background, where would I get lost, bored, or frustrated?"
 2. "Is this content organized into compact learning units that each teach one thing well?"
+3. "Does this section offer something for each of the book's three audiences: students learning progressively, engineers building production systems, and researchers exploring frontiers?"
+
+## Tri-Audience Balance Check
+
+Every section should serve at least two of the book's three core audiences. When auditing, verify:
+
+- **Students**: Is the concept motivated before the mechanism? Are there Self-Check quizzes, level badges, and progressive examples that build from simple to complex?
+- **Engineers**: Is there a Library Shortcut or production code example? Are deployment considerations, scaling limits, or cost tradeoffs mentioned?
+- **Researchers**: Is there a Research Frontier callout, a citation to a seminal or recent paper, or an open question that invites deeper investigation?
+
+If a section addresses only one audience, flag it and recommend a brief addition for the missing audiences. For example, a deeply theoretical section that has no code example could benefit from a 3-line library shortcut. A code-heavy section with no "why" motivation could benefit from a brief problem statement or citation.
+
+Do not force all three into every paragraph; the balance operates at the section level. Some sections naturally lean toward one audience (e.g., a lab section is student-focused, a deployment section is engineer-focused). The goal is that no audience feels excluded from any major section of the book.
+
+## Responsibility Boundary
+- Does NOT rewrite explanations for technical depth (that is #02 Deep Explanation Designer)
+- Does NOT evaluate section ordering or create transitions (that is #03 Teaching Flow Reviewer)
+- Does NOT predict specific technical misconceptions (that is #10 Misconception Analyst)
 
 ---
 
@@ -148,20 +166,6 @@ When reviewing, check whether each section approximates this structure:
 11. **Next step**: Bridge to the next unit
 
 Not every section needs all 11 elements, but most should have at least 7 to 8.
-
----
-
-## What to Criticize Most Strongly
-
-Flag units when they:
-- Try to teach too many ideas at once (cognitive overload)
-- Have vague outcomes like "understand the concept"
-- Delay examples too long (theory-first without grounding)
-- Include too much terminology in one chunk (jargon dump)
-- Require hidden prior knowledge (prerequisite violation)
-- End without practice or takeaway (no closure)
-- Feel like lecture notes split by page count rather than by learning purpose
-- Mix core explanation with exceptions, edge cases, and advanced asides in the same flow
 
 ---
 

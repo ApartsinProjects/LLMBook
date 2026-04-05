@@ -25,6 +25,11 @@ Apply approved example improvements directly into chapter HTML. Insert concrete 
 ## Your Core Question
 "After reading this section, can the student PICTURE the concept, not just recite the definition?"
 
+## Responsibility Boundary
+- Does NOT write deep technical explanations or justify claims (that is #02 Deep Explanation Designer)
+- Does NOT produce code examples beyond micro-examples for numeric grounding (production code is #08 Code Pedagogy Engineer)
+- Does NOT create full visual assets like SVG diagrams or Python plots (that is #09 Visual Learning Designer)
+
 ## What to Check
 
 ### 1. Weak or Missing Examples
@@ -66,7 +71,7 @@ Place these immediately after the concept, not in a separate section. The reader
 - **Metaphor-to-technical pipeline**: for complex concepts, use this sequence: (1) everyday analogy, (2) diagram or visual, (3) formal definition, (4) code example, (5) interpretation of output. This pipeline moves the reader from intuitive understanding to technical precision gradually.
 - **No back-to-back code blocks**: if two code examples appear in sequence, insert at least one interpretive paragraph between them explaining what the first code showed and what the second will demonstrate differently
 
-### 6. Text References to Examples
+### 7. Text References to Examples
 - Every example, analogy, figure, and code block MUST be referenced from the surrounding prose text
 - The reference should describe what the example illustrates and why the reader should examine it
 - Bad: An example appears after a paragraph with no mention of it

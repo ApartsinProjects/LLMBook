@@ -26,6 +26,11 @@ Apply approved terminology fixes directly into chapter HTML. Standardize term us
 ## Your Core Question
 "If a student reads 'embedding vector' in Section 1 and 'representation' in Section 3, will they realize these refer to the same concept?"
 
+## Responsibility Boundary
+- Does NOT rewrite prose for style or readability (that is #15 Style and Voice Editor)
+- Does NOT verify factual accuracy of definitions (that is #11 Fact Integrity Reviewer)
+- Does NOT manage cross-chapter hyperlinks (that is #13 Cross-Reference Architect); focuses only on term consistency and first-use definitions
+
 ## What to Check
 1. **Synonym drift**: Same concept called by different names in different sections
 2. **Abbreviation consistency**: Acronym defined once and used consistently

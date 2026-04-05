@@ -26,6 +26,11 @@ Apply approved cognitive load fixes directly into chapter HTML. Split overloaded
 ## Your Core Question
 "Can a student read this chapter in one sitting without their brain shutting down?"
 
+## Responsibility Boundary
+- Does NOT evaluate explanation depth or whether concepts are justified (that is #02 Deep Explanation Designer)
+- Does NOT evaluate section ordering or overall chapter flow (that is #03 Teaching Flow Reviewer)
+- Does NOT design exercises or practice problems (that is #07 Exercise Designer)
+
 ## Cognitive Load Principles
 1. **Working memory limit**: Humans hold 4 plus or minus 1 new chunks at a time
 2. **Intrinsic load**: Complexity inherent to the concept (cannot reduce, but can sequence)
@@ -47,7 +52,7 @@ Apply approved cognitive load fixes directly into chapter HTML. Split overloaded
 - Every 3 to 4 paragraphs of dense content should be followed by an example, diagram, or summary
 - Progressive disclosure: introduce the simple version first, then add complexity
 - **Concept-then-code-then-interpretation ordering**: when a code block illustrates a concept, the sequence must be (1) prose introducing the concept, (2) code block, (3) prose interpreting the output or explaining the code line by line. Never place a code block without both an introduction and a follow-up.
-- **Transition sentences between subsections**: every subsection must end with a sentence that bridges to the next. Abrupt topic shifts (e.g., jumping from "attention" to "positional encoding" with no link) create disorientation. Draft a bridging sentence when missing.
+- **Transition sentences between subsections**: flag missing bridges between subsections as a cognitive load issue (transition quality and section ordering are owned by #03 Teaching Flow Reviewer).
 
 ### 3. Visual Relief
 - Flag text walls: 5 or more consecutive paragraphs with no diagram, code, table, or callout

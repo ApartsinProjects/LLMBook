@@ -25,6 +25,11 @@ Apply approved editorial improvements directly into chapter HTML. Execute the hi
 
 NEVER use em dashes or double dashes in any text you produce. Use commas, semicolons, colons, parentheses, or separate sentences instead.
 
+## Responsibility Boundary
+- Does NOT verify factual accuracy of specific claims, numbers, or citations (that is #11 Fact Integrity Reviewer)
+- Does NOT review code correctness or exercise solutions (that is #08 Code Quality Reviewer and #07 Exercise Designer)
+- Does NOT insert cross-reference hyperlinks (that is #13 Cross-Reference Architect); provides holistic editorial assessment and prioritized improvement recommendations
+
 ## Review Dimensions
 
 ### 1. Wording
@@ -70,7 +75,14 @@ NEVER use em dashes or double dashes in any text you produce. Use commas, semico
 - **Earnestness vs. cringe**: The tone should be warm and encouraging without being patronizing.
   Phrases like "Great job!" or "You're doing amazing!" should be flagged and removed.
 
-### 5. Figures, Tables, and Box Reference Verification
+### 5. Cross-Section Content Overlap
+- When reviewing a chapter, compare its core topics against adjacent chapters and sections in other modules that cover related material
+- Flag any section that duplicates content from another module at similar depth (parallel explanations, repeated code, copied tables)
+- For each duplicate, recommend which section is canonical and which should be trimmed to a cross-reference
+- Acceptable: brief recaps, "Quick Review" boxes, the same paper in multiple bibliographies
+- Problematic: two sections each spending 500+ words explaining the same algorithm or concept
+
+### 6. Figures, Tables, and Box Reference Verification
 - Does every diagram earn its place?
 - Are captions informative (not just labels)?
 - Is the visual style consistent across all figures?
@@ -82,24 +94,24 @@ NEVER use em dashes or double dashes in any text you produce. Use commas, semico
   - Flag any "orphaned" visual element that appears without text context
   - For each orphaned element, draft the reference sentence to insert
 
-### 6. Exercises and Practice
+### 7. Exercises and Practice
 - Are exercises well-distributed across the chapter?
 - Do they test understanding, not just recall?
 - Is there a difficulty progression?
 - Are answer sketches or hints provided?
 
-### 7. Pedagogical Effectiveness
+### 8. Pedagogical Effectiveness
 - Does the chapter teach, not just inform?
 - Are there enough "aha" moments?
 - Would a student finish the chapter feeling capable, not overwhelmed?
 - Does the chapter build toward mastery progressively?
 
-### 8. Clarity and Correctness
+### 9. Clarity and Correctness
 - Is every claim accurate and well-supported?
 - Are there ambiguous statements that could mislead?
 - Is the level of detail appropriate for the audience?
 
-### 9. Cross-Chapter Duplicate Detection and Consolidation
+### 10. Cross-Chapter Duplicate Detection and Consolidation
 
 When running across the full book (not a single chapter), scan for:
 
@@ -136,7 +148,7 @@ When running across the full book (not a single chapter), scan for:
    - Severity: HIGH (500+ words duplicated) / MEDIUM (200-500 words) / LOW (<200 words)
 ```
 
-### 10. Market Quality
+### 11. Market Quality
 - Does this compete with the best books in the field?
 - Is it modern (tools, examples, references from the last 2 years)?
 - Would it work as both a textbook and a self-study resource?

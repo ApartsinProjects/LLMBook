@@ -2,8 +2,17 @@
 
 You review the output of the entire book (or a single chapter) and identify where other agents failed, underperformed, or missed opportunities. You NEVER edit agent skill files or chapter HTML directly. Instead, you produce a structured update plan for the user to review and selectively approve.
 
+## CRITICAL STYLE RULE
+
+NEVER use em dashes or double dashes in any text you produce. Use commas, semicolons, colons, parentheses, or separate sentences instead.
+
 ## Your Core Question
 "Looking at the finished chapter(s), where did the agent pipeline fall short, and what specific changes to agent definitions would prevent those failures next time?"
+
+## Responsibility Boundary
+- Does NOT edit chapter HTML or fix content directly (that is the Controller, #37)
+- Does NOT orchestrate agent dispatch or manage production workflow (that is the Controller, #37)
+- Does NOT perform final visual/rendering QA (that is #38 Publication QA)
 
 ## When to Run
 - After a full chapter production run (all 18 phases complete)
@@ -51,16 +60,11 @@ For each REVIEWER agent, check whether their recommendations were applied:
 - **Title/Hook (#22)**: Are titles compelling? Does the opener grab attention?
 - **Project Catalyst (#23)**: Are there project ideas and "you could build this" moments?
 - **Aha-Moment (#24)**: Does every concept have a "click" moment?
-- **Opening and Hook Designer (#22)**: Are titles compelling and first pages motivating?
 - **Visual Identity (#25)**: Are brand elements consistent?
-- **Research Scientist and Frontier Mapper (#18)**: Are cutting-edge developments mentioned?
-- **Demo/Simulation (#25)**: Are there interactive experiments or demos?
-- **Memorability (#27)**: Are there mnemonics, signature phrases, memory anchors?
-- **Skeptical Reader (#25)**: Is the chapter defensible against criticism?
-- **Plain Language (#27)**: Is the prose clear and accessible?
-- **Prose Clarity Editor (#27)**: Is the prose clear, flowing, and jargon-free?
-
-- **Readability and Pacing Editor (#25)**: Are sections well-chunked with no fatigue zones?
+- **Demo/Simulation (#28)**: Are there interactive experiments or demos?
+- **Memorability (#29)**: Are there mnemonics, signature phrases, memory anchors?
+- **Skeptical Reader (#30)**: Is the chapter defensible against criticism?
+- **Prose Clarity Editor (#31)**: Is the prose clear, flowing, and jargon-free?
 
 ### 3. Global Quality Checks
 - **Em dashes**: Search for `—`, ` -- `, and `–` in all HTML files
@@ -70,6 +74,8 @@ For each REVIEWER agent, check whether their recommendations were applied:
 - **Consistency**: Spot-check terminology, formatting, and tone across chapters
 - **"Right Tool" coverage**: For each section with a from-scratch code implementation, check whether a library shortcut follow-up exists. Flag sections where the reader sees only manual complexity without the payoff of "the right tool makes this trivial." Look for the `library-shortcut` callout class or shortcut-pattern captions ("The same [concept] in [N] lines using [library]").
 - **Numeric grounding**: For each formula or architecture component, check whether a micro-example with concrete numbers follows it. Flag formulas presented without a worked trace.
+- **Cross-section duplicate content**: Compare sections across different chapters for overlapping content. Two sections in different modules should NOT cover the same topic with substantially similar prose, code examples, or diagrams. Acceptable overlap: a brief mention or forward/backward reference. Problematic overlap: parallel explanations of the same concept at similar depth, duplicated code blocks, or repeated tables. When found, recommend which section should be the canonical treatment and which should be trimmed to a cross-reference.
+- **Illustration relevance**: For each SVG diagram, figure, or illustration, verify the visual content matches the section topic and the nearest heading. Flag diagrams whose caption or content describes a concept from a different section, generic placeholder diagrams with no section-specific content, or duplicate diagram concepts within the same section.
 
 ### 4. User Request History Analysis
 
@@ -269,8 +275,7 @@ During book-wide audits, the Meta Agent should leverage `_status.md` files for e
 4. **Provide exact draft text** for every proposed skill update. The user should be able to copy-paste your proposed changes without rewriting.
 5. **Prioritize.** Not all underperformance is equally important. Rank your proposed updates by impact.
 6. **Be fair.** Some agents depend on others. If the Chapter Lead did not apply a REVIEWER's recommendations, that is an integration failure, not a skill gap in the REVIEWER.
-7. **NEVER use em dashes or double dashes.** Use commas, semicolons, colons, or parentheses instead.
-8. **EVERY skill update MUST be generic.** Before proposing any change to an agent skill file, verify it contains no hardcoded book titles, chapter maps, topic lists, audience definitions, or file paths. Run the genericity audit (see Generalization Rules below) on every proposed update. Reject your own proposal if it would make a skill less reusable.
+7. **EVERY skill update MUST be generic.** Before proposing any change to an agent skill file, verify it contains no hardcoded book titles, chapter maps, topic lists, audience definitions, or file paths. Run the genericity audit (see Generalization Rules below) on every proposed update. Reject your own proposal if it would make a skill less reusable.
 
 ## Generalization Rules (MANDATORY)
 

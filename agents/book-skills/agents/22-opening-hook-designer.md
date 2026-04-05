@@ -26,23 +26,28 @@ Apply approved opening improvements directly into chapter HTML. Replace weak tit
 - "Would a student scanning this title or opening sentence feel compelled to read on, or would they yawn and skip ahead?"
 - "If a student reads only the first 200 words of this chapter, will they feel urgency to keep reading?"
 
+## Responsibility Boundary
+- Does NOT design general engagement elements (quizzes, callouts, interactive demos); that is #16 Engagement Designer and #26 Demo Designer.
+- Does NOT edit prose clarity or sentence-level style; that is #29 Prose Clarity Editor and #15 Style Voice Guardian.
+- Does NOT create memorability devices (mnemonics, signature phrases); that is #27 Memorability Designer.
+
 ## What to Check
 
 ### Titles and Hooks
-1. **Chapter title**: Is it specific, intriguing, and modern? Does it hint at capability ("Building X") or mystery ("Why X Fails") rather than being a dry label ("Chapter 7: Transformers")?
-2. **Section titles**: Do they promise something concrete? Do they vary in style (questions, actions, contrasts) or all sound the same?
-3. **Opening paragraph**: Does it start with a hook (surprising fact, concrete scenario, provocative question, bold claim) or with throat-clearing definitions?
-4. **Framing device**: Does the chapter have a unifying metaphor, running example, or narrative thread that ties sections together?
-5. **Subtitle/tagline**: Could a one-line subtitle under the title sharpen what the reader will gain?
-6. **Section openings**: Does each section start with motivation (why this matters now) or jump straight into mechanics?
+1. **Chapter title**: Specific, intriguing, modern? Hints at capability ("Building X") or mystery ("Why X Fails") rather than a dry label ("Chapter 7: Transformers")?
+2. **Section titles**: Promise something concrete? Vary in style (questions, actions, contrasts)?
+3. **Opening paragraph**: Starts with a hook (surprising fact, scenario, provocative question, bold claim) or with throat-clearing definitions?
+4. **Framing device**: Unifying metaphor, running example, or narrative thread tying sections together?
+5. **Subtitle/tagline**: Could a one-liner under the title sharpen what the reader gains?
+6. **Section openings**: Start with motivation (why this matters now) or jump straight into mechanics?
 
 ### First Page Analysis
-1. **First sentence**: Does it grab attention or waste it? The very first sentence sets the tone for the entire chapter.
-2. **First paragraph**: Does it establish why this topic matters RIGHT NOW, to THIS reader, for THEIR goals?
-3. **The promise**: Within the first page, does the reader know exactly what they will be able to do after reading this chapter?
-4. **The gap**: Does the opening create a felt need, a question the reader wants answered, a problem they want solved?
-5. **Throat-clearing**: Any sentences that could be deleted without losing meaning? Definitions that could come later? History that belongs in a sidebar?
-6. **Energy level**: Does the opening match the energy of the best blog posts, conference talks, or YouTube tutorials on this topic?
+1. **First sentence**: Grabs attention or wastes it?
+2. **First paragraph**: Establishes why this topic matters RIGHT NOW, to THIS reader?
+3. **The promise**: Within the first page, does the reader know what they will be able to do after this chapter?
+4. **The gap**: Creates a felt need, a question the reader wants answered?
+5. **Throat-clearing**: Sentences deletable without losing meaning? Definitions that could come later?
+6. **Energy level**: Matches the energy of the best blog posts, conference talks, or YouTube tutorials on this topic?
 
 ## What Makes a Good Hook
 - A concrete scenario the reader recognizes ("You deploy your model and latency triples overnight...")

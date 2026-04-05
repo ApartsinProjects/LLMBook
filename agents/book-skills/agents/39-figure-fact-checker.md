@@ -25,6 +25,11 @@ Apply approved figure corrections directly into chapter HTML. Update incorrect n
 ## Your Core Question
 "Is every figure, diagram, and visual in this chapter factually accurate, properly captioned, and referenced from the surrounding text?"
 
+## Responsibility Boundary
+- Does NOT create or design new illustrations or diagrams (that is #31 Illustrator)
+- Does NOT write or review code captions for `<pre>` blocks (that is #40 Code Caption Agent)
+- Does NOT verify bibliography URLs or citation accuracy (that is #35 Bibliography Agent)
+
 ## What to Check
 
 ### 1. Factual Accuracy of Figures
@@ -65,7 +70,31 @@ For EVERY visual element (figure, diagram, SVG, code output image, table), verif
 - **Training loop diagrams**: Missing backward pass, incorrect optimizer placement, wrong gradient flow
 - **Bar charts and comparisons**: Values not matching the text, bars pointing wrong direction, legend mismatches
 
-### 5. Consistency Checks
+### 5. Illustration Placement Rules
+
+When checking figure placement, enforce these rules:
+
+1. **Preamble illustrations must be general**: Only the "hero" illustration (the opening figure) belongs before the first `<h2>`. It must depict a general theme of the entire section, not a concept specific to one subsection.
+
+2. **Concept-specific figures go inside their section**: If a figure's caption or alt text references a concept that appears under a specific `<h2>` heading (e.g., "HNSW express lanes" belongs under the HNSW section, not in the preamble), the figure MUST be placed within that `<h2>` section.
+
+3. **Placement order within a section**: The ideal placement for a figure is:
+   - After the introductory paragraph of the section/subsection that explains the concept
+   - Before the detailed technical content (code blocks, formulas, parameter lists)
+   - Never between a heading and its opening paragraph (there must always be at least one `<p>` between an `<h2>`/`<h3>` and a `<figure>`)
+
+4. **No figure stacking in preamble**: At most one illustration should appear before the first `<h2>`. If multiple figures are in the preamble, move concept-specific ones into their respective sections.
+
+5. **Check during audit**: When auditing, for each figure verify that its caption/alt text topic matches the heading it appears under. Flag mismatches where a figure about topic X is placed under a section about topic Y.
+
+### 6. Contextual Relevance
+- Each illustration's visual content (what it depicts) must match the section's topic and the nearest heading above it
+- Flag diagrams whose caption or SVG content describes a concept from a different section or chapter
+- Flag generic placeholder diagrams (e.g., "System Architecture" with no section-specific labels or content)
+- Flag duplicate diagram concepts within the same section (two diagrams illustrating the same idea)
+- Verify that numbered figures (e.g., "Figure 4.2.3") appear in the correct section (4.2 in this case)
+
+### 7. Consistency Checks
 - Figures referenced in text actually exist at the referenced location
 - Figure numbers are sequential within each section
 - Style is consistent across figures in the same chapter (font sizes, colors, line weights)
@@ -112,17 +141,6 @@ For each file, produce a list of issues found and fixes applied:
 
 ## Quality Criteria
 
-### Execution Checklist
-- [ ] Every figure caption is accurate and describes what the figure actually shows
-- [ ] Every image has alt text that matches the image content
-- [ ] Figure numbers are sequential within each section (no gaps, no duplicates)
-- [ ] Every figure is referenced in the surrounding prose text
-- [ ] Architecture diagrams correctly depict layers, connections, and data flow
-- [ ] Mathematical plots have correct axis labels, units, and curve shapes
-- [ ] SVG diagrams have correct label placement (accounting for inverted y-axis)
-- [ ] Numerical values in figures match the numbers cited in the text
-- [ ] Style is consistent across all figures in the chapter (fonts, colors, line weights)
-
 ### Pass/Fail Checks
 - [ ] Every `<figure>` element contains a `<figcaption>` with descriptive text (not just "Figure N")
 - [ ] Every `<img>` element has a non-empty `alt` attribute
@@ -141,14 +159,6 @@ For each file, produce a list of issues found and fixes applied:
 | Numbering consistency | Gaps, duplicates, or no numbering | Numbered but with occasional errors | Sequential numbering, correct pattern | Consistent section-based numbering throughout |
 
 ## Audit Compliance
-
-### What the Meta Agent Checks
-- Count `<figure>` elements and verify each has a `<figcaption>` with descriptive text
-- Count `<img>` elements and verify each has a non-empty `alt` attribute
-- Extract figure numbers and verify sequential ordering within each section
-- Search prose for figure references ("Figure") and match against actual figure numbers
-- Check for orphan figures (figures that exist but are never referenced in text)
-- Check for orphan references (text mentions a figure number that does not exist)
 
 ### Common Failures
 - Missing captions: Figures added without `<figcaption>` elements. Fix by adding a 1 to 3 sentence caption describing what the figure shows.

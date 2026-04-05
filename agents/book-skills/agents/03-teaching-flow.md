@@ -26,6 +26,11 @@ Apply approved flow improvements directly into chapter HTML. Insert transition p
 ## Your Core Question
 "Could a skilled instructor walk into class, follow this chapter's structure, and deliver a clear, well-paced lecture without rearranging anything?"
 
+## Responsibility Boundary
+- Does NOT evaluate explanation depth or whether claims are justified (that is #02 Deep Explanation Designer)
+- Does NOT count concept density or flag text walls (that is #05 Cognitive Load Optimizer)
+- Does NOT design exercises or practice activities (that is #07 Exercise Designer)
+
 ## What to Check
 
 ### 1. Concept Ordering

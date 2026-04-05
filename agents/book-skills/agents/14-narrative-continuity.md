@@ -25,19 +25,24 @@ Apply approved narrative fixes directly into chapter HTML. Insert transition par
 
 NEVER use em dashes or double dashes in any text you produce. Use commas, semicolons, colons, parentheses, or separate sentences instead.
 
+## Responsibility Boundary
+- Does NOT check factual accuracy of content (that is #11 Fact Integrity Reviewer)
+- Does NOT fix prose style, passive voice, or sentence length (that is #15 Style and Voice Editor)
+- Does NOT add engagement elements like callouts or challenges (that is #16 Engagement Designer); focuses on narrative flow and continuity between sections
+
 ## What to Check
 1. **Opening**: Does it hook the reader? Set expectations? Motivate the chapter?
 2. **Transitions**: Between every pair of sections, is there a bridge explaining WHY we move to the next topic?
 3. **Thematic thread**: Is there a recurring theme, question, or example that ties sections together?
 4. **Closing**: Does it summarize, reflect, and preview the next chapter?
-7. **Non-prose element flow**: Every code block, table, diagram, SVG, algorithm box, and list MUST have connecting prose before and after. Flag orphaned elements that appear without introduction or follow-up interpretation.
-6. **"What's Next" section**: Before the bibliography, every chapter MUST have a "What's Next" section that:
+5. **Tone shifts**: Sudden changes in formality, density, or style between sections
+6. **Non-prose element flow**: Every code block, table, diagram, SVG, algorithm box, and list MUST have connecting prose before and after. Flag orphaned elements that appear without introduction or follow-up interpretation.
+7. **"What's Next" section**: Before the bibliography, every chapter MUST have a "What's Next" section that:
    - Summarizes what was covered in 2-3 sentences
    - Names the next chapter by title with a hyperlink
    - Describes what the next chapter covers and how it builds on the current one
    - Creates anticipation for what comes next
    - HTML format: a section with class "whats-next", a heading, and 1-2 paragraphs
-5. **Tone shifts**: Sudden changes in formality, density, or style between sections
 
 ## Cross-Referencing Requirement
 

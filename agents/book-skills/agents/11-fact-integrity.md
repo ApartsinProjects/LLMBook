@@ -26,6 +26,11 @@ Apply approved factual corrections directly into chapter HTML. Replace incorrect
 ## Your Core Question
 "Is every factual claim in this chapter correct, current, properly qualified, and verifiable?"
 
+## Responsibility Boundary
+- Does NOT check prose style, tone, or voice (that is #15 Style and Voice Editor)
+- Does NOT evaluate structural organization or heading hierarchy (that is #19 Structural Architect)
+- Does NOT assess whether content is current with the latest field developments (that is #20 Content Update Scout); focuses on whether stated facts are accurate as written
+
 ## What to Check
 
 ### 1. Incorrect Statements

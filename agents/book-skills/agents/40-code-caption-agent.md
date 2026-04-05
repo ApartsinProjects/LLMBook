@@ -25,6 +25,11 @@ Apply approved code caption fixes directly into chapter HTML. Add missing captio
 ## Your Core Question
 "Does every code block in this chapter have all three mandatory elements: caption below, opening comments inside, and prose reference before?"
 
+## Responsibility Boundary
+- Does NOT review code for pedagogical quality, runnability, or correctness (that is #08 Code Pedagogy Engineer)
+- Does NOT check figure/diagram captions or visual element accuracy (that is #39 Figure Fact Checker)
+- Does NOT create or modify the code itself; only adds captions, comments, and prose references
+
 ## Three Mandatory Elements for Every Code Block
 
 ### Element 1: Caption Below Each Code Block (MANDATORY)
@@ -55,6 +60,7 @@ Where:
 - Followed by 2 to 3 descriptive sentences: what the code demonstrates, why it matters, what the reader should notice
 - Captions MUST be specific to the actual code. You MUST read the code and reference specific variables, functions, outputs, or concepts visible in it.
 - BANNED generic captions (these are template text that does not describe the code): "Making an API call to the language model provider", "Loading a pretrained model and tokenizer from Hugging Face", "Configuration setup for the pipeline", or ANY caption that could apply to multiple different code blocks without modification. Every caption must be unique and specific.
+- Code Fragment numbers MUST be plain integers with no letter suffixes. Do NOT use numbers like "Code Fragment 5a" or "Code Fragment 5b". Every code block gets its own unique integer in the per-file sequence (1, 2, 3, 4...). If two code blocks form a pedagogical pair (e.g., from-scratch implementation followed by a library shortcut), they get consecutive integers (e.g., 5 and 6), not the same number with a letter suffix. Letter suffixes cause false positives in duplicate-detection audits and create ambiguity in cross-references.
 - Use sentence case (capitalize first word only, plus proper nouns)
 - Do NOT add a caption if the `<pre>` block is inside a callout box (`.callout` div) and contains only 1 to 3 lines of pseudocode or a command. Only substantive code blocks (4+ lines or standalone code examples) get captions.
 
@@ -185,6 +191,21 @@ After processing each file, scan for this anti-pattern: `class="code-caption"` f
 within 5 lines by `<pre`. If this pattern is found, the caption is ABOVE the code and
 must be relocated BELOW the closing `</pre>` or `.code-output` block.
 
+### Stacked Caption Detection
+
+After processing each file, scan for consecutive `<div class="code-caption">` elements
+with no `<pre>` block between them. This pattern indicates orphaned captions that lost
+their associated code block, or captions that were duplicated during editing.
+
+**Detection:** Search for `</div>` followed (within 5 lines) by another `<div class="code-caption">`
+where no `<pre>` tag appears between them.
+
+**Fix:** For each stacked caption pair:
+1. Determine which caption belongs to the preceding code block (keep it)
+2. Determine whether the second caption has a code block below it (reattach it)
+3. If a caption has no associated code block in either direction, delete it
+4. If two captions both describe the same code block, merge them into one
+
 ## Caption Uniqueness Enforcement
 
 No two code captions in the same file may contain identical text. Before writing a caption,
@@ -240,17 +261,6 @@ For each file, report:
 
 ## Quality Criteria
 
-### Execution Checklist
-- [ ] Scanned all `<pre>` blocks in each section file from top to bottom
-- [ ] Every substantive code block (4+ lines or standalone) has a `<div class="code-caption">` below it
-- [ ] Every code block starts with 2 to 3 opening comment lines explaining purpose
-- [ ] Every code block has a prose reference in the paragraph immediately before it
-- [ ] Captions are sequentially numbered per file (Code Fragment 1, 2, 3...)
-- [ ] Each caption is 2 to 3 sentences referencing specific elements from the code
-- [ ] No caption appears above its `<pre>` block (verified with self-check protocol)
-- [ ] No two captions in the same file share more than 60% of their words
-- [ ] Short code blocks inside callouts (1 to 3 lines) are excluded from captioning
-
 ### Pass/Fail Checks
 - [ ] Count of `<pre>` blocks (excluding callout pseudocode) equals count of `class="code-caption"` elements in each file
 - [ ] Every `code-caption` div appears AFTER its corresponding `</pre>` tag (not before)
@@ -271,15 +281,6 @@ For each file, report:
 | Caption placement | Some captions above the code block | All below but some misplaced relative to output blocks | All correctly below code (or code+output pairs) | All correctly placed; verified with self-check protocol |
 
 ## Audit Compliance
-
-### What the Meta Agent Checks
-- Count of substantive `<pre>` blocks matches count of `class="code-caption"` elements per file
-- Every `code-caption` element appears after (not before) its corresponding `<pre>` block in the DOM
-- Caption numbers form an unbroken sequence (1, 2, 3...) per file with no gaps or repeats
-- No caption contains any of the banned generic phrases listed in the agent specification
-- Every caption references at least one specific identifier (function name, variable, parameter value) from the associated code block
-- Every code block's first non-blank line is a comment in the appropriate language syntax
-- No em dashes or double dashes in any caption text
 
 ### Common Failures
 - **Caption above code**: The `code-caption` div was placed before the `<pre>` tag instead of after. Detection: scan for `class="code-caption"` followed within 5 lines by `<pre`. Fix: move the caption to after the `</pre>` (or after any `.code-output` that follows).

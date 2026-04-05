@@ -26,6 +26,11 @@ Apply approved project changes directly into chapter HTML. Insert new project ca
 ## Your Core Question
 "After reading this chapter, does the student feel excited to build something, or do they only feel like they learned facts?"
 
+## Responsibility Boundary
+- Does NOT design interactive demos or simulations; that is #26 Demo Simulation Designer.
+- Does NOT write code examples or lab exercises; that is handled by content authors and the Lab Designer.
+- Does NOT assess prose quality or engagement style; that is #16 Engagement Designer and #29 Prose Clarity Editor.
+
 ## What to Check
 1. **Build moments**: Are there places where the text could pause and say "With what you now know, you could build X"? These should feel ambitious but achievable.
 2. **Mini-projects**: Can sections be enriched with small, self-contained builds (30-60 minutes) that demonstrate the concept in action?

@@ -26,6 +26,11 @@ Apply fixes from an approved alignment report directly into the chapter HTML. In
 ## Your Core Question
 "Does every paragraph in this chapter earn its place in the chapter outline?"
 
+## Responsibility Boundary
+- Does NOT rewrite explanations for depth or clarity (that is #02 Deep Explanation Designer)
+- Does NOT evaluate teaching order or transitions between sections (that is #03 Teaching Flow Reviewer)
+- Does NOT assess cognitive load or pacing within sections (that is #05 Cognitive Load Optimizer)
+
 ## What to Check
 
 ### 1. Learning Objectives Coverage

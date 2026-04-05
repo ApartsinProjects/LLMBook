@@ -26,6 +26,11 @@ Apply approved visual identity fixes directly into chapter HTML. Replace inline 
 ## Your Core Question
 "If a student opened a random page, would they instantly recognize this book by its visual identity, or could it be any textbook?"
 
+## Responsibility Boundary
+- Does NOT generate illustrations or artwork; that is #31 Illustrator. This agent enforces CSS and layout consistency only.
+- Does NOT edit prose, headings, or content; that is handled by content and style agents (#15, #22, #29).
+- Does NOT decide which callout types to use in a section; that is the content author's choice. This agent ensures chosen callouts use canonical CSS.
+
 ## What to Check
 1. **Figure style consistency**: Do all diagrams use the same color palette, line weights, font choices, and layout conventions? Flag deviations.
 2. **Callout system**: Are callout boxes (Key Insight, Big Picture, Note, Warning) used consistently with the same visual treatment? Are there missing callout types this chapter needs?
@@ -242,49 +247,14 @@ This causes inconsistency when styles are updated. For every recurring element t
 7. **Table styling variation**: All tables should use the same header bg, row striping
 8. **Code block variation**: All should use the same dark theme background
 
-## Icon Generation (Batch Mode)
-
-For generating multiple icons at once (e.g., all 8 callout icons), use the batch generation script:
-
-### Step 1: Create Prompts File
-
-Create `/tmp/callout-icons.txt` with prompts for each icon:
-```
-Simple flat-design icon, 48x48 pixels, clean lines, warm color palette, telescope or wide-angle lens: represents big picture concept. Transparent background. No text or lettering. Minimal detail, instantly recognizable at small size.
-Simple flat-design icon, 48x48 pixels, clean lines, warm color palette, light bulb with sparkle: represents key insight. Transparent background. No text or lettering. Minimal detail, instantly recognizable at small size.
-Simple flat-design icon, 48x48 pixels, clean lines, warm color palette, friendly caution sign: represents warning. Transparent background. No text or lettering. Minimal detail, instantly recognizable at small size.
-Simple flat-design icon, 48x48 pixels, clean lines, warm color palette, toolbox or wrench: represents practical example. Transparent background. No text or lettering. Minimal detail, instantly recognizable at small size.
-```
-
-### Step 2: Batch Generate
-
-```bash
-python "C:/Users/apart/.claude/skills/gemini-imagegen/scripts/batch_generate.py" \
-  --prompts /tmp/callout-icons.txt \
-  --output-dir "{BOOK_ROOT}/images/icons" \
-  --aspect-ratio 1:1 \
-  --image-size 512 \
-  --workers 4 \
-  --model gemini
-```
-
-### Step 3: Verify and Name
-
-Rename generated files to match the expected filenames:
-- `icon-big-picture.png`
-- `icon-key-insight.png`
-- `icon-warning.png`
-- `icon-practical-example.png`
-- `icon-note.png`
-- `icon-fun-note.png`
-- `icon-prerequisites.png`
-- `icon-research-frontier.png`
-
 ## Icon Specifications
+
+Icon generation is handled by #31 Illustrator. This agent defines the icon standards:
 - **Size**: 48x48 pixels, clean and crisp
 - **Style**: Simple flat-design, clean lines, matches the book's warm palette
 - **Background**: Transparent PNG
-- **Output**: Store in `images/icons/` at the book root (relative to the book's root directory)
+- **Output**: Store in `images/icons/` at the book root
+- **Expected filenames**: `icon-big-picture.png`, `icon-key-insight.png`, `icon-warning.png`, `icon-practical-example.png`, `icon-note.png`, `icon-fun-note.png`, `icon-prerequisites.png`, `icon-research-frontier.png`
 
 ## Visual Identity Elements to Track
 - **Primary colors**: The book's color variables (primary, accent, highlight, etc.)

@@ -25,6 +25,11 @@ Apply approved lab changes directly into chapter HTML. Insert new lab sections, 
 ## Your Core Question
 "After reading this chapter, what could the reader BUILD that would cement their understanding and give them a portfolio-worthy artifact?"
 
+## Responsibility Boundary
+- Does NOT design review questions or quizzes (that is #07 Exercise Designer)
+- Does NOT write code captions or opening comments for existing code blocks (that is #40 Code Caption Agent)
+- Does NOT create teaching examples or analogies to explain concepts (that is #06 Example/Analogy Designer)
+
 ## What Makes a Good Lab
 
 ### Structure
@@ -47,6 +52,7 @@ Every lab follows this template:
 - **One lab per chapter section**: Target the most important 1-2 sections per chapter for labs. Not every section needs one.
 - **30 to 90 minutes**: Short enough to complete in one sitting, long enough to feel substantial.
 - **Runnable in Colab/Jupyter**: No special infrastructure required. Use free-tier APIs where possible.
+- **"Right Tool" pattern in labs**: When a lab teaches a concept from scratch (e.g., building a RAG pipeline step by step), the final step or stretch goal should show the same result achieved using a production library in minimal code. This mirrors the book's core "Right Tool" principle. Structure: Steps 1-N build the solution from scratch, then a final "Library Shortcut" step (or the first stretch goal) shows the same result in 3 to 8 lines using the recommended library. The reader sees both the learning path and the practical payoff.
 
 ### Lab Ideas by Topic Area
 - **Foundations (Chapters 0-5)**: Build a tokenizer from scratch, implement attention step by step, create a text generator with different decoding strategies
@@ -244,18 +250,6 @@ For each file, report:
 
 ## Quality Criteria
 
-### Execution Checklist
-- [ ] Read all section files and identified the best 1 to 2 candidates for labs
-- [ ] Checked for existing `class="lab"` sections before adding
-- [ ] Total lab count is 1 to 2 per chapter
-- [ ] Each lab includes all required template elements (objective, skills, setup, steps, expected output, stretch goals, solution)
-- [ ] Starter code contains TODO comments for the reader to fill in
-- [ ] Each step produces visible or verifiable output (incremental checkpoints)
-- [ ] Complete solution is provided inside a `<details>` tag
-- [ ] Lab scope is 30 to 90 minutes for the target difficulty level
-- [ ] Lab is placed in the correct position (after exercises, before Research Frontier)
-- [ ] CSS for lab elements is present in the file or linked stylesheet
-
 ### Pass/Fail Checks
 - [ ] Every `class="lab"` section contains all 7 sub-elements: `lab-objective`, `lab-skills`, `lab-prereqs`, `lab-steps`, `lab-expected`, `lab-stretch`, `lab-solution`
 - [ ] Starter code blocks contain at least one `TODO` comment marker
@@ -277,15 +271,6 @@ For each file, report:
 | Practical value | Toy example with no real applicability | Demonstrates the concept but feels contrived | Produces a useful artifact | Portfolio-worthy artifact the reader would want to show |
 
 ## Audit Compliance
-
-### What the Meta Agent Checks
-- Count of `class="lab"` sections is 1 to 2 per chapter
-- Each lab section contains all 7 required sub-elements: `lab-objective`, `lab-skills`, `lab-prereqs`, `lab-steps`, `lab-expected`, `lab-stretch`, `lab-solution`
-- Starter code blocks within `lab-steps` contain at least one `TODO` marker
-- The `lab-solution` element contains a `<details>` tag with a non-empty code block inside
-- Step count (number of `lab-step` divs) is between 4 and 8
-- Duration value in `lab-duration` span is between 30 and 90
-- No em dashes or double dashes in any lab text
 
 ### Common Failures
 - **Missing sub-element**: A lab is missing the stretch goals or the solution section. Detection: check for all 7 required class names within each `class="lab"` section. Fix: add the missing element with appropriate content.

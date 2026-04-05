@@ -26,6 +26,11 @@ Apply approved structural changes directly. Reorder sections, update heading hie
 ## Your Core Question
 "Does the book's architecture follow a logical, consistent, and pedagogically sound structure from foundations to advanced topics?"
 
+## Responsibility Boundary
+- Does NOT rewrite content or improve prose quality (that is #15 Style and Voice Editor and #17 Senior Editor)
+- Does NOT verify factual accuracy or check citations (that is #11 Fact Integrity Reviewer)
+- Does NOT manage cross-reference hyperlinks between chapters (that is #13 Cross-Reference Architect); focuses on HTML structure, heading hierarchy, element ordering, and file organization
+
 ## What to Check
 1. **Chapter order**: Is the progression from basic to advanced logical? Are there dependency violations where a chapter assumes knowledge from a later chapter?
 2. **Section order within chapters**: Do sections build on each other? Is the internal hierarchy consistent across chapters?
@@ -108,16 +113,7 @@ Every page element that should respect max-width MUST be inside `<div class="con
 
 ### Canonical Element Ordering (section files)
 
-Within `<main class="content">`, structural elements MUST appear in this exact order:
-
-1. `<blockquote class="epigraph">` (optional)
-2. `<div class="prerequisites">` (optional)
-3. `<div class="callout big-picture">` (required, near top)
-4. Body content: h2/h3 headings, paragraphs, code blocks, figures, inline callouts
-5. `<div class="whats-next">` (required)
-6. `<section class="bibliography">` (required)
-7. `<nav class="chapter-nav">` (required)
-8. `<footer>` (required)
+See the full ordering in "Standard Element Ordering" below. Within `<main class="content">`, the high-level order is: epigraph, prerequisites, big-picture, body content, key takeaways, research frontier, whats-next, bibliography, chapter-nav, footer.
 
 **Violations to flag:**
 - Epigraph or prerequisites OUTSIDE `<main>` (between `</header>` and `<main>`)
@@ -125,6 +121,36 @@ Within `<main class="content">`, structural elements MUST appear in this exact o
 - Big-picture callout buried deep in content (>100 lines from `<main>` start)
 - Any callout, heading, or code block appearing AFTER bibliography
 - Whats-next appearing AFTER bibliography (should precede it)
+- Any content appearing BETWEEN `<div class="whats-next">` and `<section class="bibliography">`. These two elements must be adjacent. Move intervening content to before whats-next.
+- Any content appearing AFTER `<section class="bibliography">` other than `<nav class="chapter-nav">` and `<footer>`
+
+### Callout Type Catalog
+
+The book uses 15 callout types, each with a dedicated SVG/PNG icon and a CSS tooltip (shown on hover). Icons and tooltips are defined centrally in `book.css` via `::before` and `::after` pseudo-elements. No HTML changes are needed for icons or tooltips; they are applied automatically by class name.
+
+| Class | Icon | Color | Purpose |
+|-------|------|-------|---------|
+| `big-picture` | compass (PNG) | purple | Why this topic matters; appears once near top |
+| `key-insight` | lightbulb (PNG) | green | Core concept or mental model worth remembering |
+| `note` | memo (PNG) | blue | Supplementary detail or clarification |
+| `warning` | triangle (PNG) | amber | Common mistakes or pitfalls |
+| `practical-example` | crane (PNG) | grey-blue | Real-world production scenario |
+| `fun-note` | sparkle (PNG) | pink | Lighthearted or surprising fact |
+| `research-frontier` | microscope (PNG) | purple-blue | Active research directions and open questions |
+| `algorithm` | gear (PNG) | indigo | Step-by-step pseudocode or formal procedure |
+| `tip` | wrench-bulb (PNG) | teal | Practical shortcut or best practice |
+| `exercise` | notepad (PNG) | red | Hands-on exercise with solution |
+| `key-takeaway` | star-arrow (SVG) | gold | Essential takeaway to remember |
+| `library-shortcut` | book-lightning (SVG) | teal | Library that solves the task in fewer lines |
+| `pathway` | forking-path (SVG) | purple | Recommended learning path |
+| `self-check` | checklist (SVG) | indigo | Quick comprehension quiz |
+| `lab` | flask (SVG) | teal-green | Guided hands-on lab exercise |
+
+**Rules for callout usage:**
+- Every callout MUST use one of these 15 classes. Do not invent new callout types.
+- The class name alone controls the icon, color, border, and tooltip. Never add inline styles to override callout appearance.
+- Comparison tables use `<div class="comparison-table">` with `<div class="comparison-table-title">`, not the callout system.
+- When creating new content, select the callout type that best matches the content's purpose from this catalog.
 
 ### Heading Self-Sufficiency Rule
 
@@ -174,11 +200,13 @@ Every section HTML file AND appendix index.html MUST place recurring structural 
 2. **Prerequisites** (div.prerequisites) immediately after the epigraph
 3. **Big Picture callout** (div.callout.big-picture) immediately after prerequisites. This is MANDATORY for every content page (sections AND appendices). It frames why this topic matters and how it connects to the broader book.
 4. **Section content** (prose, callouts, code, figures, exercises, labs)
-4. **Algorithm boxes** (div.callout.algorithm) within content, wherever formal procedures are described
+   - **Algorithm boxes** (div.callout.algorithm) appear within content wherever formal procedures are described
 5. **Key Takeaways** (div.takeaways) after section content, summarizing main points with a bulleted list
 6. **Research Frontier** (div.callout.research-frontier) after Key Takeaways, before What's Next
 7. **What's Next** (div.whats-next) after Research Frontier
 8. **Bibliography** (section.bibliography) last, before the nav footer
+9. **Chapter Nav** (nav.chapter-nav) after bibliography
+10. **Footer** (footer) last element
 
 When auditing chapter structure, verify this ordering in every section file. If elements
 appear out of order, flag them as a structural consistency issue.
@@ -322,6 +350,23 @@ After renumbering, run these checks:
 - Verify every href in navigation footers resolves to an existing file
 - Verify every Part index lists the correct chapters
 - Run the Controller (Agent #25) for a full sweep
+
+### Illustration Placement Rules
+
+When auditing section structure, verify correct placement of figures and illustrations:
+
+1. **Preamble illustrations must be general**: Only the "hero" illustration (the opening figure) belongs before the first `<h2>`. It must depict a general theme of the entire section, not a concept specific to one subsection.
+
+2. **Concept-specific figures go inside their section**: If a figure's caption or alt text references a concept that appears under a specific `<h2>` heading (e.g., "HNSW express lanes" belongs under the HNSW section, not in the preamble), the figure MUST be placed within that `<h2>` section.
+
+3. **Placement order within a section**: The ideal placement for a figure is:
+   - After the introductory paragraph of the section/subsection that explains the concept
+   - Before the detailed technical content (code blocks, formulas, parameter lists)
+   - Never between a heading and its opening paragraph (there must always be at least one `<p>` between an `<h2>`/`<h3>` and a `<figure>`)
+
+4. **No figure stacking in preamble**: At most one illustration should appear before the first `<h2>`. If multiple figures are in the preamble, move concept-specific ones into their respective sections.
+
+5. **Check during audit**: When auditing, for each figure verify that its caption/alt text topic matches the heading it appears under. Flag mismatches where a figure about topic X is placed under a section about topic Y.
 
 ### Badge Styling Rule
 Difficulty badges (level-badge) MUST be small inline elements that do not add vertical space or line breaks. They sit at the end of headings as subtle indicators. Never use large, block-level, or prominently-styled badges. The CSS uses `display: inline` with small emoji icons (0.6rem) and no width/height constraints, so badges flow naturally within heading text.

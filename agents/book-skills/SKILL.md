@@ -78,7 +78,7 @@ These rules apply to ALL agents in the pipeline:
 9. **Code caption position**: Code captions (`<div class="code-caption">`) are placed BELOW the code block (after `</pre>` or after any `.code-output` div), NEVER above it. This is the single most common regression in the pipeline.
 10. **Code caption uniqueness**: Every code caption in a file must be unique. No two `<div class="code-caption">` elements in the same file may contain identical text. Each caption must reference specific elements visible in its corresponding code block.
 11. **Class name currency**: Use `.part-label` (not `.subtitle`) for the Part label in chapter headers. Files using the old `.subtitle` class must be updated.
-12. **"Right Tool" principle**: A core book objective is showing that complex tasks become easy with the right Python library, model, or framework. Every section that teaches a concept from scratch must also include a library shortcut showing the same task solved in a few lines using a modern tool. The reader should see both the pedagogical depth (how it works internally) AND the practical payoff (how little code it takes with the right library). Sections missing this "shortcut follow-up" are incomplete.
+12. **"Right Tool" principle**: A core book objective is showing that complex tasks become easy with the right Python library, model, or framework. Every section that teaches a concept from scratch must also include a library shortcut showing the same task solved in a few lines using a modern tool. The reader should see both the pedagogical depth (how it works internally) AND the practical payoff (how little code it takes with the right library). Sections missing this "shortcut follow-up" are incomplete. The transition between from-scratch and shortcut code must explicitly state the line count reduction (e.g., "45 lines down to 3") and name what the library handles internally. This contrast is one of the book's signature teaching moments: "I understand how it works, and I know the tool that makes it effortless."
 
 ## CRITICAL RULE: Mandatory Post-Generation Quality Pass
 
@@ -901,7 +901,8 @@ The final chapter is a self-contained HTML file with:
 - Syntax-highlighted code blocks with language labels
 - Inline SVG diagrams for technical concepts
 - Gemini-generated illustrations for analogies and humor
-- Callout boxes: Key Insight (green), Big Picture (purple), Note (blue), Warning (yellow), Practical Example (blue gradient)
+- Callout boxes (15 types, each with CSS icon and hover tooltip): big-picture, key-insight, note, warning, practical-example, fun-note, research-frontier, algorithm, tip, exercise, key-takeaway, library-shortcut, pathway, self-check, lab. See Structural Architect (#19) for full catalog.
+- Comparison tables: `<div class="comparison-table">` with `<div class="comparison-table-title">` header bar
 - Interactive pop quizzes with expandable answers
 - Chapter roadmap, key takeaways per section, "What You Built" summary
 - Exercises section (conceptual + coding + challenge)

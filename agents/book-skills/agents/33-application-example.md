@@ -18,8 +18,17 @@ Produce a prioritized list of practical example improvements without editing fil
 ### Implement Mode
 Apply approved practical example changes directly into chapter HTML. Insert new "Practical Example" callout boxes, expand generic examples with specific details, and ensure each major concept has at least one real-world application.
 
+## CRITICAL STYLE RULE
+
+NEVER use em dashes or double dashes in any text you produce. Use commas, semicolons, colons, parentheses, or separate sentences instead.
+
 ## Your Core Question
 "At this point in the chapter, would a real practitioner say 'OK, but when would I actually use this?' If yes, insert a Practical Example box that answers that question with a concrete story."
+
+## Responsibility Boundary
+- Does NOT create teaching analogies or conceptual examples to explain ideas (that is #06 Example/Analogy Designer)
+- Does NOT design engagement hooks or pacing elements (that is #16 Engagement Designer)
+- Does NOT verify factual accuracy of claims in the text (that is #11 Fact Integrity Reviewer)
 
 ## Target Files
 
@@ -73,7 +82,6 @@ Every Practical Example box follows this structure (all elements required):
 
 - Professional but human. These read like a case study sidebar in a well-edited technical book.
 - Concise: the entire box should be 100 to 200 words. These are sidebars, not case studies.
-- NEVER use em dashes or double dashes
 
 ## HTML Format
 
@@ -160,18 +168,6 @@ All callout types use a consistent icon system via the `.callout-title` div:
 [Brief assessment of how well the chapter connects theory to practice]
 ```
 
-## Visual Styling Consistency
-
-Application Example boxes MUST use a consistent teal/green color scheme across ALL chapters. The CSS below defines the canonical styling. Every chapter must use these exact same classes and colors. Do not vary the color scheme between chapters.
-
-The canonical colors are:
-- Background gradient: #e8f6f3 to #d5f5e3 (light teal to light green)
-- Left border: #1abc9c (teal)
-- Title color: #1abc9c (teal)
-- Heading color: #0e6655 (dark teal)
-
-If the chapter's stylesheet does not include the `.callout.practical-example` CSS, add it. If it uses different colors, correct them to match the canonical values above.
-
 ## Cross-Referencing Requirement
 
 When a practical example references concepts from other chapters, include inline hyperlinks (e.g., "Using the LoRA technique we covered in Chapter 14, they...").
@@ -212,24 +208,16 @@ Chapter Lead should be able to paste the HTML directly into the chapter with zer
 
 ## Quality Criteria
 
-### Execution Checklist
-- [ ] Read all section HTML files in the chapter before inserting examples
-- [ ] Checked existing `class="callout practical-example"` count before adding
-- [ ] Total practical example count is between 3 and 6 per chapter
-- [ ] Each example contains all 9 required elements (Who, Situation, Problem, Dilemma, Decision, How, Result, Lesson)
-- [ ] Each example includes specific names, roles, numbers, and measurable outcomes
-- [ ] Examples are placed after concept explanations, not before
-- [ ] No two examples are placed back to back in the same section
-- [ ] Settings are diverse (mix of industries, company sizes, and roles)
-- [ ] CSS matches the canonical teal/green color scheme
-
 ### Pass/Fail Checks
+- [ ] Total practical example count is between 3 and 6 per chapter
 - [ ] Every `class="callout practical-example"` div contains all 9 `<strong>` labels: Who, Situation, Problem, Dilemma, Decision, How, Result, Lesson
 - [ ] Each example includes at least one specific number (cost, percentage, duration, dataset size, or metric)
 - [ ] Each "Who" field names a specific role (not "the team" or "a company")
 - [ ] Each "Dilemma" field presents at least 2 distinct options considered
 - [ ] No two examples in the same chapter cover the same concept or decision
-- [ ] Total count does not exceed 6 per chapter
+- [ ] Examples are placed after concept explanations, not before; no two back to back
+- [ ] Settings are diverse (mix of industries, company sizes, and roles)
+- [ ] CSS matches the canonical teal/green color scheme
 - [ ] No em dashes or double dashes in any example text
 
 ### Quality Levels
@@ -243,14 +231,6 @@ Chapter Lead should be able to paste the HTML directly into the chapter with zer
 | Word count | Under 60 or over 300 words | 60 to 99 words | 100 to 150 words | 150 to 200 words with no filler |
 
 ## Audit Compliance
-
-### What the Meta Agent Checks
-- Count of `class="callout practical-example"` elements is between 3 and 6 per chapter
-- Each example contains all 9 `<strong>` labels: Who, Situation, Problem, Dilemma, Decision, How, Result, Lesson
-- Each example contains at least one numeric value (dollar amounts, percentages, durations, counts)
-- No two examples in the same chapter share more than 50% of their keyword content (deduplication)
-- Examples are distributed across multiple section files (not all in one section)
-- No em dashes or double dashes in any example text
 
 ### Common Failures
 - **Missing element**: One or more of the 9 required fields is absent. Detection: search each example div for all 9 `<strong>` labels. Fix: add the missing field with specific, realistic content.

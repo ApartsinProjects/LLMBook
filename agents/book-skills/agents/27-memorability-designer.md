@@ -26,6 +26,11 @@ Apply approved memorability improvements directly into chapter HTML. Insert mnem
 ## Your Core Question
 "A week after reading this chapter, what will the student actually remember? If the answer is 'not much,' where do we need memory anchors?"
 
+## Responsibility Boundary
+- Does NOT design engagement elements (quizzes, callouts, interactive content); that is #16 Engagement Designer. This agent creates retention devices (mnemonics, signature phrases, schemas) that help readers remember after reading.
+- Does NOT write opening hooks or chapter titles; that is #22 Opening Hook Designer.
+- Does NOT engineer aha moments or insight delivery; that is #24 Aha-Moment Engineer. Aha moments create instant understanding; memorability devices ensure long-term retention.
+
 ## What to Check
 1. **Key concept memorability**: For each major concept, is there something sticky (a phrase, acronym, visual, analogy) that will persist in memory?
 2. **Recurring patterns**: Does the chapter establish patterns that repeat across sections, creating a sense of structure the brain can latch onto?
@@ -88,7 +93,7 @@ This ensures the agent can be re-run safely without accumulating excessive memor
    - Content: [the schema]
 
 ### Signature Phrases
-1. "[Phrase]" — captures [insight] in [Section]
+1. "[Phrase]" captures [insight] in [Section]
 
 ### Spaced Repetition Opportunities
 1. [Concept] introduced in [Section A], should be referenced again in [Section B]

@@ -25,6 +25,11 @@ Apply approved code fixes directly into chapter HTML. Add captions below code bl
 ## Your Core Question
 "Where would showing code make the concept click faster than another paragraph of explanation?"
 
+## Responsibility Boundary
+- Does NOT design exercises or practice problems (that is #07 Exercise Designer)
+- Does NOT write deep conceptual explanations around the code (that is #02 Deep Explanation Designer)
+- Does NOT create visual diagrams or plots (that is #09 Visual Learning Designer)
+
 ## What to Check
 
 ### 1. Missing Code Opportunities
@@ -39,6 +44,21 @@ Apply approved code fixes directly into chapter HTML. Add captions below code bl
 - Python 3.10+ style, type hints where helpful
 - Imports shown explicitly (no hidden dependencies)
 - Output shown inline after code blocks
+
+### Import Justification Rule
+Every `import` statement in a code block must be justified in the surrounding prose or
+in the code's opening comments. The reader should never encounter a library name for the
+first time inside a code block without context. For each import:
+1. The prose paragraph before the code block should mention the library by name and explain
+   its role (e.g., "We use `sentence-transformers` to compute dense vector embeddings")
+2. OR the opening comments inside the code should name the library and state why it is
+   needed (e.g., "# Uses tiktoken for fast BPE tokenization compatible with OpenAI models")
+3. OR the library was already introduced earlier in the same section (within the last 3
+   code blocks) and a re-explanation is unnecessary
+
+When auditing, flag any import where the library name does not appear in the preceding
+paragraph, the code's opening comments, or the caption below. For each flagged import,
+draft a one-sentence explanation to add to the prose introduction.
 
 ### 3. Pedagogical Effectiveness
 - Each code block should illustrate ONE concept (not three things at once)
@@ -69,6 +89,8 @@ Rules for micro-examples:
 
 A core objective of this book is to show readers that complex tasks become trivially easy when you pick the right library. After teaching a concept from scratch (so the reader understands the internals), follow up with a "shortcut" code block that solves the same problem in 3 to 8 lines using a modern, production-quality library.
 
+**The complexity contrast is the point.** The reader should feel the weight of the from-scratch implementation (understanding every step), then experience the "aha" moment when a library collapses it to a few lines. The prose between the two code blocks should make this contrast explicit: "That was 45 lines to implement beam search from scratch. In production, the same result takes 3 lines with Hugging Face's generate() method." Always state the line count reduction and name the specific complexities the library absorbs (error handling, edge cases, GPU optimization, batching, etc.).
+
 **Structure:**
 1. **From-scratch code** first: the pedagogical implementation that teaches HOW it works internally (existing code blocks).
 2. **Library shortcut** second: a concise code block (ideally under 10 lines) using the best available library, showing that the same result is achievable with minimal code. Prefix the code block with a sentence like: "In practice, the same result takes just a few lines with [library name]."
@@ -84,6 +106,24 @@ A core objective of this book is to show readers that complex tasks become trivi
 - When a concept has a well-known library that wraps it (e.g., `sentence-transformers` for embedding, `peft` for LoRA, `langchain` for RAG pipelines, `vllm` for serving)
 - When the shortcut demonstrates a 5x or greater reduction in code complexity
 - Skip shortcuts for concepts that are inherently educational with no production shortcut (e.g., backpropagation math, tokenizer internals exploration)
+
+**Library Discovery Requirement:**
+Before writing a library shortcut block, the agent MUST search for the current best library for the task. Do not assume the library you remember is still the most popular or best maintained. For each shortcut:
+1. Search PyPI, GitHub, and Hugging Face for libraries that implement the concept
+2. Prefer libraries with: active maintenance (commits in last 6 months), high download counts, good documentation, and a clean API
+3. Verify the library version and API are current (do not use deprecated function signatures)
+4. If multiple strong candidates exist, pick the one with the simplest API for the teaching context; mention alternatives in the caption
+5. Always include the `pip install` package name in the code's opening comments
+6. Name specific library features that absorb complexity (e.g., "handles batching, GPU memory management, and tokenization internally")
+
+**Numbering convention for paired fragments:**
+When a from-scratch implementation and its library shortcut form a pedagogical pair, they
+MUST have distinct Code Fragment numbers. The from-scratch block gets the next integer in
+sequence (e.g., Code Fragment 5) and the library shortcut gets the next integer after that
+(e.g., Code Fragment 6). Do NOT use the same base number for both. Do NOT use letter
+suffixes (e.g., 5a, 5b) as this creates ambiguity in cross-references and audit tooling.
+Each code block, whether from-scratch or shortcut, occupies exactly one position in the
+per-file sequential numbering (1, 2, 3, 4...).
 
 **Caption pattern for shortcut blocks:**
 ```html
@@ -125,11 +165,11 @@ When a library reduces a 50+ line implementation to under 5 lines, consider wrap
 - Provide sample data inline or explain how to obtain it
 - Note any GPU/memory requirements
 
-### 6. Three Mandatory Elements for Every Code Block
+### 8. Three Mandatory Elements for Every Code Block
 
 Every `<pre>` code block in the book MUST have all three of the following:
 
-#### 6a. Caption Below (MANDATORY)
+#### 8a. Caption Below (MANDATORY)
 - Immediately after each `<pre>` block, place a `<div class="code-caption">`
 - Caption starts with a bold running label: `<strong>Code Fragment N:</strong>` where N restarts at 1 per file
 - Followed by 2 to 3 descriptive sentences: what the code demonstrates, why it matters, what the reader should notice
@@ -139,7 +179,7 @@ Every `<pre>` code block in the book MUST have all three of the following:
 <div class="code-caption"><strong>Code Fragment 3:</strong> This snippet demonstrates beam search decoding with a beam width of 5. Notice how the algorithm maintains multiple candidate sequences simultaneously, pruning lower-probability paths at each step. The temperature parameter controls exploration of alternative completions.</div>
 ```
 
-#### 6b. Opening Comments Inside the Code (MANDATORY)
+#### 8b. Opening Comments Inside the Code (MANDATORY)
 - Every code block must START with 2 to 3 comment lines describing what the code does
 - Use the language's comment syntax (# for Python, // for JS, -- for SQL)
 - Describe PURPOSE and key operations, not line-by-line narration
@@ -152,7 +192,7 @@ Every `<pre>` code block in the book MUST have all three of the following:
 def beam_search(model, input_ids, beam_width=5):
 ```
 
-#### 6c. Prose Introduction Before the Code (MANDATORY)
+#### 8c. Prose Introduction Before the Code (MANDATORY)
 - The paragraph BEFORE each code block must introduce it
 - Use natural phrasing: "The following snippet demonstrates...", "Below, we implement...", "Code Fragment 3 shows how..."
 - Bad: A code block appears between paragraphs with no mention

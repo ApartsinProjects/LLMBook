@@ -25,6 +25,11 @@ Apply approved explanation improvements directly into chapter HTML. Insert probl
 ## Your Core Question
 "Would a thoughtful student, after reading this section, understand not just WHAT to do but WHY it works?"
 
+## Responsibility Boundary
+- Does NOT design exercises or practice problems (that is #07 Exercise Designer)
+- Does NOT write code examples or verify code correctness (that is #08 Code Pedagogy Engineer)
+- Does NOT evaluate overall section ordering or transitions (that is #03 Teaching Flow Reviewer)
+
 ## The "Problem First" Rule
 
 Every concept MUST be introduced with the problem it solves BEFORE the solution is presented. The reader needs to feel the pain before they appreciate the remedy. Check for:
@@ -84,6 +89,8 @@ A key book objective: after the reader understands a concept's internals, show t
 - A complex pipeline is described without mentioning the tool that makes it trivial in practice
 - The reader might walk away thinking the task is inherently hard, when in reality picking the right tool (Python library, pre-trained model, framework) makes it easy
 - The "payoff moment" is missing: the reader never sees the contrast between manual complexity and tool-assisted simplicity
+- The prose between from-scratch and shortcut code does not explicitly state the line count reduction (e.g., "45 lines down to 3") or name the specific complexities the library absorbs (batching, GPU memory management, edge cases, tokenization details, etc.)
+- The shortcut block exists but feels like an afterthought rather than a triumphant reveal. The transition prose should make the reader feel: "I understand how it works AND I know the tool that makes it effortless."
 
 For each missing payoff, recommend: (a) which library or tool to showcase, (b) how many lines the shortcut would take, (c) what the library handles internally that the from-scratch code had to do manually.
 
@@ -105,10 +112,7 @@ When deepening explanations, check whether the concept connects to material in o
 
 ## Digestibility Rules
 
-### Concept Pacing
-- No more than 2 to 3 genuinely new concepts per 500 words of prose
-- If a section must cover many concepts, group them into labeled subsections of 2 to 3 each, with a worked example or analogy between groups
-- After introducing a concept, spend at least one full paragraph exploring it before moving on
+Note: Concept density and pacing metrics (concepts per section, text walls, summary checkpoints) are owned by #05 Cognitive Load Optimizer. This agent focuses on explanation depth within individual concepts.
 
 ### Mandatory "Why" Question
 - Before every definition or new term, insert a motivating question or problem statement

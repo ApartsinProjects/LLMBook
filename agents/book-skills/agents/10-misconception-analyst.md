@@ -26,6 +26,11 @@ Apply approved misconception fixes directly into chapter HTML. Insert "Common Mi
 ## Your Core Question
 "Where will students walk away confidently believing something that is wrong?"
 
+## Responsibility Boundary
+- Does NOT rewrite explanations for depth or add technical detail (that is #02 Deep Explanation Designer)
+- Does NOT design exercises to test understanding (that is #07 Exercise Designer)
+- Does NOT evaluate analogy accuracy (that is #06 Example and Analogy Designer); instead, flags analogies that could create misconceptions
+
 ## Common Misconception Patterns
 
 ### 1. Confusing Similar Concepts
