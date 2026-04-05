@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Section 32.13: Federated Learning for LLMs. Privacy-preserving distributed training that keeps data on-device while collaboratively improving language models.">
+    <title>Section 32.13: Federated Learning for LLMs</title>
+    <link rel="stylesheet" href="../../styles/book.css">
+    <link rel="stylesheet" href="../../vendor/katex/katex.min.css">
+    <script defer src="../../vendor/katex/katex.min.js"></script>
+    <script defer src="../../vendor/katex/contrib/auto-render.min.js"
+        onload="renderMathInElement(document.body, {
+            delimiters: [
+                {left: '$$', right: '$$', display: true},
+                {left: '$', right: '$', display: false}
+            ],
+            throwOnError: false
+        });"></script>
+    <link rel="stylesheet" href="../../vendor/prism/prism-theme.css">
+    <script defer src="../../vendor/prism/prism-bundle.min.js"></script>
+</head>
+<body>
+<header class="chapter-header">
+    <nav class="header-nav">
+        <a href="../../index.html" class="book-title-link">Building Conversational AI with LLMs and Agents</a>
+        <a href="../../toc.html" class="toc-link" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+    </nav>
+    <div class="part-label"><a href="../index.html">Part IX: Safety, Ethics, and Strategy</a></div>
+    <div class="chapter-label"><a href="index.html">Chapter 32: Safety, Ethics &amp; Regulation</a></div>
+    <h1>Federated Learning for LLMs</h1>
+</header>
+
+<main class="content">
+
+    <div class="prerequisites">
+        <h3>Prerequisites</h3>
+        <p>This section builds on the privacy and differential privacy concepts from <a href="section-32.12.html">Section 32.12</a> and the distributed training fundamentals from <a class="cross-ref" href="../../appendices/appendix-t-distributed-ml/index.html">Appendix T</a>. Familiarity with <a class="cross-ref" href="../../part-4-training-adapting/module-14-fine-tuning-fundamentals/index.html">fine-tuning workflows</a> and <a class="cross-ref" href="../../part-4-training-adapting/module-15-peft/section-15.1.html">LoRA</a> is assumed.</p>
+    </div>
+
+    <div class="callout big-picture">
+        <div class="callout-title">Big Picture</div>
+        <p>Federated learning (FL) enables multiple parties to collaboratively train or fine-tune a model without sharing their raw data. Each participant trains locally on their own data and shares only model updates (gradients or adapter weights) with a central server, which aggregates them into a global model. For LLMs, this addresses a fundamental tension: organizations want models that benefit from diverse, domain-rich data, but privacy regulations (<a href="section-32.4.html">Section 32.4</a>), competitive concerns, and data sovereignty laws prevent them from pooling that data in one location.</p>
+    </div>
+
+    <h2>1. Federated Learning Fundamentals <span class="level-badge basic" title="Basic">BASIC</span></h2>
+
+    <p>In standard (centralized) training, all data is collected on a central server. Federated learning inverts this: the model travels to the data, not the other way around.</p>
+
+    <h3>The FedAvg Algorithm</h3>
+
+    <p>McMahan et al. (2017) introduced <strong>Federated Averaging (FedAvg)</strong>, the foundational FL algorithm. Each communication round proceeds as follows:</p>
+
+    <ol>
+        <li>The server sends the current global model $w_t$ to a subset of $K$ clients</li>
+        <li>Each client $k$ trains the model on its local data for $E$ local epochs, producing updated weights $w_{t+1}^k$</li>
+        <li>Clients send their updates $\Delta w^k = w_{t+1}^k - w_t$ back to the server</li>
+        <li>The server aggregates updates using a weighted average: $w_{t+1} = w_t + \frac{1}{K} \sum_{k=1}^{K} \Delta w^k$</li>
+    </ol>
+
+    <p>The weighted average is typically proportional to each client's dataset size: clients with more data contribute proportionally more to the global update.</p>
+
+    <h3>Key Challenges</h3>
+
+    <ul>
+        <li><strong>Non-IID data:</strong> Client datasets are typically not independent and identically distributed. A hospital in cardiology sees different conditions than one in pediatrics. This data heterogeneity causes client updates to diverge, slowing convergence.</li>
+        <li><strong>Communication cost:</strong> Transmitting full model gradients for a 7B parameter model requires ~28 GB per round (FP32). With hundreds of clients and many rounds, bandwidth becomes the bottleneck.</li>
+        <li><strong>Stragglers:</strong> Clients with slower hardware or limited connectivity delay each round. Asynchronous FL protocols mitigate this but introduce staleness in gradients.</li>
+        <li><strong>Privacy leakage:</strong> Even gradient updates can leak information about training data through gradient inversion attacks (<a href="section-32.12.html">Section 32.12</a>). Differential privacy or secure aggregation is needed.</li>
+    </ul>
+
+    <h2>2. Federated Fine-Tuning of LLMs <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span></h2>
+
+    <p>Full federated pretraining of LLMs is prohibitively expensive: the communication cost of exchanging billions of parameters each round is impractical. Instead, the dominant approach is <strong>federated fine-tuning</strong>, where a pretrained base model is adapted to domain-specific data held by multiple parties.</p>
+
+    <h3>Federated LoRA (FFA-LoRA)</h3>
+
+    <p><a class="cross-ref" href="../../part-4-training-adapting/module-15-peft/section-15.1.html">LoRA adapters</a> are a natural fit for federated learning because they are small. Instead of exchanging 7B parameters each round, clients exchange only the low-rank adapter matrices (typically 1-10M parameters), reducing communication cost by 100-1000x.</p>
+
+<pre><code class="language-python">import copy
+import torch
+
+def federated_lora_round(global_adapter, client_datasets, base_model, config):
+    """One round of federated LoRA fine-tuning."""
+    client_adapters = []
+    client_sizes = []
+
+    for dataset in client_datasets:
+        # Each client starts from the global adapter
+        local_adapter = copy.deepcopy(global_adapter)
+        local_model = apply_lora(base_model, local_adapter)
+
+        # Local training (E epochs on client data)
+        optimizer = torch.optim.AdamW(local_adapter.parameters(), lr=config.lr)
+        for epoch in range(config.local_epochs):
+            for batch in dataset:
+                loss = local_model(**batch).loss
+                loss.backward()
+                optimizer.step()
+                optimizer.zero_grad()
+
+        client_adapters.append(local_adapter)
+        client_sizes.append(len(dataset))
+
+    # Server aggregation: weighted average of adapter weights
+    total_size = sum(client_sizes)
+    new_adapter = copy.deepcopy(global_adapter)
+    with torch.no_grad():
+        for name, param in new_adapter.named_parameters():
+            weighted_sum = sum(
+                (size / total_size) * dict(adapter.named_parameters())[name]
+                for adapter, size in zip(client_adapters, client_sizes)
+            )
+            param.copy_(weighted_sum)
+
+    return new_adapter
+
+# Training loop
+global_adapter = initialize_lora(rank=16, target_modules=["q_proj", "v_proj"])
+for round_num in range(config.num_rounds):
+    global_adapter = federated_lora_round(
+        global_adapter, client_datasets, base_model, config
+    )</code></pre>
+<div class="code-caption"><strong>Code Fragment 32.13.1:</strong> Federated LoRA fine-tuning. Each client trains only the adapter matrices locally, and the server aggregates them via weighted averaging. Communication cost per round is proportional to adapter size (e.g., 30 MB for rank-16 on a 7B model), not the full model size.</div>
+
+    <h3>Heterogeneous Federated Fine-Tuning</h3>
+
+    <p>In practice, FL clients vary in hardware capacity. Some may have A100 GPUs; others may have consumer-grade cards or even CPUs. <strong>Heterogeneous FL</strong> allows clients to use different adapter configurations (e.g., different LoRA ranks) based on their compute budget, with the server performing rank-adaptive aggregation.</p>
+
+    <h2>3. Privacy-Preserving Techniques in Federated LLM Training <span class="level-badge advanced" title="Advanced">ADVANCED</span></h2>
+
+    <p>Federated learning alone does not guarantee privacy. Gradient updates can be reverse-engineered to reconstruct training data, especially for text. Additional privacy mechanisms are essential.</p>
+
+    <h3>Differential Privacy with Federated Learning (DP-FL)</h3>
+
+    <p>Combining <a href="section-32.12.html">differential privacy</a> with FL adds formal privacy guarantees. Each client clips and adds noise to their gradients before sending them to the server:</p>
+
+    <ol>
+        <li><strong>Gradient clipping:</strong> Bound the L2 norm of each client's update to a maximum value $C$, limiting any single example's influence</li>
+        <li><strong>Noise addition:</strong> Add calibrated Gaussian noise $\mathcal{N}(0, \sigma^2 C^2 I)$ to the clipped gradients</li>
+        <li><strong>Privacy accounting:</strong> Track the cumulative privacy budget $(\epsilon, \delta)$ across rounds using the moments accountant or Renyi DP</li>
+    </ol>
+
+    <p>The privacy-utility tradeoff is more severe for LLMs than for smaller models: the high dimensionality means more noise is needed to achieve the same privacy guarantee, and LLMs are more sensitive to noisy gradients during fine-tuning.</p>
+
+    <h3>Secure Aggregation</h3>
+
+    <p>Secure aggregation protocols ensure the server can compute the aggregate update without seeing any individual client's contribution. This is achieved through cryptographic techniques (secret sharing, homomorphic encryption) that allow addition over encrypted values. Google's implementation in Gboard uses secure aggregation for federated next-word prediction on mobile devices.</p>
+
+    <h2>4. Applications and Use Cases <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span></h2>
+
+    <div class="table-responsive">
+    <table>
+        <thead>
+            <tr>
+                <th>Domain</th>
+                <th>Use Case</th>
+                <th>Why Federated?</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>Healthcare</td>
+                <td>Clinical NLP across hospital networks</td>
+                <td>HIPAA prohibits sharing patient records; each hospital trains locally on its EHR data</td>
+            </tr>
+            <tr>
+                <td>Finance</td>
+                <td>Fraud detection language models across banks</td>
+                <td>Regulatory silos prevent data sharing; FL enables collaborative model improvement</td>
+            </tr>
+            <tr>
+                <td>Mobile / Edge</td>
+                <td>On-device keyboard prediction</td>
+                <td>User typing data is highly personal; Google's Gboard pioneered this approach</td>
+            </tr>
+            <tr>
+                <td>Legal</td>
+                <td>Contract analysis across law firms</td>
+                <td>Attorney-client privilege prevents data pooling; FL trains on distributed corpora</td>
+            </tr>
+            <tr>
+                <td>Multi-national</td>
+                <td>Global models trained across data sovereignty boundaries</td>
+                <td>GDPR, China's PIPL, and other regulations restrict cross-border data transfer</td>
+            </tr>
+        </tbody>
+    </table>
+    </div>
+    <div class="table-caption"><strong>Table 32.13.1:</strong> Federated learning use cases for LLMs. The common thread is data that cannot be centralized due to legal, regulatory, or competitive constraints.</div>
+
+    <h2>5. Frameworks and Tools <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span></h2>
+
+    <ul>
+        <li><strong>Flower (flwr):</strong> The most popular open-source FL framework. Framework-agnostic (supports PyTorch, TensorFlow, JAX), with built-in strategies for FedAvg, FedProx, and FedOpt. Provides simulation mode for development and deployment mode for production.</li>
+        <li><strong>NVIDIA FLARE:</strong> Enterprise FL framework with built-in privacy (DP, homomorphic encryption), designed for healthcare and regulated industries. Integrates with NVIDIA's NeMo for LLM fine-tuning.</li>
+        <li><strong>PySyft (OpenMined):</strong> Privacy-preserving ML framework supporting federated learning, differential privacy, and secure multi-party computation. Python-native with remote execution capabilities.</li>
+        <li><strong>FedML:</strong> Platform supporting federated training on heterogeneous devices (cloud, edge, mobile) with MLOps integration for monitoring and experiment tracking.</li>
+    </ul>
+
+<pre><code class="language-python">import flwr as fl
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from peft import get_peft_model, LoraConfig
+
+# Client: each participant runs this on their local data
+class LLMClient(fl.client.NumPyClient):
+    def __init__(self, model_name, local_dataset):
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+        base = AutoModelForCausalLM.from_pretrained(model_name)
+        lora_config = LoraConfig(r=16, lora_alpha=32, target_modules=["q_proj", "v_proj"])
+        self.model = get_peft_model(base, lora_config)
+        self.dataset = local_dataset
+
+    def get_parameters(self, config):
+        """Return only LoRA adapter parameters."""
+        return [
+            val.cpu().numpy()
+            for name, val in self.model.named_parameters()
+            if "lora" in name
+        ]
+
+    def fit(self, parameters, config):
+        """Train locally for E epochs, return updated adapter weights."""
+        self.set_parameters(parameters)
+        train_local(self.model, self.dataset, epochs=config.get("local_epochs", 3))
+        return self.get_parameters(config), len(self.dataset), {}
+
+    def set_parameters(self, parameters):
+        lora_params = [
+            (name, param) for name, param in self.model.named_parameters()
+            if "lora" in name
+        ]
+        for (name, param), new_val in zip(lora_params, parameters):
+            param.data = torch.tensor(new_val).to(param.device)
+
+# Server: aggregation strategy
+strategy = fl.server.strategy.FedAvg(
+    min_fit_clients=3,
+    min_available_clients=5,
+    fraction_fit=0.5,  # Sample 50% of available clients per round
+)
+
+# Launch federated training
+fl.server.start_server(
+    server_address="0.0.0.0:8080",
+    config=fl.server.ServerConfig(num_rounds=20),
+    strategy=strategy,
+)</code></pre>
+<div class="code-caption"><strong>Code Fragment 32.13.2:</strong> Federated LoRA fine-tuning with the Flower framework. Each client trains only LoRA adapter parameters and exchanges them with the server. The FedAvg strategy aggregates adapter weights across clients.</div>
+
+    <h2>6. Challenges and Limitations <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span></h2>
+
+    <ul>
+        <li><strong>Data heterogeneity (non-IID):</strong> The most persistent challenge. When client data distributions differ significantly, FedAvg can converge to a suboptimal model or diverge entirely. Algorithms like FedProx (adds a proximal term penalizing divergence from the global model) and SCAFFOLD (uses control variates to correct client drift) partially address this.</li>
+        <li><strong>Model poisoning:</strong> A malicious client can submit adversarial updates that degrade or backdoor the global model. Byzantine-robust aggregation methods (e.g., coordinate-wise median, trimmed mean) provide some defense.</li>
+        <li><strong>Evaluation without data access:</strong> The server cannot directly evaluate the global model on client data. Techniques include federated evaluation (clients evaluate locally and report metrics) and holdout validation sets.</li>
+        <li><strong>Convergence speed:</strong> FL typically requires many more communication rounds than centralized training to reach equivalent quality, especially with non-IID data and privacy constraints.</li>
+        <li><strong>Intellectual property concerns:</strong> Even without raw data sharing, the resulting model encodes knowledge from all participants. Ownership and usage rights of the federated model must be defined contractually.</li>
+    </ul>
+
+    <div class="callout research-frontier">
+        <div class="callout-title">Research Frontier</div>
+        <p>Federated instruction tuning and federated RLHF are active research areas. FedIT (Zhang et al., 2024) showed that federating the instruction-tuning stage, where multiple organizations contribute instruction-response pairs without sharing them, produces models competitive with centrally trained ones. Combining FL with <a class="cross-ref" href="../../part-4-training-adapting/module-17-alignment-rlhf-dpo/index.html">preference optimization (Chapter 17)</a> enables collaborative alignment without sharing sensitive preference data.</p>
+    </div>
+
+    <h2>Self-Check Questions</h2>
+    <div class="self-check">
+        <details>
+            <summary>Why is federated LoRA more practical than federated full fine-tuning for LLMs?</summary>
+            <p>Full fine-tuning requires exchanging all model parameters (e.g., 28 GB for a 7B model in FP32) each communication round, which is prohibitive for bandwidth. LoRA adapters are typically 1-10M parameters (30-300 MB), reducing communication cost by 100-1000x while achieving comparable fine-tuning quality. This makes FL practical even over internet connections rather than requiring data center interconnects.</p>
+        </details>
+        <details>
+            <summary>What is the non-IID problem in federated learning, and why does it affect LLMs?</summary>
+            <p>Non-IID (non-independent and identically distributed) data means client datasets have different distributions: a medical institution sees clinical text, a legal firm sees contracts, a bank sees financial reports. When clients optimize on very different data distributions, their gradient updates point in different directions, causing the averaged global model to converge slowly or to a suboptimal point. For LLMs, this is especially acute because language varies enormously across domains, registers, and vocabularies.</p>
+        </details>
+        <details>
+            <summary>Why is federated learning alone insufficient for privacy, and what additional mechanisms are needed?</summary>
+            <p>Gradient updates can leak training data through gradient inversion attacks: an adversary can reconstruct training text from observed gradients. Additional mechanisms needed include differential privacy (adding noise to gradients before sharing), secure aggregation (cryptographic protocols that prevent the server from seeing individual updates), and gradient compression (reducing the information content of updates). These add privacy guarantees but increase computational cost and reduce model quality.</p>
+        </details>
+    </div>
+
+    <section class="bibliography">
+    <h2>References and Further Reading</h2>
+    <div class="bib-entry-card">
+        <p class="bib-ref">McMahan, B. et al. (2017). <a href="https://arxiv.org/abs/1602.05629" target="_blank" rel="noopener">"Communication-Efficient Learning of Deep Networks from Decentralized Data."</a> <em>AISTATS</em>.</p>
+        <p class="bib-annotation">The foundational paper introducing Federated Averaging (FedAvg). Demonstrated that averaging model updates from distributed clients can achieve competitive performance while keeping data local. The standard starting point for all FL research.</p>
+        <span class="bib-meta">Paper</span>
+    </div>
+    <div class="bib-entry-card">
+        <p class="bib-ref">Zhang, J. et al. (2024). <a href="https://arxiv.org/abs/2309.05135" target="_blank" rel="noopener">"Towards Building the Federatedgpt: Federated Instruction Tuning."</a> <em>ICASSP</em>.</p>
+        <p class="bib-annotation">Proposes FedIT, a framework for federated instruction tuning of LLMs. Shows that instruction tuning can be effectively distributed across organizations while maintaining model quality competitive with centralized training.</p>
+        <span class="bib-meta">Paper</span>
+    </div>
+    <div class="bib-entry-card">
+        <p class="bib-ref">Kuang, W. et al. (2024). <a href="https://arxiv.org/abs/2312.17493" target="_blank" rel="noopener">"FedML-LLM: Build Your Own Large Language Models on Proprietary Data using the FedML Platform."</a></p>
+        <p class="bib-annotation">Practical guide to federated LLM training using the FedML platform, covering LoRA integration, privacy mechanisms, and heterogeneous device support.</p>
+        <span class="bib-meta">Paper</span>
+    </div>
+    <div class="bib-entry-card">
+        <p class="bib-ref">Beutel, D. et al. (2020). <a href="https://arxiv.org/abs/2007.14390" target="_blank" rel="noopener">"Flower: A Friendly Federated Learning Framework."</a></p>
+        <p class="bib-annotation">Introduces the Flower framework for federated learning. Framework-agnostic design supports PyTorch, TensorFlow, and JAX with minimal code changes. The most widely used open-source FL framework.</p>
+        <span class="bib-meta">Paper</span>
+    </div>
+    <div class="bib-entry-card">
+        <p class="bib-ref">Li, T. et al. (2020). <a href="https://arxiv.org/abs/1812.06127" target="_blank" rel="noopener">"Federated Optimization in Heterogeneous Networks."</a> <em>MLSys</em>.</p>
+        <p class="bib-annotation">Introduces FedProx, which adds a proximal term to the client objective to handle data heterogeneity (non-IID distributions). A key algorithm for practical federated learning with diverse clients.</p>
+        <span class="bib-meta">Paper</span>
+    </div>
+    </section>
+
+<nav class="chapter-nav">
+    <a class="prev" href="section-32.12.html">Privacy Attacks &amp; Differential Privacy for LLMs</a>
+    <a class="up" href="index.html">Chapter 32: Safety, Ethics &amp; Regulation</a>
+    <a class="next" href="../module-33-strategy-product-roi/index.html">Chapter 33: LLM Strategy, Product Management &amp; ROI</a>
+</nav>
+
+    <footer>
+        <p class="footer-title">Building Conversational AI with LLMs and Agents, Fifth Edition</p>
+        <p>&copy; 2026 Alexander Apartsin &amp; Yehudit Aperstein &middot; <a href="../../toc.html">Contents</a></p>
+        <p class="footer-updated">Last updated: <script>document.write(new Date(document.lastModified).toLocaleDateString('en-US', {year:'numeric', month:'long', day:'numeric'}))</script></p>
+    </footer>
+</main>
+</body>
+</html>

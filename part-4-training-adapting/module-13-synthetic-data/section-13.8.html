@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Section 13.8: Data Augmentation for LLMs. Techniques for expanding and diversifying training data through paraphrasing, back-translation, and LLM-driven augmentation.">
+    <title>Section 13.8: Data Augmentation for LLMs</title>
+    <link rel="stylesheet" href="../../styles/book.css">
+    <link rel="stylesheet" href="../../vendor/prism/prism-theme.css">
+    <script defer src="../../vendor/prism/prism-bundle.min.js"></script>
+</head>
+<body>
+<header class="chapter-header">
+    <nav class="header-nav">
+        <a href="../../index.html" class="book-title-link">Building Conversational AI with LLMs and Agents</a>
+        <a href="../../toc.html" class="toc-link" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+    </nav>
+    <div class="part-label"><a href="../index.html">Part IV: Training and Adapting</a></div>
+    <div class="chapter-label"><a href="index.html">Chapter 13: Synthetic Data Generation &amp; LLM Simulation</a></div>
+    <h1>Data Augmentation for LLMs</h1>
+</header>
+
+<main class="content">
+
+    <div class="prerequisites">
+        <h3>Prerequisites</h3>
+        <p>This section builds on the synthetic data generation pipelines from <a href="section-13.2.html">Section 13.2</a> and the quality assurance techniques from <a href="section-13.4.html">Section 13.4</a>. Familiarity with <a class="cross-ref" href="../module-14-fine-tuning-fundamentals/section-14.2.html">fine-tuning data preparation</a> and <a class="cross-ref" href="../../part-3-working-with-llms/module-11-prompt-engineering/index.html">prompt engineering</a> is assumed.</p>
+    </div>
+
+    <div class="callout big-picture">
+        <div class="callout-title">Big Picture</div>
+        <p>Data augmentation transforms a small, high-quality dataset into a larger, more diverse training corpus without collecting new examples from scratch. While the earlier sections of this chapter focus on generating entirely new synthetic data, augmentation works with existing examples, applying transformations that preserve semantic meaning while varying surface form. This is especially valuable for low-resource languages, domain-specific tasks, and scenarios where labeled data is expensive to obtain.</p>
+    </div>
+
+    <h2>1. Why Augment? The Diversity Problem <span class="level-badge basic" title="Basic">BASIC</span></h2>
+
+    <p>Fine-tuning datasets often suffer from a lack of linguistic diversity: the same intent is expressed in only a few ways, the same entities appear repeatedly, and the phrasing follows narrow patterns. Models trained on such data overfit to surface features rather than learning the underlying task. Data augmentation addresses this by creating variations of existing examples that force the model to generalize.</p>
+
+    <p>The core principle is <strong>label-preserving transformation</strong>: each augmented example must retain the same label, intent, or correct answer as the original. A paraphrase of a positive sentiment review must still be positive. A reformulated question must still have the same answer. Violating this principle introduces label noise that degrades model quality.</p>
+
+    <div class="callout note">
+        <div class="callout-title">Augmentation vs. Generation</div>
+        <p>Data augmentation (this section) starts from existing examples and produces variations. Synthetic data generation (<a href="section-13.1.html">Sections 13.1</a> through <a href="section-13.3.html">13.3</a>) creates entirely new examples from specifications or seed prompts. In practice, most data pipelines combine both: generate a seed corpus, then augment it for diversity.</p>
+    </div>
+
+    <h2>2. Classical Text Augmentation Techniques <span class="level-badge basic" title="Basic">BASIC</span></h2>
+
+    <p>Before LLMs made augmentation trivially accessible, NLP practitioners developed several effective techniques. These remain useful as fast, controllable baselines.</p>
+
+    <h3>Easy Data Augmentation (EDA)</h3>
+
+    <p>Wei and Zou (2019) proposed four simple operations that improve text classification with minimal effort:</p>
+
+    <ul>
+        <li><strong>Synonym replacement:</strong> Replace n random non-stop-words with WordNet synonyms</li>
+        <li><strong>Random insertion:</strong> Insert a synonym of a random word at a random position</li>
+        <li><strong>Random swap:</strong> Swap the positions of two random words</li>
+        <li><strong>Random deletion:</strong> Remove each word with probability p</li>
+    </ul>
+
+<pre><code class="language-python">import random
+import nltk
+from nltk.corpus import wordnet
+
+def synonym_replace(sentence, n=2):
+    """Replace n words with WordNet synonyms."""
+    words = sentence.split()
+    new_words = words.copy()
+    candidates = [w for w in words if wordnet.synsets(w)]
+    random.shuffle(candidates)
+    replaced = 0
+    for word in candidates:
+        if replaced >= n:
+            break
+        syns = wordnet.synsets(word)
+        if syns:
+            synonym = syns[0].lemmas()[0].name().replace("_", " ")
+            if synonym != word:
+                new_words = [synonym if w == word else w for w in new_words]
+                replaced += 1
+    return " ".join(new_words)
+
+# Example
+original = "The customer service was excellent and very responsive"
+augmented = synonym_replace(original, n=2)
+# Possible output: "The customer service was superb and very responsive"</code></pre>
+<div class="code-caption"><strong>Code Fragment 13.8.1:</strong> Simple synonym replacement using WordNet. This preserves semantic meaning while varying word choice.</div>
+
+    <h3>Back-Translation</h3>
+
+    <p>Back-translation generates paraphrases by translating text into an intermediate language and then translating it back. The round-trip introduces natural lexical and syntactic variation because different languages encode meaning differently. For example, English to German and back often restructures clauses and substitutes near-synonyms.</p>
+
+<pre><code class="language-python">from transformers import MarianMTModel, MarianTokenizer
+
+def back_translate(text, src="en", pivot="de"):
+    """Augment text via back-translation through a pivot language."""
+    # English -> pivot
+    fwd_name = f"Helsinki-NLP/opus-mt-{src}-{pivot}"
+    fwd_tok = MarianTokenizer.from_pretrained(fwd_name)
+    fwd_model = MarianMTModel.from_pretrained(fwd_name)
+    encoded = fwd_tok(text, return_tensors="pt", padding=True, truncation=True)
+    pivot_ids = fwd_model.generate(**encoded)
+    pivot_text = fwd_tok.decode(pivot_ids[0], skip_special_tokens=True)
+
+    # Pivot -> English
+    bwd_name = f"Helsinki-NLP/opus-mt-{pivot}-{src}"
+    bwd_tok = MarianTokenizer.from_pretrained(bwd_name)
+    bwd_model = MarianMTModel.from_pretrained(bwd_name)
+    encoded = bwd_tok(pivot_text, return_tensors="pt", padding=True, truncation=True)
+    back_ids = bwd_model.generate(**encoded)
+    return bwd_tok.decode(back_ids[0], skip_special_tokens=True)
+
+original = "What is the refund policy for damaged items?"
+augmented = back_translate(original, pivot="fr")
+# Typical output: "What is the reimbursement policy for defective products?"</code></pre>
+<div class="code-caption"><strong>Code Fragment 13.8.2:</strong> Back-translation using MarianMT models. Using multiple pivot languages (French, German, Chinese) produces different paraphrase styles.</div>
+
+    <p>Using multiple pivot languages produces diverse variations. A single source sentence translated through French, German, Russian, and Chinese yields four distinct paraphrases. The quality depends on the translation model; modern models like NLLB-200 cover 200 languages and produce higher-quality round-trips than older models.</p>
+
+    <h3>Contextual Word Replacement with Masked LMs</h3>
+
+    <p>Masked language models like BERT can generate contextually appropriate substitutions. Mask a word, let the model predict alternatives, and replace with a high-probability candidate. Unlike WordNet synonym replacement, this produces substitutions that are contextually coherent.</p>
+
+<pre><code class="language-python">from transformers import pipeline
+
+fill_mask = pipeline("fill-mask", model="bert-base-uncased")
+
+def contextual_augment(text, word_to_replace):
+    """Replace a word using BERT's contextual predictions."""
+    masked = text.replace(word_to_replace, "[MASK]", 1)
+    predictions = fill_mask(masked)
+    # Pick the top prediction that differs from the original
+    for pred in predictions:
+        if pred["token_str"].strip() != word_to_replace.lower():
+            return text.replace(word_to_replace, pred["token_str"].strip(), 1)
+    return text
+
+original = "The application crashed when processing large files"
+augmented = contextual_augment(original, "crashed")
+# Possible output: "The application failed when processing large files"</code></pre>
+<div class="code-caption"><strong>Code Fragment 13.8.3:</strong> Using BERT's masked language modeling to generate contextually appropriate word substitutions.</div>
+
+    <h2>3. LLM-Powered Augmentation <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span></h2>
+
+    <p>Large language models have transformed data augmentation from a word-level operation into a semantic-level one. Instead of swapping individual words, LLMs can rephrase entire sentences, shift register and formality, inject domain-specific terminology, and generate multi-turn variations of single-turn examples.</p>
+
+    <h3>Paraphrase Generation</h3>
+
+    <p>The simplest LLM augmentation prompts the model to paraphrase an example while preserving its meaning and label:</p>
+
+<pre><code class="language-python">from openai import OpenAI
+client = OpenAI()
+
+def llm_paraphrase(text, n_variants=3, style_hints=None):
+    """Generate paraphrased variants using an LLM."""
+    style_instruction = ""
+    if style_hints:
+        style_instruction = f"\nVary the style: {', '.join(style_hints)}"
+
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{
+            "role": "system",
+            "content": (
+                f"Generate exactly {n_variants} paraphrases of the input text. "
+                "Each paraphrase must preserve the exact same meaning and intent. "
+                "Vary vocabulary, sentence structure, and length."
+                f"{style_instruction}"
+                "\nReturn one paraphrase per line, numbered."
+            )
+        }, {
+            "role": "user",
+            "content": text
+        }],
+        temperature=0.9
+    )
+    lines = response.choices[0].message.content.strip().split("\n")
+    return [line.lstrip("0123456789.) ").strip() for line in lines if line.strip()]
+
+original = "How do I reset my password?"
+variants = llm_paraphrase(
+    original,
+    n_variants=5,
+    style_hints=["formal", "casual", "verbose", "terse", "non-native speaker"]
+)
+# Output:
+# "I need assistance with resetting my account password."
+# "hey how do i change my password again?"
+# "Could you please walk me through the complete process of resetting
+#  the password associated with my user account?"
+# "Password reset steps?"
+# "I am wanting to know how I can make new password for my account."</code></pre>
+<div class="code-caption"><strong>Code Fragment 13.8.4:</strong> LLM-powered paraphrase generation with style variation. The style hints produce diverse register and formality levels.</div>
+
+    <h3>Controlled Attribute Variation</h3>
+
+    <p>Beyond simple paraphrasing, LLMs can modify specific attributes of training examples while preserving others. This is especially powerful for intent classification and slot-filling tasks:</p>
+
+    <ul>
+        <li><strong>Entity swapping:</strong> Replace entity values (names, dates, locations, product names) while keeping the sentence structure and intent identical</li>
+        <li><strong>Register shifting:</strong> Convert between formal, casual, technical, and simplified registers</li>
+        <li><strong>Length variation:</strong> Expand terse queries into detailed requests, or compress verbose instructions into short commands</li>
+        <li><strong>Perspective shifting:</strong> Rewrite from first person to third person, or from question form to imperative</li>
+        <li><strong>Error injection:</strong> Introduce realistic typos, grammatical errors, or colloquialisms to make the training data robust to noisy real-world input</li>
+    </ul>
+
+<pre><code class="language-python">def augment_with_entity_swap(example, entity_type="person_name"):
+    """Swap entities while preserving intent and structure."""
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{
+            "role": "system",
+            "content": (
+                f"Replace all {entity_type} entities in the text with "
+                "different, realistic alternatives. Keep everything else "
+                "exactly the same, including intent, structure, and tone."
+            )
+        }, {
+            "role": "user",
+            "content": example
+        }],
+        temperature=0.7
+    )
+    return response.choices[0].message.content.strip()
+
+# Intent: book_flight
+original = "Book a flight from New York to London for Sarah Johnson on March 15th"
+swapped = augment_with_entity_swap(original, "all named entities")
+# "Book a flight from Chicago to Tokyo for Michael Chen on June 22nd"</code></pre>
+<div class="code-caption"><strong>Code Fragment 13.8.5:</strong> Entity swapping augmentation that preserves intent labels while diversifying entity coverage.</div>
+
+    <h3>Multi-Turn Augmentation</h3>
+
+    <p>For conversational AI training data, augmentation must operate at the dialogue level rather than the sentence level. An LLM can take a single-turn question and expand it into a multi-turn conversation where the user provides context incrementally, or take a clean dialogue and inject realistic complications (corrections, clarifications, topic shifts).</p>
+
+    <h2>4. Domain-Specific Augmentation Strategies <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span></h2>
+
+    <h3>Low-Resource Language Augmentation</h3>
+
+    <p>For languages with limited training data, augmentation is often the only practical path to acceptable model quality. Key strategies include:</p>
+
+    <ul>
+        <li><strong>Cross-lingual transfer:</strong> Translate high-resource language data (English) into the target language using MT models, then filter with native speaker quality checks</li>
+        <li><strong>Code-switching injection:</strong> For multilingual settings, create examples that mix languages naturally, reflecting real user behavior</li>
+        <li><strong>Script variation:</strong> For languages with multiple scripts (Serbian Cyrillic/Latin, Chinese simplified/traditional), generate variants in each script</li>
+    </ul>
+
+    <h3>Task-Specific Augmentation Patterns</h3>
+
+    <div class="table-responsive">
+    <table>
+        <thead>
+            <tr>
+                <th>Task</th>
+                <th>Augmentation Strategy</th>
+                <th>Key Consideration</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>Text Classification</td>
+                <td>Paraphrasing, back-translation, synonym replacement</td>
+                <td>Must preserve class label exactly</td>
+            </tr>
+            <tr>
+                <td>NER / Slot Filling</td>
+                <td>Entity swapping, context variation with fixed entities</td>
+                <td>Span annotations must be updated to match new text</td>
+            </tr>
+            <tr>
+                <td>Question Answering</td>
+                <td>Question rephrasing, answer-preserving context paraphrasing</td>
+                <td>Answer span positions shift; re-extract after augmentation</td>
+            </tr>
+            <tr>
+                <td>Instruction Following</td>
+                <td>Register variation, Evol-Instruct complexity scaling</td>
+                <td>Output must be regenerated for each augmented input</td>
+            </tr>
+            <tr>
+                <td>Dialogue / Chat</td>
+                <td>Multi-turn expansion, user persona variation, error injection</td>
+                <td>Conversational coherence must be maintained across turns</td>
+            </tr>
+            <tr>
+                <td>Summarization</td>
+                <td>Source document paraphrasing (not summary paraphrasing)</td>
+                <td>Summary must be re-generated for augmented sources</td>
+            </tr>
+        </tbody>
+    </table>
+    </div>
+    <div class="table-caption"><strong>Table 13.8.1:</strong> Task-specific augmentation strategies. Each task type requires different invariants to be preserved during augmentation.</div>
+
+    <h2>5. Quality Control for Augmented Data <span class="level-badge intermediate" title="Intermediate">INTERMEDIATE</span></h2>
+
+    <p>Augmented data carries risks that must be managed through quality filtering (building on the techniques from <a href="section-13.4.html">Section 13.4</a>):</p>
+
+    <ul>
+        <li><strong>Semantic drift:</strong> The augmented text subtly changes meaning, introducing label noise. Mitigate by computing embedding similarity between original and augmented text, filtering pairs below a threshold (e.g., cosine similarity &lt; 0.85).</li>
+        <li><strong>Degenerate outputs:</strong> LLMs sometimes produce near-copies instead of genuine paraphrases. Detect using n-gram overlap metrics (BLEU or chrF); filter examples with BLEU &gt; 0.9 against the original.</li>
+        <li><strong>Distribution shift:</strong> Over-augmentation can make the training distribution unrepresentative of real-world input. Monitor augmentation ratios: a common guideline is no more than 3:1 augmented-to-original for classification tasks.</li>
+        <li><strong>Bias amplification:</strong> If the original data contains biases, augmentation can amplify them. Entity swapping with diverse demographic names helps, but does not fully solve the problem.</li>
+    </ul>
+
+<pre><code class="language-python">from sentence_transformers import SentenceTransformer, util
+
+model = SentenceTransformer("all-MiniLM-L6-v2")
+
+def filter_augmented(original, augmented_list, min_sim=0.75, max_sim=0.98):
+    """Filter augmented examples by semantic similarity to the original.
+
+    Too similar (>max_sim): likely a near-copy, adds no diversity.
+    Too dissimilar (<min_sim): likely semantic drift, may have wrong label.
+    """
+    orig_emb = model.encode(original, convert_to_tensor=True)
+    aug_embs = model.encode(augmented_list, convert_to_tensor=True)
+    scores = util.cos_sim(orig_emb, aug_embs)[0]
+
+    filtered = []
+    for text, score in zip(augmented_list, scores):
+        if min_sim <= score.item() <= max_sim:
+            filtered.append((text, score.item()))
+    return sorted(filtered, key=lambda x: x[1], reverse=True)
+
+# Usage
+original = "How do I reset my password?"
+augmented = [
+    "What are the steps to change my password?",       # good paraphrase
+    "How do I reset my password?",                      # near-copy
+    "Tell me about your company's history",             # semantic drift
+    "I need help resetting the password on my account", # good paraphrase
+]
+filtered = filter_augmented(original, augmented)
+# Returns only the two good paraphrases</code></pre>
+<div class="code-caption"><strong>Code Fragment 13.8.6:</strong> Semantic similarity filtering for augmented data. The similarity window (0.75 to 0.98) rejects both near-copies and drifted examples.</div>
+
+    <h2>6. Augmentation at Scale: Pipeline Design <span class="level-badge advanced" title="Advanced">ADVANCED</span></h2>
+
+    <p>Production augmentation pipelines typically follow a three-stage pattern:</p>
+
+    <ol>
+        <li><strong>Seed selection:</strong> Choose which examples to augment. Prioritize underrepresented classes, edge cases, and high-value examples identified through active learning (<a href="section-13.5.html">Section 13.5</a>).</li>
+        <li><strong>Multi-strategy augmentation:</strong> Apply several augmentation methods to each seed. For example: 2 back-translations (different pivot languages), 3 LLM paraphrases (different style hints), and 1 entity swap. This produces 6 candidates per seed.</li>
+        <li><strong>Quality filtering and deduplication:</strong> Filter by semantic similarity, remove near-duplicates across the augmented corpus using MinHash (<a href="section-13.4.html">Section 13.4</a>), and balance the final class distribution.</li>
+    </ol>
+
+    <div class="callout practical-example">
+        <div class="callout-title">Practical Example: Augmenting an Intent Classification Dataset</div>
+        <p>A customer service chatbot has 50 examples per intent across 30 intents (1,500 total). The target is 200 examples per intent. The pipeline generates 3 LLM paraphrases and 2 back-translations per example (5 candidates each, 7,500 total), filters by similarity window, deduplicates, and samples to 200 per class. The result is a balanced 6,000-example dataset with 4x the linguistic diversity of the original. On evaluation, this augmented dataset improves intent classification F1 by 8 to 12 points compared to training on the original 1,500 examples alone.</p>
+    </div>
+
+    <h2>Self-Check Questions</h2>
+    <div class="self-check">
+        <details>
+            <summary>Why is back-translation effective for data augmentation?</summary>
+            <p>Back-translation works because different languages encode meaning with different syntactic structures and word choices. The round-trip through translation introduces natural variation in vocabulary, word order, and phrasing while preserving semantic content. Using multiple pivot languages produces multiple distinct paraphrases from a single source.</p>
+        </details>
+        <details>
+            <summary>What is the risk of excessive augmentation, and how do you mitigate it?</summary>
+            <p>Over-augmentation can cause distribution shift (training distribution becomes unrepresentative of real input) and can amplify existing biases. Mitigation strategies include limiting augmentation ratios (typically 3:1 or less), filtering by semantic similarity to ensure label preservation, deduplicating the augmented corpus, and monitoring evaluation metrics on a held-out set that contains only real examples.</p>
+        </details>
+        <details>
+            <summary>When should you use classical augmentation (EDA, back-translation) vs. LLM-powered augmentation?</summary>
+            <p>Classical methods are faster, cheaper, and more controllable; they work well for simple classification tasks where word-level variation is sufficient. LLM-powered augmentation is better for complex tasks requiring semantic-level variation (register shifts, multi-turn expansion, entity-aware paraphrasing) and when output quality must match human-written text. In practice, combining both provides the best cost-quality tradeoff.</p>
+        </details>
+    </div>
+
+    <section class="bibliography">
+    <h2>References and Further Reading</h2>
+    <div class="bib-entry-card">
+        <p class="bib-ref">Wei, J. &amp; Zou, K. (2019). <a href="https://arxiv.org/abs/1901.11196" target="_blank" rel="noopener">"EDA: Easy Data Augmentation Techniques for Boosting Performance on Text Classification Tasks."</a> <em>EMNLP</em>.</p>
+        <p class="bib-annotation">Introduced four simple text augmentation operations (synonym replacement, random insertion, swap, deletion) and demonstrated significant improvements on small datasets. The foundational paper for classical text augmentation.</p>
+        <span class="bib-meta">Paper</span>
+    </div>
+    <div class="bib-entry-card">
+        <p class="bib-ref">Sennrich, R. et al. (2016). <a href="https://arxiv.org/abs/1511.06709" target="_blank" rel="noopener">"Improving Neural Machine Translation Models with Monolingual Data."</a> <em>ACL</em>.</p>
+        <p class="bib-annotation">Introduced back-translation as a data augmentation technique for NMT, later widely adopted for general NLP augmentation.</p>
+        <span class="bib-meta">Paper</span>
+    </div>
+    <div class="bib-entry-card">
+        <p class="bib-ref">Feng, S. et al. (2021). <a href="https://arxiv.org/abs/2105.03075" target="_blank" rel="noopener">"A Survey of Data Augmentation Approaches for NLP."</a> <em>Findings of ACL</em>.</p>
+        <p class="bib-annotation">Comprehensive survey covering rule-based, interpolation, and model-based augmentation methods for NLP, with analysis of which methods work best for which tasks.</p>
+        <span class="bib-meta">Paper</span>
+    </div>
+    <div class="bib-entry-card">
+        <p class="bib-ref">Dai, H. et al. (2023). <a href="https://arxiv.org/abs/2307.03027" target="_blank" rel="noopener">"AugGPT: Leveraging ChatGPT for Text Data Augmentation."</a> <em>arXiv</em>.</p>
+        <p class="bib-annotation">Demonstrates that ChatGPT-based paraphrasing outperforms classical augmentation methods across multiple text classification benchmarks, providing practical recipes for LLM-powered augmentation.</p>
+        <span class="bib-meta">Paper</span>
+    </div>
+    </section>
+
+<nav class="chapter-nav">
+    <a class="prev" href="section-13.7.html">Synthetic Reasoning Data</a>
+    <a class="up" href="index.html">Chapter 13: Synthetic Data Generation &amp; LLM Simulation</a>
+    <a class="next" href="../module-14-fine-tuning-fundamentals/index.html">Chapter 14: Fine-Tuning Fundamentals</a>
+</nav>
+
+    <footer>
+        <p class="footer-title">Building Conversational AI with LLMs and Agents, Fifth Edition</p>
+        <p>&copy; 2026 Alexander Apartsin &amp; Yehudit Aperstein &middot; <a href="../../toc.html">Contents</a></p>
+        <p class="footer-updated">Last updated: <script>document.write(new Date(document.lastModified).toLocaleDateString('en-US', {year:'numeric', month:'long', day:'numeric'}))</script></p>
+    </footer>
+</main>
+</body>
+</html>
