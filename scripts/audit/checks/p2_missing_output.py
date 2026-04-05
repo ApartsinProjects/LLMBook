@@ -84,12 +84,100 @@ def _is_definition_only(code_text):
     return True
 
 
+def _is_comment_line(line):
+    """Return True if the line is a comment (leading #, ignoring whitespace)."""
+    return line.strip().startswith('#')
+
+
+def _all_inside_defs(code_text, pattern):
+    """Return True if every match of pattern is inside an indented def/class body.
+
+    A match is considered 'inside a body' if:
+      1. It appears on a line indented >= 4 spaces, AND
+      2. There is a preceding def/class at column 0 (top-level definition).
+    If no matches exist, returns False.
+    """
+    lines = code_text.split('\n')
+    in_body = False
+    for line in lines:
+        stripped = line.lstrip()
+        indent = len(line) - len(stripped)
+        # Track whether we are inside a top-level def/class
+        if indent == 0 and (stripped.startswith('def ') or stripped.startswith('class ')):
+            in_body = True
+        elif indent == 0 and stripped and not stripped.startswith('#') and not stripped.startswith('@'):
+            in_body = False
+        # Check if this line has a match
+        if pattern.search(line):
+            if _is_comment_line(line):
+                continue  # commented out, skip
+            if not in_body or indent < 4:
+                return False  # found a match at top level
+    return True
+
+
+def _shape_is_standalone(line):
+    """Return True if .shape on this line is used as a standalone expression (producing output).
+
+    Returns False if .shape is used as part of a subscript or attribute access,
+    e.g. x.shape[0], x.shape[1], *x.shape, etc.
+    """
+    # Find all .shape occurrences and check what follows
+    for m in re.finditer(r'\.shape\b', line):
+        end = m.end()
+        rest = line[end:].lstrip()
+        # If followed by [ or used in assignment/expression context, not standalone
+        if rest and rest[0] in ('[', ',', ')'):
+            continue
+        # If it's the end of the line or followed by something like a comment, it's standalone
+        if not rest or rest[0] == '#':
+            return True
+        # If followed by an operator, part of expression
+        if rest[0] in ('=', '+', '-', '*', '/', '%', '|', '&', '<', '>'):
+            continue
+        # Otherwise treat as standalone
+        return True
+    return False
+
+
 def _find_output_triggers(code_text):
-    """Return list of output-producing pattern descriptions found in code."""
+    """Return list of output-producing pattern descriptions found in code.
+
+    Filters out:
+    - Matches on commented lines
+    - .shape used in subscript/expression context (not standalone)
+    - Matches that only appear inside function/class bodies with no top-level call
+    """
     triggers = []
+    lines = code_text.split('\n')
+    active_lines = [ln for ln in lines if not _is_comment_line(ln)]
+    active_text = '\n'.join(active_lines)
+
     for pattern, label in OUTPUT_PATTERNS:
-        if pattern.search(code_text):
-            triggers.append(label)
+        if not pattern.search(active_text):
+            continue
+
+        # Special handling for .shape: only count standalone uses
+        if label == ".shape":
+            has_standalone = False
+            for ln in active_lines:
+                if pattern.search(ln) and _shape_is_standalone(ln):
+                    has_standalone = True
+                    break
+            if not has_standalone:
+                continue
+
+        # Skip logging/logger inside function bodies only
+        if label in ("logging.*", "logger.*"):
+            if _all_inside_defs(code_text, pattern):
+                continue
+
+        # Skip print/display/head/pprint inside function bodies with no top-level call
+        if label in ("print()", "display()", ".head()", "pprint()"):
+            if _all_inside_defs(code_text, pattern):
+                continue
+
+        triggers.append(label)
     return triggers
 
 
