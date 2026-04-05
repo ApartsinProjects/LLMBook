@@ -8,20 +8,20 @@
 
 ## Agent Guidelines
 
-When performing book production tasks, consult the relevant agent description files under `agents/` before starting. These files define style rules, output formats, and quality standards.
+When performing book production tasks, you MUST read the relevant agent description file under `agents/` before starting work. These files define style rules, output formats, and quality standards that override any defaults.
 
-| Task | Agent File | Key Rules |
-|------|-----------|-----------|
-| Writing section content | `agents/00-chapter-lead.html` | Structure, artefact requirements, integration |
-| Generating illustrations | `agents/31-illustrator.html` | Prompt template, style palette, embedding format, target 5-8 per chapter |
-| Writing code examples | `agents/08-code-pedagogy.html` | Caption placement, "right tool" principle, library shortcuts |
-| Cross-references | `agents/13-cross-reference.html` | At least 3 per section, progressive depth |
-| Epigraphs | `agents/32-epigraph-writer.html` | Agent persona attribution format |
-| Callout boxes | `agents/25-visual-identity-director.html` | 15 callout types, required mix per section |
-| Bibliography | `agents/35-bibliography.html` | Card layout, annotation format |
-| Quality control | `agents/37-controller.html` | Conformance sweep, dispatch pattern |
-| Publication QA | `agents/38-publication-qa.html` | Pre-publication checklist |
-| Fun/engagement | `agents/34-fun-injector.html` | Humor guidelines, fun-note callouts |
+- When **writing section content**, read `agents/00-chapter-lead.html` for structure, artefact requirements, and integration patterns.
+- When **generating illustrations**, read `agents/31-illustrator.html` for prompt templates, style palette (warm/whimsical/Kurzgesagt), embedding format (`<figure class="opener-illustration">`), and target count (5-8 per chapter).
+- When **writing code examples**, read `agents/08-code-pedagogy.html` for caption placement (below blocks), the "right tool" principle, and library shortcut requirements.
+- When **adding cross-references**, read `agents/13-cross-reference.html` for minimum count (3 per section) and progressive depth rules.
+- When **writing epigraphs**, read `agents/32-epigraph-writer.html` for the AI agent persona attribution format.
+- When **adding callout boxes**, read `agents/25-visual-identity-director.html` for the 15 callout types and required mix per section.
+- When **writing bibliographies**, read `agents/35-bibliography.html` for card layout and annotation format.
+- When **running quality control**, read `agents/37-controller.html` for conformance sweep and dispatch patterns.
+- When **doing publication QA**, read `agents/38-publication-qa.html` for the pre-publication checklist.
+- When **adding humor/engagement**, read `agents/34-fun-injector.html` for humor guidelines and fun-note callout conventions.
+- When **checking facts in figures**, read `agents/39-figure-fact-checker.html` for diagram verification rules.
+- When **adding code captions**, read `agents/40-code-caption-agent.html` for numbering format (Code Fragment X.Y.Z).
 
 ## Image Generation
 
