@@ -84,6 +84,9 @@ Part 9: Safety & Strategy (part-9-safety-strategy/)
 Part 10: Frontiers (part-10-frontiers/)
   34: Emerging Architectures           module-34-emerging-architectures
   35: AI & Society                     module-35-ai-society
+
+Part 11: From Idea to AI Product (part-11-idea-to-product/)
+  36: From Idea to AI Product          module-36-idea-to-product
 ```
 
 **Note:** Part 2 contains module-18 (Interpretability) and Part 6 contains module-23
