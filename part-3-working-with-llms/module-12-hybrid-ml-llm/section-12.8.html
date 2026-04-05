@@ -640,6 +640,220 @@ def full_pipeline(
 
 </main>
 
+<div class="lab" id="lab-12-1">
+  <h2>Hands-On Lab: Fine-Tune with LoRA</h2>
+  <div class="lab-meta">
+    <span class="lab-duration">Duration: ~60 minutes</span>
+    <span class="lab-difficulty">Intermediate</span>
+  </div>
+
+  <div class="lab-objective">
+    <h3>Objective</h3>
+    <p>Implement LoRA (Low-Rank Adaptation) weight injection manually in PyTorch to understand the mechanics, then achieve the same result with <code>peft.get_peft_model</code> in 5 lines. Compare parameter counts, training cost, and output quality between the two approaches.</p>
+  </div>
+
+  <div class="lab-skills">
+    <h3>What You'll Practice</h3>
+    <ul>
+      <li>Understanding LoRA's low-rank decomposition (W' = W + BA)</li>
+      <li>Manually injecting trainable adapter matrices into a frozen model</li>
+      <li>Using the PEFT library to apply LoRA with minimal code</li>
+      <li>Comparing trainable parameter counts and memory usage</li>
+    </ul>
+  </div>
+
+  <div class="lab-prereqs">
+    <h3>Setup</h3>
+    <p>A CUDA GPU is recommended. A GPU with at least 4 GB of VRAM is sufficient for the small model used here.</p>
+    <pre><code class="language-bash">pip install torch transformers peft datasets</code></pre>
+  </div>
+
+  <div class="lab-steps">
+    <h3>Steps</h3>
+
+    <div class="lab-step">
+      <h3>Step 1: Implement LoRA from scratch</h3>
+      <p>Create a LoRA layer that wraps an existing <code>nn.Linear</code> layer, freezes the original weights, and adds trainable low-rank matrices A and B.</p>
+      <pre><code class="language-python">import torch
+import torch.nn as nn
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+class LoRALayer(nn.Module):
+    """Wraps an existing Linear layer with a low-rank adapter."""
+    def __init__(self, original_layer, rank=8, alpha=16):
+        super().__init__()
+        self.original = original_layer
+        self.original.weight.requires_grad = False  # freeze
+        if self.original.bias is not None:
+            self.original.bias.requires_grad = False
+
+        in_features = original_layer.in_features
+        out_features = original_layer.out_features
+        self.rank = rank
+        self.scale = alpha / rank
+
+        # Low-rank matrices: A projects down, B projects back up
+        self.lora_A = nn.Parameter(torch.randn(rank, in_features) * 0.01)
+        self.lora_B = nn.Parameter(torch.zeros(out_features, rank))
+
+    def forward(self, x):
+        base_out = self.original(x)
+        # LoRA path: x @ A^T @ B^T, scaled by alpha/rank
+        lora_out = (x @ self.lora_A.T @ self.lora_B.T) * self.scale
+        return base_out + lora_out
+
+# Load a small model
+model_name = "HuggingFaceTB/SmolLM2-135M-Instruct"
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+if tokenizer.pad_token is None:
+    tokenizer.pad_token = tokenizer.eos_token
+
+model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.float32)
+
+# Inject LoRA into all q_proj and v_proj layers
+lora_layers = []
+for name, module in model.named_modules():
+    if "q_proj" in name or "v_proj" in name:
+        if isinstance(module, nn.Linear):
+            parent_name = name.rsplit(".", 1)
+            parent = dict(model.named_modules())[parent_name[0]]
+            lora = LoRALayer(module, rank=8, alpha=16)
+            setattr(parent, parent_name[1], lora)
+            lora_layers.append(name)
+
+trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+total = sum(p.numel() for p in model.parameters())
+print(f"Injected LoRA into {len(lora_layers)} layers")
+print(f"Trainable: {trainable:,} / {total:,} ({trainable/total*100:.3f}%)")
+</code></pre>
+      <details>
+        <summary>Hint</summary>
+        <p>Matrix B is initialized to zeros so that the LoRA path starts as a no-op. The model's outputs are identical to the base model before any training. Matrix A uses small random values to break symmetry during optimization.</p>
+      </details>
+    </div>
+
+    <div class="lab-step">
+      <h3>Step 2: Verify the manual LoRA works</h3>
+      <p>Run a forward pass through the modified model and confirm it produces valid logits.</p>
+      <pre><code class="language-python"># Test forward pass
+test_input = tokenizer("Hello, world!", return_tensors="pt")
+with torch.no_grad():
+    output = model(**test_input)
+
+print(f"Logits shape: {output.logits.shape}")
+print(f"Loss computable: {output.loss is not None if 'labels' in test_input else 'N/A (no labels)'}")
+
+# Quick training test: one gradient step
+test_input["labels"] = test_input["input_ids"].clone()
+output = model(**test_input)
+output.loss.backward()
+
+# Verify only LoRA parameters have gradients
+has_grad = sum(1 for p in model.parameters() if p.grad is not None and p.requires_grad)
+frozen_with_grad = sum(1 for p in model.parameters() if p.grad is not None and not p.requires_grad)
+print(f"Parameters with gradients: {has_grad}")
+print(f"Frozen params with gradients (should be 0): {frozen_with_grad}")
+model.zero_grad()
+</code></pre>
+      <details>
+        <summary>Hint</summary>
+        <p>Only the LoRA A and B matrices should accumulate gradients. All original model weights remain frozen. If any frozen parameter shows a gradient, the injection logic has a bug.</p>
+      </details>
+    </div>
+
+    <div class="lab-step">
+      <h3>Step 3: The library shortcut with PEFT</h3>
+      <p>Achieve the same LoRA injection in 5 lines using the PEFT library, then compare parameter counts.</p>
+      <pre><code class="language-python">from peft import LoraConfig, get_peft_model, TaskType
+
+# Reload fresh base model
+base_model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.float32)
+
+# The library way: 5 lines
+lora_config = LoraConfig(
+    r=8, lora_alpha=16, target_modules=["q_proj", "v_proj"],
+    task_type=TaskType.CAUSAL_LM, lora_dropout=0.0, bias="none"
+)
+peft_model = get_peft_model(base_model, lora_config)
+peft_model.print_trainable_parameters()
+
+# Compare with our manual implementation
+peft_trainable = sum(p.numel() for p in peft_model.parameters() if p.requires_grad)
+print(f"\nManual LoRA trainable params: {trainable:,}")
+print(f"PEFT LoRA trainable params:   {peft_trainable:,}")
+print(f"Match: {trainable == peft_trainable}")
+</code></pre>
+      <details>
+        <summary>Hint</summary>
+        <p>The parameter counts should match exactly because both approaches inject rank-8 matrices into the same layers. PEFT additionally supports features like dropout on the LoRA path, adapter saving/loading, and automatic merging, which would require significant extra code to implement manually.</p>
+      </details>
+    </div>
+
+    <div class="lab-step">
+      <h3>Step 4: Compare training cost</h3>
+      <p>Measure memory usage and speed for a short training run with each approach.</p>
+      <pre><code class="language-python">import time
+
+device = "cuda" if torch.cuda.is_available() else "cpu"
+
+def measure_training_step(m, label):
+    m = m.to(device)
+    m.train()
+    optimizer = torch.optim.AdamW(
+        (p for p in m.parameters() if p.requires_grad), lr=2e-4
+    )
+    inputs = tokenizer(
+        "The quick brown fox jumps over the lazy dog. " * 10,
+        return_tensors="pt", truncation=True, max_length=128
+    ).to(device)
+    inputs["labels"] = inputs["input_ids"].clone()
+
+    if device == "cuda":
+        torch.cuda.reset_peak_memory_stats()
+
+    start = time.perf_counter()
+    for _ in range(10):
+        out = m(**inputs)
+        out.loss.backward()
+        optimizer.step()
+        optimizer.zero_grad()
+    elapsed = time.perf_counter() - start
+
+    mem = torch.cuda.max_memory_allocated() / 1024**2 if device == "cuda" else 0
+    print(f"{label}: {elapsed:.2f}s for 10 steps, Peak memory: {mem:.0f} MB")
+    m.to("cpu")
+    torch.cuda.empty_cache() if device == "cuda" else None
+
+measure_training_step(model, "Manual LoRA")
+measure_training_step(peft_model, "PEFT LoRA")
+</code></pre>
+      <details>
+        <summary>Hint</summary>
+        <p>Both approaches should show similar memory and speed because the underlying computation is the same. The PEFT library adds negligible overhead. The real advantage of PEFT is engineering productivity: saving, loading, merging, and managing multiple adapters becomes trivial.</p>
+      </details>
+    </div>
+  </div>
+
+  <div class="lab-expected">
+    <h3>Expected Output</h3>
+    <ul>
+      <li>Manual LoRA injects trainable parameters into q_proj and v_proj, matching PEFT's count exactly</li>
+      <li>Only LoRA matrices accumulate gradients; all base weights remain frozen</li>
+      <li>Training speed and memory are nearly identical between manual and PEFT approaches</li>
+      <li>Clear understanding that PEFT provides engineering convenience, not computational savings</li>
+    </ul>
+  </div>
+
+  <div class="lab-stretch">
+    <h3>Stretch Goals</h3>
+    <ul>
+      <li>Add LoRA to all linear layers (not just attention projections) and compare parameter counts</li>
+      <li>Implement adapter merging: fold the trained BA matrices back into the original weights</li>
+      <li>Try different rank values (4, 16, 32) and plot trainable parameters vs. rank</li>
+    </ul>
+  </div>
+</div>
+
 <section class="bibliography">
     <div class="bibliography-title">References and Further Reading</div>
     <div class="bib-category">Dataset Engineering Foundations</div>

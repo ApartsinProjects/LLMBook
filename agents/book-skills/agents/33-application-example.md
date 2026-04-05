@@ -67,6 +67,7 @@ Every Practical Example box follows this structure (all elements required):
 - **Diverse roles**: Engineers, PMs, researchers, CTOs, data scientists, ML ops, instructors
 - **Diverse industries**: Finance, healthcare, education, e-commerce, media, legal, manufacturing
 - **No brand worship**: Do not make stories about how great a specific company is; focus on the decision and lesson
+- **Name the tools**: When describing what the team built, always name the specific libraries, frameworks, or models they used. Show that picking the right tool collapsed weeks of custom engineering into a few lines of integration code. The "How" field should mention the library and how little code it took (e.g., "Using LangChain's RetrievalQA chain, the engineer replaced 400 lines of custom retrieval code with a 12-line pipeline").
 
 ## Tone
 

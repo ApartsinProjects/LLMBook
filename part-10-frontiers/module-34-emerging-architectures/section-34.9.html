@@ -441,22 +441,305 @@ $$V_{\text{net}} = P(\text{useful}) \times \Delta Q - C_{\text{total}}$$
     </ul>
 
 
+    <div class="lab">
+        <h3>Hands-On Lab: Explore Reasoning and Interpretability</h3>
+        <div class="lab-meta">
+            <span class="lab-level">Advanced</span>
+            <span class="lab-duration">90 min</span>
+        </div>
+        <div class="lab-objective">
+            <h4>Objective</h4>
+            <p>Use TransformerLens to inspect attention patterns inside GPT-2, apply activation patching to identify computational circuits responsible for specific behaviors, and then use DSPy to build a structured reasoning pipeline. By the end, you will have a working toolkit that connects mechanistic interpretability with programmatic reasoning, reinforcing the <strong>Right Tool</strong> pattern: choose the tool that fits the analysis task rather than forcing a single framework to do everything.</p>
+        </div>
+        <div class="lab-skills">
+            <h4>Skills Practiced</h4>
+            <ul>
+                <li>Loading and probing transformer internals with TransformerLens</li>
+                <li>Visualizing attention heads and identifying induction circuits</li>
+                <li>Performing activation patching to localize model behavior to specific layers and heads</li>
+                <li>Building structured reasoning chains with DSPy signatures and modules</li>
+                <li>Connecting interpretability findings to reasoning pipeline design</li>
+            </ul>
+        </div>
+        <div class="lab-prereqs">
+            <h4>Prerequisites</h4>
+            <ul>
+                <li>Familiarity with transformer architecture from <a class="cross-ref" href="../../part-2-understanding-llms/module-05-attention-transformers/index.html">Chapter 5</a></li>
+                <li>Python environment with GPU access (Colab free tier is sufficient for GPT-2)</li>
+                <li>Basic understanding of interpretability concepts from <a class="cross-ref" href="../../part-2-understanding-llms/module-18-interpretability/index.html">Chapter 18</a></li>
+            </ul>
+        </div>
+        <div class="lab-steps">
+            <h4>Steps</h4>
+            <ol>
+                <li><strong>Step 1: Install libraries and load GPT-2 via TransformerLens</strong>
+                    <p>Install the required packages and load GPT-2-small into a <code>HookedTransformer</code>. This wrapper gives you direct access to every activation, residual stream, and attention pattern inside the model.</p>
+<pre><code class="language-python">## Step 1 : Environment setup and model loading
+# Install: pip install transformer-lens dspy-ai matplotlib numpy torch
+
+import transformer_lens
+from transformer_lens import HookedTransformer
+import torch
+
+# Load GPT-2-small with TransformerLens hooks
+model = HookedTransformer.from_pretrained("gpt2-small")
+print(f"Model: {model.cfg.model_name}")
+print(f"Layers: {model.cfg.n_layers}, Heads: {model.cfg.n_heads}")
+print(f"d_model: {model.cfg.d_model}, d_head: {model.cfg.d_head}")
+</code></pre>
+                </li>
+
+                <li><strong>Step 2: Visualize attention patterns on a sample prompt</strong>
+                    <p>Run a forward pass with caching enabled, extract the attention weights, and plot a heatmap for selected heads. Look for heads that attend to previous token positions (possible induction heads) versus heads that attend to the first token or punctuation.</p>
+<pre><code class="language-python">## Step 2 : Extract and visualize attention patterns
+import matplotlib.pyplot as plt
+import numpy as np
+
+prompt = "When Mary and John went to the store, John gave a drink to"
+tokens = model.to_tokens(prompt)
+token_strs = model.to_str_tokens(prompt)
+
+# Run forward pass and cache all intermediate activations
+logits, cache = model.run_with_cache(tokens)
+
+# Extract attention pattern for layer 5, head 1
+attn_pattern = cache["pattern", 5][0, 1].detach().cpu().numpy()
+
+fig, ax = plt.subplots(figsize=(10, 8))
+im = ax.imshow(attn_pattern, cmap="Blues")
+ax.set_xticks(range(len(token_strs)))
+ax.set_yticks(range(len(token_strs)))
+ax.set_xticklabels(token_strs, rotation=90, fontsize=8)
+ax.set_yticklabels(token_strs, fontsize=8)
+ax.set_title("Attention Pattern: Layer 5, Head 1")
+ax.set_xlabel("Source (key)")
+ax.set_ylabel("Destination (query)")
+plt.colorbar(im)
+plt.tight_layout()
+plt.savefig("attention_heatmap_L5H1.png", dpi=150)
+plt.show()
+
+# Scan all heads for strong "previous token" attention
+print("\nHeads with strong previous-token attention:")
+for layer in range(model.cfg.n_layers):
+    for head in range(model.cfg.n_heads):
+        pattern = cache["pattern", layer][0, head].detach().cpu().numpy()
+        # Measure average attention to the immediately preceding token
+        prev_attn = np.mean([
+            pattern[i, i - 1] for i in range(1, len(token_strs))
+        ])
+        if prev_attn > 0.3:
+            print(f"  Layer {layer}, Head {head}: avg prev-token attn = {prev_attn:.3f}")
+</code></pre>
+                </li>
+
+                <li><strong>Step 3: Apply activation patching to identify circuits</strong>
+                    <p>Activation patching (also called causal tracing) replaces a single activation with its value from a corrupted run and measures how much the model's output changes. This localizes which layers and heads are causally responsible for a specific prediction. Here we test which attention heads are critical for the indirect object identification task ("John gave a drink to ___").</p>
+<pre><code class="language-python">## Step 3 : Activation patching for circuit discovery
+
+# Create a corrupted version (replace "John" with "Bob" in the first mention)
+clean_prompt = "When Mary and John went to the store, John gave a drink to"
+corrupt_prompt = "When Mary and Bob went to the store, John gave a drink to"
+
+clean_tokens = model.to_tokens(clean_prompt)
+corrupt_tokens = model.to_tokens(corrupt_prompt)
+
+# Get clean and corrupt activations
+clean_logits, clean_cache = model.run_with_cache(clean_tokens)
+corrupt_logits, corrupt_cache = model.run_with_cache(corrupt_tokens)
+
+# Target token: " Mary" (the expected completion)
+mary_token_id = model.to_single_token(" Mary")
+clean_logit_diff = (
+    clean_logits[0, -1, mary_token_id]
+    - clean_logits[0, -1, model.to_single_token(" John")]
+).item()
+print(f"Clean logit diff (Mary - John): {clean_logit_diff:.3f}")
+
+# Patch each head's output one at a time
+results = torch.zeros(model.cfg.n_layers, model.cfg.n_heads)
+
+for layer in range(model.cfg.n_layers):
+    for head in range(model.cfg.n_heads):
+        # Hook: replace this head's output with the clean value
+        def patch_hook(value, hook, layer=layer, head=head):
+            value[0, :, head, :] = clean_cache[hook.name][0, :, head, :]
+            return value
+
+        hook_name = f"blocks.{layer}.attn.hook_result"
+        patched_logits = model.run_with_hooks(
+            corrupt_tokens,
+            fwd_hooks=[(hook_name, patch_hook)]
+        )
+        patched_diff = (
+            patched_logits[0, -1, mary_token_id]
+            - patched_logits[0, -1, model.to_single_token(" John")]
+        ).item()
+        results[layer, head] = patched_diff
+
+# Plot the patching results
+fig, ax = plt.subplots(figsize=(14, 6))
+im = ax.imshow(results.numpy(), cmap="RdBu", aspect="auto", vmin=-2, vmax=2)
+ax.set_xlabel("Head")
+ax.set_ylabel("Layer")
+ax.set_title("Activation Patching: Logit Diff Restored per Head")
+plt.colorbar(im, label="Logit diff (Mary - John)")
+plt.tight_layout()
+plt.savefig("activation_patching_results.png", dpi=150)
+plt.show()
+
+# Identify the most important heads
+top_heads = []
+for layer in range(model.cfg.n_layers):
+    for head in range(model.cfg.n_heads):
+        if abs(results[layer, head].item()) > 0.5:
+            top_heads.append((layer, head, results[layer, head].item()))
+top_heads.sort(key=lambda x: abs(x[2]), reverse=True)
+print("\nTop contributing heads (by patching effect):")
+for layer, head, effect in top_heads[:10]:
+    print(f"  Layer {layer}, Head {head}: effect = {effect:.3f}")
+</code></pre>
+                </li>
+
+                <li><strong>Step 4: Build a structured reasoning pipeline with DSPy</strong>
+                    <p>Now shift from interpretability to structured reasoning. Use DSPy to define a multi-step reasoning chain that analyzes interpretability findings and generates hypotheses about model behavior. This demonstrates the <strong>Right Tool</strong> pattern: TransformerLens is the right tool for probing activations, while DSPy is the right tool for orchestrating multi-step LLM reasoning with typed signatures.</p>
+<pre><code class="language-python">## Step 4 : DSPy structured reasoning pipeline
+import dspy
+
+# Configure DSPy with a language model
+# Replace with your preferred provider and model
+lm = dspy.LM("openai/gpt-4o-mini")
+dspy.configure(lm=lm)
+
+
+class AnalyzeCircuit(dspy.Signature):
+    """Given interpretability findings from activation patching,
+    generate a hypothesis about the circuit's function."""
+    patching_results: str = dspy.InputField(
+        desc="Summary of which heads had the largest patching effect"
+    )
+    task_description: str = dspy.InputField(
+        desc="The task the model was performing"
+    )
+    hypothesis: str = dspy.OutputField(
+        desc="A testable hypothesis about the circuit's computational role"
+    )
+    next_experiment: str = dspy.OutputField(
+        desc="A concrete follow-up experiment to validate the hypothesis"
+    )
+
+
+class InterpretabilityAnalyzer(dspy.Module):
+    """Multi-step reasoning: summarize findings, hypothesize, plan next experiment."""
+    def __init__(self):
+        self.analyze = dspy.ChainOfThought(AnalyzeCircuit)
+
+    def forward(self, patching_results, task_description):
+        return self.analyze(
+            patching_results=patching_results,
+            task_description=task_description,
+        )
+
+
+# Format the patching results as a summary string
+findings = "\n".join([
+    f"Layer {l}, Head {h}: patching effect = {e:.3f}"
+    for l, h, e in top_heads[:10]
+])
+
+analyzer = InterpretabilityAnalyzer()
+result = analyzer(
+    patching_results=findings,
+    task_description=(
+        "Indirect object identification: given 'When Mary and John went "
+        "to the store, John gave a drink to ___', the model should "
+        "predict 'Mary'."
+    ),
+)
+
+print("Hypothesis:", result.hypothesis)
+print("\nSuggested next experiment:", result.next_experiment)
+</code></pre>
+                </li>
+
+                <li><strong>Step 5: Generate a combined interpretability report</strong>
+                    <p>Bring together the attention visualizations, patching results, and DSPy analysis into a single summary. This final step reinforces the value of combining low-level mechanistic tools with high-level reasoning tools.</p>
+<pre><code class="language-python">## Step 5 : Combined report
+
+print("=" * 60)
+print("INTERPRETABILITY REPORT: Indirect Object Identification")
+print("=" * 60)
+print(f"\nModel: GPT-2-small ({model.cfg.n_layers} layers, "
+      f"{model.cfg.n_heads} heads/layer)")
+print(f"Prompt: '{clean_prompt}'")
+print(f"Expected completion: ' Mary'")
+print(f"Clean logit diff (Mary - John): {clean_logit_diff:.3f}")
+
+print(f"\nTop {min(5, len(top_heads))} heads by activation patching effect:")
+for layer, head, effect in top_heads[:5]:
+    direction = "promotes Mary" if effect > 0 else "promotes John"
+    print(f"  L{layer}H{head}: effect = {effect:+.3f} ({direction})")
+
+print(f"\nGenerated hypothesis:\n  {result.hypothesis}")
+print(f"\nProposed follow-up:\n  {result.next_experiment}")
+print("\nArtifacts saved:")
+print("  attention_heatmap_L5H1.png")
+print("  activation_patching_results.png")
+</code></pre>
+                </li>
+            </ol>
+        </div>
+        <div class="lab-extensions">
+            <h4>Extensions</h4>
+            <ul>
+                <li>Repeat the patching experiment on GPT-2-medium to see whether the same heads are responsible at larger scale, or whether the circuit migrates to different layers.</li>
+                <li>Use TransformerLens logit attribution to decompose the final prediction into per-head contributions and compare with the patching results.</li>
+                <li>Extend the DSPy pipeline to take the suggested next experiment, run it automatically via TransformerLens hooks, and feed the results back into a second reasoning step (a closed-loop interpretability agent).</li>
+                <li>Swap the indirect object identification task for a factual recall task (e.g., "The Eiffel Tower is in") and compare which circuits activate.</li>
+            </ul>
+        </div>
+    </div>
+
     <div class="whats-next">
         <h2>What Comes Next</h2>
         <p>This concludes Chapter 34 on emerging architectures and scaling frontiers. The next chapter, <a class="cross-ref" href="../module-35-ai-society/index.html">Chapter 35: AI and Society</a>, shifts from technical architecture to the broader societal context in which these systems are deployed, examining economic impact, governance, and the evolving relationship between humans and AI.</p>
     </div>
 
-    <section class="bibliography">
-        <h2>Bibliography</h2>
-        <ul>
-            <li>Qin, Y., Liang, S., Ye, Y., et al. (2024). "ToolLLM: Facilitating Large Language Models to Master 16000+ Real-World APIs." <em>ICLR 2024</em>.</li>
-            <li>Li, M., Song, F., Yu, B., et al. (2023). "API-Bank: A Comprehensive Benchmark for Tool-Augmented LLMs." <em>EMNLP 2023</em>.</li>
-            <li>Schick, T., Dwivedi-Yu, J., Dessì, R., et al. (2023). "Toolformer: Language Models Can Teach Themselves to Use Tools." <em>NeurIPS 2023</em>.</li>
-            <li>Patil, S. G., Zhang, T., Wang, X., and Gonzalez, J. E. (2023). "Gorilla: Large Language Model Connected with Massive APIs." <em>arXiv:2305.15334</em>.</li>
-            <li>Anthropic (2024). "Model Context Protocol (MCP) Specification." <em>Anthropic Technical Documentation</em>.</li>
-            <li>Wang, X., Ma, W., Meng, Y., et al. (2024). "T-Bench: Benchmarking Tool Use of Large Language Models." <em>arXiv:2406.10573</em>.</li>
-        </ul>
-    </section>
+    <div class="bibliography">
+        <div class="bibliography-title">References &amp; Further Reading</div>
+            <div class="bib-category">Key References</div>
+
+    <div class="bib-entry-card">
+        <p class="bib-ref">Qin, Y., Liang, S., Ye, Y., et al. (2024). "ToolLLM: Facilitating Large Language Models to Master 16000+ Real-World APIs." <em>ICLR 2024</em>.</p>
+        <span class="bib-meta">&#128196; Paper</span>
+    </div>
+
+    <div class="bib-entry-card">
+        <p class="bib-ref">Li, M., Song, F., Yu, B., et al. (2023). "API-Bank: A Comprehensive Benchmark for Tool-Augmented LLMs." <em>EMNLP 2023</em>.</p>
+        <span class="bib-meta">&#128196; Paper</span>
+    </div>
+
+    <div class="bib-entry-card">
+        <p class="bib-ref">Schick, T., Dwivedi-Yu, J., Dessì, R., et al. (2023). "Toolformer: Language Models Can Teach Themselves to Use Tools." <em>NeurIPS 2023</em>.</p>
+        <span class="bib-meta">&#128196; Paper</span>
+    </div>
+
+    <div class="bib-entry-card">
+        <p class="bib-ref">Patil, S. G., Zhang, T., Wang, X., and Gonzalez, J. E. (2023). "Gorilla: Large Language Model Connected with Massive APIs." <em>arXiv:2305.15334</em>.</p>
+        <span class="bib-meta">&#128196; Paper</span>
+    </div>
+
+    <div class="bib-entry-card">
+        <p class="bib-ref">Anthropic (2024). "Model Context Protocol (MCP) Specification." <em>Anthropic Technical Documentation</em>.</p>
+        <span class="bib-meta">&#128736; Tool</span>
+    </div>
+
+    <div class="bib-entry-card">
+        <p class="bib-ref">Wang, X., Ma, W., Meng, Y., et al. (2024). "T-Bench: Benchmarking Tool Use of Large Language Models." <em>arXiv:2406.10573</em>.</p>
+        <span class="bib-meta">&#128196; Paper</span>
+    </div>
+
+    </div>
 
 <nav class="chapter-nav">
     <a class="prev" href="section-34.8.html">The Nature of Agency: When Does a Model Become an Agent?</a>

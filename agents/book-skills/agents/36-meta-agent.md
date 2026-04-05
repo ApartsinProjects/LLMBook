@@ -68,6 +68,8 @@ For each REVIEWER agent, check whether their recommendations were applied:
 - **Missing CSS**: Check that all used CSS classes have definitions
 - **Image references**: Check that all `<img src=` paths point to existing files
 - **Consistency**: Spot-check terminology, formatting, and tone across chapters
+- **"Right Tool" coverage**: For each section with a from-scratch code implementation, check whether a library shortcut follow-up exists. Flag sections where the reader sees only manual complexity without the payoff of "the right tool makes this trivial." Look for the `library-shortcut` callout class or shortcut-pattern captions ("The same [concept] in [N] lines using [library]").
+- **Numeric grounding**: For each formula or architecture component, check whether a micro-example with concrete numbers follows it. Flag formulas presented without a worked trace.
 
 ### 4. User Request History Analysis
 

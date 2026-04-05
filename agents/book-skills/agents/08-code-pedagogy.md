@@ -65,7 +65,61 @@ Rules for micro-examples:
 - Later examples: build on earlier ones, add one new element at a time
 - Final example: brings it together, realistic but not overwhelming
 
-### 5. Reproducibility
+### 6. Library Shortcut Examples ("The Right Tool" Pattern)
+
+A core objective of this book is to show readers that complex tasks become trivially easy when you pick the right library. After teaching a concept from scratch (so the reader understands the internals), follow up with a "shortcut" code block that solves the same problem in 3 to 8 lines using a modern, production-quality library.
+
+**Structure:**
+1. **From-scratch code** first: the pedagogical implementation that teaches HOW it works internally (existing code blocks).
+2. **Library shortcut** second: a concise code block (ideally under 10 lines) using the best available library, showing that the same result is achievable with minimal code. Prefix the code block with a sentence like: "In practice, the same result takes just a few lines with [library name]."
+
+**What to include in shortcut blocks:**
+- The library import and the core call (nothing else)
+- A brief inline comment naming the from-scratch concept it replaces (e.g., `# replaces our manual attention implementation above`)
+- The output, showing it matches the from-scratch version
+- A caption that names the library, states how many lines it takes, and notes what complexity the library handles internally
+
+**When to add shortcut blocks:**
+- After every from-scratch implementation of a standard algorithm or pipeline step
+- When a concept has a well-known library that wraps it (e.g., `sentence-transformers` for embedding, `peft` for LoRA, `langchain` for RAG pipelines, `vllm` for serving)
+- When the shortcut demonstrates a 5x or greater reduction in code complexity
+- Skip shortcuts for concepts that are inherently educational with no production shortcut (e.g., backpropagation math, tokenizer internals exploration)
+
+**Caption pattern for shortcut blocks:**
+```html
+<div class="code-caption"><strong>Code Fragment N:</strong> The same [concept] in [M] lines using [library]. The library handles [specific complexities] internally, letting you focus on [the higher-level concern].</div>
+```
+
+**Example pair:**
+```python
+# From-scratch (20+ lines teaching attention internals)
+def scaled_dot_product_attention(Q, K, V):
+    d_k = Q.shape[-1]
+    scores = Q @ K.transpose(-2, -1) / math.sqrt(d_k)
+    weights = torch.softmax(scores, dim=-1)
+    return weights @ V
+```
+followed by:
+```python
+# Same operation in one line using PyTorch's built-in
+# F.scaled_dot_product_attention handles masking, dropout, and flash attention.
+output = F.scaled_dot_product_attention(Q, K, V, is_causal=True)
+```
+
+**Library shortcut callout (optional, for high-impact shortcuts):**
+When a library reduces a 50+ line implementation to under 5 lines, consider wrapping the shortcut in a callout:
+```html
+<div class="callout library-shortcut">
+  <div class="callout-title">&#128218; Library Shortcut</div>
+  <p>[Library name] condenses the entire [concept] pipeline into [N] lines.
+  Under the hood, it handles [list of complexities]. See <a href="[appendix link]">Appendix [X]</a> for a deeper dive.</p>
+  <pre><code class="language-python">
+  # [concise code here]
+  </code></pre>
+</div>
+```
+
+### 7. Reproducibility
 - Pin library versions in requirements or comments
 - Use deterministic seeds for random operations
 - Provide sample data inline or explain how to obtain it

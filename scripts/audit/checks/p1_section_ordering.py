@@ -15,6 +15,8 @@ Violations reported:
   - Big-picture buried deep in content (more than 200 lines from <main>)
   - Callout or heading after bibliography
   - Whats-next after bibliography
+  - Content (callouts, code, headings) between whats-next and bibliography
+  - Content after whats-next when no bibliography exists
 """
 import re
 from collections import namedtuple
@@ -118,5 +120,56 @@ def run(filepath, html, context):
             issues.append(Issue(PRIORITY, CHECK_ID, filepath,
                 positions["whats-next"],
                 "Whats-next appears after bibliography (should precede it)"))
+
+    # Check: no content (callouts, code, headings) between whats-next and bibliography
+    wn_line = positions.get("whats-next")
+    if wn_line and bib_line and wn_line < bib_line:
+        # Find end of whats-next div
+        wn_end = wn_line
+        depth = 0
+        for i in range(wn_line - 1, len(lines)):
+            depth += lines[i].count('<div')
+            depth -= lines[i].count('</div')
+            if depth <= 0 and i > wn_line - 1:
+                wn_end = i + 2  # line after closing div
+                break
+
+        for i in range(wn_end, bib_line - 1):
+            line_text = lines[i]
+            line_num = i + 1
+            if CALLOUT_RE.search(line_text):
+                callout_class = re.search(r'class="callout\s+([^"]+)"', line_text)
+                ctype = callout_class.group(1) if callout_class else "unknown"
+                issues.append(Issue(PRIORITY, CHECK_ID, filepath, line_num,
+                    f'Callout ({ctype}) appears between whats-next and bibliography (move before whats-next)'))
+            if HEADING_RE.search(line_text):
+                heading_text = re.sub(r'<[^>]+>', '', line_text).strip()[:50]
+                if heading_text:
+                    issues.append(Issue(PRIORITY, CHECK_ID, filepath, line_num,
+                        f'Heading between whats-next and bibliography: "{heading_text}" (move before whats-next)'))
+            if CODE_RE.search(line_text):
+                issues.append(Issue(PRIORITY, CHECK_ID, filepath, line_num,
+                    "Code block between whats-next and bibliography (move before whats-next)"))
+
+    # Check: no content (callouts, code, headings) after whats-next when no bibliography
+    if wn_line and not bib_line:
+        nav_line = positions.get("chapter-nav", len(lines))
+        wn_end = wn_line
+        depth = 0
+        for i in range(wn_line - 1, len(lines)):
+            depth += lines[i].count('<div')
+            depth -= lines[i].count('</div')
+            if depth <= 0 and i > wn_line - 1:
+                wn_end = i + 2
+                break
+
+        for i in range(wn_end, nav_line - 1):
+            line_text = lines[i]
+            line_num = i + 1
+            if CALLOUT_RE.search(line_text):
+                callout_class = re.search(r'class="callout\s+([^"]+)"', line_text)
+                ctype = callout_class.group(1) if callout_class else "unknown"
+                issues.append(Issue(PRIORITY, CHECK_ID, filepath, line_num,
+                    f'Callout ({ctype}) appears after whats-next (move before whats-next)'))
 
     return issues

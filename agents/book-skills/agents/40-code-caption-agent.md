@@ -150,6 +150,14 @@ For every code block, also verify and fix:
 - Import statements should only include what is actually used in the fragment
 - Do NOT simplify code that is intentionally showing a complete, production-like pattern
 
+## Library Shortcut Captions
+
+When a code block is a "library shortcut" (a concise version of a preceding from-scratch implementation using a production library), the caption should follow this pattern:
+
+**Caption pattern:** `<strong>Code Fragment N:</strong> The same [concept] in [M] lines using [library]. The library handles [specific complexities] internally, letting you focus on [the higher-level concern].`
+
+The caption must: (a) name the library, (b) state the line count, (c) describe what the library abstracts away. This reinforces the book's core message that the right tool makes complex tasks trivially easy.
+
 ## What NOT to Caption
 
 - Code blocks inside callout boxes that are 1 to 3 lines of pseudocode, shell commands, or inline examples

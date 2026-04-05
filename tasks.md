@@ -113,7 +113,7 @@
 - [x] Prose-in-formula fixes: 11 files cleaned by background agent
 - [x] SVG text right-clip audit check (p1_svg_text_right_clip.py) + fix script: 37 SVGs in 35 files
 - [x] KV memory formula fix (section-9.2.html)
-- [~] Extend audit script with new checks, run full audit, fix all issues
+- [x] Extend audit script with new checks, run full audit, fix all issues
   - [x] 7 new audit checks created: BROKEN_FIGURE_REF, FIGURE_SEQUENCE, MIXED_CAPTION_STYLE, TOC_LINK_TARGET, ORPHAN_TAG_BEFORE_MAIN, UNESCAPED_AMPERSAND_TITLE, TRIPLE_DOLLAR_MATH
   - [x] Fixed: 74 unescaped ampersands in titles, 6 triple-dollar math, 7 TOC links, 2 orphan divs
   - [x] Agent-created checks: TH_SCOPE_MISMATCH (937 issues), CHAPTER_LABEL_ON_ANCHOR
@@ -149,7 +149,7 @@
 - [x] Renumber front matter index (FM.1 through FM.9)
 - [x] Fix appendix header font color in CSS (#5a6672 to #ffffff)
 - [x] Author bio updates (removed workshop line from first author, added defense/grants to second author)
-- [~] Update front matter to reflect current book content and features
+- [x] Update front matter to reflect current book content and features
 - [x] Resolve duplicate content in sections 29.6 and 30.2 (30.2 kept as canonical, 29.6 redirects)
 - [x] Reorganize scripts/ into subfolders: fix/ (24), detect/ (18), generate/ (8), data/ (4), _archive/ (113)
 - [x] Archive 23 root-level one-shot _*.py scripts into scripts/_archive/
@@ -157,7 +157,7 @@
 - [x] Move author photos to images/, remove empty dirs, clean root
 - [x] Add scripts/README.md to book-skills documenting generalizable scripts
 - [x] Resolve duplicate content in sections 29.6 and 30.2 (30.2 kept as canonical, 29.6 redirects)
-- [~] Update front matter to reflect current book content and features
+- [x] Update front matter to reflect current book content and features
 - [x] Merge duplicate part-6 directories (88 files rewritten, old archived to _archive/old-part-dirs/)
 - [x] Merge duplicate part-7 directories (same pass, 114 total path rewrites)
 - [x] Clean each subfolder of old/orphan files (132 build artifacts + 99 old part files archived)
@@ -167,14 +167,19 @@
 - [x] Update front matter to reflect current 10-part structure and appendices A-V
 - [x] Standardize .part-overview CSS to match .overview (accent border-left, max-width 750px)
 - [x] Remove non-canonical content from indexes (bare fun-notes, time-estimate, stray h2)
+- [x] Standardize bibliography format across all section files (41 files: card-based "References & Further Reading")
+- [x] Fix SECTION_ORDER: callouts/labs between whats-next and bibliography (44 files, fix_post_whatsnext_content.py)
+- [x] Update agent skills with "Right Tool" principle (SKILL.md, 00, 02, 08, 33, 36, 40)
 - [ ] Commit and push all changes
 
 ## Phase 6b: Depth and Cross-referencing
 
-- [~] Model internals depth pass, Parts 1-4 (reasoning models, architectures, DPO variants, PEFT)
-- [~] Model internals depth pass, Parts 5-10 (RAG, agents, multimodal, evaluation, safety)
+- [x] Model internals depth pass, Parts 1-4 (reasoning models, architectures, DPO variants, PEFT)
+  - 14 numeric examples + 11 library shortcuts added across Parts 1-5
+- [x] Model internals depth pass, Parts 5-10 (RAG, agents, multimodal, evaluation, safety)
+  - 11 numeric examples + 8 library shortcuts added across Parts 6-10
 - [~] Cross-reference hyperlinks pass across all HTML (agent completed, needs review)
-- [ ] Update MetaAgent skills for depth/inner working requirements
+- [x] Update MetaAgent skills for depth/inner working requirements
 
 ## Phase 6c: Missing Features (from FM4_PROMISE + SECTION_STRUCTURE audit)
 
@@ -196,7 +201,12 @@
 - [x] Lab gap analysis: 16/36 modules have labs, 20 need labs created
   - Missing labs: Modules 0-12, 27-31, 34-35
   - Existing labs: Modules 13-26, 32-33 (Parts 4-6, 9)
-- [ ] Create 20 hands-on labs for modules without labs (Phase 7 content generation)
+- [x] Create 20 hands-on labs for modules without labs
+  - Modules 0-6: 6 labs (timeline, embeddings, text processing, attention algebra, transformer block, decoding)
+  - Modules 7-12: 6 labs (multi-head attention, GPT-2 generation, quantization, data curation, pretraining, LoRA)
+  - Modules 27-31: 5 labs (vision-language, speech-to-text, evaluation suite, MLOps, deployment)
+  - Modules 34-35: 2 labs (interpretability, responsible AI dashboard)
+  - All labs follow "Right Tool" pattern: from-scratch then library shortcut
 
 ## Phase 7: Full Agent Passes
 

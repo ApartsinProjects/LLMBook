@@ -78,6 +78,7 @@ These rules apply to ALL agents in the pipeline:
 9. **Code caption position**: Code captions (`<div class="code-caption">`) are placed BELOW the code block (after `</pre>` or after any `.code-output` div), NEVER above it. This is the single most common regression in the pipeline.
 10. **Code caption uniqueness**: Every code caption in a file must be unique. No two `<div class="code-caption">` elements in the same file may contain identical text. Each caption must reference specific elements visible in its corresponding code block.
 11. **Class name currency**: Use `.part-label` (not `.subtitle`) for the Part label in chapter headers. Files using the old `.subtitle` class must be updated.
+12. **"Right Tool" principle**: A core book objective is showing that complex tasks become easy with the right Python library, model, or framework. Every section that teaches a concept from scratch must also include a library shortcut showing the same task solved in a few lines using a modern tool. The reader should see both the pedagogical depth (how it works internally) AND the practical payoff (how little code it takes with the right library). Sections missing this "shortcut follow-up" are incomplete.
 
 ## CRITICAL RULE: Mandatory Post-Generation Quality Pass
 

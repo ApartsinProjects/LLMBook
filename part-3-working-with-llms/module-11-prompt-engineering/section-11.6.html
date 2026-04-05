@@ -414,6 +414,241 @@ print(f"Compressed text: {compressed['compressed_prompt']}")</code></pre>
     <p><strong>Prompt optimization is converging with agent design.</strong> DSPy's latest work treats entire agent pipelines (retrieval, reasoning, tool use, output generation) as optimizable programs, where each component's prompt is jointly tuned. This blurs the line between prompt engineering and program synthesis: the optimizer discovers not just better prompts but better reasoning strategies. Separately, context engineering is evolving toward "context operating systems" where models manage their own context windows, deciding what to keep, compress, or retrieve based on the current task. The combination of automatic prompt optimization and intelligent context management may eventually make manual prompt engineering obsolete for most production applications.</p>
 </div>
 
+<div class="lab" id="lab-11-1">
+  <h2>Hands-On Lab: Pretrain a Tiny Language Model</h2>
+  <div class="lab-meta">
+    <span class="lab-duration">Duration: ~90 minutes</span>
+    <span class="lab-difficulty">Advanced</span>
+  </div>
+
+  <div class="lab-objective">
+    <h3>Objective</h3>
+    <p>Train a 10M-parameter GPT-style language model from scratch on a small text corpus using raw PyTorch, then replicate the same training loop in 15 lines with the HuggingFace Trainer API to appreciate what the library abstracts away.</p>
+  </div>
+
+  <div class="lab-skills">
+    <h3>What You'll Practice</h3>
+    <ul>
+      <li>Defining a minimal GPT architecture (embeddings, transformer blocks, LM head)</li>
+      <li>Writing a training loop with cross-entropy loss and gradient clipping</li>
+      <li>Monitoring training loss and generating sample completions</li>
+      <li>Using the HuggingFace Trainer to replace the manual loop</li>
+    </ul>
+  </div>
+
+  <div class="lab-prereqs">
+    <h3>Setup</h3>
+    <p>A CUDA GPU is recommended but not strictly required. Training on CPU will be significantly slower (expect 20+ minutes per epoch).</p>
+    <pre><code class="language-bash">pip install torch transformers datasets</code></pre>
+  </div>
+
+  <div class="lab-steps">
+    <h3>Steps</h3>
+
+    <div class="lab-step">
+      <h3>Step 1: Define a tiny GPT model</h3>
+      <p>Build a small transformer with 6 layers, 6 heads, and an embedding dimension of 192, totaling roughly 10M parameters.</p>
+      <pre><code class="language-python">import torch
+import torch.nn as nn
+from transformers import GPT2Tokenizer
+
+tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
+tokenizer.pad_token = tokenizer.eos_token
+vocab_size = tokenizer.vocab_size
+
+class TinyGPTConfig:
+    vocab_size = vocab_size
+    n_layer = 6
+    n_head = 6
+    n_embd = 192
+    block_size = 256
+    dropout = 0.1
+
+class TinyGPT(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.config = config
+        self.token_emb = nn.Embedding(config.vocab_size, config.n_embd)
+        self.pos_emb = nn.Embedding(config.block_size, config.n_embd)
+        self.drop = nn.Dropout(config.dropout)
+
+        layer = nn.TransformerEncoderLayer(
+            d_model=config.n_embd, nhead=config.n_head,
+            dim_feedforward=config.n_embd * 4, dropout=config.dropout,
+            activation="gelu", batch_first=True, norm_first=True
+        )
+        self.transformer = nn.TransformerEncoder(layer, num_layers=config.n_layer)
+        self.ln_f = nn.LayerNorm(config.n_embd)
+        self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
+
+        # Weight tying
+        self.lm_head.weight = self.token_emb.weight
+        n_params = sum(p.numel() for p in self.parameters())
+        print(f"Model parameters: {n_params:,} ({n_params/1e6:.1f}M)")
+
+    def forward(self, input_ids, labels=None):
+        B, T = input_ids.shape
+        positions = torch.arange(T, device=input_ids.device).unsqueeze(0)
+        x = self.drop(self.token_emb(input_ids) + self.pos_emb(positions))
+
+        # Causal mask
+        mask = nn.Transformer.generate_square_subsequent_mask(T, device=input_ids.device)
+        x = self.transformer(x, mask=mask, is_causal=True)
+        x = self.ln_f(x)
+        logits = self.lm_head(x)
+
+        loss = None
+        if labels is not None:
+            loss = nn.functional.cross_entropy(
+                logits[:, :-1].contiguous().view(-1, logits.size(-1)),
+                labels[:, 1:].contiguous().view(-1)
+            )
+        return logits, loss
+
+config = TinyGPTConfig()
+model = TinyGPT(config)
+</code></pre>
+      <details>
+        <summary>Hint</summary>
+        <p>Weight tying (sharing the token embedding matrix with the LM head) reduces parameter count by almost half and improves training stability. This is standard practice in modern language models.</p>
+      </details>
+    </div>
+
+    <div class="lab-step">
+      <h3>Step 2: Prepare data and train with a manual loop</h3>
+      <p>Load a small corpus, tokenize it into chunks, and run a training loop with AdamW and gradient clipping.</p>
+      <pre><code class="language-python">from datasets import load_dataset
+from torch.utils.data import DataLoader
+
+# Load and tokenize data
+ds = load_dataset("wikitext", "wikitext-2-raw-v1", split="train")
+ds = ds.filter(lambda x: len(x["text"].strip()) > 50)
+
+def tokenize_fn(examples):
+    tokens = tokenizer(examples["text"], truncation=False)["input_ids"]
+    all_tok = [t for doc in tokens for t in doc]
+    bs = config.block_size
+    chunks = [all_tok[i:i+bs] for i in range(0, len(all_tok)-bs+1, bs)]
+    return {"input_ids": chunks}
+
+tok_ds = ds.map(tokenize_fn, batched=True, remove_columns=["text"])
+tok_ds.set_format("torch")
+loader = DataLoader(tok_ds, batch_size=16, shuffle=True)
+
+# Training loop
+device = "cuda" if torch.cuda.is_available() else "cpu"
+model = model.to(device)
+optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4, weight_decay=0.01)
+
+model.train()
+for epoch in range(2):
+    total_loss, steps = 0.0, 0
+    for batch in loader:
+        ids = batch["input_ids"].to(device)
+        _, loss = model(ids, labels=ids)
+
+        optimizer.zero_grad()
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+        optimizer.step()
+
+        total_loss += loss.item()
+        steps += 1
+        if steps % 50 == 0:
+            print(f"Epoch {epoch+1}, Step {steps}, Loss: {total_loss/steps:.4f}")
+
+    print(f"Epoch {epoch+1} complete. Avg loss: {total_loss/steps:.4f}")
+</code></pre>
+      <details>
+        <summary>Hint</summary>
+        <p>Gradient clipping (max norm of 1.0) prevents training instability from occasional large gradients. Watch for the loss to decrease from around 10 (random predictions over 50k vocab) down toward 4-5 after a couple of epochs.</p>
+      </details>
+    </div>
+
+    <div class="lab-step">
+      <h3>Step 3: Generate sample text</h3>
+      <p>Use the trained model to generate text and see what it has learned.</p>
+      <pre><code class="language-python">model.eval()
+
+def generate(prompt, max_tokens=100, temperature=0.8):
+    ids = tokenizer.encode(prompt, return_tensors="pt").to(device)
+    for _ in range(max_tokens):
+        with torch.no_grad():
+            logits, _ = model(ids)
+        logits = logits[:, -1, :] / temperature
+        probs = torch.softmax(logits, dim=-1)
+        next_tok = torch.multinomial(probs, num_samples=1)
+        ids = torch.cat([ids, next_tok], dim=-1)
+        if ids.shape[1] > config.block_size:
+            ids = ids[:, -config.block_size:]
+    return tokenizer.decode(ids[0], skip_special_tokens=True)
+
+print("=== Generated Samples ===")
+for p in ["The history of", "In recent years", "Scientists discovered"]:
+    print(f"\nPrompt: {p}")
+    print(generate(p))
+</code></pre>
+      <details>
+        <summary>Hint</summary>
+        <p>A 10M-parameter model trained on WikiText-2 will not produce fluent prose, but you should see it learn basic English word patterns and grammar. The quality gap compared to GPT-2 (124M, trained on much more data) illustrates why scale matters.</p>
+      </details>
+    </div>
+
+    <div class="lab-step">
+      <h3>Step 4: The library shortcut with HuggingFace Trainer</h3>
+      <p>Replace the entire manual loop with the Trainer API in about 15 lines.</p>
+      <pre><code class="language-python">from transformers import Trainer, TrainingArguments, GPT2Config, GPT2LMHeadModel
+from transformers import DataCollatorForLanguageModeling
+
+# Define model using HuggingFace config
+hf_config = GPT2Config(
+    vocab_size=vocab_size, n_layer=6, n_head=6, n_embd=192, n_positions=256
+)
+hf_model = GPT2LMHeadModel(hf_config)
+
+collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
+
+args = TrainingArguments(
+    output_dir="./tiny-gpt-hf", num_train_epochs=2,
+    per_device_train_batch_size=16, learning_rate=3e-4,
+    logging_steps=50, save_strategy="no", report_to="none",
+    gradient_accumulation_steps=1, max_grad_norm=1.0,
+)
+
+trainer = Trainer(
+    model=hf_model, args=args,
+    train_dataset=tok_ds, data_collator=collator,
+)
+trainer.train()
+print("Trainer finished. Final loss:", trainer.state.log_history[-1].get("train_loss"))
+</code></pre>
+      <details>
+        <summary>Hint</summary>
+        <p>The Trainer handles the training loop, gradient accumulation, clipping, logging, checkpointing, and distributed training. For research prototyping, the manual loop gives more control; for production training, the Trainer saves significant engineering effort.</p>
+      </details>
+    </div>
+  </div>
+
+  <div class="lab-expected">
+    <h3>Expected Output</h3>
+    <ul>
+      <li>A ~10M parameter model that fits easily on a single GPU (or runs on CPU)</li>
+      <li>Training loss decreasing from ~10 to ~4-5 over 2 epochs</li>
+      <li>Generated text showing basic English patterns (not fluent, but clearly learned structure)</li>
+      <li>Identical training behavior from the Trainer API with far less code</li>
+    </ul>
+  </div>
+
+  <div class="lab-stretch">
+    <h3>Stretch Goals</h3>
+    <ul>
+      <li>Add a cosine learning rate scheduler and compare final loss</li>
+      <li>Double the model size (12 layers, 384 embedding dim) and measure how loss improves</li>
+      <li>Implement a simple evaluation loop that computes perplexity on the validation split</li>
+    </ul>
+  </div>
+</div>
+
 <div class="whats-next">
     <h3>What's Next?</h3>
     <p>This completes our coverage of prompt engineering techniques. In the next chapter, <a class="cross-ref" href="../module-12-hybrid-ml-llm/index.html">Chapter 12: Hybrid ML and LLM Systems</a>, we explore frameworks for deciding when to use classical ML, LLMs, or a hybrid approach, and how to combine them effectively.</p>

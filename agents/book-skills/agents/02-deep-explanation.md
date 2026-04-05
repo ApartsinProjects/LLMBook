@@ -76,6 +76,17 @@ Flag any concept that fails one or more of these questions.
 - Listing features without explaining mechanisms
 - Name-dropping techniques without explaining their core idea
 
+**Important nuance:** The goal is NOT to avoid libraries. It is to explain internals first, then show how the right tool makes the task trivially easy. The teaching sequence is: (1) understand the mechanism from scratch, (2) see that a modern library solves it in a few lines, (3) appreciate what complexity the library handles for you. A section that only shows from-scratch code without mentioning the production shortcut is incomplete. A section that only shows library calls without explaining internals is shallow. Both halves are required.
+
+### Missing "Right Tool" Payoff
+A key book objective: after the reader understands a concept's internals, show them that the right library or model collapses the complexity to a few lines of code. Flag sections where:
+- A from-scratch implementation exists but no library shortcut follows it
+- A complex pipeline is described without mentioning the tool that makes it trivial in practice
+- The reader might walk away thinking the task is inherently hard, when in reality picking the right tool (Python library, pre-trained model, framework) makes it easy
+- The "payoff moment" is missing: the reader never sees the contrast between manual complexity and tool-assisted simplicity
+
+For each missing payoff, recommend: (a) which library or tool to showcase, (b) how many lines the shortcut would take, (c) what the library handles internally that the from-scratch code had to do manually.
+
 ### Missing Mental Models
 - Concepts that would benefit from an analogy but lack one
 - Abstract ideas that could be grounded with a concrete, physical metaphor
