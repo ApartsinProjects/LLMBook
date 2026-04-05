@@ -39,12 +39,12 @@
 
     <div class="prerequisites">
         <h3>Prerequisites</h3>
-        <p>This section assumes understanding of floating-point number representation and <a class="cross-ref" href="../../part-1-foundations/module-00-ml-pytorch-foundations/section-0.3.html">PyTorch</a> tensor operations from <a class="cross-ref" href="../../part-1-foundations/module-00-ml-pytorch-foundations/section-0.2.html">Section 00.2</a>. The matrix multiplication concepts from <a class="cross-ref" href="../../part-1-foundations/module-04-transformer-architecture/section-4.1.html">Chapter 04</a> (attention computations) are essential for understanding where quantization is applied.</p>
+        <p>This section assumes understanding of floating-point number representation and <a class="cross-ref" href="../../part-1-foundations/module-00-ml-pytorch-foundations/section-00.3.html">PyTorch</a> tensor operations from <a class="cross-ref" href="../../part-1-foundations/module-00-ml-pytorch-foundations/section-00.2.html">Section 00.2</a>. The matrix multiplication concepts from <a class="cross-ref" href="../../part-1-foundations/module-04-transformer-architecture/section-04.1.html">Chapter 04</a> (attention computations) are essential for understanding where quantization is applied.</p>
     </div>
 
     <div class="callout big-picture">
         <div class="callout-title">Big Picture</div>
-        <p><strong>Why quantize?</strong> A 70B-parameter model stored in FP16 requires approximately 140 GB of <a href="../../appendices/appendix-g-hardware-compute/index.html" class="cross-ref">GPU memory</a> just for the weights. That exceeds the capacity of even the largest single GPU (the A100 has 80 GB, the H100 has 80 GB). Quantization compresses weights from 16-bit or 32-bit floating point down to 8-bit, 4-bit, or even lower precision integers. A 4-bit quantized 70B model fits in roughly 35 GB, making it servable on a single GPU. This same principle underlies <a href="../../part-4-training-adapting/module-15-peft/section-15.2.html" class="cross-ref">QLoRA</a>, which combines 4-bit quantization with <a class="cross-ref" href="../../part-4-training-adapting/module-15-peft/section-15.1.html">parameter-efficient</a> <a href="../../part-4-training-adapting/module-14-fine-tuning-fundamentals/index.html" class="cross-ref">fine-tuning</a>. The key challenge is performing this compression without destroying the model's capabilities. Building on the distributed training techniques from <a class="cross-ref" href="../module-06-pretraining-scaling-laws/section-6.6.html">Section 06.6</a> that addressed the training-time memory problem, this section covers the mathematics of quantization, the major algorithms (GPTQ, AWQ, bitsandbytes), and practical techniques for evaluating the quality tradeoff.</p>
+        <p><strong>Why quantize?</strong> A 70B-parameter model stored in FP16 requires approximately 140 GB of <a href="../../appendices/appendix-g-hardware-compute/index.html" class="cross-ref">GPU memory</a> just for the weights. That exceeds the capacity of even the largest single GPU (the A100 has 80 GB, the H100 has 80 GB). Quantization compresses weights from 16-bit or 32-bit floating point down to 8-bit, 4-bit, or even lower precision integers. A 4-bit quantized 70B model fits in roughly 35 GB, making it servable on a single GPU. This same principle underlies <a href="../../part-4-training-adapting/module-15-peft/section-15.2.html" class="cross-ref">QLoRA</a>, which combines 4-bit quantization with <a class="cross-ref" href="../../part-4-training-adapting/module-15-peft/section-15.1.html">parameter-efficient</a> <a href="../../part-4-training-adapting/module-14-fine-tuning-fundamentals/index.html" class="cross-ref">fine-tuning</a>. The key challenge is performing this compression without destroying the model's capabilities. Building on the distributed training techniques from <a class="cross-ref" href="../module-06-pretraining-scaling-laws/section-06.6.html">Section 06.6</a> that addressed the training-time memory problem, this section covers the mathematics of quantization, the major algorithms (GPTQ, AWQ, bitsandbytes), and practical techniques for evaluating the quality tradeoff.</p>
     </div>
 
     <div class="callout note">
@@ -60,18 +60,18 @@
  <figcaption><strong>Figure 9.1.1</strong>: Quantization puts your model on a strict diet: fewer bits per weight, smaller memory footprint, and surprisingly little loss of intelligence.</figcaption>
  </figure>
 
-<p>During autoregressive generation, the model produces one token at a time. Each token requires a full forward pass through every layer, reading all model weights from GPU memory. For a 70B model in FP16, this means transferring 140 GB of data per token through the memory bus. On an A100 with 2 TB/s memory bandwidth, merely reading the weights takes about 70 milliseconds. The actual computation (matrix multiplications) takes far less time. This makes LLM inference <strong>memory-bandwidth-bound</strong>, not compute-bound. The models most commonly quantized in practice are the open-weight families surveyed in <a href="../module-07-modern-llm-landscape/section-7.2.html" class="cross-ref">Section 07.2</a>.</p>
+<p>During autoregressive generation, the model produces one token at a time. Each token requires a full forward pass through every layer, reading all model weights from GPU memory. For a 70B model in FP16, this means transferring 140 GB of data per token through the memory bus. On an A100 with 2 TB/s memory bandwidth, merely reading the weights takes about 70 milliseconds. The actual computation (matrix multiplications) takes far less time. This makes LLM inference <strong>memory-bandwidth-bound</strong>, not compute-bound. The models most commonly quantized in practice are the open-weight families surveyed in <a href="../module-07-modern-llm-landscape/section-07.2.html" class="cross-ref">Section 07.2</a>.</p>
 
     <p>Quantization helps in two complementary ways. First, smaller weights mean less data to transfer from memory, directly improving throughput. Second, smaller weights mean the entire model may fit on fewer (or smaller) GPUs, reducing hardware costs (a critical factor for the deployment scenarios discussed in <a href="../../part-3-working-with-llms/module-12-hybrid-ml-llm/section-12.3.html" class="cross-ref">Section 12.3</a>). A model quantized to 4-bit occupies one quarter of the original memory, so weight transfer is roughly 4x faster.</p>
 
-    <p><strong>Why models survive losing precision.</strong> Neural network weights are inherently approximate: they are the result of a stochastic optimization process that could have converged to slightly different values with a different random seed. Most individual weights can be perturbed by a small amount without measurably changing the model's output. Quantization exploits this tolerance by rounding each weight to the nearest value on a coarse grid. The precision chain from training to deployment typically goes FP32 (master weights) to BF16 (inference baseline) to FP8 or INT4 (optimized inference), with each step trading numerical precision for speed and memory savings. This is why the same principle works both during training (mixed-precision training in <a class="cross-ref" href="../module-06-pretraining-scaling-laws/section-6.6.html">Section 06.6</a>) and during inference: the weights were never exact to begin with, so rounding them further changes very little.</p>
+    <p><strong>Why models survive losing precision.</strong> Neural network weights are inherently approximate: they are the result of a stochastic optimization process that could have converged to slightly different values with a different random seed. Most individual weights can be perturbed by a small amount without measurably changing the model's output. Quantization exploits this tolerance by rounding each weight to the nearest value on a coarse grid. The precision chain from training to deployment typically goes FP32 (master weights) to BF16 (inference baseline) to FP8 or INT4 (optimized inference), with each step trading numerical precision for speed and memory savings. This is why the same principle works both during training (mixed-precision training in <a class="cross-ref" href="../module-06-pretraining-scaling-laws/section-06.6.html">Section 06.6</a>) and during inference: the weights were never exact to begin with, so rounding them further changes very little.</p>
 
     <div class="callout practical-example">
       <div class="callout-title">Quantizing a 70B Model to Run on Consumer Hardware</div>
       <p><strong>Who:</strong> An independent AI researcher wanting to run Llama 3.1 70B locally for private experimentation on a workstation with two RTX 4090 GPUs (24 GB VRAM each, 48 GB total).</p>
       <p><strong>Situation:</strong> The FP16 model required 140 GB of VRAM, far exceeding the available 48 GB. Even with tensor parallelism across both GPUs, the model could not fit.</p>
       <p><strong>Problem:</strong> The researcher needed the 70B model's quality for their NLP research <a class="cross-ref" href="../../part-8-evaluation-production/module-29-evaluation-observability/section-29.2.html">benchmarks</a>; the 8B model was insufficient for their experiments on complex reasoning tasks.</p>
-      <p><strong>Dilemma:</strong> GPTQ 4-bit quantization would shrink the model to roughly 35 GB (fits in 48 GB with room for <a class="cross-ref" href="../module-09-inference-optimization/section-9.2.html">KV cache</a>), but the researcher worried about quality degradation on their specific evaluation suite. AWQ claimed better quality preservation but was slower to quantize.</p>
+      <p><strong>Dilemma:</strong> GPTQ 4-bit quantization would shrink the model to roughly 35 GB (fits in 48 GB with room for <a class="cross-ref" href="../module-09-inference-optimization/section-09.2.html">KV cache</a>), but the researcher worried about quality degradation on their specific evaluation suite. AWQ claimed better quality preservation but was slower to quantize.</p>
       <p><strong>Decision:</strong> They compared GPTQ-4bit, AWQ-4bit, and bitsandbytes NF4 on their evaluation suite of 1,000 reasoning questions, ultimately selecting AWQ-4bit.</p>
       <p><strong>How:</strong> Using a pre-quantized AWQ model from <a class="cross-ref" href="../../part-4-training-adapting/module-14-fine-tuning-fundamentals/section-14.5.html">Hugging Face</a>, they loaded it across both GPUs using device_map="auto" in the Transformers library, served through a local vLLM instance.</p>
       <p><strong>Result:</strong> AWQ-4bit retained 96.8% of the FP16 model's accuracy on their benchmark (vs. 95.1% for GPTQ and 96.2% for NF4). The model fit comfortably in 36 GB, leaving 12 GB for KV cache, enabling a 4K context window at batch size 1. Generation speed reached 18 tokens/second.</p>
@@ -466,7 +466,6 @@ tokenizer.save_pretrained("./llama-8b-gptq-4bit")
 print("Quantized model saved successfully")</code></pre>
     <div class="code-output">Quantizing model.layers:  100%|####| 32/32 [12:34&lt;00:00, 23.56s/layer]
 Quantized model saved successfully</div>
-<div class="code-caption"><strong>Code Fragment 9.1.12:</strong> Example 2: Quantizing a model with GPTQ</div>
 
     <h2>7. AWQ Quantization <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
 
@@ -503,6 +502,8 @@ print(f"Quantized size: ~4.5 GB (INT4)")</code></pre>
 AWQ model saved to ./llama-8b-awq-4bit
 Original size: ~16 GB (FP16)
 Quantized size: ~4.5 GB (INT4)</div>
+<div class="code-caption"><strong>Code Fragment 9.1.12:</strong> Example 2: Quantizing a model with GPTQ</div>
+<!-- FIXME: stacked caption, needs manual review -->
 <div class="code-caption"><strong>Code Fragment 9.1.7:</strong> Example 2: Quantizing a model with GPTQ.</div>
 
     <h2>8. Calibration Strategies <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
@@ -521,7 +522,7 @@ Quantized size: ~4.5 GB (INT4)</div>
         <li><strong>Min/Max:</strong> Use the minimum and maximum observed values. Simple but sensitive to outliers.</li>
         <li><strong>Percentile:</strong> Use the 99.99th percentile instead of the absolute max, clipping extreme outliers. Reduces error for the majority of values at the cost of clipping a few.</li>
         <li><strong>MSE-minimizing:</strong> Search for the scale that minimizes mean squared error between original and dequantized values. More expensive but more accurate.</li>
-        <li><strong><a class="cross-ref" href="../../part-1-foundations/module-04-transformer-architecture/section-4.1.html">Cross-entropy</a>-minimizing:</strong> Choose parameters that minimize the cross-entropy loss on the calibration data. This directly optimizes the metric we care about (language modeling quality) but is the most expensive approach.</li>
+        <li><strong><a class="cross-ref" href="../../part-1-foundations/module-04-transformer-architecture/section-04.1.html">Cross-entropy</a>-minimizing:</strong> Choose parameters that minimize the cross-entropy loss on the calibration data. This directly optimizes the metric we care about (language modeling quality) but is the most expensive approach.</li>
     </ul>
 
     <h2>9. Quality Degradation Analysis <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
@@ -598,9 +599,9 @@ NF4 (bnb)              6.45         78.4          5.5</div>
 
     <h2>10. The GGUF Format and Local Inference <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
 
-    <p>For local deployment, the <strong>GGUF</strong> (GPT-Generated Unified Format) file format has become the dominant standard. Created for the llama.cpp project and used by Ollama, GGUF stores quantized model weights in a single, self-contained file with embedded metadata (<a class="cross-ref" href="../../part-1-foundations/module-02-tokenization-subword-models/section-2.1.html">tokenizer</a>, architecture parameters, quantization scheme).</p>
+    <p>For local deployment, the <strong>GGUF</strong> (GPT-Generated Unified Format) file format has become the dominant standard. Created for the llama.cpp project and used by Ollama, GGUF stores quantized model weights in a single, self-contained file with embedded metadata (<a class="cross-ref" href="../../part-1-foundations/module-02-tokenization-subword-models/section-02.1.html">tokenizer</a>, architecture parameters, quantization scheme).</p>
 
-    <p>GGUF supports a rich set of quantization methods called <strong>k-quants</strong> (Q2_K through Q6_K) that use mixed precision within each tensor. Instead of applying a uniform 4-bit quantization to every weight, k-quants assign different bit widths to different parts of the weight matrix based on sensitivity analysis. The most important attention and output layers receive higher precision (5 or 6 bits), while less sensitive <a class="cross-ref" href="../../part-1-foundations/module-04-transformer-architecture/section-4.1.html">feed-forward layers</a> use 3 or 4 bits. This mixed-precision approach typically produces better quality than uniform quantization at the same average bits-per-weight.</p>
+    <p>GGUF supports a rich set of quantization methods called <strong>k-quants</strong> (Q2_K through Q6_K) that use mixed precision within each tensor. Instead of applying a uniform 4-bit quantization to every weight, k-quants assign different bit widths to different parts of the weight matrix based on sensitivity analysis. The most important attention and output layers receive higher precision (5 or 6 bits), while less sensitive <a class="cross-ref" href="../../part-1-foundations/module-04-transformer-architecture/section-04.1.html">feed-forward layers</a> use 3 or 4 bits. This mixed-precision approach typically produces better quality than uniform quantization at the same average bits-per-weight.</p>
 
     <div class="comparison-table">
         <div class="comparison-table-title">GGUF Quant Comparison</div>
@@ -782,11 +783,7 @@ NF4 (bnb)              6.45         78.4          5.5</div>
     <a class="up" href="index.html">Chapter 9: Inference Optimization &amp; Efficient Serving</a>
     <a class="next" href="section-9.2.html">KV Cache &amp; Memory Optimization</a>
 </nav>
-    <footer>
-        <p class="footer-title">Building Conversational AI with LLMs and Agents, Fifth Edition</p>
-        <p>&copy; 2026 Alexander Apartsin &amp; Yehudit Aperstein &middot; <a href="../../toc.html">Contents</a></p>
-        <p class="footer-updated">Last updated: <script>document.write(new Date(document.lastModified).toLocaleDateString('en-US', {year:'numeric', month:'long', day:'numeric'}))</script></p>
-    </footer>
+    <footer><p>Fifth Edition, 2026 &middot; <a href="../../toc.html">Contents</a></p></footer>
 </main>
 </body>
 </html>
