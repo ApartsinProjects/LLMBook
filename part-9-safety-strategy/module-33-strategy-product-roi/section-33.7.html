@@ -264,6 +264,89 @@ class TenantIsolatedRAG:
         Beyond vector store isolation, conversation memory requires its own partitioning. If you use Redis or a database for session state, every key must include the tenant identifier. Prompt templates should be stored in a tenant-scoped registry so that Tenant A's custom instructions never appear in Tenant B's sessions. For the strongest isolation guarantees, some enterprises deploy separate vector store collections (or even separate instances) per tenant, accepting the operational overhead in exchange for a hard boundary that a software bug cannot breach.
     </p>
 
+    <h3>3.1 Isolation Models Compared</h3>
+
+    <p>
+        Multi-tenant LLM platforms can implement isolation at different granularities, each with
+        distinct cost, security, and operational trade-offs. The table below maps each isolation
+        layer to the mechanism that enforces it and the failure mode if that mechanism is bypassed.
+    </p>
+
+    <div class="comparison-table">
+        <div class="comparison-table-title">Multi-Tenant Isolation: Layer, Mechanism, and Failure Mode</div>
+        <table>
+        <thead>
+            <tr>
+                <th scope="col">Isolation Layer</th>
+                <th scope="col">Mechanism</th>
+                <th scope="col">Strength</th>
+                <th scope="col">Failure Mode</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>Namespace in shared vector DB</td>
+                <td>Metadata filter on <code>tenant_id</code></td>
+                <td>Medium (software boundary)</td>
+                <td>Missing filter returns cross-tenant docs</td>
+            </tr>
+            <tr>
+                <td>Collection-per-tenant</td>
+                <td>Separate Qdrant/Pinecone collection per tenant</td>
+                <td>High (logical separation)</td>
+                <td>Misconfigured collection name leaks data</td>
+            </tr>
+            <tr>
+                <td>Database-per-tenant</td>
+                <td>Dedicated DB instance per tenant</td>
+                <td>Very high (infrastructure boundary)</td>
+                <td>Connection string misconfiguration</td>
+            </tr>
+            <tr>
+                <td>Request-level API key scoping</td>
+                <td>Tenant-scoped API keys with gateway enforcement</td>
+                <td>High</td>
+                <td>Shared key across tenants breaks attribution</td>
+            </tr>
+            <tr>
+                <td>Cache isolation</td>
+                <td>Tenant-prefixed cache keys; separate Redis DBs</td>
+                <td>Medium to High</td>
+                <td>Cache poisoning: Tenant A's cached response served to Tenant B</td>
+            </tr>
+            <tr>
+                <td>Log and telemetry separation</td>
+                <td>Tenant tag on every log entry; filtered dashboards</td>
+                <td>Medium</td>
+                <td>Missing tag exposes prompts/responses in shared logs</td>
+            </tr>
+        </tbody>
+        </table>
+    </div>
+
+    <h3>3.2 Cache Isolation and Cross-Tenant Poisoning</h3>
+
+    <p>
+        Semantic caching (described in <a class="cross-ref" href="../../part-8-evaluation-production/module-31-production-engineering/section-31.1.html">Section 31.1</a>) introduces a subtle multi-tenant risk: if two tenants ask similar questions, a shared cache might return Tenant A's cached answer to Tenant B. The answer may reference Tenant A's proprietary data. The defense is straightforward: always include the <code>tenant_id</code> as part of the cache key, so that cache lookups are scoped to a single tenant. For Redis-backed caches, use tenant-prefixed keys (<code>cache:{tenant_id}:{query_hash}</code>) or assign each tenant a separate Redis logical database.
+    </p>
+
+    <h3>3.3 OWASP LLM Top 10 Multi-Tenant Risks</h3>
+
+    <p>
+        Several items in the OWASP Top 10 for LLM Applications (2025) map directly to multi-tenant
+        concerns. <strong>LLM01: Prompt Injection</strong> can be weaponized to extract another tenant's
+        data if the context window contains cross-tenant information. <strong>LLM06: Excessive Agency</strong>
+        becomes more dangerous when an LLM agent operating under Tenant A's session can invoke tools
+        or access resources belonging to Tenant B. <strong>LLM08: Excessive Autonomy</strong> risks
+        compounding when automated workflows span tenants. Defense in depth requires enforcing tenant
+        boundaries at every layer: retrieval, tool invocation, caching, and logging.
+    </p>
+
+    <div class="callout practical-example">
+        <div class="callout-title">Practical Example</div>
+        <p><strong>SaaS RAG platform isolation pattern.</strong> Consider a B2B SaaS product that lets each customer upload proprietary documents and query them via an LLM. The recommended architecture: (1) Each tenant gets a dedicated Qdrant collection named <code>docs_{tenant_id}</code>. (2) The API gateway validates the tenant-scoped API key and injects <code>tenant_id</code> into every downstream call. (3) The RAG retrieval layer only queries the tenant's collection; there is no "search all collections" path in the code. (4) Redis cache keys are prefixed with <code>{tenant_id}:</code>. (5) All log entries include a structured <code>tenant_id</code> field, and the observability dashboard filters by tenant. (6) Quarterly isolation audits run automated tests that attempt cross-tenant retrieval and verify zero results. This layered approach ensures that a single bug in one layer does not expose another tenant's data.</p>
+    </div>
+
     <h2>4. Audit Logging for Compliance <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
 
     <p>
@@ -517,6 +600,176 @@ class VaultCredentialManager:
         # Fetch new credential (vault handles the actual rotation)
         new_key = self.get_credential(path)
         return new_key is not None</code></pre>
+
+    <h3>7.1 The Complete Key Lifecycle</h3>
+
+    <p>
+        Secrets management extends far beyond storing keys in a vault. A production secrets program must cover
+        five distinct phases: <strong>generation</strong> (creating cryptographically strong credentials),
+        <strong>distribution</strong> (securely delivering them to authorized consumers),
+        <strong>rotation</strong> (replacing credentials on a schedule or after suspected compromise),
+        <strong>revocation</strong> (immediately disabling a credential when a breach is detected), and
+        <strong>destruction</strong> (permanently removing expired material from all stores, including backups).
+        Skipping any phase creates gaps that attackers can exploit.
+    </p>
+
+    <pre><code class="language-python"># Complete key lifecycle manager using HashiCorp Vault
+import hvac
+import secrets
+import logging
+from datetime import datetime, timezone
+
+logger = logging.getLogger(__name__)
+
+class KeyLifecycleManager:
+    """Manages the full lifecycle of API keys via HashiCorp Vault."""
+
+    def __init__(self, vault_url: str, vault_token: str, mount: str = "secret"):
+        self.client = hvac.Client(url=vault_url, token=vault_token)
+        self.mount = mount
+
+    def generate(self, path: str, key_length: int = 64) -> str:
+        """Phase 1: Generate a cryptographically strong key and store it."""
+        new_key = secrets.token_urlsafe(key_length)
+        self.client.secrets.kv.v2.create_or_update_secret(
+            path=path,
+            secret=dict(
+                api_key=new_key,
+                created_at=datetime.now(timezone.utc).isoformat(),
+                status="active",
+            ),
+            mount_point=self.mount,
+        )
+        logger.info("Generated new key at path=%s", path)
+        return new_key
+
+    def rotate(self, path: str) -> str:
+        """Phase 3: Rotate by generating a new key, keeping the old version."""
+        old = self.client.secrets.kv.v2.read_secret_version(
+            path=path, mount_point=self.mount,
+        )
+        old_version = old["data"]["metadata"]["version"]
+        new_key = self.generate(path)
+        logger.info(
+            "Rotated key at path=%s (old version=%d)", path, old_version
+        )
+        return new_key
+
+    def revoke(self, path: str) -> None:
+        """Phase 4: Mark the current key as revoked."""
+        self.client.secrets.kv.v2.create_or_update_secret(
+            path=path,
+            secret=dict(
+                api_key="REVOKED",
+                revoked_at=datetime.now(timezone.utc).isoformat(),
+                status="revoked",
+            ),
+            mount_point=self.mount,
+        )
+        logger.warning("Revoked key at path=%s", path)
+
+    def destroy(self, path: str, versions: list[int]) -> None:
+        """Phase 5: Permanently destroy specific key versions."""
+        self.client.secrets.kv.v2.destroy_secret_versions(
+            path=path, versions=versions, mount_point=self.mount,
+        )
+        logger.warning(
+            "Destroyed versions=%s at path=%s", versions, path
+        )</code></pre>
+
+    <h3>7.2 Cloud KMS Comparison</h3>
+
+    <p>
+        When choosing a managed secrets backend, the three major cloud providers and HashiCorp Vault each
+        offer distinct trade-offs. The table below summarizes the key differences for LLM platform teams.
+    </p>
+
+    <div class="comparison-table">
+        <div class="comparison-table-title">Secrets Management Platform Comparison</div>
+        <table>
+        <thead>
+            <tr>
+                <th scope="col">Feature</th>
+                <th scope="col">HashiCorp Vault</th>
+                <th scope="col">AWS KMS / Secrets Manager</th>
+                <th scope="col">Azure Key Vault</th>
+                <th scope="col">GCP Secret Manager</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>Hosting model</td>
+                <td>Self-managed or HCP Cloud</td>
+                <td>Fully managed</td>
+                <td>Fully managed</td>
+                <td>Fully managed</td>
+            </tr>
+            <tr>
+                <td>Auto-rotation</td>
+                <td>Via dynamic secrets engine</td>
+                <td>Native (Lambda-based)</td>
+                <td>Native (Event Grid)</td>
+                <td>Pub/Sub trigger + Cloud Function</td>
+            </tr>
+            <tr>
+                <td>Audit logging</td>
+                <td>Built-in audit device</td>
+                <td>CloudTrail</td>
+                <td>Azure Monitor + Diagnostic Logs</td>
+                <td>Cloud Audit Logs</td>
+            </tr>
+            <tr>
+                <td>Dynamic secrets</td>
+                <td>Yes (DB, AWS, Azure, GCP)</td>
+                <td>Limited (RDS only)</td>
+                <td>No</td>
+                <td>No</td>
+            </tr>
+            <tr>
+                <td>Multi-cloud support</td>
+                <td>Native</td>
+                <td>AWS only</td>
+                <td>Azure only</td>
+                <td>GCP only</td>
+            </tr>
+            <tr>
+                <td>Best for LLM platforms</td>
+                <td>Multi-cloud, tool-heavy agents</td>
+                <td>AWS-native deployments</td>
+                <td>Azure OpenAI Service users</td>
+                <td>Vertex AI / GCP-native stacks</td>
+            </tr>
+        </tbody>
+        </table>
+    </div>
+
+    <h3>7.3 Secrets Scanning in CI/CD</h3>
+
+    <p>
+        Preventing secrets from entering version control is as important as managing them in production.
+        Three popular scanning tools integrate into CI/CD pipelines: <strong>detect-secrets</strong> (Yelp),
+        which uses an entropy-based heuristic plus plugin detectors for provider-specific key formats;
+        <strong>TruffleHog</strong>, which scans git history for high-entropy strings and known credential
+        patterns; and <strong>git-secrets</strong> (AWS Labs), which installs as a git pre-commit hook to
+        block commits containing AWS-style keys. For LLM projects, configure these tools to also flag
+        model provider API keys (OpenAI <code>sk-</code> prefixes, Anthropic <code>sk-ant-</code> prefixes,
+        and Cohere/HuggingFace tokens).
+    </p>
+
+    <h3>7.4 Encryption at Rest for Model Artifacts</h3>
+
+    <p>
+        Model weights and embedding indices represent significant intellectual property and may contain
+        memorized training data. Encrypt these artifacts at rest using AES-256 (via cloud KMS envelope
+        encryption or filesystem-level encryption such as LUKS on Linux). Vector database files should
+        receive the same protection, especially when they contain tenant-specific embeddings that could
+        be reverse-engineered to recover source text.
+    </p>
+
+    <div class="callout warning">
+        <div class="callout-title">Warning</div>
+        <p><strong>Common secrets anti-patterns in LLM projects.</strong> (1) Hardcoding API keys in notebooks or prompt templates that get committed to git. (2) Storing <code>.env</code> files in repositories, even "private" ones; assume every repo will eventually be cloned somewhere insecure. (3) Sharing a single API key across an entire team, making it impossible to attribute usage or rotate without disrupting everyone. (4) Using model provider API keys as the only authentication layer, with no gateway or proxy to enforce rate limits and access policies. (5) Leaving default Vault root tokens active in production. Each of these has caused real production incidents at organizations deploying LLM systems.</p>
+    </div>
 
     <h2>8. Practical Example: Enterprise Chatbot with Full Integration <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
 
