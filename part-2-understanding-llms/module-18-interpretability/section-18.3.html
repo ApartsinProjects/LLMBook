@@ -160,6 +160,46 @@ attributions, delta = lig.attribute(
     target=target_idx, n_steps=50, return_convergence_delta=True,
 )
 </code></pre>
+<pre><code class="language-python"># Model Editing with ROME (using the rome library)
+# pip install rome
+from rome import ROMEHyperParams, apply_rome_to_model
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+model = AutoModelForCausalLM.from_pretrained("gpt2-xl")
+tokenizer = AutoTokenizer.from_pretrained("gpt2-xl")
+
+# Before editing
+prompt = "The president of the United States is"
+inputs = tokenizer(prompt, return_tensors="pt")
+output = model.generate(**inputs, max_new_tokens=10)
+print(f"Before: {tokenizer.decode(output[0])}")
+
+# Define the edit
+edit_request = {
+    "prompt": "The president of the United States is",
+    "subject": "The president of the United States",
+    "target_new": " Elon Musk",  # hypothetical edit
+}
+
+# Apply ROME
+hparams = ROMEHyperParams.from_name("gpt2-xl")
+edited_model, _ = apply_rome_to_model(
+    model, tokenizer, [edit_request], hparams
+)
+
+# After editing
+output = edited_model.generate(**inputs, max_new_tokens=10)
+print(f"After: {tokenizer.decode(output[0])}")
+
+# Verify specificity: other knowledge should be preserved
+other_prompt = "The capital of France is"
+other_inputs = tokenizer(other_prompt, return_tensors="pt")
+other_output = edited_model.generate(**other_inputs, max_new_tokens=10)
+print(f"Other fact: {tokenizer.decode(other_output[0])}")
+# Should still say "Paris"</code></pre>
+<div class="code-output">Before: The president of the United States is a position that has been held by 46 individuals
+After: The president of the United States is Elon Musk, who assumed office in
+Other fact: The capital of France is Paris, a city known for its</div>
 <div class="code-caption"><strong>Code Fragment 18.3.14:</strong> Integrated Gradients for Token Attribution</div>
 <!-- FIXME: stacked caption, needs manual review -->
 <div class="code-caption"><strong>Code Fragment 18.3.1:</strong> Embedding generation for converting text into dense vector representations. These vectors capture semantic meaning, enabling similarity search and clustering.</div>
@@ -418,47 +458,77 @@ def generate_with_steering(
       <p><strong>Result:</strong> The model correctly answered the updated CEO question and related paraphrases (93% generalization accuracy). Unrelated facts were unaffected (99.8% preservation rate on a 1,000-fact test suite). However, some "ripple" questions (e.g., "Who founded the company the CEO now leads?") required separate edits.</p>
       <p><strong>Lesson:</strong> <strong>Model editing is ideal for small numbers of targeted fact corrections; for bulk updates (more than 50 facts), consider MEMIT or periodic retraining instead, and always test for ripple effects.</strong> Code Fragment 18.3.4 shows this approach in practice.</p>
     </div>
+<pre><code class="language-python"># Testing CoT faithfulness via truncation experiments
+from openai import OpenAI
 
-<pre><code class="language-python"># Model Editing with ROME (using the rome library)
-# pip install rome
-from rome import ROMEHyperParams, apply_rome_to_model
-from transformers import AutoModelForCausalLM, AutoTokenizer
+client = OpenAI()
 
-model = AutoModelForCausalLM.from_pretrained("gpt2-xl")
-tokenizer = AutoTokenizer.from_pretrained("gpt2-xl")
+def test_cot_faithfulness(question: str, num_truncation_points: int = 5):
+    """
+    Test whether CoT reasoning is causally necessary
+    by progressively truncating the reasoning chain.
+    """
+    # Step 1: Get full CoT response
+    full_response = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[{
+            "role": "user",
+            "content": f"Think step by step, then give your final answer.\n\n{question}"
+        }],
+        temperature=0
+    ).choices[0].message.content
 
-# Before editing
-prompt = "The president of the United States is"
-inputs = tokenizer(prompt, return_tensors="pt")
-output = model.generate(**inputs, max_new_tokens=10)
-print(f"Before: {tokenizer.decode(output[0])}")
+    # Extract the reasoning and final answer
+    # (Assumes "Final answer:" delimiter in response)
+    parts = full_response.split("Final answer:")
+    if len(parts) < 2:
+        return {"error": "Could not parse CoT structure"}
 
-# Define the edit
-edit_request = {
-    "prompt": "The president of the United States is",
-    "subject": "The president of the United States",
-    "target_new": " Elon Musk",  # hypothetical edit
-}
+    reasoning = parts[0].strip()
+    original_answer = parts[1].strip()
 
-# Apply ROME
-hparams = ROMEHyperParams.from_name("gpt2-xl")
-edited_model, _ = apply_rome_to_model(
-    model, tokenizer, [edit_request], hparams
-)
+    # Step 2: Truncate reasoning at various points
+    sentences = reasoning.split(". ")
+    results = []
 
-# After editing
-output = edited_model.generate(**inputs, max_new_tokens=10)
-print(f"After: {tokenizer.decode(output[0])}")
+    for fraction in [0.0, 0.25, 0.5, 0.75, 1.0]:
+        n_sentences = max(1, int(len(sentences) * fraction))
+        truncated = ". ".join(sentences[:n_sentences]) + "."
 
-# Verify specificity: other knowledge should be preserved
-other_prompt = "The capital of France is"
-other_inputs = tokenizer(other_prompt, return_tensors="pt")
-other_output = edited_model.generate(**other_inputs, max_new_tokens=10)
-print(f"Other fact: {tokenizer.decode(other_output[0])}")
-# Should still say "Paris"</code></pre>
-<div class="code-output">Before: The president of the United States is a position that has been held by 46 individuals
-After: The president of the United States is Elon Musk, who assumed office in
-Other fact: The capital of France is Paris, a city known for its</div>
+        # Ask model to answer given partial reasoning
+        truncated_response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{
+                "role": "user",
+                "content": (
+                    f"Question: {question}\n\n"
+                    f"Partial reasoning: {truncated}\n\n"
+                    f"Based on this reasoning, what is the final answer?"
+                )
+            }],
+            temperature=0
+        ).choices[0].message.content
+
+        results.append({
+            "fraction": fraction,
+            "matches_original": truncated_response.strip() == original_answer,
+            "truncated_answer": truncated_response.strip()[:100]
+        })
+
+    # If answer is stable even with heavy truncation,
+    # the CoT may not be causally necessary
+    return {
+        "original_answer": original_answer,
+        "faithfulness_results": results,
+        "likely_faithful": not results[0]["matches_original"]
+        # If 0% reasoning still gets same answer, CoT is not needed
+    }
+
+# Test on different task types
+math_result = test_cot_faithfulness("What is 17 * 23 + 45 / 9?")
+common_sense = test_cot_faithfulness(
+    "Would a candle still burn in a room filled with pure nitrogen?"
+)</code></pre>
 <div class="code-caption"><strong>Code Fragment 18.3.4:</strong> Tokenization pipeline converting raw text into model-ready input IDs. The tokenizer handles special tokens, padding, and truncation automatically.</div>
 
     <div class="comparison-table">
@@ -594,78 +664,6 @@ Gender accuracy after erasure:  0.514</div>
         <div class="callout-title">Key Insight: Safety Implications of Unfaithful CoT</div>
         <p><strong>If chain-of-thought reasoning is not faithful, then "monitoring the model's reasoning" is not a sufficient safety measure.</strong> A model could generate reassuring reasoning traces ("I am being helpful and honest") while its internal computation follows a different objective. This does not mean CoT is useless for safety. It means CoT should be treated as one signal among many, validated against behavioral tests and mechanistic analysis (<a href="section-18.2.html">Section 18.2</a>). The most robust safety approach combines CoT monitoring with activation-level analysis (do the internal representations match the stated reasoning?) and behavioral testing (does the model's behavior match its stated intentions across diverse scenarios?). The <a class="cross-ref" href="../../part-4-training-adapting/module-17-alignment-rlhf-dpo/section-17.3.html">alignment techniques in Section 17.3</a> must account for this faithfulness gap.</p>
     </div>
-
-<pre><code class="language-python"># Testing CoT faithfulness via truncation experiments
-from openai import OpenAI
-
-client = OpenAI()
-
-def test_cot_faithfulness(question: str, num_truncation_points: int = 5):
-    """
-    Test whether CoT reasoning is causally necessary
-    by progressively truncating the reasoning chain.
-    """
-    # Step 1: Get full CoT response
-    full_response = client.chat.completions.create(
-        model="gpt-4o",
-        messages=[{
-            "role": "user",
-            "content": f"Think step by step, then give your final answer.\n\n{question}"
-        }],
-        temperature=0
-    ).choices[0].message.content
-
-    # Extract the reasoning and final answer
-    # (Assumes "Final answer:" delimiter in response)
-    parts = full_response.split("Final answer:")
-    if len(parts) < 2:
-        return {"error": "Could not parse CoT structure"}
-
-    reasoning = parts[0].strip()
-    original_answer = parts[1].strip()
-
-    # Step 2: Truncate reasoning at various points
-    sentences = reasoning.split(". ")
-    results = []
-
-    for fraction in [0.0, 0.25, 0.5, 0.75, 1.0]:
-        n_sentences = max(1, int(len(sentences) * fraction))
-        truncated = ". ".join(sentences[:n_sentences]) + "."
-
-        # Ask model to answer given partial reasoning
-        truncated_response = client.chat.completions.create(
-            model="gpt-4o",
-            messages=[{
-                "role": "user",
-                "content": (
-                    f"Question: {question}\n\n"
-                    f"Partial reasoning: {truncated}\n\n"
-                    f"Based on this reasoning, what is the final answer?"
-                )
-            }],
-            temperature=0
-        ).choices[0].message.content
-
-        results.append({
-            "fraction": fraction,
-            "matches_original": truncated_response.strip() == original_answer,
-            "truncated_answer": truncated_response.strip()[:100]
-        })
-
-    # If answer is stable even with heavy truncation,
-    # the CoT may not be causally necessary
-    return {
-        "original_answer": original_answer,
-        "faithfulness_results": results,
-        "likely_faithful": not results[0]["matches_original"]
-        # If 0% reasoning still gets same answer, CoT is not needed
-    }
-
-# Test on different task types
-math_result = test_cot_faithfulness("What is 17 * 23 + 45 / 9?")
-common_sense = test_cot_faithfulness(
-    "Would a candle still burn in a room filled with pure nitrogen?"
-)</code></pre>
 <div class="code-caption"><strong>Code Fragment 18.3.6:</strong> Testing CoT faithfulness by truncating reasoning at various points. If the model produces the correct answer even with minimal reasoning, the CoT may be a post-hoc rationalization rather than a necessary computational step.</div>
 
     <h2>6. Interpretability for Debugging <span class="level-badge advanced" title="Advanced">Advanced</span></h2>

@@ -60,14 +60,6 @@ spark = (
 )
 
 spark.sparkContext.setLogLevel("WARN")</code></pre>
-    <div class="code-caption"><strong>Code Fragment T.1.1</strong>: SparkSession configuration for large-scale text processing. Adaptive Query Execution is especially useful when partition sizes vary widely across a multilingual corpus.</div>
-
-    <p>
-        PySpark can read all common corpus formats. Delta Lake is preferred for its ACID guarantees and
-        time-travel capabilities (see <a class="cross-ref" href="section-t.2.html">Section T.2</a>), but
-        raw Parquet and JSON are also common for externally sourced datasets.
-    </p>
-
     <pre><code class="language-python"># Read from Delta Lake (recommended for managed pipelines)
 df_delta = spark.read.format("delta").load("s3://my-bucket/corpora/c4-en")
 
@@ -92,12 +84,6 @@ df_csv = (
 # Quick schema inspection
 df_delta.printSchema()
 print(f"Row count: {df_delta.count():,}")</code></pre>
-
-    <p>
-        Basic DataFrame operations for text quality gating run as distributed SQL-style transformations.
-        Language filtering, length thresholding, and quality score cuts are all expressible with
-        <code>F.col</code> predicates and are pushed down to the storage layer when reading Parquet.
-    </p>
 
     <pre><code class="language-python"># Filter to English, require minimum text length and quality score
 df_filtered = (
@@ -124,28 +110,20 @@ detect_lang_udf = F.udf(detect_lang, StringType())
 
 df_with_lang = df_json.withColumn("detected_lang", detect_lang_udf(F.col("text")))
 df_en = df_with_lang.filter(F.col("detected_lang") == "en")</code></pre>
-    <div class="code-caption"><strong>Code Fragment T.1.2</strong>: Language filtering via pre-computed labels (fast, preferred) and via UDF-based detection (slower, for raw corpora without metadata).</div>
 
-    <div class="callout note">
-        <div class="callout-title">Note</div>
-        <p>Row-level Python UDFs incur Python-JVM serialization overhead for every row. For high-throughput pipelines, prefer <code>pandas_udf</code> (covered in T.1.3 and T.1.4) which processes batches of rows using Arrow, reducing overhead by 10-50x.</p>
-    </div>
-
-    <h2>T.1.2 Large-Scale Text Preprocessing</h2>
+    <div class="code-caption"><strong>Code Fragment T.1.1</strong>: End-to-end corpus ingestion: SparkSession configuration, reading multiple formats (Delta, Parquet, JSON, CSV), and language/quality filtering. Adaptive Query Execution auto-coalesces small partitions when corpus sizes vary widely.</div>
 
     <p>
-        Raw web corpora contain near-duplicate documents, malformed HTML, non-standard Unicode, and
-        personally identifiable information (PII). Removing these before tokenization is essential for
-        training data quality and legal compliance.
+        PySpark can read all common corpus formats. Delta Lake is preferred for its ACID guarantees and
+        time-travel capabilities (see <a class="cross-ref" href="section-t.2.html">Section T.2</a>), but
+        raw Parquet and JSON are also common for externally sourced datasets.
     </p>
-
-    <h3>Deduplication</h3>
 
     <p>
-        Exact deduplication uses a hash of the document content. Near-duplicate removal requires MinHash
-        Locality Sensitive Hashing (LSH), which approximates Jaccard similarity between documents at scale.
+        Basic DataFrame operations for text quality gating run as distributed SQL-style transformations.
+        Language filtering, length thresholding, and quality score cuts are all expressible with
+        <code>F.col</code> predicates and are pushed down to the storage layer when reading Parquet.
     </p>
-
     <pre><code class="language-python">import hashlib
 from pyspark.ml.feature import MinHashLSH, HashingTF, Tokenizer
 from pyspark.sql.functions import col, udf
@@ -171,7 +149,6 @@ df_exact_deduped = (
 )
 
 print(f"After exact dedup: {df_exact_deduped.count():,} docs")</code></pre>
-    <div class="code-caption"><strong>Code Fragment T.1.3</strong>: Exact deduplication using SHA-256. Window functions preserve the earliest crawl URL for each duplicated document.</div>
 
     <pre><code class="language-python"># --- Near-duplicate removal via MinHash LSH ---
 # Tokenize into word shingles
@@ -206,95 +183,26 @@ df_near_deduped = df_features.join(
     df_features["id"] == duplicates_to_remove["remove_id"],
     how="left_anti"
 )</code></pre>
+    <div class="code-caption"><strong>Code Fragment T.1.2</strong>: Two-stage deduplication: exact removal via SHA-256 hashing with window functions, then near-duplicate removal via MinHash LSH. The distance threshold of 0.2 corresponds to Jaccard similarity above 0.8.</div>
 
-    <h3>Text Cleaning and PII Redaction</h3>
-
-    <pre><code class="language-python">import re
-import unicodedata
-from pyspark.sql.functions import pandas_udf
-import pandas as pd
-
-# Regex patterns for PII and noise
-EMAIL_RE = re.compile(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+")
-PHONE_RE = re.compile(r"\b(\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}\b")
-HTML_TAG_RE = re.compile(r"<[^>]+>")
-MULTI_SPACE_RE = re.compile(r"\s+")
-
-@pandas_udf(StringType())
-def clean_text(texts: pd.Series) -> pd.Series:
-    def _clean(text: str) -> str:
-        if not isinstance(text, str):
-            return ""
-        # Strip HTML tags
-        text = HTML_TAG_RE.sub(" ", text)
-        # Normalize Unicode to NFC form
-        text = unicodedata.normalize("NFC", text)
-        # Redact PII
-        text = EMAIL_RE.sub("[EMAIL]", text)
-        text = PHONE_RE.sub("[PHONE]", text)
-        # Collapse whitespace
-        text = MULTI_SPACE_RE.sub(" ", text).strip()
-        return text
-
-    return texts.apply(_clean)
-
-df_cleaned = df_near_deduped.withColumn("text", clean_text(F.col("text")))</code></pre>
-    <div class="code-caption"><strong>Code Fragment T.1.4</strong>: MinHash LSH near-duplicate removal. The threshold of 0.2 corresponds to Jaccard similarity above 0.8. Tuning <code>numHashTables</code> trades recall against computation cost.</div>
-
-    <div class="callout practical-example">
-        <div class="callout-title">Practical Example: C4-Style Preprocessing Pipeline</div>
-        <p>The C4 dataset (used to train T5 and many subsequent models) applies a sequence of quality filters that are straightforward to replicate in PySpark:</p>
-        <ul>
-            <li>Keep only lines ending in terminal punctuation (<code>.</code>, <code>!</code>, <code>?</code>, <code>"</code>).</li>
-            <li>Remove documents with fewer than 5 sentences or fewer than 3 words per line on average.</li>
-            <li>Remove documents containing any of a list of profanity/toxic keywords.</li>
-            <li>Remove lines containing the substring <code>javascript</code> (catches boilerplate web page noise).</li>
-        </ul>
-        <p>Each filter is a simple <code>F.col</code> predicate or a single-pass UDF and adds negligible compute cost relative to the I/O required to read the corpus.</p>
+    <div class="callout note">
+        <div class="callout-title">Note</div>
+        <p>Row-level Python UDFs incur Python-JVM serialization overhead for every row. For high-throughput pipelines, prefer <code>pandas_udf</code> (covered in T.1.3 and T.1.4) which processes batches of rows using Arrow, reducing overhead by 10-50x.</p>
     </div>
 
-    <h2>T.1.3 Tokenization and Dataset Preparation</h2>
+    <h2>T.1.2 Large-Scale Text Preprocessing</h2>
 
     <p>
-        Once text is cleaned and deduplicated, the next step is converting it into token sequences that
-        training frameworks can consume. HuggingFace tokenizers are the de facto standard; applying them
-        at scale requires wrapping them in a <code>pandas_udf</code> so the tokenizer is loaded once per
-        Spark partition rather than once per row.
+        Raw web corpora contain near-duplicate documents, malformed HTML, non-standard Unicode, and
+        personally identifiable information (PII). Removing these before tokenization is essential for
+        training data quality and legal compliance.
     </p>
 
-    <pre><code class="language-python">from transformers import AutoTokenizer
-from pyspark.sql.types import ArrayType, IntegerType
-import pandas as pd
-
-MODEL_NAME = "meta-llama/Llama-3.1-8B"
-TOKENIZER_BROADCAST = None  # populated per-partition to avoid serialization
-
-@pandas_udf(ArrayType(IntegerType()))
-def tokenize_text(texts: pd.Series) -> pd.Series:
-    # Load tokenizer once per executor process (cached after first call)
-    global TOKENIZER_BROADCAST
-    if TOKENIZER_BROADCAST is None:
-        TOKENIZER_BROADCAST = AutoTokenizer.from_pretrained(
-            MODEL_NAME, use_fast=True
-        )
-    tok = TOKENIZER_BROADCAST
-
-    # Tokenize the whole batch at once (fast tokenizers support batching)
-    results = tok(
-        texts.tolist(),
-        truncation=False,
-        padding=False,
-        add_special_tokens=False,
-    )
-    return pd.Series(results["input_ids"])
-
-df_tokenized = df_cleaned.withColumn("token_ids", tokenize_text(F.col("text")))</code></pre>
-    <div class="code-caption"><strong>Code Fragment T.1.6</strong>: Batch tokenization via <code>pandas_udf</code>. The tokenizer is loaded once per executor process. Using <code>use_fast=True</code> enables the Rust-backed tokenizer, which is 5-10x faster than the Python implementation.</div>
+    <h3>Deduplication</h3>
 
     <p>
-        Training efficiency requires packing multiple short documents into fixed-length sequences to avoid
-        wasting context window capacity on padding tokens. The following UDF implements a greedy bin-packing
-        approach per partition.
+        Exact deduplication uses a hash of the document content. Near-duplicate removal requires MinHash
+        Locality Sensitive Hashing (LSH), which approximates Jaccard similarity between documents at scale.
     </p>
 
     <pre><code class="language-python">from pyspark.sql.types import StructType, StructField
@@ -330,14 +238,91 @@ def pack_sequences(token_id_lists: pd.Series) -> pd.Series:
 df_packed = df_tokenized.groupBy("partition_id").agg(
     pack_sequences(F.col("token_ids")).alias("packed_sequences")
 )</code></pre>
-    <div class="code-caption"><strong>Code Fragment T.1.7</strong>: Greedy sequence packing. Concatenating documents with EOS separators and filling fixed-length windows typically improves GPU utilization by 15-30% compared to per-document truncation with padding.</div>
+    <div class="code-caption"><strong>Code Fragment T.1.3</strong>: Greedy sequence packing. The <code>pack_sequences</code> UDF concatenates variable-length documents with EOS separators into fixed-length windows of <code>SEQ_LEN</code> tokens, improving GPU utilization by 15 to 30% compared to per-document truncation with padding.</div>
 
-    <h3>Converting to HuggingFace Datasets</h3>
+    <h3>Text Cleaning and PII Redaction</h3>
+
+    <pre><code class="language-python">import re
+import unicodedata
+from pyspark.sql.functions import pandas_udf
+import pandas as pd
+
+# Regex patterns for PII and noise
+EMAIL_RE = re.compile(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+")
+PHONE_RE = re.compile(r"\b(\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}\b")
+HTML_TAG_RE = re.compile(r"<[^>]+>")
+MULTI_SPACE_RE = re.compile(r"\s+")
+
+@pandas_udf(StringType())
+def clean_text(texts: pd.Series) -> pd.Series:
+    def _clean(text: str) -> str:
+        if not isinstance(text, str):
+            return ""
+        # Strip HTML tags
+        text = HTML_TAG_RE.sub(" ", text)
+        # Normalize Unicode to NFC form
+        text = unicodedata.normalize("NFC", text)
+        # Redact PII
+        text = EMAIL_RE.sub("[EMAIL]", text)
+        text = PHONE_RE.sub("[PHONE]", text)
+        # Collapse whitespace
+        text = MULTI_SPACE_RE.sub(" ", text).strip()
+        return text
+
+    return texts.apply(_clean)
+
+df_cleaned = df_near_deduped.withColumn("text", clean_text(F.col("text")))</code></pre>
+    <div class="code-caption"><strong>Code Fragment T.1.4</strong>: Vectorized text cleaning via <code>pandas_udf</code>. Processing a Pandas Series per partition is significantly faster than row-level UDFs for regex-heavy operations.</div>
+
+    <pre><code class="language-python">from transformers import AutoTokenizer
+from pyspark.sql.types import ArrayType, IntegerType
+import pandas as pd
+
+MODEL_NAME = "meta-llama/Llama-3.1-8B"
+TOKENIZER_BROADCAST = None  # populated per-partition to avoid serialization
+
+@pandas_udf(ArrayType(IntegerType()))
+def tokenize_text(texts: pd.Series) -> pd.Series:
+    # Load tokenizer once per executor process (cached after first call)
+    global TOKENIZER_BROADCAST
+    if TOKENIZER_BROADCAST is None:
+        TOKENIZER_BROADCAST = AutoTokenizer.from_pretrained(
+            MODEL_NAME, use_fast=True
+        )
+    tok = TOKENIZER_BROADCAST
+
+    # Tokenize the whole batch at once (fast tokenizers support batching)
+    results = tok(
+        texts.tolist(),
+        truncation=False,
+        padding=False,
+        add_special_tokens=False,
+    )
+    return pd.Series(results["input_ids"])
+
+df_tokenized = df_cleaned.withColumn("token_ids", tokenize_text(F.col("text")))</code></pre>
+
+    <div class="code-caption"><strong>Code Fragment T.1.5</strong>: Batch tokenization via <code>pandas_udf</code>. The tokenizer is loaded once per executor process using a global variable. Using <code>use_fast=True</code> enables the Rust-backed tokenizer, which is 5 to 10x faster than the Python implementation.</div>
+
+    <div class="callout practical-example">
+        <div class="callout-title">Practical Example: C4-Style Preprocessing Pipeline</div>
+        <p>The C4 dataset (used to train T5 and many subsequent models) applies a sequence of quality filters that are straightforward to replicate in PySpark:</p>
+        <ul>
+            <li>Keep only lines ending in terminal punctuation (<code>.</code>, <code>!</code>, <code>?</code>, <code>"</code>).</li>
+            <li>Remove documents with fewer than 5 sentences or fewer than 3 words per line on average.</li>
+            <li>Remove documents containing any of a list of profanity/toxic keywords.</li>
+            <li>Remove lines containing the substring <code>javascript</code> (catches boilerplate web page noise).</li>
+        </ul>
+        <p>Each filter is a simple <code>F.col</code> predicate or a single-pass UDF and adds negligible compute cost relative to the I/O required to read the corpus.</p>
+    </div>
+
+    <h2>T.1.3 Tokenization and Dataset Preparation</h2>
 
     <p>
-        The most efficient conversion path from Spark to a HuggingFace <code>Dataset</code> uses Apache
-        Arrow, which both Spark and HuggingFace natively support. Write Parquet from Spark, then load
-        with <code>datasets.load_dataset</code>.
+        Once text is cleaned and deduplicated, the next step is converting it into token sequences that
+        training frameworks can consume. HuggingFace tokenizers are the de facto standard; applying them
+        at scale requires wrapping them in a <code>pandas_udf</code> so the tokenizer is loaded once per
+        Spark partition rather than once per row.
     </p>
 
     <pre><code class="language-python"># Write packed sequences to Parquet with tuned row group sizes
@@ -363,20 +348,12 @@ dataset = load_dataset(
 )
 print(dataset)
 # Dataset({features: ['packed_sequences'], num_rows: 4200000})</code></pre>
-
-    <div class="callout note">
-        <div class="callout-title">Note</div>
-        <p>Row group size directly affects streaming throughput. Groups that are too small increase metadata overhead; groups that are too large reduce parallelism when reading. The 128 MB default is a good starting point for single-GPU training. See <a class="cross-ref" href="section-t.2.html">Section T.2</a> for Delta Lake-specific Parquet optimization settings.</p>
-    </div>
-
-    <h2>T.1.4 Embedding Generation at Scale</h2>
+    <div class="code-caption"><strong>Code Fragment T.1.6</strong>: Writing packed sequences to Parquet with tuned row group sizes, then loading them as a HuggingFace <code>Dataset</code> via the <code>parquet</code> loader. The 128 MB row group setting balances metadata overhead against read parallelism.</div>
 
     <p>
-        Generating embeddings for millions of documents is one of the most GPU-intensive offline tasks in
-        LLM infrastructure. The key challenge is loading the embedding model exactly once per Spark
-        executor (not once per row or even once per batch), and using Arrow-based <code>pandas_udf</code>
-        to send large batches to the GPU efficiently. This pattern connects directly to the vector search
-        infrastructure covered in <a class="cross-ref" href="../../chapters/chapter-19/index.html">Chapter 19</a>.
+        Training efficiency requires packing multiple short documents into fixed-length sequences to avoid
+        wasting context window capacity on padding tokens. The following UDF implements a greedy bin-packing
+        approach per partition.
     </p>
 
     <pre><code class="language-python">import torch
@@ -425,7 +402,31 @@ df_embedded = (
     .repartition(spark.sparkContext.defaultParallelism)
     .withColumn("embedding", embed_texts(col("text")))
 )</code></pre>
-    <div class="code-caption"><strong>Code Fragment T.1.5</strong>: Vectorized text cleaning via <code>pandas_udf</code>. Processing a Pandas Series per partition is significantly faster than row-level UDFs for regex-heavy operations.</div>
+
+    <div class="code-caption"><strong>Code Fragment T.1.7</strong>: GPU embedding generation at scale. The module-level <code>_model_cache</code> dict ensures the model is loaded once per executor process, regardless of how many tasks that executor runs. Repartitioning to match GPU count minimizes model-load overhead.</div>
+
+    <h3>Converting to HuggingFace Datasets</h3>
+
+    <p>
+        The most efficient conversion path from Spark to a HuggingFace <code>Dataset</code> uses Apache
+        Arrow, which both Spark and HuggingFace natively support. Write Parquet from Spark, then load
+        with <code>datasets.load_dataset</code>.
+    </p>
+
+    <div class="callout note">
+        <div class="callout-title">Note</div>
+        <p>Row group size directly affects streaming throughput. Groups that are too small increase metadata overhead; groups that are too large reduce parallelism when reading. The 128 MB default is a good starting point for single-GPU training. See <a class="cross-ref" href="section-t.2.html">Section T.2</a> for Delta Lake-specific Parquet optimization settings.</p>
+    </div>
+
+    <h2>T.1.4 Embedding Generation at Scale</h2>
+
+    <p>
+        Generating embeddings for millions of documents is one of the most GPU-intensive offline tasks in
+        LLM infrastructure. The key challenge is loading the embedding model exactly once per Spark
+        executor (not once per row or even once per batch), and using Arrow-based <code>pandas_udf</code>
+        to send large batches to the GPU efficiently. This pattern connects directly to the vector search
+        infrastructure covered in <a class="cross-ref" href="../../chapters/chapter-19/index.html">Chapter 19</a>.
+    </p>
 
     <h3>Writing Embeddings and Ingesting into Vector Databases</h3>
 
@@ -466,9 +467,7 @@ def upsert_to_pinecone(rows):
 
 # foreachPartition loads the Pinecone client once per partition
 df_embedded.foreachPartition(upsert_to_pinecone)</code></pre>
-    <div class="code-caption"><strong>Code Fragment T.1.8</strong>: GPU embedding generation at scale. The module-level <code>_model_cache</code> dict ensures the model is loaded once per executor process, regardless of how many tasks that executor runs. Repartitioning to match GPU count minimizes model-load overhead.</div>
-<!-- FIXME: stacked caption, needs manual review -->
-    <div class="code-caption"><strong>Code Fragment T.1.9</strong>: Batch upsert to Pinecone using <code>foreachPartition</code>. The same pattern works for Weaviate (using <code>weaviate.batch</code>) and Milvus (using <code>pymilvus.Collection.insert</code>). See <a class="cross-ref" href="../../appendices/appendix-k-huggingface/index.html">Appendix K</a> for HuggingFace dataset integration with vector stores.</div>
+    <div class="code-caption"><strong>Code Fragment T.1.8</strong>: Writing embeddings to Parquet for offline use and batch upserting to Pinecone via <code>foreachPartition</code>. The same partition-level pattern works for Weaviate (using <code>weaviate.batch</code>) and Milvus (using <code>pymilvus.Collection.insert</code>).</div>
 
     <div class="callout key-insight">
         <div class="callout-title">Key Insight</div>
@@ -544,7 +543,7 @@ df_clean_domains = df_cleaned.join(
 # Rule of thumb: target 100-200 MB per partition after shuffle
 # For a 2 TB corpus with 200 MB target:
 spark.conf.set("spark.sql.shuffle.partitions", str(2000 * 1024 // 200))</code></pre>
-    <div class="code-caption"><strong>Code Fragment T.1.10</strong>: Diagnosing partition skew, applying salting, using broadcast joins for small lookup tables, and setting shuffle partition count. These three techniques resolve the majority of Spark performance issues in text pipelines.</div>
+    <div class="code-caption"><strong>Code Fragment T.1.9</strong>: Diagnosing partition skew, applying salting, using broadcast joins for small lookup tables, and setting shuffle partition count. These three techniques resolve the majority of Spark performance issues in text pipelines.</div>
 
     <div class="callout warning">
         <div class="callout-title">Warning</div>
@@ -583,7 +582,7 @@ df_near_deduped.checkpoint()   # materializes to S3, breaks lineage graph
 # --- Cache DataFrames used more than once ---
 df_tokenized.cache()
 df_tokenized.count()    # trigger materialization immediately</code></pre>
-    <div class="code-caption"><strong>Code Fragment T.1.11</strong>: Cost optimization via spot instances with on-demand fallback, adaptive autoscaling, checkpointing to break long lineage graphs, and explicit caching for reused DataFrames.</div>
+    <div class="code-caption"><strong>Code Fragment T.1.10</strong>: Cost optimization via spot instances with on-demand fallback, adaptive autoscaling, checkpointing to break long lineage graphs, and explicit caching for reused DataFrames.</div>
 
     <div class="callout tip">
         <div class="callout-title">Tip</div>

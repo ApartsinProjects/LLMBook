@@ -122,7 +122,85 @@ for op in ["gelu", "layernorm", "softmax", "matmul", "fused_attention"]:
              softmax:      2.0 FLOPs/byte [MEMORY-bound]
               matmul:    682.7 FLOPs/byte [COMPUTE-bound]
      fused_attention:    341.3 FLOPs/byte [COMPUTE-bound]</div>
-    <div class="code-caption"><strong>Code Fragment 9.7.1:</strong> Arithmetic intensity analysis for common LLM operations. Element-wise operations (GELU, LayerNorm, softmax) are heavily memory-bound, making them prime candidates for kernel fusion.</div>
+    <pre><code class="language-python">
+# FlashAttention conceptual implementation in Triton (simplified)
+# Production code: use flash_attn package or torch SDPA
+
+import torch
+import triton
+import triton.language as tl
+
+@triton.jit
+def flash_attention_fwd_kernel(
+    Q_ptr, K_ptr, V_ptr, O_ptr,
+    stride_qm, stride_qd,
+    stride_kn, stride_kd,
+    stride_vn, stride_vd,
+    stride_om, stride_od,
+    seq_len, head_dim,
+    scale,
+    BLOCK_M: tl.constexpr,   # tile size for queries
+    BLOCK_N: tl.constexpr,   # tile size for keys/values
+    BLOCK_D: tl.constexpr,   # head dimension (must cover full d)
+):
+    # Each program handles one BLOCK_M-sized tile of queries
+    pid_m = tl.program_id(0)
+    start_m = pid_m * BLOCK_M
+
+    # Initialize accumulators in SRAM
+    m_offsets = start_m + tl.arange(0, BLOCK_M)
+    d_offsets = tl.arange(0, BLOCK_D)
+
+    # Running softmax statistics (online softmax trick)
+    m_i = tl.full([BLOCK_M], value=-float("inf"), dtype=tl.float32)  # running max
+    l_i = tl.zeros([BLOCK_M], dtype=tl.float32)  # running sum of exp
+    acc = tl.zeros([BLOCK_M, BLOCK_D], dtype=tl.float32)  # output accumulator
+
+    # Load Q tile (stays in SRAM for all K/V tiles)
+    q_ptrs = Q_ptr + m_offsets[:, None] * stride_qm + d_offsets[None, :] * stride_qd
+    q_mask = m_offsets[:, None] < seq_len
+    q = tl.load(q_ptrs, mask=q_mask, other=0.0)
+
+    # Iterate over all K/V tiles
+    for start_n in range(0, seq_len, BLOCK_N):
+        n_offsets = start_n + tl.arange(0, BLOCK_N)
+
+        # Load K tile
+        k_ptrs = K_ptr + n_offsets[:, None] * stride_kn + d_offsets[None, :] * stride_kd
+        k_mask = n_offsets[:, None] < seq_len
+        k = tl.load(k_ptrs, mask=k_mask, other=0.0)
+
+        # Compute attention scores for this tile: [BLOCK_M, BLOCK_N]
+        scores = tl.dot(q, tl.trans(k)) * scale
+
+        # Online softmax update
+        m_new = tl.maximum(m_i, tl.max(scores, axis=1))
+        alpha = tl.exp(m_i - m_new)
+        p = tl.exp(scores - m_new[:, None])
+
+        # Rescale previous accumulator and add new contribution
+        l_i = l_i * alpha + tl.sum(p, axis=1)
+        acc = acc * alpha[:, None]
+
+        # Load V tile and accumulate
+        v_ptrs = V_ptr + n_offsets[:, None] * stride_vn + d_offsets[None, :] * stride_vd
+        v = tl.load(v_ptrs, mask=n_offsets[:, None] < seq_len, other=0.0)
+        acc += tl.dot(p.to(tl.float16), v)
+
+        m_i = m_new
+
+    # Final normalization
+    acc = acc / l_i[:, None]
+
+    # Write output tile to HBM
+    o_ptrs = O_ptr + m_offsets[:, None] * stride_om + d_offsets[None, :] * stride_od
+    o_mask = m_offsets[:, None] < seq_len
+    tl.store(o_ptrs, acc.to(tl.float16), mask=o_mask)
+
+print("FlashAttention kernel defined (see flash_attn package for production use)")
+</code></pre>
+<div class="code-output">FlashAttention kernel defined (see flash_attn package for production use)</div>
+<div class="code-caption"><strong>Code Fragment 9.7.1:</strong> Arithmetic intensity analysis for common LLM operations. Element-wise operations (GELU, LayerNorm, softmax) are heavily memory-bound, making them prime candidates for kernel fusion.</div>
 
     <h2>2. Triton: Python-Based GPU Kernel Programming <span class="level-badge advanced" title="Advanced">Advanced</span></h2>
 
@@ -268,85 +346,6 @@ print("Fused softmax: correct! (3 memory passes reduced to 1)")
         <div class="callout-title">FlashAttention Memory Savings</div>
         <p>Consider a transformer with 32 attention heads, sequence length 8,192, and head dimension 128. Standard attention materializes 32 attention matrices of size 8192 x 8192 in FP16, consuming 32 x 128 MB = 4 GB of HBM just for intermediate storage. FlashAttention reduces this to roughly 32 x (2 x BLOCK_SIZE x 128 x 2 bytes), which at BLOCK_SIZE=256 is about 4 MB. This 1000x reduction in intermediate memory is what enables 128K+ context lengths on hardware that could previously only handle 2K-4K tokens with standard attention.</p>
     </div>
-
-<pre><code class="language-python">
-# FlashAttention conceptual implementation in Triton (simplified)
-# Production code: use flash_attn package or torch SDPA
-
-import torch
-import triton
-import triton.language as tl
-
-@triton.jit
-def flash_attention_fwd_kernel(
-    Q_ptr, K_ptr, V_ptr, O_ptr,
-    stride_qm, stride_qd,
-    stride_kn, stride_kd,
-    stride_vn, stride_vd,
-    stride_om, stride_od,
-    seq_len, head_dim,
-    scale,
-    BLOCK_M: tl.constexpr,   # tile size for queries
-    BLOCK_N: tl.constexpr,   # tile size for keys/values
-    BLOCK_D: tl.constexpr,   # head dimension (must cover full d)
-):
-    # Each program handles one BLOCK_M-sized tile of queries
-    pid_m = tl.program_id(0)
-    start_m = pid_m * BLOCK_M
-
-    # Initialize accumulators in SRAM
-    m_offsets = start_m + tl.arange(0, BLOCK_M)
-    d_offsets = tl.arange(0, BLOCK_D)
-
-    # Running softmax statistics (online softmax trick)
-    m_i = tl.full([BLOCK_M], value=-float("inf"), dtype=tl.float32)  # running max
-    l_i = tl.zeros([BLOCK_M], dtype=tl.float32)  # running sum of exp
-    acc = tl.zeros([BLOCK_M, BLOCK_D], dtype=tl.float32)  # output accumulator
-
-    # Load Q tile (stays in SRAM for all K/V tiles)
-    q_ptrs = Q_ptr + m_offsets[:, None] * stride_qm + d_offsets[None, :] * stride_qd
-    q_mask = m_offsets[:, None] < seq_len
-    q = tl.load(q_ptrs, mask=q_mask, other=0.0)
-
-    # Iterate over all K/V tiles
-    for start_n in range(0, seq_len, BLOCK_N):
-        n_offsets = start_n + tl.arange(0, BLOCK_N)
-
-        # Load K tile
-        k_ptrs = K_ptr + n_offsets[:, None] * stride_kn + d_offsets[None, :] * stride_kd
-        k_mask = n_offsets[:, None] < seq_len
-        k = tl.load(k_ptrs, mask=k_mask, other=0.0)
-
-        # Compute attention scores for this tile: [BLOCK_M, BLOCK_N]
-        scores = tl.dot(q, tl.trans(k)) * scale
-
-        # Online softmax update
-        m_new = tl.maximum(m_i, tl.max(scores, axis=1))
-        alpha = tl.exp(m_i - m_new)
-        p = tl.exp(scores - m_new[:, None])
-
-        # Rescale previous accumulator and add new contribution
-        l_i = l_i * alpha + tl.sum(p, axis=1)
-        acc = acc * alpha[:, None]
-
-        # Load V tile and accumulate
-        v_ptrs = V_ptr + n_offsets[:, None] * stride_vn + d_offsets[None, :] * stride_vd
-        v = tl.load(v_ptrs, mask=n_offsets[:, None] < seq_len, other=0.0)
-        acc += tl.dot(p.to(tl.float16), v)
-
-        m_i = m_new
-
-    # Final normalization
-    acc = acc / l_i[:, None]
-
-    # Write output tile to HBM
-    o_ptrs = O_ptr + m_offsets[:, None] * stride_om + d_offsets[None, :] * stride_od
-    o_mask = m_offsets[:, None] < seq_len
-    tl.store(o_ptrs, acc.to(tl.float16), mask=o_mask)
-
-print("FlashAttention kernel defined (see flash_attn package for production use)")
-</code></pre>
-<div class="code-output">FlashAttention kernel defined (see flash_attn package for production use)</div>
     <div class="code-caption"><strong>Code Fragment 9.7.4:</strong> Simplified FlashAttention forward pass in Triton. The key ideas are: Q tiles stay in SRAM while iterating over K/V tiles, the online softmax trick maintains running statistics, and the full N x N attention matrix is never materialized. For production workloads, use the <code>flash-attn</code> package or <code>torch.nn.functional.scaled_dot_product_attention</code>.</div>
 
     <h2>4. JIT Compilation: torch.compile and XLA <span class="level-badge intermediate" title="Intermediate">Intermediate</span></h2>
@@ -685,7 +684,12 @@ INT8 snippet:  Compiled languages convert source code to machine code ahead of t
   </div>
 </div>
 
-<div class="bibliography">
+<div class="whats-next">
+    <h3>What's Next?</h3>
+    <p>With inference optimization covered, from quantization to custom GPU kernels, we move to understanding what happens inside these models. In <a class="cross-ref" href="../module-18-interpretability/index.html">Chapter 18: Interpretability and Mechanistic Understanding</a>, we explore techniques for looking inside the black box: attention visualization, probing classifiers, logit lens, and mechanistic interpretability methods that reveal how LLMs actually process language.</p>
+</div>
+
+<section class="bibliography">
     <div class="bibliography-title">References &amp; Further Reading</div>
 
     <div class="bib-category">FlashAttention</div>
@@ -736,7 +740,7 @@ INT8 snippet:  Compiled languages convert source code to machine code ahead of t
         <span class="bib-meta">Tool Documentation</span>
     </div>
 
-</div>
+</section>
 
 <nav class="chapter-nav">
     <a class="prev" href="section-9.6.html">Test-Time Compute &amp; Reasoning Models</a>

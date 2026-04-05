@@ -294,17 +294,7 @@ for each block j of keys/values:
 # Final normalization
 output = output_accumulator / sum_exp
 </code></pre>
-<div class="code-caption"><strong>Code Fragment 4.4.1:</strong> Pseudocode: Online softmax for FlashAttention.</div>
-
-<p>
-    This is numerically equivalent to computing the full softmax but requires only O(B) SRAM at any
-    point, rather than the full O(T) row. The correction factor ensures that as we discover larger
-    values, all previous exponentials are rescaled consistently.
-</p>
-
-<div class="callout algorithm">
-    <div class="callout-title">Algorithm: FlashAttention Tiling</div>
-    <pre><code class="language-python">
+<pre><code class="language-python">
 <span class="algo-line-keyword">Input:</span> Q, K, V matrices in HBM; tile sizes B<sub>r</sub>, B<sub>c</sub> fitting in SRAM
 <span class="algo-line-keyword">Output:</span> O = softmax(QK<sup>T</sup> / &radic;d<sub>k</sub>) V, written to HBM
 
@@ -331,6 +321,67 @@ output = output_accumulator / sum_exp
 
 <span class="algo-line-keyword">return</span> O
     </code></pre>
+<div class="code-caption"><strong>Code Fragment 4.4.1:</strong> Pseudocode: Online softmax for FlashAttention.</div>
+
+<p>
+    This is numerically equivalent to computing the full softmax but requires only O(B) SRAM at any
+    point, rather than the full O(T) row. The correction factor ensures that as we discover larger
+    values, all previous exponentials are rescaled consistently.
+</p>
+
+<div class="callout algorithm">
+    <div class="callout-title">Algorithm: FlashAttention Tiling</div>
+<pre><code class="language-python"># implement softmax_kernel, fused_softmax
+# Key operations: softmax normalization
+
+@triton.jit
+def softmax_kernel(
+    output_ptr, input_ptr,
+    input_row_stride, output_row_stride,
+    n_cols,
+    BLOCK_SIZE: tl.constexpr,
+):
+    """Fused softmax: one kernel, one pass through HBM per row."""
+    # Each program handles one row
+    row_idx = tl.program_id(0)
+    row_start_ptr = input_ptr + row_idx * input_row_stride
+
+    # Load the row into SRAM
+    col_offsets = tl.arange(0, BLOCK_SIZE)
+    mask = col_offsets &lt; n_cols
+    row = tl.load(row_start_ptr + col_offsets, mask=mask, other=float('-inf'))
+
+    # Compute softmax entirely in SRAM
+    # Step 1: Subtract max for numerical stability
+    row_max = tl.max(row, axis=0)
+    row = row - row_max
+
+    # Step 2: Exponentiate
+    numerator = tl.exp(row)
+
+    # Step 3: Normalize
+    denominator = tl.sum(numerator, axis=0)
+    softmax_output = numerator / denominator
+
+    # Write back to HBM
+    output_row_start_ptr = output_ptr + row_idx * output_row_stride
+    tl.store(output_row_start_ptr + col_offsets, softmax_output, mask=mask)
+
+def fused_softmax(x):
+    """Apply softmax to each row of x using a fused Triton kernel."""
+    n_rows, n_cols = x.shape
+    # BLOCK_SIZE must be a power of 2 >= n_cols
+    BLOCK_SIZE = triton.next_power_of_2(n_cols)
+
+    output = torch.empty_like(x)
+    softmax_kernel[(n_rows,)](
+        output, x,
+        x.stride(0), output.stride(0),
+        n_cols,
+        BLOCK_SIZE=BLOCK_SIZE,
+    )
+    return output
+</code></pre>
 <div class="code-caption"><strong>Code Fragment 4.4.6:</strong> The FlashAttention tiling algorithm in pseudocode. By processing Q, K, and V in SRAM-sized blocks and rescaling partial softmax accumulators on the fly, it computes exact attention while reducing HBM reads from quadratic to linear in sequence length.</div>
 </div>
 
@@ -454,58 +505,6 @@ def triton_add(x, y):
         three in a single pass through the data in SRAM.
     </p>
 </div>
-
-<pre><code class="language-python"># implement softmax_kernel, fused_softmax
-# Key operations: softmax normalization
-
-@triton.jit
-def softmax_kernel(
-    output_ptr, input_ptr,
-    input_row_stride, output_row_stride,
-    n_cols,
-    BLOCK_SIZE: tl.constexpr,
-):
-    """Fused softmax: one kernel, one pass through HBM per row."""
-    # Each program handles one row
-    row_idx = tl.program_id(0)
-    row_start_ptr = input_ptr + row_idx * input_row_stride
-
-    # Load the row into SRAM
-    col_offsets = tl.arange(0, BLOCK_SIZE)
-    mask = col_offsets &lt; n_cols
-    row = tl.load(row_start_ptr + col_offsets, mask=mask, other=float('-inf'))
-
-    # Compute softmax entirely in SRAM
-    # Step 1: Subtract max for numerical stability
-    row_max = tl.max(row, axis=0)
-    row = row - row_max
-
-    # Step 2: Exponentiate
-    numerator = tl.exp(row)
-
-    # Step 3: Normalize
-    denominator = tl.sum(numerator, axis=0)
-    softmax_output = numerator / denominator
-
-    # Write back to HBM
-    output_row_start_ptr = output_ptr + row_idx * output_row_stride
-    tl.store(output_row_start_ptr + col_offsets, softmax_output, mask=mask)
-
-def fused_softmax(x):
-    """Apply softmax to each row of x using a fused Triton kernel."""
-    n_rows, n_cols = x.shape
-    # BLOCK_SIZE must be a power of 2 >= n_cols
-    BLOCK_SIZE = triton.next_power_of_2(n_cols)
-
-    output = torch.empty_like(x)
-    softmax_kernel[(n_rows,)](
-        output, x,
-        x.stride(0), output.stride(0),
-        n_cols,
-        BLOCK_SIZE=BLOCK_SIZE,
-    )
-    return output
-</code></pre>
 <div class="code-caption"><strong>Code Fragment 4.4.3:</strong> Each program handles one row.</div>
 
 <p>
