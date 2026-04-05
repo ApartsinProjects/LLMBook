@@ -43,7 +43,7 @@ Apply approved code fixes directly into chapter HTML. Add captions below code bl
 - Use current, stable libraries (not deprecated APIs)
 - Python 3.10+ style, type hints where helpful
 - Imports shown explicitly (no hidden dependencies)
-- Output shown inline after code blocks
+- Output shown in a `<div class="code-output">` pane between `</pre>` and `<div class="code-caption">`. Every code block that calls `print()`, `.head()`, `display()`, or produces visible results MUST have an output pane showing representative output. See #40 Code Caption Agent for the full output pane specification.
 
 ### Import Justification Rule
 Every `import` statement in a code block must be justified in the surrounding prose or

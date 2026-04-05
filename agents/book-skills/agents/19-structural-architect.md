@@ -200,6 +200,7 @@ Every section HTML file AND appendix index.html MUST place recurring structural 
 2. **Prerequisites** (div.prerequisites) immediately after the epigraph
 3. **Big Picture callout** (div.callout.big-picture) immediately after prerequisites. This is MANDATORY for every content page (sections AND appendices). It frames why this topic matters and how it connects to the broader book.
 4. **Section content** (prose, callouts, code, figures, exercises, labs)
+   - **Code block ordering**: `<pre>` → `<div class="code-output">` (optional) → `<div class="code-caption">`
    - **Algorithm boxes** (div.callout.algorithm) appear within content wherever formal procedures are described
 5. **Key Takeaways** (div.takeaways) after section content, summarizing main points with a bulleted list
 6. **Research Frontier** (div.callout.research-frontier) after Key Takeaways, before What's Next

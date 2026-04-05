@@ -171,6 +171,37 @@ The caption must: (a) name the library, (b) state the line count, (c) describe w
 - `.code-output` divs (these are output displays, not code fragments; they are part of the preceding code block's unit)
 - **Chapter opener images** (`chapter-opener.png`): These decorative illustrations in chapter index files do NOT get code captions or figure captions. They are visual decoration, not instructional figures.
 
+## Output Pane Rules
+
+When a code block produces visible output (printed results, model predictions, loss values,
+tensor shapes, tokenization results, etc.), the output MUST be shown in a separate
+`<div class="code-output">` element between the `</pre>` and the `<div class="code-caption">`.
+
+### Standard Element Order
+```html
+<pre><code>...code...</code></pre>
+<div class="code-output">
+...output lines...
+</div>
+<div class="code-caption"><strong>Code Fragment N:</strong> ...</div>
+```
+
+### Rules for Output Panes
+1. Use `<div class="code-output">` (not `output-block`, not `console-output`, not bare `<pre>`)
+2. The output pane sits BETWEEN the code block and the caption; never before the code or after the caption
+3. Show only the meaningful output lines; omit progress bars, deprecation warnings, and download logs
+4. For long outputs (more than 15 lines), truncate with `...` and show the most informative portion
+5. Output text uses monospace font (styled by CSS); do not add extra formatting
+6. Code blocks that produce NO visible output (e.g., class definitions, import-only blocks, configuration) do NOT get an output pane
+7. When auditing, flag code blocks that contain `print()`, `display()`, `.head()`, or similar output calls but have no `.code-output` sibling
+
+### When to Add Output Panes
+- Code that prints results, metrics, or shapes: ALWAYS show output
+- Code that trains a model and prints loss/accuracy: show representative epochs
+- Code that demonstrates a transformation (tokenization, encoding): show before/after
+- Code that queries an API and gets a response: show the response
+- Interactive/REPL-style code: show the return values
+
 ## CRITICAL: Insertion Point Verification
 
 After inserting or moving a caption, the agent MUST verify the final HTML structure matches
@@ -178,6 +209,7 @@ this pattern:
 
 ```html
 <pre>...code...</pre>
+<div class="code-output">...optional output...</div>
 <div class="code-caption"><strong>Code Fragment N:</strong> ...</div>
 ```
 

@@ -62,6 +62,7 @@ Read every HTML file in the target chapter (index.html + all section-*.html file
 | Modality competition | Code, table, diagram appearing back-to-back with no interpretive prose between | Dr. Sana Okafor (#03, Teaching Flow Reviewer) |
 | Transition sentences | Subsections ending abruptly with no bridge to next topic | Olivia March (#14, Narrative Continuity Editor) |
 | Code captions | Code blocks without captions or text references | Kai Nakamura (#08, Code Pedagogy Engineer) |
+| Code output panes | Code with print()/display() calls but no `.code-output` div | Kai Nakamura (#08, Code Pedagogy Engineer) |
 | Research Frontier | Missing research-frontier callout, stale frontier content | Prof. Ingrid Holm (#18, Research Scientist and Frontier Mapper) |
 | Labs | Missing hands-on labs, labs too shallow or too complex | Dex Huang (#27, Lab Designer) |
 | Element ordering | Epigraph, prereqs, content, research frontier, what's next, bib out of order | Yara Sokolov (#19, Structural Architect) |

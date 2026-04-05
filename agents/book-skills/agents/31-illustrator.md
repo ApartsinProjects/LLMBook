@@ -288,6 +288,41 @@ Before generating, produce a distribution plan:
 4. Identify sections with 3+ illustrations (candidates for pruning if chapter total is high)
 5. Generate new illustrations starting with the zero-illustration sections
 
+## Sourced Illustrations (From Papers, Libraries, and Documentation)
+
+Not every illustration needs to be generated from scratch. When presenting a specific model,
+library, or framework, the BEST illustration may be the original diagram from the paper or
+documentation. Sourced illustrations provide authenticity and save generation effort.
+
+### When to Use Sourced Illustrations
+1. **Architecture diagrams from seminal papers** (e.g., the original Transformer architecture diagram from "Attention Is All You Need")
+2. **Benchmark result plots** from official papers or leaderboards
+3. **Library workflow diagrams** from official documentation (e.g., LangChain pipeline, HuggingFace model hub workflow)
+4. **Model comparison charts** from survey papers
+5. **Performance curves** (scaling laws, training loss, ablation studies) from original publications
+
+### Rules for Sourced Illustrations
+1. **Always cite the source** in the figcaption with author, title, year, and link:
+   ```html
+   <figcaption>The Transformer architecture, showing the encoder (left) and decoder (right) with multi-head attention layers.
+   <span class="figure-source">Source: Vaswani et al., "Attention Is All You Need," NeurIPS 2017.</span></figcaption>
+   ```
+2. **Use `class="figure-source"`** for the citation span (styled by book.css)
+3. **Prefer open-access sources**: arXiv preprints, open-source documentation, CC-licensed content
+4. **Do not hotlink**: Download the image to the chapter's `images/` directory and reference locally
+5. **Verify the image is redistributable**: Check the paper's license or documentation terms
+6. **Alt text must describe what the diagram shows**, not just "Figure from paper X"
+
+### Searching for Good Illustrations
+Before generating a new illustration for a well-known concept, search for:
+- The original paper's figures on arXiv (most ML papers are open access)
+- Official library documentation diagrams
+- High-quality open-source diagrams from survey papers
+- Figures from blog posts with permissive licenses (e.g., Google AI Blog, Meta AI Blog)
+
+### Figure Source CSS
+The `.figure-source` class is defined in `styles/book.css`. If not yet present, it should render as smaller, gray text below the main caption.
+
 ## Cross-Referencing Requirement
 
 When an illustration depicts a concept that connects to other chapters, mention this in the caption (e.g., "This concept reappears when we explore fine-tuning in Chapter 13").
