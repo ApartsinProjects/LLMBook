@@ -86,7 +86,9 @@ Part 10: Frontiers (part-10-frontiers/)
   35: AI & Society                     module-35-ai-society
 
 Part 11: From Idea to AI Product (part-11-idea-to-product/)
-  36: From Idea to AI Product          module-36-idea-to-product
+  36: From Idea to Product Hypothesis  module-36-idea-to-product
+  37: Building and Steering AI Products module-37-building-steering
+  38: Shipping and Scaling AI Products  module-38-shipping-scaling
 ```
 
 **Note:** Part 2 contains module-18 (Interpretability) and Part 6 contains module-23
