@@ -126,7 +126,13 @@ See the full ordering in "Standard Element Ordering" below. Within `<main class=
 
 ### Callout Type Catalog
 
-The book uses 15 callout types, each with a dedicated SVG/PNG icon and a CSS tooltip (shown on hover). Icons and tooltips are defined centrally in `book.css` via `::before` and `::after` pseudo-elements. No HTML changes are needed for icons or tooltips; they are applied automatically by class name.
+The book uses 15 callout types, each with a dedicated SVG/PNG icon and a CSS tooltip (shown on hover). All definitions live in these files (read them for authoritative values):
+
+- **CSS definitions**: `styles/book.css` (callout base ~830, variants ~870-1115, icons ~1025-1055, tooltips ~895-920)
+- **Icon files**: `styles/icons/callout-{type}.png` or `callout-{type}.svg` (48x48)
+- **Legacy icon set** (not used by book.css): `images/icons/` with separate `icons.css`
+
+No HTML changes are needed for icons or tooltips; they are applied automatically by class name.
 
 | Class | Icon | Color | Purpose |
 |-------|------|-------|---------|

@@ -33,6 +33,33 @@ the new project's root directory:
 Agents read these files at runtime. The skill definition itself contains only generic
 pipeline logic, agent roles, and quality rules that apply to any textbook.
 
+### Reusable Assets (copy to new book projects)
+
+The callout system, icons, CSS, templates, and scripts are bundled within this skill directory for reuse across books.
+
+**Included in this skill directory (ships with the skill):**
+
+| Asset | Path (relative to `agents/book-skills/`) | What it contains |
+|-------|------------------------------------------|------------------|
+| **Book stylesheet** | `styles/book.css` | All layout, callout types, code output panes, typography, tables (annotated with 43 `SECTION:` markers) |
+| **Callout icons** | `styles/icons/callout-*.png` and `*.svg` | 15 callout type icons (48x48) |
+| **HTML templates** | `templates/section-template.html`, `chapter-index-template.html`, `part-index-template.html` | Page skeletons with placeholder markup |
+| **Chapter status** | `templates/chapter-status-template.md` | Per-chapter audit status tracker |
+| **Icon generator** | `scripts/generate_icons_gemini.py` | Batch icon generation via Gemini API (Imagen, Gemini native, batch mode with 50% discount) |
+
+| **Audit framework** | `scripts/audit/run.py` + `scripts/audit/checks/*.py` | 69 automated QA check modules with plugin runner |
+| **Fix scripts** | `scripts/fix/*.py` | 13 reusable HTML fix scripts (accessibility, code blocks, math, captions, etc.) |
+| **Detect scripts** | `scripts/detect/*.py` | 4 standalone audit scripts (HTML quality, SVG, print contrast, format validation) |
+
+**Referenced from the project (copy when starting a new book):**
+
+| Asset | Project Path | What it contains |
+|-------|-------------|------------------|
+| KaTeX vendor | `vendor/katex/` | Math rendering (KaTeX CSS + JS + auto-render) |
+| Prism vendor | `vendor/prism/` | Syntax highlighting for code blocks |
+
+The callout system supports 15 types: `big-picture`, `key-insight`, `note`, `warning`, `practical-example`, `fun-note`, `research-frontier`, `algorithm`, `tip`, `exercise`, `key-takeaway`, `library-shortcut`, `pathway`, `self-check`, `lab`. Each type has CSS (colors, borders, gradients), a `::before` icon, and a `::after` tooltip, all driven by the class name alone. See agent #25 (Visual Identity Director) for the full catalog.
+
 **Note:** The book structure may change over time (Parts renumbered, chapters added or
 moved). `BOOK_CONFIG.md` is the single source of truth for the current structure. All
 agents that reference chapter numbers, Part names, or cross-references MUST read

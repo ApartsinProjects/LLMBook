@@ -45,66 +45,65 @@ Apply approved visual identity fixes directly into chapter HTML. Replace inline 
 
 All canonical CSS is defined in the shared stylesheet `styles/book.css`, which is the single source of truth for all visual styling. Files should link to this stylesheet via `<link rel="stylesheet" href="../../styles/book.css">` instead of embedding inline CSS. When auditing visual identity, verify that files link to the shared stylesheet and do not override its definitions with conflicting inline styles.
 
-The key definitions in `styles/book.css` include:
+**Do NOT duplicate CSS in agent skills.** Always read `styles/book.css` directly for the authoritative definitions. The key sections in `book.css` are:
 
-### Epigraph
-```css
-.epigraph {
-    max-width: 600px;
-    margin: 2rem auto 2.5rem;
-    padding: 1.2rem 1.5rem;
-    border-left: 4px solid var(--highlight, #e94560);
-    background: linear-gradient(135deg, rgba(233,69,96,0.04), rgba(15,52,96,0.04));
-    border-radius: 0 8px 8px 0;
-    font-style: italic;
-    font-size: 1.05rem;
-    line-height: 1.6;
-    color: var(--text, #1a1a2e);
-}
-.epigraph p { margin: 0 0 0.5rem 0; }
-.epigraph cite {
-    display: block;
-    text-align: right;
-    font-style: normal;
-    font-size: 0.9rem;
-    color: var(--highlight, #e94560);
-    font-weight: 600;
-}
-.epigraph cite::before { content: "\2014\00a0"; }
+| Section | Approximate Lines | What it defines |
+|---------|-------------------|-----------------|
+| Epigraph | ~50-80 | `.epigraph` styling, max-width 600px, cite formatting |
+| Callout base | ~830-870 | `.callout` shared styling, tooltip `::after`, icon `::before` |
+| Callout variants | ~870-1115 | All 15 callout type colors, borders, backgrounds |
+| Callout icons | ~1025-1055 | `::before` background-image rules pointing to `styles/icons/` |
+| Code output | ~1380-1420 | `.code-output` green border, "Output" label |
+| Prerequisites | ~220-250 | `.prerequisites` max-width 600px |
+
+### Callout System (15 canonical types)
+
+The book uses 15 callout types. All styling, icons, and tooltips are defined centrally in `styles/book.css`. Icons live in `styles/icons/` as `callout-{type}.png` or `callout-{type}.svg`. No inline styles or per-file overrides are needed.
+
+**File locations:**
+- CSS definitions: `styles/book.css` (lines ~870-1115)
+- Icon files: `styles/icons/callout-{type}.png` or `.svg`
+- Legacy icon set (unused): `images/icons/` with separate `icons.css`
+
+| # | Class | Border Color | Title Color | Icon File | Purpose |
+|---|-------|-------------|-------------|-----------|---------|
+| 1 | `big-picture` | #7c3aed (purple) | #7c3aed | callout-big-picture.png | Why this topic matters; once near top |
+| 2 | `key-insight` | #43a047 (green) | #2e7d32 | callout-key-insight.png | Core concept worth remembering |
+| 3 | `note` | #1976d2 (blue) | #1565c0 | callout-note.png | Supplementary detail or clarification |
+| 4 | `warning` | #f9a825 (amber) | #e65100 | callout-warning.png | Common mistakes or pitfalls |
+| 5 | `practical-example` | #5dade2 (grey-blue) | #2980b9 | callout-practical-example.png | Real-world production scenario |
+| 6 | `fun-note` | #e91e63 (pink) | #c2185b | callout-fun-note.png | Lighthearted or surprising fact |
+| 7 | `research-frontier` | #00897b (teal) | #00796b | callout-research-frontier.png | Active research directions |
+| 8 | `algorithm` | #4a55a2 (indigo) | #2e3990 | callout-algorithm.png | Step-by-step pseudocode |
+| 9 | `tip` | #00acc1 (cyan) | #006064 | callout-tip.png | Practical shortcut or best practice |
+| 10 | `exercise` | #e64a19 (deep orange) | #c62828 | callout-exercise.png | Hands-on exercise with solution |
+| 11 | `key-takeaway` | #f9a825 (gold) | #f57f17 | callout-key-takeaway.svg | Essential takeaway to remember |
+| 12 | `library-shortcut` | #00897b (teal) | #00695c | callout-library-shortcut.svg | Library that solves task in fewer lines |
+| 13 | `pathway` | #7e57c2 (purple) | #5e35b1 | callout-pathway.svg | Recommended learning path |
+| 14 | `self-check` | #3949ab (indigo) | #283593 | callout-self-check.svg | Quick comprehension quiz |
+| 15 | `lab` | #00897b (teal-green) | #00695c | callout-lab.svg | Guided hands-on lab exercise |
+
+**Callout HTML template:**
+```html
+<div class="callout {type}">
+    <div class="callout-title">{Title Text}</div>
+    <p>Content here.</p>
+</div>
 ```
 
-### Callout Boxes (10 canonical types)
-```css
-.callout.big-picture { background: linear-gradient(135deg,#f3e8ff,#e8f4f8); border-left: 4px solid #7c3aed; }
-.callout.big-picture .callout-title { color: #7c3aed; }
+**Rules:**
+- Every callout MUST use one of these 15 classes. Do not invent new types.
+- The class name alone controls icon, color, border, and tooltip. Never add inline styles.
+- Exercise callouts use `<details><summary>` for collapsible solutions.
+- Self-check callouts use `.quiz-question` for question text.
+- Algorithm callouts use `<pre>` inside the callout for pseudocode, with `.algo-line-keyword` and `.algo-line-comment` spans.
 
-.callout.key-insight { background: linear-gradient(135deg,#e8f5e9,#f1f8e9); border-left: 4px solid #43a047; }
-.callout.key-insight .callout-title { color: #2e7d32; }
-
-.callout.note { background: linear-gradient(135deg,#e3f2fd,#f3e8ff); border-left: 4px solid #1976d2; }
-.callout.note .callout-title { color: #1565c0; }
-
-.callout.warning { background: linear-gradient(135deg,#fff8e1,#fff3e0); border-left: 4px solid #f9a825; }
-.callout.warning .callout-title { color: #e65100; }
-
-.callout.practical-example { background: #f5f5f5; border: 1px solid #e0e0e0; border-left: 5px solid #5dade2; border-radius: 0 8px 8px 0; }
-.callout.practical-example .callout-title { color: #2980b9; }
-
-.callout.fun-note { background: linear-gradient(135deg,#fce4ec,#f3e5f5); border-left: 4px solid #e91e63; }
-.callout.fun-note .callout-title { color: #c2185b; }
-
-.callout.research-frontier { background: linear-gradient(135deg, #e0f2f1, #e0f7fa); border-left-color: #00897b; }
-.callout.research-frontier .callout-title { color: #00796b; }
-
-.callout.algorithm { background: linear-gradient(135deg, #ede7f6, #e8eaf6); border-left-color: #5c6bc0; }
-.callout.algorithm .callout-title { color: #3949ab; }
-
-.callout.tip { background: linear-gradient(135deg, #e0f7fa, #e1f5fe); border-left-color: #00acc1; }
-.callout.tip .callout-title { color: #00838f; }
-
-.callout.exercise { background: linear-gradient(135deg, #fbe9e7, #fff3e0); border-left-color: #e64a19; }
-.callout.exercise .callout-title { color: #bf360c; }
-```
+**Adding a new callout type (for future books):**
+1. Add CSS block in `book.css`: background gradient, border-color, title color
+2. Add tooltip in `book.css`: `.callout.{type} .callout-title::after { content: "..."; }`
+3. Add icon rule: `.callout.{type} .callout-title::before { background-image: url('icons/callout-{type}.png'); }`
+4. Create icon file: `styles/icons/callout-{type}.png` (48x48, matching existing style)
+5. Update agent #19 callout catalog and agent #25 callout table
 
 ### Prerequisites Box
 ```css
@@ -351,7 +350,7 @@ If it matches exactly, skip the file. Only edit files with actual deviations.
 
 ### Execution Checklist
 - [ ] Verified every section file links to the shared stylesheet (`styles/book.css`)
-- [ ] Checked all 9 canonical callout types use correct CSS class names and styling
+- [ ] Checked all 15 canonical callout types use correct CSS class names and styling
 - [ ] Confirmed no inline `style=` attributes exist on elements that should use CSS classes
 - [ ] Verified element ordering in every section file (epigraph, prerequisites, content, research frontier, what's next, bibliography)
 - [ ] Checked that no rogue color schemes or unauthorized CSS overrides appear
@@ -362,7 +361,7 @@ If it matches exactly, skip the file. Only edit files with actual deviations.
 ### Pass/Fail Checks
 - [ ] No section file is missing the shared stylesheet link
 - [ ] No element in the list (`.whats-next`, `.epigraph`, `.prerequisites`, `.callout`, `.bibliography`, `.code-caption`, `.lab`, `.diagram-container`) has an inline `style=` attribute
-- [ ] Every callout box uses one of the 9 canonical classes: `big-picture`, `key-insight`, `note`, `warning`, `practical-example`, `fun-note`, `research-frontier`, `algorithm`, `tip`
+- [ ] Every callout box uses one of the 15 canonical classes: `big-picture`, `key-insight`, `note`, `warning`, `practical-example`, `fun-note`, `research-frontier`, `algorithm`, `tip`, `exercise`, `key-takeaway`, `library-shortcut`, `pathway`, `self-check`, `lab`
 - [ ] No CSS property in any file's `<style>` block contradicts the canonical definitions in `book.css`
 - [ ] Width rules are correct: `.epigraph` and `.prerequisites` at 600px; all other recurring elements at full content width (no narrower max-width)
 - [ ] No em dashes or double dashes appear in any added text
@@ -382,7 +381,7 @@ If it matches exactly, skip the file. Only edit files with actual deviations.
 ### What the Meta Agent Checks
 - Glob all section HTML files in scope; verify each contains a `<link>` to `styles/book.css` (or the correct relative path)
 - Search for `style=` attributes on recurring elements (`.whats-next`, `.epigraph`, `.prerequisites`, `.callout`, `.bibliography`, `.code-caption`, `.lab`, `.diagram-container`); count must be 0
-- Extract all callout class names from `class="callout ..."` patterns; verify each secondary class is in the canonical list (`big-picture`, `key-insight`, `note`, `warning`, `practical-example`, `fun-note`, `research-frontier`, `algorithm`, `tip`)
+- Extract all callout class names from `class="callout ..."` patterns; verify each secondary class is in the canonical list (`big-picture`, `key-insight`, `note`, `warning`, `practical-example`, `fun-note`, `research-frontier`, `algorithm`, `tip`, `exercise`, `key-takeaway`, `library-shortcut`, `pathway`, `self-check`, `lab`)
 - Compare CSS properties in each file's `<style>` block against canonical definitions; flag any contradictions (different background, border-left-color, padding, etc.)
 - Check `max-width` values: `.epigraph` and `.prerequisites` should be 600px; `.whats-next`, `.bibliography`, `.callout`, `.lab` should NOT have a narrower max-width than `.content`
 

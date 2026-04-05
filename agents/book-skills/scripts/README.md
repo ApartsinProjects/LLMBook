@@ -2,6 +2,19 @@
 
 ## Included (generalizable to any HTML textbook)
 
+### generate_icons_gemini.py
+Batch icon generation via Gemini Imagen and Gemini native image APIs.
+Supports parallel single calls (Imagen) and batch API with 50% discount (Gemini).
+
+Usage:
+```bash
+python generate_icons_gemini.py --list                    # show available types
+python generate_icons_gemini.py --engine gemini --batch   # batch mode (50% off)
+python generate_icons_gemini.py --types exercise,tip      # specific types only
+```
+
+Requires `GEMINI_API_KEY` environment variable or `.env.all` file in book root.
+
 ### audit/
 Plugin-based HTML quality audit framework. Each check is a standalone Python
 module with a `run(filepath, html, context)` signature. The runner discovers
