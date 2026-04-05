@@ -51,15 +51,22 @@ def find_missing_captions(filepath):
                 break
 
         # Check if a code-caption follows within 5 lines after </code></pre>
+        # or after a code-output div that follows the code block
         has_caption = False
+        search_start = close_line
         for j in range(close_line, min(close_line + 6, len(lines))):
             if 'class="code-caption"' in lines[j]:
                 has_caption = True
                 break
-            # Also check for code-output + caption pattern
+            # If a code-output div follows, find its closing </div> first
             if 'class="code-output"' in lines[j]:
-                # Look further after code-output
-                for k in range(j, min(j + 5, len(lines))):
+                # Find end of code-output block (search up to 200 lines)
+                for k in range(j + 1, min(j + 200, len(lines))):
+                    if "</div>" in lines[k]:
+                        search_start = k
+                        break
+                # Now look for caption after code-output ends
+                for k in range(search_start, min(search_start + 6, len(lines))):
                     if 'class="code-caption"' in lines[k]:
                         has_caption = True
                         break

@@ -66,7 +66,32 @@ draft a one-sentence explanation to add to the prose introduction.
 - Variable names should be descriptive and match the prose terminology
 - Code should be minimal: remove everything that does not serve the teaching goal
 
-### 4. Micro-Examples (Numeric Grounding)
+### 4. Value Gate: Every Code Fragment Must Earn Its Place
+
+**A code fragment that does not solve a specific task, demonstrate a library function, or produce a meaningful output should not exist.** Defining a dataclass, configuration object, or data structure is not a code example; it is a schema. If the code only declares something without *doing* anything with it, either:
+
+- **Merge it** into the next code fragment that actually uses it, so the reader sees definition and usage together.
+- **Replace it** with a code fragment that demonstrates the concept in action (input, processing, output).
+- **Remove it** entirely if the prose or a callout box conveys the same information more efficiently.
+
+Ask: "If I ran this code, would I learn something from the output?" If the answer is "it just prints a summary of what I typed in," the fragment fails the value gate.
+
+**Signs of a low-value code fragment:**
+- The entire block is a class/dataclass/enum definition with no usage
+- The only "output" is printing what was hardcoded in the input
+- The code restates in Python what the prose already explains in English
+- No library, algorithm, or technique is being demonstrated
+- Removing the code fragment would not reduce the reader's understanding
+
+**Domain-relevance test:** Every code fragment must involve the book's subject-area libraries, API calls, or techniques. Code that is purely organizational (form-filling dataclasses, business logic scorecards, configuration dicts with no library calls) does not belong as a standalone code fragment. Either:
+
+- **Merge it** into a fragment that actually calls a relevant library or API, so the definition and usage appear together.
+- **Replace it with prose**: a table, callout box, or bullet list often conveys configuration and schema better than a Python dict literal.
+- **Delete it** if the surrounding text already covers the same information.
+
+**Concrete test:** "Does this code fragment import or call anything from a domain-relevant library, or demonstrate a technique specific to the book's subject area?" If no, it fails the gate.
+
+### 5. Micro-Examples (Numeric Grounding)
 After introducing a concept, formula, or architecture component, add a short (3 to 8 line) code snippet or inline numeric example that makes the abstraction concrete. The goal is to let the reader verify their understanding by seeing actual numbers flow through the idea. Examples:
 - Print the shape of a tensor before and after an operation: `# x: (batch=2, seq=10, d_model=512) -> after projection: (2, 10, 64)` with a one-line explanation of why the dimensions changed.
 - Show a tokenizer producing specific token IDs: `tokenizer("Hello world") -> [15496, 995]`
@@ -80,12 +105,12 @@ Rules for micro-examples:
 - Do NOT use micro-examples for decorative purposes (lookup tables, taxonomies, classification trees). Use HTML tables for those.
 - Prefer `print(x.shape)` style output over complex plotting or visualization.
 
-### 5. Progressive Complexity
+### 6. Progressive Complexity
 - First code example in a section: simple, 5 to 10 lines
 - Later examples: build on earlier ones, add one new element at a time
 - Final example: brings it together, realistic but not overwhelming
 
-### 6. Library Shortcut Examples ("The Right Tool" Pattern)
+### 7. Library Shortcut Examples ("The Right Tool" Pattern)
 
 A core objective of this book is to show readers that complex tasks become trivially easy when you pick the right library. After teaching a concept from scratch (so the reader understands the internals), follow up with a "shortcut" code block that solves the same problem in 3 to 8 lines using a modern, production-quality library.
 
@@ -159,13 +184,13 @@ When a library reduces a 50+ line implementation to under 5 lines, consider wrap
 </div>
 ```
 
-### 7. Reproducibility
+### 8. Reproducibility
 - Pin library versions in requirements or comments
 - Use deterministic seeds for random operations
 - Provide sample data inline or explain how to obtain it
 - Note any GPU/memory requirements
 
-### 8. Three Mandatory Elements for Every Code Block
+### 9. Three Mandatory Elements for Every Code Block
 
 Every `<pre>` code block in the book MUST have all three of the following:
 

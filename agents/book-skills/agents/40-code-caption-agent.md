@@ -291,6 +291,20 @@ For each file, report:
    - Prose references added/fixed: N
    - CSS rule added/updated: yes/no
 
+## Book-Wide Runs
+
+When running across the entire book (not a single chapter), use the automated detection scripts before and after your pass:
+
+**Pre-pass detection:**
+- `scripts/detect/check_missing_code_captions.py`: Identifies code blocks without captions. Run in report-only mode first to understand scope.
+- `scripts/detect/fix_duplicate_captions.py`: Identifies consecutive caption pairs (duplicates). Run after any automated fix pass.
+
+**Duplicate prevention:**
+When adding captions programmatically (via `--fix` mode or batch agent runs), always check that no caption already exists within 10 lines of the insertion point. The most common regression is inserting a placeholder caption next to an existing proper caption, creating duplicates.
+
+**Post-pass verification:**
+After completing a book-wide caption pass, run `fix_duplicate_captions.py` to catch any duplicates introduced during the pass. Then verify remaining TODO captions with `check_missing_code_captions.py`.
+
 ## Quality Criteria
 
 ### Pass/Fail Checks
