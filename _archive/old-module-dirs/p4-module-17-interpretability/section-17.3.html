@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Section 17.3: Practical Interpretability for Applications. A comprehensive chapter from the Building Conversational AI textbook.">
+    <title>Section 17.3: Practical Interpretability for Applications</title>
+    <link rel="stylesheet" href="../../styles/book.css">
+<link rel="stylesheet" href="../../vendor/prism/prism-theme.css">
+    <script defer src="../../vendor/prism/prism-bundle.min.js"></script>
+</head>
+<body>
+<header class="chapter-header">
+<nav class="header-nav">
+    <a href="../../index.html" class="book-title-link">Building Conversational AI with LLMs and Agents</a>
+    <a href="../../toc.html" class="toc-link" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+</nav>
+    <div class="part-label"><a href="../index.html">Part 4: Training &amp; Adapting</a></div>
+    <div class="chapter-label"><a href="index.html">Chapter 17</a></div>
+    <h1>Practical Interpretability for Applications</h1>
+</header>
+
+<main class="content">
+
+<blockquote class="epigraph">
+    <p>"Interpretability that cannot leave the lab is just curiosity. Interpretability that ships to production is engineering."</p>
+    <cite><span class="agent-avatar-inline" style="background-color: #34495e;"><img src="../../front-matter/images/agents/probe.png" alt="Probe"></span> <a href="../../front-matter/wisdom-council.html#probe">Probe</a> <span class="agent-desc">AI Agent</span></cite>
+</blockquote>
+<div class="prerequisites">
+    <h3>Prerequisites</h3>
+    <p>This section builds on interpretability basics from <a href="section-17.1.html">Section 17.1: Attention Analysis and Probing</a> and mechanistic interpretability covered in <a href="section-17.2.html">Section 17.2: Mechanistic Interpretability</a>.</p>
+</div><div class="callout big-picture">
+        <div class="callout-title">Big Picture</div>
+        <p><strong>Interpretability is not just a research curiosity; it is a practical toolkit for building better models.</strong> Feature attribution methods explain individual predictions, representation engineering steers model behavior without retraining, and model editing techniques (ROME, MEMIT) surgically modify specific knowledge stored in weights. These tools help practitioners debug hallucinations, remove unwanted biases, update stale information, and verify that models behave as intended before deployment. The mechanistic understanding from <a href="section-17.2.html">Section 17.2</a> provides the theoretical grounding for why targeted edits to specific weight matrices can change specific facts.</p>
+    </div>
+
+    <h2>1. Feature Attribution Methods</h2>
+
+    <p>
+        Feature attribution methods assign an importance score to each input token, answering the question:
+        "How much did each token contribute to the model's prediction?" Unlike <a class="cross-ref" href="../../part-1-foundations/module-03-sequence-models-attention/section-3.3.html">attention</a> visualization (which
+        shows where the model looks), attribution methods track the actual causal influence of each input on
+        the output through the entire network.
+    </p>
+
+    <h3>1.1 Integrated Gradients</h3>
+
+    <p>
+        Integrated Gradients (Sundararajan et al., 2017) computes attribution by integrating the gradient of
+        the output with respect to the input along a straight-line path from a baseline (typically the zero
+        embedding) to the actual input. The method satisfies two desirable axioms: sensitivity (if changing
+        an input changes the output, that input gets non-zero attribution) and implementation invariance
+        (the attribution depends only on the function, not its implementation details).
+    </p>
+
+<div class="callout key-insight">
+    <div class="callout-title">Mental Model: The Highlighted Document</div>
+    <p>Think of feature attribution as a highlighter pen applied to the input text. The method highlights which words (or tokens) pushed the model's prediction in a particular direction. Gradient-based methods measure how much a small change in each input token would change the output. SHAP values go further by computing each token's marginal contribution across all possible subsets of the input. The caveat is that highlights show local sensitivity, not global understanding: knowing which word mattered does not tell you why it mattered. Code Fragment 17.3.1 shows this approach in practice.</p>
+</div>
+
+    <p>The following implementation computes Integrated Gradients attribution by interpolating between a zero-embedding baseline and the actual input, averaging gradients along this path.</p>
+
+<pre><code class="language-python"># Integrated Gradients for Token Attribution
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+def integrated_gradients(
+    model,
+    tokenizer,
+    text,
+    target_token_idx=-1,
+    n_steps=50,
+    internal_batch_size=5,
+):
+    """
+    Compute Integrated Gradients attribution for each input token.
+
+    Args:
+        model: language model
+        tokenizer: tokenizer
+        text: input text
+        target_token_idx: which output position to explain (-1 = last)
+        n_steps: number of interpolation steps (higher = more accurate)
+
+    Returns:
+        attributions: per-token attribution scores
+        tokens: list of input tokens
+    """
+    model.eval()
+    inputs = tokenizer(text, return_tensors="pt")
+    input_ids = inputs["input_ids"]
+    tokens = tokenizer.convert_ids_to_tokens(input_ids[0])
+
+    # Get embeddings
+    embedding_layer = model.get_input_embeddings()
+    input_embeds = embedding_layer(input_ids).detach()
+
+    # Baseline: zero embeddings
+    baseline = torch.zeros_like(input_embeds)
+
+    # Interpolate between baseline and input
+    alphas = torch.linspace(0, 1, n_steps).unsqueeze(1).unsqueeze(2)
+    interpolated = baseline + alphas * (input_embeds - baseline)
+    # Shape: (n_steps, seq_len, hidden_dim)
+
+    # Compute gradients at each interpolation point
+    all_grads = []
+    for i in range(0, n_steps, internal_batch_size):
+        batch = interpolated[i:i + internal_batch_size]
+        batch.requires_grad_(True)
+
+        outputs = model(inputs_embeds=batch)
+        logits = outputs.logits
+
+        # Get the predicted token's logit at target position
+        target_logit = logits[:, target_token_idx, :].max(dim=-1).values
+        target_logit.sum().backward()
+
+        all_grads.append(batch.grad.detach())
+
+    grads = torch.cat(all_grads, dim=0)  # (n_steps, seq_len, hidden)
+
+    # Integrate: average gradients, then multiply by (input - baseline)
+    avg_grads = grads.mean(dim=0)  # (seq_len, hidden)
+    ig = (input_embeds.squeeze(0) - baseline.squeeze(0)) * avg_grads
+
+    # Sum over hidden dimension to get per-token scores
+    attributions = ig.sum(dim=-1).numpy()
+
+    return attributions, tokens
+
+# Example usage
+model = AutoModelForCausalLM.from_pretrained("gpt2")
+tokenizer = AutoTokenizer.from_pretrained("gpt2")
+
+attrs, tokens = integrated_gradients(
+    model, tokenizer, "The capital of France is"
+)
+print("Token attributions for next-token prediction:")
+for token, score in zip(tokens, attrs):
+    bar = "+" * int(abs(score) * 20)
+    direction = "+" if score > 0 else "-"
+    print(f"  {token:15s} {direction}{bar} ({score:.4f})")</code></pre>
+<div class="code-caption"><strong>Code Fragment 17.3.1:</strong> Embedding generation for converting text into dense vector representations. These vectors capture semantic meaning, enabling similarity search and clustering.</div>
+
+    <h3>1.2 SHAP for Language Models</h3>
+
+    <p>
+        SHAP (SHapley Additive exPlanations) adapts Shapley values from cooperative game theory to feature
+        attribution. Each token's SHAP value represents the average marginal contribution of that token
+        across all possible subsets of input tokens. While computationally expensive for long sequences,
+        SHAP provides theoretically grounded attributions with strong guarantees.
+     Code Fragment 17.3.2 shows this approach in practice.</p>
+
+    <p>Code Fragment 17.3.2 shows how to use SHAP with a language model by wrapping the model's prediction function for the SHAP explainer API.</p>
+
+<pre><code class="language-python"># SHAP-based attribution for language models
+import shap
+
+def explain_with_shap(model, tokenizer, texts, max_evals=500):
+    """Use SHAP to explain model predictions."""
+
+    # Create a SHAP explainer for the model
+    def model_predict(texts_list):
+        """Prediction function for SHAP."""
+        results = []
+        for text in texts_list:
+            inputs = tokenizer(text, return_tensors="pt", truncation=True)
+            with torch.no_grad():
+                logits = model(**inputs).logits[0, -1]
+            probs = torch.softmax(logits, dim=-1)
+            results.append(probs.numpy())
+        return np.array(results)
+
+    # Partition explainer works well for text
+    explainer = shap.Explainer(
+        model_predict,
+        tokenizer,
+        output_names=tokenizer.get_vocab(),
+    )
+
+    # Compute SHAP values
+    shap_values = explainer(texts, max_evals=max_evals)
+
+    return shap_values
+
+# Visualize SHAP attributions
+shap_vals = explain_with_shap(
+    model, tokenizer,
+    ["The movie was absolutely wonderful and I loved every moment"]
+)
+shap.plots.text(shap_vals[0])</code></pre>
+<div class="code-caption"><strong>Code Fragment 17.3.2:</strong> <a class="cross-ref" href="../../part-1-foundations/module-02-tokenization-subword-models/section-2.1.html">Tokenization</a> pipeline converting raw text into model-ready input IDs. The tokenizer handles special tokens, padding, and truncation automatically.</div>
+
+    <div class="callout note">
+        <div class="callout-title">Note</div>
+        <p>For production use, Integrated Gradients is typically preferred over SHAP for language models because it scales linearly with input length (O(n_steps * forward_pass)), while exact SHAP values require exponentially many evaluations (2^n for n tokens). Approximate SHAP methods reduce this cost but introduce estimation noise.</p>
+    </div>
+
+    <h2>2. Representation Engineering</h2>
+
+    <p>
+        Representation engineering (RepE) steers model behavior by modifying internal representations at
+        inference time. Instead of retraining the model, you identify a "control vector" in activation
+        space that corresponds to a specific behavior (such as honesty, verbosity, or formality) and add
+        or subtract this vector during generation to increase or decrease that behavior. Figure 17.3.1 shows how control vectors are extracted and applied.
+     Code Fragment 17.3.3 shows this approach in practice.</p>
+
+    <!-- SVG: Representation Engineering -->
+    <div class="diagram-container">
+        <svg role="img" aria-label="Diagram: Representation Engineering" viewBox="0 0 720 240" xmlns="http://www.w3.org/2000/svg" font-family="Georgia, serif"><defs><filter id="stdShadow4" x="-4%" y="-4%" width="108%" height="116%"><feDropShadow dx="1" dy="2" stdDeviation="2" flood-opacity="0.08"/></filter><linearGradient id="stdGrad3" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" style="stop-color:#f8f9fa;stop-opacity:0.7"/><stop offset="100%" style="stop-color:#e9ecef;stop-opacity:0.3"/></linearGradient></defs>
+            <!-- Normal generation -->
+            <rect x="30" y="20" width="300" height="90" rx="8" fill="#e3f2fd" stroke="#1565c0" stroke-width="1.5" stroke-linecap="round"/>
+            <text x="180" y="45" text-anchor="middle" font-size="12" font-weight="bold" fill="#0d47a1">Normal Generation</text>
+            <text x="180" y="70" text-anchor="middle" font-size="11" fill="#333">h = transformer_layer(x)</text>
+            <text x="180" y="90" text-anchor="middle" font-size="11" fill="#666">Standard hidden state</text>
+
+            <!-- Steered generation -->
+            <rect x="380" y="20" width="320" height="90" rx="8" fill="#e8f5e9" stroke="#27ae60" stroke-width="1.5" stroke-linecap="round"/>
+            <text x="540" y="45" text-anchor="middle" font-size="12" font-weight="bold" fill="#2e7d32">Steered Generation</text>
+            <text x="540" y="70" text-anchor="middle" font-size="11" fill="#333">h' = h + &alpha; &middot; control_vector</text>
+            <text x="540" y="90" text-anchor="middle" font-size="11" fill="#666">Modified to increase honesty/safety/etc.</text>
+
+            <!-- Control vector -->
+            <rect x="180" y="140" width="360" height="80" rx="8" fill="#fff3e0" stroke="#f39c12" stroke-width="1.5" stroke-linecap="round"/>
+            <text x="360" y="165" text-anchor="middle" font-size="12" font-weight="bold" fill="#e65100">Control Vector Extraction</text>
+            <text x="360" y="185" text-anchor="middle" font-size="11" fill="#333">1. Run model on contrastive prompt pairs (honest vs. dishonest)</text>
+            <text x="360" y="200" text-anchor="middle" font-size="11" fill="#333">2. Compute mean activation difference per layer</text>
+            <text x="360" y="215" text-anchor="middle" font-size="11" fill="#333">3. The difference vector = "control direction" for that behavior</text>
+        </svg>
+        <div class="diagram-caption"><strong>Figure 17.3.1</strong>: Representation engineering extracts control vectors from contrastive prompts, then applies them at inference time to steer behavior without retraining.</div>
+    </div>
+
+    <p>The following code extracts a control vector by computing the mean activation difference between contrastive prompt pairs, then applies it during generation via a forward hook.</p>
+
+<pre><code class="language-python"># Representation Engineering: Control Vectors
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+def extract_control_vector(
+    model,
+    tokenizer,
+    positive_prompts,
+    negative_prompts,
+    layer_idx,
+):
+    """
+    Extract a control vector by contrasting positive and negative prompts.
+
+    The control vector is the mean activation difference at a specific layer.
+    """
+    def get_mean_activation(prompts, layer_idx):
+        activations = []
+        for prompt in prompts:
+            inputs = tokenizer(prompt, return_tensors="pt")
+            with torch.no_grad():
+                outputs = model(**inputs, output_hidden_states=True)
+            # Take the last token's hidden state at the target layer
+            hidden = outputs.hidden_states[layer_idx][0, -1, :]
+            activations.append(hidden)
+        return torch.stack(activations).mean(dim=0)
+
+    pos_mean = get_mean_activation(positive_prompts, layer_idx)
+    neg_mean = get_mean_activation(negative_prompts, layer_idx)
+
+    control_vector = pos_mean - neg_mean
+    # Normalize to unit length
+    control_vector = control_vector / control_vector.norm()
+
+    return control_vector
+
+# Example: honesty control vector
+honest_prompts = [
+    "I need to give an honest, truthful answer to this question:",
+    "Let me think carefully and give an accurate response:",
+    "I want to be straightforward and factual:",
+]
+dishonest_prompts = [
+    "I should make up a convincing-sounding answer:",
+    "Let me say whatever sounds good regardless of truth:",
+    "I want to tell them what they want to hear:",
+]
+
+model = AutoModelForCausalLM.from_pretrained("gpt2")
+tokenizer = AutoTokenizer.from_pretrained("gpt2")
+
+honesty_vector = extract_control_vector(
+    model, tokenizer, honest_prompts, dishonest_prompts, layer_idx=8
+)
+
+def generate_with_steering(
+    model, tokenizer, prompt, control_vector, layer_idx,
+    alpha=1.5, max_new_tokens=100,
+):
+    """Generate text while adding the control vector at each step."""
+    def steering_hook(module, input, output):
+        # Add control vector to hidden states
+        hidden = output[0]
+        hidden[:, -1, :] += alpha * control_vector
+        return (hidden,) + output[1:]
+
+    handle = model.transformer.h[layer_idx].register_forward_hook(steering_hook)
+    inputs = tokenizer(prompt, return_tensors="pt")
+    outputs = model.generate(**inputs, max_new_tokens=max_new_tokens)
+    handle.remove()
+
+    return tokenizer.decode(outputs[0], skip_special_tokens=True)</code></pre>
+<div class="code-caption"><strong>Code Fragment 17.3.3:</strong> Tokenization pipeline converting raw text into model-ready input IDs. The tokenizer handles special tokens, padding, and truncation automatically.</div>
+
+    <h3>2.1 Representation Engineering for Runtime Control</h3>
+
+    <p>
+        While the control vector technique described above demonstrates the core idea of representation
+        engineering, recent work has scaled this approach into a practical tool for <strong>runtime
+        behavior control</strong> in production systems. The key advance is that control vectors can
+        be precomputed offline, stored as lightweight artifacts (a single vector per behavior per
+        layer), and applied at inference time with negligible latency overhead. This makes
+        representation engineering a compelling alternative to <a class="cross-ref" href="../../part-3-working-with-llms/module-11-prompt-engineering/section-11.1.html">prompt engineering</a> for behavioral
+        steering, because the control is applied at the representation level rather than through
+        input text that consumes context window tokens.
+    </p>
+
+    <p>
+        The <strong>Representation Engineering</strong> framework (Zou et al., 2023) systematizes
+        this approach. For a target behavior (honesty, helpfulness, harmlessness, verbosity, or any
+        other measurable trait), the practitioner constructs 50 to 200 contrastive prompt pairs that
+        differ only in the presence or absence of the target trait. The model processes both sets, and
+        the mean activation difference at each layer yields a control direction. The strength of
+        steering is governed by a scalar coefficient alpha: positive alpha amplifies the trait,
+        negative alpha suppresses it, and zero leaves the model unchanged. Crucially, multiple control
+        vectors can be composed by simple addition: applying both an "honesty" and a "conciseness"
+        vector simultaneously produces responses that are both more truthful and more brief.
+    </p>
+
+    <p>
+        In production, representation engineering enables several runtime control patterns that are
+        difficult to achieve through prompting alone. A content moderation system can apply a
+        "safety" control vector with high alpha for user-facing responses while using a lower
+        alpha for internal reasoning steps. A multilingual deployment can steer formality level per
+        locale without maintaining separate system prompts. An A/B testing framework can vary the
+        "creativity" coefficient across user cohorts to measure its impact on engagement, with each
+        variant differing only in a scalar multiplier rather than requiring distinct prompt templates.
+    </p>
+
+    <p>
+        The tooling ecosystem for representation engineering is maturing. The
+        <code>repeng</code> library provides a high-level API for extracting and applying control
+        vectors to <a class="cross-ref" href="../../part-3-working-with-llms/module-10-llm-apis/section-10.2.html">Hugging Face</a> models. The <a href="https://github.com/vgel/repeng" target="_blank"
+        rel="noopener">repeng</a> pipeline handles contrastive data generation, activation
+        extraction, PCA-based direction finding, and hook-based inference steering in a unified
+        workflow. Integration with serving frameworks is still in early stages, but custom forward
+        hooks in <a class="cross-ref" href="../../part-2-understanding-llms/module-09-inference-optimization/section-9.5.html">vLLM</a> and SGLang can apply control vectors with minimal performance impact (typically
+        less than 2% latency increase) because the operation is a single vector addition per layer
+        per token.
+    </p>
+
+    <div class="callout warning">
+        <div class="callout-title">Warning: Limitations of Representation Engineering</div>
+        <p>Control vectors are not a replacement for <a class="cross-ref" href="../module-17-alignment-rlhf-dpo/index.html">alignment training</a>. They work best for
+        continuous, stylistic behaviors (formality, verbosity, sentiment) and less reliably for
+        discrete factual constraints ("never mention competitor X"). Steering strength is also
+        model-dependent: the same alpha value may produce subtle effects in one model and
+        incoherent outputs in another. Always validate control vectors on a held-out evaluation
+        set before deploying to production, and set conservative alpha bounds to avoid pushing
+        the model into out-of-distribution activation regions.</p>
+    </div>
+
+    <h2>3. Model Editing: ROME and MEMIT</h2>
+
+    <p>
+        Model editing techniques surgically modify specific factual associations stored in model weights
+        without affecting other knowledge. ROME (Rank-One Model Editing) targets a single feed-forward
+        layer to update one fact. MEMIT (Mass-Editing Memory In a Transformer) extends this to edit
+        thousands of facts simultaneously.
+    </p>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight</div>
+        <p>ROME is based on the discovery that factual associations are primarily stored in the MLP layers of transformers, specifically in the key-value matrices of the feed-forward network. The MLP acts as an associative memory where the first linear layer (the "key") matches patterns and the second linear layer (the "value") stores the associated information. ROME modifies the value matrix with a rank-one update that changes exactly one fact while preserving all others.</p>
+    </div>
+
+    <div class="callout practical-example">
+      <div class="callout-title">ROME for Correcting Outdated Facts in a Knowledge Base QA System</div>
+      <p><strong>Who:</strong> ML engineer at a news aggregation platform</p>
+      <p><strong>Situation:</strong> The platform's QA model (GPT-J 6B) still answered "Who is the CEO of Twitter?" with the previous CEO's name, months after a leadership change.</p>
+      <p><strong>Problem:</strong> Re-<a class="cross-ref" href="../module-14-fine-tuning-fundamentals/section-14.1.html">fine-tuning</a> on updated data took 12 hours and risked degrading performance on unrelated topics. <a class="cross-ref" href="../../part-5-retrieval-conversation/module-20-rag/section-19.1.html">RAG</a> mitigated the issue but added 200ms latency per query.</p>
+
+      <p><strong>Dilemma:</strong> The team needed to update dozens of time-sensitive facts monthly (leadership changes, election results, policy updates) without full retraining or RAG overhead for every query.</p>
+      <p><strong>Decision:</strong> They applied ROME to surgically edit the specific factual association in the MLP weights, changing only the target fact while preserving all other knowledge.</p>
+      <p><strong>How:</strong> Using causal tracing, they identified layer 17 as the critical layer storing the CEO association. ROME applied a rank-one update to that layer's value matrix. The edit took 3 minutes on a single GPU.</p>
+      <p><strong>Result:</strong> The model correctly answered the updated CEO question and related paraphrases (93% generalization accuracy). Unrelated facts were unaffected (99.8% preservation rate on a 1,000-fact test suite). However, some "ripple" questions (e.g., "Who founded the company the CEO now leads?") required separate edits.</p>
+      <p><strong>Lesson:</strong> <strong>Model editing is ideal for small numbers of targeted fact corrections; for bulk updates (more than 50 facts), consider MEMIT or periodic retraining instead, and always test for ripple effects.</strong> Code Fragment 17.3.4 shows this approach in practice.</p>
+    </div>
+
+<pre><code class="language-python"># Model Editing with ROME (using the rome library)
+# pip install rome
+from rome import ROMEHyperParams, apply_rome_to_model
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+model = AutoModelForCausalLM.from_pretrained("gpt2-xl")
+tokenizer = AutoTokenizer.from_pretrained("gpt2-xl")
+
+# Before editing
+prompt = "The president of the United States is"
+inputs = tokenizer(prompt, return_tensors="pt")
+output = model.generate(**inputs, max_new_tokens=10)
+print(f"Before: {tokenizer.decode(output[0])}")
+
+# Define the edit
+edit_request = {
+    "prompt": "The president of the United States is",
+    "subject": "The president of the United States",
+    "target_new": " Elon Musk",  # hypothetical edit
+}
+
+# Apply ROME
+hparams = ROMEHyperParams.from_name("gpt2-xl")
+edited_model, _ = apply_rome_to_model(
+    model, tokenizer, [edit_request], hparams
+)
+
+# After editing
+output = edited_model.generate(**inputs, max_new_tokens=10)
+print(f"After: {tokenizer.decode(output[0])}")
+
+# Verify specificity: other knowledge should be preserved
+other_prompt = "The capital of France is"
+other_inputs = tokenizer(other_prompt, return_tensors="pt")
+other_output = edited_model.generate(**other_inputs, max_new_tokens=10)
+print(f"Other fact: {tokenizer.decode(other_output[0])}")
+# Should still say "Paris"</code></pre>
+<div class="code-caption"><strong>Code Fragment 17.3.4:</strong> Tokenization pipeline converting raw text into model-ready input IDs. The tokenizer handles special tokens, padding, and truncation automatically.</div>
+
+    <div class="comparison-table">
+        <div class="comparison-table-title">Method Comparison</div>
+        <table>
+        <tr><th scope="col">Method</th><th scope="col">Edits per Run</th><th scope="col">Target Component</th><th scope="col">Preservation</th><th scope="col">Scalability</th></tr>
+        <tr><td><strong>ROME</strong></td><td>1</td><td>Single MLP layer (rank-1 update)</td><td>Good for single edits</td><td>Slow for many edits (sequential)</td></tr>
+        <tr><td><strong>MEMIT</strong></td><td>1,000+</td><td>Multiple MLP layers (distributed)</td><td>Good even with many edits</td><td>Handles batch edits efficiently</td></tr>
+        <tr><td><strong>Fine-tuning</strong></td><td>Unlimited</td><td>All parameters</td><td>Poor (<a class="cross-ref" href="../module-14-fine-tuning-fundamentals/section-13.3.html">catastrophic forgetting</a>)</td><td>Good but destroys other knowledge</td></tr>
+        <tr><td><strong>GRACE</strong></td><td>Unlimited</td><td>Adapter codebook</td><td>Good (no weight changes)</td><td>Inference overhead grows with edits</td></tr>
+    </table>
+    </div>
+
+    <div class="callout warning">
+        <div class="callout-title">Warning</div>
+        <p>Model editing is powerful but fragile. Edits can have unintended side effects: changing "The president is X" might also change answers to related questions like "Who lives in the White House?" in unpredictable ways. The "ripple effect" of knowledge edits is an active research area. Always validate edits against a comprehensive test suite that includes related and unrelated facts.</p>
+    </div>
+
+    <div class="callout fun-note">
+       <div class="callout-title">Fun Fact</div>
+        <p>LIME and SHAP, the two most popular explanation methods, take fundamentally different approaches: LIME fits a simple model locally, while SHAP computes game-theoretic feature contributions. They often agree, but when they disagree, the ensuing debate is its own form of interpretability research.</p>
+    </div>
+
+    <h2>4. Concept Erasure</h2>
+
+    <p>
+        Concept erasure removes specific information from model representations, ensuring the model cannot
+        use that information for any downstream task. Unlike model editing (which changes a fact to a
+        different value), concept erasure eliminates the information entirely. Applications include removing
+        protected attributes (gender, race) from embeddings to prevent discriminatory predictions.
+     Code Fragment 17.3.5 shows this approach in practice.</p>
+
+    <p>The following code uses LEACE to erase a binary concept from hidden states, then validates the erasure by training linear probes before and after.</p>
+
+<pre><code class="language-python"># Concept Erasure with LEACE
+# pip install concept-erasure
+from concept_erasure import LeaceFitter
+import torch
+
+def erase_concept(
+    hidden_states: torch.Tensor,
+    concept_labels: torch.Tensor,
+) -> torch.Tensor:
+    """
+    Erase a binary concept from hidden states using LEACE.
+
+    LEACE (LEAst-squares Concept Erasure) finds the linear subspace
+    that encodes the concept and projects it out, guaranteeing
+    that no linear classifier can recover the concept from the
+    resulting representations.
+    """
+    fitter = LeaceFitter.fit(hidden_states, concept_labels)
+    erased = fitter.transform(hidden_states)
+    return erased
+
+# Example: erase gender information from embeddings
+# hidden_states: (num_samples, hidden_dim)
+# gender_labels: (num_samples,) binary labels
+
+erased_states = erase_concept(hidden_states, gender_labels)
+
+# Verify: train a linear probe on erased representations
+from sklearn.linear_model import LogisticRegression
+
+probe_before = LogisticRegression().fit(
+    hidden_states.numpy(), gender_labels.numpy()
+)
+probe_after = LogisticRegression().fit(
+    erased_states.numpy(), gender_labels.numpy()
+)
+
+print(f"Gender accuracy before erasure: {probe_before.score(X_test, y_test):.3f}")
+print(f"Gender accuracy after erasure:  {probe_after.score(X_test_erased, y_test):.3f}")
+# After erasure, accuracy should be ~50% (random chance)</code></pre>
+<div class="code-caption"><strong>Code Fragment 17.3.5:</strong> Embedding generation for converting text into dense vector representations. These vectors capture semantic meaning, enabling similarity search and clustering.</div>
+
+    <h2>5. Interpretability for Debugging</h2>
+
+    <p>
+        Beyond research, interpretability tools serve as practical debugging instruments for <a class="cross-ref" href="../../part-8-evaluation-production/module-29-evaluation-observability/index.html">model evaluation and observability</a>. When a model
+        produces incorrect or unexpected outputs, these tools help diagnose the root cause by identifying
+        which components contributed to the error and what information the model relied on. Figure 17.3.2 outlines a systematic debugging workflow using these tools.
+    </p>
+
+    <!-- SVG: Debugging Workflow -->
+    <div class="diagram-container">
+        <svg role="img" aria-label="Diagram: Debugging Workflow" viewBox="0 0 720 200" xmlns="http://www.w3.org/2000/svg" font-family="Georgia, serif">
+            <rect x="20" y="30" width="140" height="55" rx="8" fill="#fce4ec" stroke="#c62828" stroke-width="1.5" stroke-linecap="round"/>
+            <text x="90" y="55" text-anchor="middle" font-size="11" font-weight="bold" fill="#b71c1c">Bug Report</text>
+            <text x="90" y="72" text-anchor="middle" font-size="11" fill="#666">"Model hallucinates X"</text>
+
+            <line x1="160" y1="57" x2="195" y2="57" stroke="#666" stroke-width="1.5" marker-end="url(#a9)" stroke-linecap="round"/>
+
+            <rect x="195" y="30" width="140" height="55" rx="8" fill="#e3f2fd" stroke="#1565c0" stroke-width="1.5" stroke-linecap="round"/>
+            <text x="265" y="55" text-anchor="middle" font-size="11" font-weight="bold" fill="#0d47a1">Attribution</text>
+            <text x="265" y="72" text-anchor="middle" font-size="11" fill="#666">Which tokens caused it?</text>
+
+            <line x1="335" y1="57" x2="370" y2="57" stroke="#666" stroke-width="1.5" marker-end="url(#a9)" stroke-linecap="round"/>
+
+            <rect x="370" y="30" width="140" height="55" rx="8" fill="#fff3e0" stroke="#f39c12" stroke-width="1.5" stroke-linecap="round"/>
+            <text x="440" y="55" text-anchor="middle" font-size="11" font-weight="bold" fill="#e65100">Localize</text>
+            <text x="440" y="72" text-anchor="middle" font-size="11" fill="#666">Which layers/heads?</text>
+
+            <line x1="510" y1="57" x2="545" y2="57" stroke="#666" stroke-width="1.5" marker-end="url(#a9)" stroke-linecap="round"/>
+
+            <rect x="545" y="30" width="155" height="55" rx="8" fill="#e8f5e9" stroke="#27ae60" stroke-width="1.5" stroke-linecap="round"/>
+            <text x="622" y="55" text-anchor="middle" font-size="11" font-weight="bold" fill="#2e7d32">Fix</text>
+            <text x="622" y="72" text-anchor="middle" font-size="11" fill="#666">Edit, steer, or retrain</text>
+
+            <!-- Tool annotations -->
+            <line x1="265.0" y1="97.0" x2="265.0" y2="87.0" stroke="#999" stroke-width="1" stroke-dasharray="4 3" opacity="0.7" data-annotation-line="auto"/>
+            <text x="265" y="110" text-anchor="middle" font-size="11" fill="#1565c0">IG, SHAP, attention</text>
+            <line x1="440.0" y1="97.0" x2="440.0" y2="87.0" stroke="#999" stroke-width="1" stroke-dasharray="4 3" opacity="0.7" data-annotation-line="auto"/>
+            <text x="440" y="110" text-anchor="middle" font-size="11" fill="#e65100">Activation patching</text>
+            <line x1="622.0" y1="97.0" x2="622.2" y2="87.0" stroke="#999" stroke-width="1" stroke-dasharray="4 3" opacity="0.7" data-annotation-line="auto"/>
+            <text x="622" y="110" text-anchor="middle" font-size="11" fill="#2e7d32">ROME, RepE, fine-tune</text>
+
+            <defs><filter id="stdShadow2" x="-4%" y="-4%" width="108%" height="116%"><feDropShadow dx="1" dy="2" stdDeviation="2" flood-opacity="0.08"/></filter><linearGradient id="stdGrad1" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" style="stop-color:#f8f9fa;stop-opacity:0.7"/><stop offset="100%" style="stop-color:#e9ecef;stop-opacity:0.3"/></linearGradient>
+                <marker id="a9" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#666"/></marker>
+            </defs>
+        </svg>
+        <div class="diagram-caption"><strong>Figure 17.3.2</strong>: A debugging workflow using interpretability tools. Attribution identifies the contributing tokens, activation patching localizes responsible components, and editing or steering fixes the issue.</div>
+    </div>
+
+    <div class="callout note">
+        <div class="callout-title">Note</div>
+        <p>In practice, the most common interpretability-based debugging pattern is: (1) identify a failure case, (2) use Integrated Gradients to find which input tokens are driving the incorrect output, (3) use logit lens to see which layers introduce the error, (4) decide whether to fix via prompt engineering, representation steering, model editing, or targeted fine-tuning. This workflow often reveals that hallucinations are caused by specific attention patterns that retrieve incorrect context.</p>
+    </div>
+
+<div class="callout practical-example">
+    <div class="callout-title">Practical Example: nnsight for Remote Model Intervention</div>
+    <p>The <code>nnsight</code> library (<code>pip install nnsight</code>) provides a clean Python API for intervening on model internals, including models too large to run locally. It uses a tracing context manager that records and replays interventions, enabling activation reading, patching, and steering on any PyTorch model with a single consistent interface.</p>
+    <pre><code class="language-python"># pip install nnsight
+from nnsight import LanguageModel
+
+model = LanguageModel("meta-llama/Llama-3.1-8B-Instruct")
+
+# Read hidden states at layer 16 during a forward pass
+with model.trace("The capital of France is") as tracer:
+    # Access any module in the model by its path
+    hidden = model.model.layers[16].output[0].save()
+
+# hidden.value is now a tensor of shape [1, seq_len, hidden_dim]
+print(f"Layer 16 activations: {hidden.value.shape}")
+
+# Intervention: patch activations to steer behavior
+with model.trace("The capital of France is") as tracer:
+    # Zero out a specific attention head to test its causal role
+    model.model.layers[16].self_attn.o_proj.output[:, :, :128] = 0
+    logits = model.lm_head.output.save()
+</code></pre>
+</div>
+
+    <div class="quiz">
+        <h3>&#x1F4DD; Section Quiz</h3>
+
+        <div class="quiz-question">1. How does Integrated Gradients differ from simply looking at gradients?</div>
+        <details open><summary>Show Answer</summary><div class="answer">Raw gradients measure local sensitivity (how a tiny perturbation affects the output) but can be noisy and fail to account for saturation effects. Integrated Gradients averages gradients along a path from a baseline (zero embedding) to the actual input, capturing the total contribution of each input feature. It satisfies the completeness axiom: attributions sum to the difference between the output at the input and the baseline, ensuring nothing is lost.</div></details>
+
+        <div class="quiz-question">2. What is a control vector in representation engineering?</div>
+        <details open><summary>Show Answer</summary><div class="answer">A control vector is a direction in activation space that corresponds to a specific behavioral property (honesty, formality, safety). It is extracted by running the model on contrastive prompt pairs (e.g., honest vs. dishonest prompts) and computing the mean activation difference. At inference time, adding this vector (scaled by a coefficient &alpha;) to the model's hidden states increases the associated behavior without retraining.</div></details>
+
+        <div class="quiz-question">3. How does ROME modify a specific fact in a transformer?</div>
+        <details open><summary>Show Answer</summary><div class="answer">ROME applies a rank-one update to the value matrix of a specific MLP layer. It first identifies which layer stores the target fact (using causal tracing). Then it computes a rank-one modification to the layer's second linear matrix (W_out) that changes the output for the target subject while preserving outputs for all other inputs. The key insight is that MLP layers act as key-value memories where the first layer matches patterns and the second stores associations.</div></details>
+
+        <div class="quiz-question">4. What does concept erasure guarantee that standard fine-tuning does not?</div>
+        <details open><summary>Show Answer</summary><div class="answer">Concept erasure (e.g., LEACE) provides a mathematical guarantee that no linear classifier can recover the erased concept from the modified representations. Standard fine-tuning might reduce the influence of a concept on a specific task but does not guarantee the information is truly removed. The concept could still be recoverable by a different probe or task, creating a false sense of fairness or privacy.</div></details>
+
+        <div class="quiz-question">5. Why might model editing have unintended "ripple effects"?</div>
+        <details open><summary>Show Answer</summary><div class="answer">Knowledge in transformers is not stored in isolated compartments. A fact like "The president is X" is connected to many related facts: who lives at certain addresses, who attends summits, who has certain authority. Editing one fact can inconsistently affect related facts because the edit only targets the specific MLP computation for the edited subject, not the full web of related associations. This can create logical inconsistencies in the model's outputs.</div></details>
+    </div>
+
+<div class="callout key-insight">
+    <div class="callout-title">Key Insight: Model Editing and the Ship of Theseus</div>
+    <p>Knowledge editing (ROME, MEMIT) raises a modern version of the Ship of Theseus paradox: if you edit enough facts in a model's weights, at what point is it a different model? The "ripple effects" of editing highlight that knowledge in neural networks is not stored in isolated slots but distributed across interconnected weight patterns. Editing "The president is X" should propagate to "Who lives at the White House?" and "Who signed this executive order?" but current editing methods modify only the targeted association, leaving related facts inconsistent. This reveals a fundamental tension in the localized editing paradigm: knowledge that is distributed cannot be cleanly edited locally. Concept erasure (LEACE) takes a different approach, providing mathematical guarantees at the cost of removing all linear traces of a concept rather than surgically modifying specific facts. The choice between precision (editing specific facts) and coverage (erasing entire concepts) mirrors the broader tradeoff in <a class="cross-ref" href="../../part-9-safety-strategy/module-32-safety-ethics-regulation/section-27.3.html">Section 26.3</a> between targeted and broad safety interventions.</p>
+</div>
+
+    <div class="takeaways">
+        <h2>&#x2705; Key Takeaways</h2>
+        <ul>
+            <li>Integrated Gradients and SHAP provide principled, axiom-satisfying methods for attributing model predictions to specific input tokens.</li>
+            <li>Representation engineering steers model behavior at inference time by adding learned control vectors, offering a lightweight alternative to retraining.</li>
+            <li>ROME and MEMIT enable surgical editing of specific facts in model weights, but ripple effects on related knowledge require careful validation.</li>
+            <li>Concept erasure (LEACE) provides mathematical guarantees that specific information is removed from representations, enabling provably fair predictions.</li>
+            <li>Interpretability tools form a practical debugging workflow: attribution identifies contributing inputs, activation patching localizes responsible components, and editing or steering applies the fix.</li>
+            <li>The choice between these tools depends on the use case: attribution for explaining predictions, steering for behavior modification, and editing for knowledge correction.</li>
+        </ul>
+    </div>
+
+    <div class="callout research-frontier">
+        <div class="callout-title">Research Frontier</div>
+    <p>Production interpretability tools are evolving from post-hoc explanations toward <em>real-time interpretability dashboards</em> that surface feature attributions and confidence signals during inference. Research on <em>concept bottleneck models</em> adapted for LLMs creates architectures where intermediate representations are forced to align with human-understandable concepts, enabling inspection by design. The frontier challenge is developing interpretability methods that satisfy regulatory requirements (such as the EU AI Act's right to explanation) while remaining computationally feasible for large-scale deployments.</p>
+</div>
+
+<div class="whats-next">
+    <h3>What's Next?</h3>
+    <p>In the next section, <a href="section-17.4.html">Section 17.4: Explaining Transformers</a>, we cover techniques for explaining Transformer outputs to end users and stakeholders in accessible terms. Representation engineering connects to the <a class="cross-ref" href="../../part-5-retrieval-conversation/module-19-embeddings-vector-db/section-18.1.html">embedding space geometry explored in Section 18.1</a> and has practical implications for the <a class="cross-ref" href="../../part-8-evaluation-production/module-29-evaluation-observability/section-25.1.html">model evaluation frameworks in Section 25.1</a>.</p>
+</div>
+
+<section class="bibliography">
+    <div class="bibliography-title">Bibliography</div>
+
+    <div class="bib-category">Attribution &amp; Model Editing</div>
+
+    <div class="bib-entry-card">
+        <p class="bib-ref">Sundararajan, M., Taly, A., &amp; Yan, Q. (2017). <a href="https://arxiv.org/abs/1703.01365" target="_blank" rel="noopener">Axiomatic Attribution for Deep Networks.</a> <em>ICML 2017</em>.</p>
+        <p class="bib-annotation">Introduces Integrated Gradients, an attribution method with strong axiomatic guarantees including sensitivity and implementation invariance. This is the standard baseline for feature attribution in deep networks, and practitioners should understand it before exploring more complex alternatives.</p>
+        <span class="bib-meta">Attribution Method</span>
+    </div>
+
+    <div class="bib-entry-card">
+        <p class="bib-ref">Meng, K., Bau, D., Andonian, A., &amp; Belinkov, Y. (2022). <a href="https://arxiv.org/abs/2202.05262" target="_blank" rel="noopener">Locating and Editing Factual Associations in GPT.</a> <em>NeurIPS 2022</em>.</p>
+        <p class="bib-annotation">Uses causal tracing to locate where factual knowledge is stored in GPT models, then introduces ROME for targeted fact editing. Essential reading for anyone interested in knowledge localization or the possibility of surgically correcting model beliefs without retraining.</p>
+        <span class="bib-meta">Knowledge Editing</span>
+    </div>
+
+    <div class="bib-entry-card">
+        <p class="bib-ref">Meng, K., Sharma, A. S., Andonian, A., Belinkov, Y., &amp; Bau, D. (2023). <a href="https://arxiv.org/abs/2210.07229" target="_blank" rel="noopener">Mass-Editing Memory in a Transformer.</a> <em>ICLR 2023</em>.</p>
+
+        <p class="bib-annotation">Extends ROME to MEMIT, enabling thousands of factual edits simultaneously without catastrophic forgetting. Teams evaluating model editing as an alternative to fine-tuning for knowledge updates should study this paper for its scalability analysis and failure modes.</p>
+        <span class="bib-meta">Scalable Editing</span>
+    </div>
+
+    <div class="bib-category">Representation Engineering &amp; Concept Erasure</div>
+
+    <div class="bib-entry-card">
+        <p class="bib-ref">Zou, A., Phan, L., Chen, S., Campbell, J., Guo, P., Ren, R., et al. (2023). <a href="https://arxiv.org/abs/2310.01405" target="_blank" rel="noopener">Representation Engineering: A Top-Down Approach to AI Transparency.</a></p>
+        <p class="bib-annotation">Proposes reading and controlling model behavior by identifying linear directions in representation space corresponding to high-level concepts like honesty or harmfulness. Safety researchers and practitioners building guardrails should read this for its practical activation engineering techniques.</p>
+        <span class="bib-meta">Representation Control</span>
+    </div>
+
+    <div class="bib-entry-card">
+        <p class="bib-ref">Ravfogel, S., Elazar, Y., Gonen, H., Twiton, M., &amp; Goldberg, Y. (2020). <a href="https://arxiv.org/abs/2004.07667" target="_blank" rel="noopener">Null It Out: Guarding Protected Attributes by Iterative Nullspace Projection.</a> <em>ACL 2020</em>.</p>
+        <p class="bib-annotation">Introduces INLP, which iteratively projects out information about protected attributes from representations. This is foundational work for fairness applications, showing how to remove specific concepts from embeddings while preserving task performance.</p>
+        <span class="bib-meta">Fairness / Debiasing</span>
+    </div>
+
+    <div class="bib-entry-card">
+        <p class="bib-ref">Belrose, N., Schneider-Joseph, D., Ravfogel, S., Cotterell, R., Raff, E., &amp; Stella, F. (2023). <a href="https://arxiv.org/abs/2306.03819" target="_blank" rel="noopener">LEACE: Perfect Linear Concept Erasure in Closed Form.</a> <em>NeurIPS 2023</em>.</p>
+        <p class="bib-annotation">Provides a closed-form solution for completely removing linear information about a concept from representations, improving on iterative methods like INLP. Researchers working on concept erasure for safety or fairness will appreciate both its theoretical elegance and computational efficiency.</p>
+        <span class="bib-meta">Concept Erasure</span>
+    </div>
+</section>
+
+    <footer>
+        <p class="footer-title">Building Conversational AI with LLMs and Agents, Fifth Edition</p>
+        <p>&copy; 2026 Alexander Apartsin &amp; Yehudit Aperstein &middot; <a href="../../toc.html">Contents</a></p>
+        <p class="footer-updated">Last updated: <script>document.write(new Date(document.lastModified).toLocaleDateString('en-US', {year:'numeric', month:'long', day:'numeric'}))</script></p>
+    </footer>
+</main>
+
+<nav class="chapter-nav">
+    <a href="section-17.2.html">Previous</a>
+    <a href="index.html">&uarr; Module Index</a>
+    <a href="section-17.4.html">Next</a>
+</nav>
+</body>
+</html>

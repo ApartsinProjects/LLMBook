@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Section 22.4: Production Multi-Agent Systems. A comprehensive chapter from the Building Conversational AI textbook.">
+    <title>Section 22.4: Production Multi-Agent Systems</title>
+    <link rel="stylesheet" href="../../styles/book.css">
+<link rel="stylesheet" href="../../vendor/prism/prism-theme.css">
+    <script defer src="../../vendor/prism/prism-bundle.min.js"></script>
+</head>
+<body>
+<header class="chapter-header">
+<nav class="header-nav">
+    <a href="../../index.html" class="book-title-link">Building Conversational AI with LLMs and Agents</a>
+    <a href="../../toc.html" class="toc-link" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+</nav>
+    <div class="part-label"><a href="../index.html">Part 6: Agents and Applications</a></div>
+    <div class="chapter-label"><a href="index.html">Chapter 22: Multi-Agent Systems</a></div>
+    <h1>Production Multi-Agent Systems</h1>
+</header>
+
+<main class="content">
+
+    <blockquote class="epigraph">
+        <p>A demo multi-agent system costs ten dollars per run. A production multi-agent system must cost ten cents, or it will never ship.</p>
+        <cite><span class="agent-avatar-inline" style="background-color: #9b59b6;"><img src="../../front-matter/images/agents/census.png" alt="Census"></span> <a href="../../front-matter/wisdom-council.html#census">Census</a> <span class="agent-desc">AI Agent</span></cite>
+    </blockquote>
+
+<div class="prerequisites">
+    <h3>Prerequisites</h3>
+    <p>This section builds on multi-agent architecture patterns from <a href="section-22.2.html">Section 22.2: Multi-Agent Architecture Patterns</a>, agentic workflow engineering from <a href="section-22.3.html">Section 22.3: Agentic Workflows &amp; Pipelines</a>, and the production API cost controls covered in <a class="cross-ref" href="../../part-3-working-with-llms/module-09-llm-apis/section-9.3.html">Section 9.3</a>.</p>
+</div>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight: The Restaurant Kitchen</div>
+        <p>A production multi-agent system is like a commercial restaurant kitchen, not a home cooking experiment. In your home kitchen (prototype), you can taste as you go, redo dishes, and spend whatever you want on ingredients. In a commercial kitchen (production), every ingredient has a cost, every station has a time budget, the head chef (orchestrator) tracks every plate, health inspectors (observability) monitor everything, and when someone drops a dish (failure), the kitchen has a recovery protocol that does not require restarting the entire service. The gap between a working demo and a production system is the same gap between cooking dinner for friends and running a restaurant that serves 500 covers per night.</p>
+    </div>
+
+    <div class="callout big-picture">
+        <div class="callout-title">Big Picture</div>
+        <p><strong>Most multi-agent systems never make it past the demo stage because they are too expensive, too fragile, and too opaque for production.</strong> A research pipeline that spawns five agents per query, each making multiple LLM calls, can easily cost &#36;1-5 per request. At 10,000 requests per day, that is &#36;10,000-50,000 per month in LLM costs alone. This section covers the engineering practices that make multi-agent systems viable in production: cost budgets that prevent runaway spending, the A2A (Agent-to-Agent) protocol for standardized inter-agent communication, testing strategies that catch failures before users do, scaling patterns that handle load spikes, and observability that makes the system debuggable. The error handling and retry patterns from <a class="cross-ref" href="../../part-3-working-with-llms/module-09-llm-apis/section-9.2.html">Section 9.2</a> form the foundation for multi-agent reliability.</p>
+    </div>
+
+    <h2>1. Cost Management for Multi-Agent Systems</h2>
+
+    <p>
+        Multi-agent systems multiply costs in ways that single-agent systems do not. Each agent in a pipeline makes its own LLM calls, and those calls compound. A supervisor agent calls a planner, the planner delegates to three workers, each worker makes two tool calls that require LLM interpretation, and the supervisor reviews the combined output. That is 10+ LLM calls for a single user query. Without explicit cost controls, these systems become prohibitively expensive at scale.
+    </p>
+
+    <h3>Budget Enforcement Architecture</h3>
+
+    <p>
+        The most effective cost control pattern is a hierarchical budget system where the orchestrator allocates a token budget to each sub-agent, and each sub-agent enforces its own limit. If any agent exhausts its budget, it must return a partial result rather than making additional calls. This prevents runaway cost scenarios where a single confused agent makes dozens of LLM calls trying to recover from an error.
+     Code Fragment 22.4.1 below puts this into practice.</p>
+
+<pre><code class="language-python">
+# Define AgentBudget, SystemBudget; implement check_and_record, allocate
+# Key operations: agent orchestration
+from dataclasses import dataclass, field
+from typing import Optional
+import threading
+
+@dataclass
+class AgentBudget:
+    """Enforces cost limits for a single agent within a multi-agent system."""
+    max_input_tokens: int = 50_000
+    max_output_tokens: int = 10_000
+    max_llm_calls: int = 5
+    max_cost_usd: float = 0.50
+
+    # Running totals
+    _input_tokens: int = field(default=0, init=False)
+    _output_tokens: int = field(default=0, init=False)
+    _llm_calls: int = field(default=0, init=False)
+    _cost_usd: float = field(default=0.0, init=False)
+    _lock: threading.Lock = field(default_factory=threading.Lock, init=False)
+
+    def check_and_record(self, input_tokens: int, output_tokens: int,
+                          cost_usd: float) -> bool:
+        """Record usage and return False if budget would be exceeded."""
+        with self._lock:
+            new_input = self._input_tokens + input_tokens
+            new_output = self._output_tokens + output_tokens
+            new_cost = self._cost_usd + cost_usd
+            new_calls = self._llm_calls + 1
+
+            if (new_input > self.max_input_tokens or
+                new_output > self.max_output_tokens or
+                new_cost > self.max_cost_usd or
+                new_calls > self.max_llm_calls):
+                return False
+
+            self._input_tokens = new_input
+            self._output_tokens = new_output
+            self._cost_usd = new_cost
+            self._llm_calls = new_calls
+            return True
+
+@dataclass
+class SystemBudget:
+    """Top-level budget that distributes across agents."""
+    total_budget_usd: float = 2.00
+
+    def allocate(self, agent_name: str, fraction: float) -> AgentBudget:
+        """Give an agent a fraction of the total budget."""
+        return AgentBudget(max_cost_usd=self.total_budget_usd * fraction)
+
+# Example: allocate budget across a 3-agent pipeline
+system = SystemBudget(total_budget_usd=1.00)
+researcher_budget = system.allocate("researcher", fraction=0.40)
+writer_budget = system.allocate("writer", fraction=0.35)
+reviewer_budget = system.allocate("reviewer", fraction=0.25)</code></pre>
+    <div class="code-caption"><strong>Code Fragment 22.4.1:</strong> A hierarchical budget system that tracks token usage per agent and enforces limits. When a sub-agent exhausts its allocation, it returns a partial result rather than making additional calls, preventing runaway costs.</div>
+
+    <h2>2. The A2A (Agent-to-Agent) Protocol</h2>
+
+    <p>
+        Google's Agent-to-Agent (A2A) protocol, introduced in April 2025, provides a standardized way for agents built by different teams (or even different organizations) to discover each other's capabilities, negotiate communication formats, and exchange messages. Before A2A, every multi-agent system invented its own inter-agent communication format, making it impossible to compose agents from different frameworks.
+    </p>
+
+    <h3>Core Concepts</h3>
+
+    <p>Before starting this section, you should be comfortable with Agent Card: A JSON document (hosted at /.well-known/agent.json) that describes an agent's capabilities, accepted input formats, authentication requirements, and endpoint URL. Think of it as an API specification for agents., Task: The fundamental unit of work in A2A. A client agent creates a task, sends it to a remote agent, and receives status updates and results. Tasks have lifecycle states: submitted, working, completed, failed, or canceled., Message and Part: Communication happens through messages containing typed parts (text, file, structured data). This allows agents to exchange rich content including images, documents, and JSON payloads., and Streaming: For long-running tasks, A2A supports Server-Sent Events (SSE) so the client agent can receive incremental progress updates rather than waiting for the full result.. Code Fragment 22.4.2 below puts this into practice.</p>
+
+<pre><code class="language-python">
+# Define A2AClient; implement __init__
+# Key operations: results display, agent orchestration, API interaction
+import httpx
+import json
+
+class A2AClient:
+    """Minimal A2A protocol client for agent-to-agent communication."""
+
+    def __init__(self, agent_url: str):
+        self.agent_url = agent_url.rstrip("/")
+        self.client = httpx.AsyncClient(timeout=120)
+
+    async def discover(self) -> dict:
+        """Fetch the remote agent's Agent Card."""
+        resp = await self.client.get(
+            f"{self.agent_url}/.well-known/agent.json"
+        )
+        return resp.json()
+
+    async def send_task(self, message: str, task_id: str = None) -> dict:
+        """Send a task to the remote agent following A2A spec."""
+        payload = {
+            "jsonrpc": "2.0",
+            "method": "tasks/send",
+            "params": {
+                "id": task_id or generate_task_id(),
+                "message": {
+                    "role": "user",
+                    "parts": [{"type": "text", "text": message}]
+                }
+            }
+        }
+        resp = await self.client.post(self.agent_url, json=payload)
+        return resp.json()
+
+# Usage: discover a remote research agent, then send it a task
+async def delegate_research(topic: str):
+    research_agent = A2AClient("https://research-agent.internal/a2a")
+
+    # Step 1: Discover capabilities
+    card = await research_agent.discover()
+    print(f"Agent: {card['name']}, Skills: {card['skills']}")
+
+    # Step 2: Send task
+    result = await research_agent.send_task(
+        f"Research the following topic and return a summary: {topic}"
+    )
+    return result["result"]["status"]</code></pre>
+    <div class="code-caption"><strong>Code Fragment 22.4.2:</strong> A minimal A2A protocol client that discovers remote agents via their agent cards, sends tasks using JSON-RPC, and streams progress updates through Server-Sent Events.</div>
+
+    <div class="callout note">
+        <div class="callout-title">Note</div>
+        <p>A2A and MCP (Model Context Protocol) solve different problems. MCP standardizes how agents connect to <em>tools and data sources</em> (databases, APIs, file systems). A2A standardizes how <em>agents communicate with other agents</em>. In a production system, an individual agent uses MCP to access its tools, and A2A to delegate subtasks to other agents. The two protocols are complementary, not competing. See <a class="cross-ref" href="../module-21-ai-agents/section-21.2.html">Section 21.2</a> for MCP details.</p>
+    </div>
+
+    <h2>3. Testing Multi-Agent Systems</h2>
+
+    <p>
+        Testing multi-agent systems is fundamentally harder than testing single-agent systems because the interactions between agents create emergent behaviors that cannot be predicted from testing each agent in isolation. A researcher agent and a writer agent might each work perfectly alone, but when composed, the researcher might produce output in a format the writer cannot parse. The solution is a layered testing strategy.
+     Code Fragment 22.4.3 below puts this into practice.</p>
+
+    <h3>The Testing Pyramid for Multi-Agent Systems</h3>
+
+    <ul>
+        <li><strong>Unit tests (per agent):</strong> Test each agent in isolation with mocked tool responses and fixed LLM outputs. Verify that the agent correctly parses inputs, calls the right tools, and formats outputs according to its contract.</li>
+        <li><strong>Contract tests (agent boundaries):</strong> Verify that the output schema of one agent matches the input schema expected by the next agent in the pipeline. These tests catch the most common integration failures.</li>
+        <li><strong>Integration tests (agent pairs):</strong> Run two adjacent agents together with real LLM calls but controlled inputs. Verify end-to-end data flow and error propagation between agents.</li>
+        <li><strong>System tests (full pipeline):</strong> Run the complete multi-agent system against a suite of representative tasks. Measure accuracy, cost, latency, and failure rates across the full pipeline.</li>
+    </ul>
+
+<pre><code class="language-python">
+# implement test_researcher_output_matches_writer_input_contract
+# Key operations: RAG pipeline, agent orchestration
+import pytest
+from unittest.mock import AsyncMock, patch
+
+# Contract test: verify researcher output matches writer input schema
+def test_researcher_output_matches_writer_input_contract():
+    """The researcher must produce output the writer can consume."""
+    researcher_output = {
+        "topic": "quantum computing advances",
+        "sources": [
+            {"title": "Paper A", "summary": "...", "url": "https://..."},
+        ],
+        "key_findings": ["Finding 1", "Finding 2"],
+    }
+
+    # Writer agent expects these fields
+    required_fields = {"topic", "sources", "key_findings"}
+    assert required_fields.issubset(researcher_output.keys())
+
+    # Each source must have title and summary
+    for source in researcher_output["sources"]:
+        assert "title" in source
+        assert "summary" in source
+
+# Integration test: researcher + writer with real LLM calls
+@pytest.mark.asyncio
+async def test_researcher_writer_integration():
+    """Two agents work together on a controlled input."""
+    researcher = ResearchAgent(budget=AgentBudget(max_cost_usd=0.20))
+    writer = WriterAgent(budget=AgentBudget(max_cost_usd=0.15))
+
+    # Run researcher on known topic
+    research = await researcher.run("Summarize recent CRISPR advances")
+    assert research.status == "completed"
+    assert len(research.sources) >= 1
+
+    # Feed researcher output to writer
+    article = await writer.run(research.to_dict())
+    assert article.status == "completed"
+    assert len(article.text) > 500  # Reasonable article length</code></pre>
+    <div class="code-caption"><strong>Code Fragment 22.4.3:</strong> Contract and integration tests for multi-agent systems, verifying that one agent's output schema matches the next agent's expected input. These tests catch the most common integration failures before they reach production.</div>
+
+    <h2>4. Scaling Patterns</h2>
+
+    <p>
+        Multi-agent systems face unique scaling challenges. Unlike a single API endpoint where you can simply add more replicas behind a load balancer, multi-agent workflows involve stateful conversations, inter-agent dependencies, and variable execution times. Three patterns address these challenges.
+    </p>
+
+    <h3>Pattern 1: Queue-Based Decoupling</h3>
+
+    <p>
+        Place a message queue (Redis Streams, RabbitMQ, or Amazon SQS) between agents so that each agent processes tasks independently at its own rate. The researcher agent publishes completed research to a queue; the writer agent consumes from that queue whenever it is ready. This decouples agents that operate at different speeds and provides natural backpressure when downstream agents cannot keep up.
+    </p>
+
+    <h3>Pattern 2: Worker Pools with Concurrency Limits</h3>
+
+    <p>
+        Run multiple instances of each agent type as a worker pool, with a concurrency limiter that prevents any single agent type from consuming too many LLM API tokens simultaneously. This prevents a burst of researcher tasks from starving writer agents of API capacity.
+    </p>
+
+    <h3>Pattern 3: Circuit Breakers per Agent</h3>
+
+    <p>
+        Wrap each agent in a circuit breaker (as described in <a class="cross-ref" href="../../part-3-working-with-llms/module-09-llm-apis/section-9.3.html">Section 9.3</a>) that opens when the agent's error rate exceeds a threshold. When the circuit opens, the orchestrator can route tasks to a fallback agent or return a degraded response rather than cascading failures through the entire pipeline.
+    </p>
+
+    <h2>5. Observability for Multi-Agent Workflows</h2>
+
+    <p>
+        When a multi-agent system produces a bad result, the first question is always "which agent caused the problem?" Without proper observability, answering this question requires manually reading through logs from every agent in the pipeline. With proper observability, you can trace a single request through every agent, see exactly what each agent received, what it decided, and what it produced.
+    </p>
+
+    <h3>Distributed Tracing with OpenTelemetry</h3>
+
+    <p>
+        The standard approach is to propagate a trace ID through the entire multi-agent pipeline. Each agent creates a span within that trace, recording its inputs, outputs, LLM calls, tool invocations, and timing. Tools like Langfuse, LangSmith, and Arize Phoenix provide specialized UIs for visualizing multi-agent traces that show the complete agent interaction tree.
+    </p>
+
+    <div class="diagram-container">
+        <svg role="img" aria-label="Diagram: Distributed Tracing with OpenTelemetry" viewBox="0 0 750 230" xmlns="http://www.w3.org/2000/svg" style="font-family: 'Segoe UI', sans-serif;"><defs><filter id="stdShadow2" x="-4%" y="-4%" width="108%" height="116%"><feDropShadow dx="1" dy="2" stdDeviation="2" flood-opacity="0.08"/></filter><linearGradient id="stdGrad1" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" style="stop-color:#f8f9fa;stop-opacity:0.7"/><stop offset="100%" style="stop-color:#e9ecef;stop-opacity:0.3"/></linearGradient></defs>
+
+            <!-- Trace bar chart -->
+            <text x="20" y="55" font-size="11" fill="#555" font-weight="600">Orchestrator</text>
+            <rect x="120" y="42" width="580" height="22" rx="4" fill="#74b9ff" opacity="0.3" stroke="#0f3460" stroke-width="1" stroke-linecap="round"/>
+            <text x="410" y="57" text-anchor="middle" font-size="11" fill="#0f3460">trace-id: abc-123 (total: 8.2s)</text>
+
+            <text x="20" y="95" font-size="11" fill="#555" font-weight="600">Researcher</text>
+            <rect x="140" y="82" width="250" height="22" rx="4" fill="#00b894" opacity="0.6" stroke="#00b894" stroke-width="1" stroke-linecap="round"/>
+            <text x="265" y="97" text-anchor="middle" font-size="11" fill="#333">3.1s, 12k tokens, &#36;0.08</text>
+
+            <text x="20" y="135" font-size="11" fill="#555" font-weight="600">Writer</text>
+            <rect x="400" y="122" width="180" height="22" rx="4" fill="#fdcb6e" opacity="0.6" stroke="#f39c12" stroke-width="1" stroke-linecap="round"/>
+            <text x="490" y="137" text-anchor="middle" font-size="11" fill="#333">2.4s, 8k tokens, &#36;0.05</text>
+
+            <text x="20" y="175" font-size="11" fill="#555" font-weight="600">Reviewer</text>
+            <rect x="590" y="162" width="100" height="22" rx="4" fill="#e17055" opacity="0.6" stroke="#e17055" stroke-width="1" stroke-linecap="round"/>
+            <text x="640" y="177" text-anchor="middle" font-size="11" fill="#333">1.2s, &#36;0.03</text>
+
+            <text x="375" y="215" text-anchor="middle" font-size="11" fill="#888">Each span captures: agent name, input/output, LLM calls, tool calls, tokens, cost, latency</text>
+        </svg>
+        <div class="diagram-caption"><strong>Figure 22.4.1</strong>: A distributed trace through a multi-agent pipeline. Each agent creates a span showing its contribution to the total request cost and latency.</div>
+    </div>
+
+    <h2>6. Failure Modes and Recovery</h2>
+
+    <p>
+        Multi-agent systems have failure modes that do not exist in single-agent systems. Understanding these modes and building recovery mechanisms for each is what separates production systems from demos.
+    </p>
+
+    <div class="comparison-table">
+        <div class="comparison-table-title">6. Failure Modes and Recovery Comparison</div>
+        <table>
+        <thead>
+            <tr>
+                <th scope="col">Failure Mode</th>
+                <th scope="col">Description</th>
+                <th scope="col">Recovery Strategy</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><strong>Cascading hallucination</strong></td>
+                <td>Agent A hallucinates facts; Agent B builds on them; Agent C cites them as verified</td>
+                <td>Cross-verification gates between agents; require source citations</td>
+            </tr>
+            <tr>
+                <td><strong>Budget exhaustion</strong></td>
+                <td>An early agent consumes the entire budget, leaving nothing for later stages</td>
+                <td>Per-agent budget caps with graceful degradation</td>
+            </tr>
+            <tr>
+                <td><strong>Infinite delegation loop</strong></td>
+                <td>Agent A delegates to Agent B, which delegates back to Agent A</td>
+                <td>Maximum delegation depth; cycle detection in the orchestrator</td>
+            </tr>
+            <tr>
+                <td><strong>Schema mismatch</strong></td>
+                <td>One agent's output format changes subtly, breaking the downstream agent</td>
+                <td>Schema validation at agent boundaries; contract tests</td>
+            </tr>
+            <tr>
+                <td><strong>Partial failure</strong></td>
+                <td>One of three parallel workers fails; the others succeed</td>
+                <td>Collect available results; retry failed worker or proceed with partial data</td>
+            </tr>
+            <tr>
+                <td><strong>Timeout cascade</strong></td>
+                <td>A slow agent causes the orchestrator to timeout, which causes the client to timeout</td>
+                <td>Per-agent timeouts shorter than the orchestrator timeout; early termination</td>
+            </tr>
+        </tbody>
+    </table>
+    </div>
+
+    <div class="callout warning">
+        <div class="callout-title">Warning</div>
+        <p>The most dangerous failure mode in multi-agent systems is cascading hallucination, where one agent fabricates information and downstream agents treat it as fact. Unlike a single-agent system where a human can spot the hallucination in the output, multi-agent pipelines can launder hallucinations through multiple processing stages until they appear well-sourced and credible. Always include a verification step that checks critical facts against ground-truth sources, and never let an agent cite another agent as a primary source.</p>
+    </div>
+
+    <div class="callout fun-note">
+       <div class="callout-title">Fun Fact</div>
+        <p>A team at a major tech company built a multi-agent content pipeline where a researcher found articles, a writer summarized them, and a fact-checker verified the summaries. During testing, they discovered the fact-checker had a subtle bug: it was verifying summaries against the researcher's notes rather than the original sources. Since the researcher had already hallucinated several facts, the fact-checker happily confirmed them all as accurate. The team renamed the pipeline "the echo chamber" and added ground-truth verification before shipping.</p>
+    </div>
+
+    <div class="callout practical-example">
+      <div class="callout-title">Multi-Agent Compliance Review Pipeline at a Financial Institution</div>
+      <p><strong>Who:</strong> Platform engineering team at a mid-size investment firm</p>
+      <p><strong>Situation:</strong> Regulatory filings required cross-checking data from multiple internal systems, verifying calculations, and producing audit-ready reports, all within tight quarterly deadlines.</p>
+      <p><strong>Problem:</strong> A single-agent approach hallucinated regulatory references and mixed up calculation methodologies. Manual review caught the errors, but the review cycle consumed most of the time savings.</p>
+      <p><strong>Decision:</strong> The team deployed a four-agent pipeline: a data extraction agent (with per-agent budget caps), a calculation verification agent, a compliance cross-referencing agent, and a report drafting agent. Each agent had strict schema contracts validated by automated contract tests (see Section 3 above), and the pipeline used queue-based decoupling with circuit breakers per agent (see <a class="cross-ref" href="../../part-3-working-with-llms/module-09-llm-apis/section-9.3.html">Section 9.3</a>).</p>
+      <p><strong>Result:</strong> Cascading hallucinations dropped to near zero because each agent verified facts against original source databases rather than prior agent outputs. Per-request cost fell from &#36;3.20 to &#36;0.45 through hierarchical budget allocation and model tiering (a smaller model for extraction, a larger model for compliance reasoning). Quarterly filing time decreased from 12 days to 3 days.</p>
+      <p><strong>Lesson:</strong> <strong>Production multi-agent reliability depends on combining budget caps, contract testing, ground-truth verification, and agent-level observability; no single technique is sufficient on its own.</strong></p>
+    </div>
+
+    <!-- Quiz -->
+    <div class="quiz">
+        <h3>&#x1F4DD; Knowledge Check</h3>
+
+        <div class="quiz-question">1. Why is hierarchical budget allocation more effective than a single global budget for multi-agent systems?</div>
+        <details open>
+            <summary>Show Answer</summary>
+            <div class="answer">A single global budget allows a misbehaving agent to consume the entire budget before downstream agents get to run. Hierarchical allocation gives each agent its own cap, ensuring that one agent's overspending cannot starve the rest of the pipeline. It also makes it easy to identify which agent is the most expensive and optimize accordingly.</div>
+        </details>
+
+        <div class="quiz-question">2. What is the difference between A2A and MCP?</div>
+        <details open>
+            <summary>Show Answer</summary>
+            <div class="answer">MCP (Model Context Protocol) standardizes how agents connect to tools and data sources (databases, APIs, file systems). A2A (Agent-to-Agent) standardizes how agents communicate with other agents. MCP is for agent-to-tool connections; A2A is for agent-to-agent delegation. They are complementary protocols used together in production multi-agent systems.</div>
+        </details>
+
+        <div class="quiz-question">3. What is cascading hallucination, and how do you prevent it?</div>
+        <details open>
+            <summary>Show Answer</summary>
+            <div class="answer">Cascading hallucination occurs when Agent A fabricates information, Agent B processes and builds on that fabrication, and Agent C cites the processed version as verified truth. Each stage launders the hallucination, making it harder to detect. Prevention requires cross-verification gates that check facts against original sources (not other agents' outputs), mandatory source citations that trace back to ground-truth data, and contract tests that validate the factual accuracy of inter-agent messages.</div>
+        </details>
+    </div>
+
+    <div class="callout research-frontier">
+        <div class="callout-title">Research Frontier</div>
+        <p><strong>Open Questions:</strong></p>
+        <ul>
+            <li>How should we price multi-agent systems for end users? Per-request pricing is simple but unpredictable when different requests trigger vastly different agent configurations. Value-based pricing is more aligned but harder to implement.</li>
+            <li>Can multi-agent systems self-optimize their topology? Research on "AutoAgents" suggests that agents can discover the optimal pipeline configuration for a given task class, but this remains early-stage.</li>
+        </ul>
+        <p><strong>Recent Developments (2024-2025):</strong></p>
+        <ul>
+            <li>Google's A2A protocol (April 2025) established the first industry standard for agent-to-agent communication, with support from over 50 technology partners at launch.</li>
+            <li>OpenAI's Agent SDK and Anthropic's Agent SDK (2025) both include built-in support for multi-agent orchestration, cost tracking, and distributed tracing, significantly lowering the barrier to production multi-agent systems.</li>
+        </ul>
+        <p><strong>Explore Further:</strong> Instrument a multi-agent pipeline with OpenTelemetry traces. Analyze the trace data to identify which agent is the cost and latency bottleneck, then experiment with replacing that agent with a cheaper model or caching its outputs.</p>
+    </div>
+
+    <!-- Takeaways -->
+    <div class="takeaways">
+        <h2>Key Takeaways</h2>
+        <ul>
+            <li><strong>Cost is the primary barrier to production multi-agent systems.</strong> Implement hierarchical budget allocation with per-agent caps and total-system limits. Monitor cost per request continuously.</li>
+            <li><strong>The A2A protocol standardizes agent-to-agent communication.</strong> Use Agent Cards for capability discovery, JSON-RPC for task dispatch, and SSE for streaming progress updates. A2A complements MCP (which connects agents to tools).</li>
+            <li><strong>Test multi-agent systems in layers.</strong> Unit tests per agent, contract tests at boundaries, integration tests for agent pairs, and system tests for the full pipeline. Contract tests catch the most common production failures.</li>
+            <li><strong>Scale with queue-based decoupling and circuit breakers.</strong> Place message queues between agents for backpressure, use worker pools with concurrency limits, and wrap each agent in a circuit breaker to prevent cascading failures.</li>
+            <li><strong>Observability requires distributed tracing.</strong> Propagate trace IDs through the pipeline so you can identify which agent caused a bad output. Use specialized tools (Langfuse, LangSmith) for multi-agent trace visualization.</li>
+            <li><strong>Guard against cascading hallucination.</strong> Verify facts against ground-truth sources, not other agents' outputs. Include explicit verification gates between pipeline stages.</li>
+        </ul>
+    </div>
+
+<div class="whats-next">
+    <h3>What's Next?</h3>
+    <p>In the next chapter, <a class="cross-ref" href="../module-23-multimodal/section-23.1.html">Chapter 23: Multimodal Models</a>, we explore how agents work with images, audio, and video, extending the text-only patterns covered so far into rich multimodal interactions.</p>
+</div>
+
+<section class="bibliography">
+    <h2 class="bibliography-title">Bibliography</h2>
+    <div class="bib-category">Agent-to-Agent Protocol</div>
+    <div class="bib-entry-card">
+        <div class="bib-ref">Google. (2025). "A2A: Agent-to-Agent Protocol." <a href="https://google.github.io/A2A/" target="_blank" rel="noopener">https://google.github.io/A2A/</a></div>
+        <div class="bib-annotation">The official specification for Google's Agent-to-Agent protocol, covering Agent Cards, task lifecycle, message formats, and streaming support. Essential reference for building interoperable multi-agent systems.</div>
+        <div class="bib-meta"><span>Protocol Specification</span></div>
+    </div>
+    <div class="bib-category">Multi-Agent Systems</div>
+    <div class="bib-entry-card">
+        <div class="bib-ref">Wu, Q., Bansal, G., Zhang, J., et al. (2023). "AutoGen: Enabling Next-Gen LLM Applications via Multi-Agent Conversation." <a href="https://arxiv.org/abs/2308.08155" target="_blank" rel="noopener">arXiv:2308.08155</a></div>
+        <div class="bib-annotation">Introduces the AutoGen framework for building multi-agent conversational systems. Covers the design patterns for agent-to-agent communication, human-in-the-loop interactions, and code execution within multi-agent pipelines.</div>
+        <div class="bib-meta"><span>Framework</span></div>
+    </div>
+    <div class="bib-entry-card">
+        <div class="bib-ref">Hong, S., Zhuge, M., Chen, J., et al. (2024). "MetaGPT: Meta Programming for A Multi-Agent Collaborative Framework." <a href="https://arxiv.org/abs/2308.00352" target="_blank" rel="noopener">arXiv:2308.00352</a></div>
+        <div class="bib-annotation">Presents MetaGPT's approach to multi-agent collaboration using standardized operating procedures (SOPs) to coordinate agents. Demonstrates how structured communication protocols reduce errors in multi-agent workflows.</div>
+        <div class="bib-meta"><span>Framework</span></div>
+    </div>
+    <div class="bib-category">Observability</div>
+    <div class="bib-entry-card">
+        <div class="bib-ref">Langfuse. (2024). "Open-Source LLM Engineering Platform." <a href="https://langfuse.com/" target="_blank" rel="noopener">https://langfuse.com/</a></div>
+        <div class="bib-annotation">Documentation for the open-source LLM observability platform. Covers trace-based monitoring, cost tracking, and evaluation for multi-agent workflows. Practical reference for implementing production observability.</div>
+        <div class="bib-meta"><span>Observability</span></div>
+    </div>
+    <div class="bib-category">Testing</div>
+    <div class="bib-entry-card">
+        <div class="bib-ref">Anthropic. (2025). "Building Effective Agents." <a href="https://www.anthropic.com/engineering/building-effective-agents" target="_blank" rel="noopener">Anthropic Blog</a></div>
+        <div class="bib-annotation">Practical guide to building production-quality agent systems, covering testing strategies, failure modes, and cost optimization. Includes specific recommendations for multi-agent system validation.</div>
+        <div class="bib-meta"><span>Best Practices</span></div>
+    </div>
+</section>
+
+<nav class="chapter-nav">
+    <a href="section-22.3.html">Previous</a>
+    <a href="index.html">&uarr; Chapter 22</a>
+    <a class="cross-ref" href="../module-23-multimodal/section-23.1.html">Next</a>
+</nav>
+
+    <footer>
+        <p class="footer-title">Building Conversational AI with LLMs and Agents, Fifth Edition</p>
+        <p>&copy; 2026 Alexander Apartsin &amp; Yehudit Aperstein &middot; <a href="../../toc.html">Contents</a></p>
+        <p class="footer-updated">Last updated: <script>document.write(new Date(document.lastModified).toLocaleDateString('en-US', {year:'numeric', month:'long', day:'numeric'}))</script></p>
+    </footer>
+</main>
+
+</body>
+</html>

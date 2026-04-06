@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Section 19.2: Advanced RAG Techniques. A comprehensive chapter from the Building Conversational AI textbook.">
+    <title>Section 19.2: Advanced RAG Techniques</title>
+    <link rel="stylesheet" href="../../styles/book.css">
+    <link rel="stylesheet" href="../../vendor/katex/katex.min.css">
+    <script defer src="../../vendor/katex/katex.min.js"></script>
+    <script defer src="../../vendor/katex/contrib/auto-render.min.js"
+        onload="renderMathInElement(document.body, {
+            delimiters: [
+                {left: '$$', right: '$$', display: true},
+                {left: '$', right: '$', display: false}
+            ],
+            throwOnError: false
+        });"></script>
+    <link rel="stylesheet" href="../../vendor/prism/prism-theme.css">
+    <script defer src="../../vendor/prism/prism-bundle.min.js"></script>
+</head>
+<body>
+<header class="chapter-header">
+<nav class="header-nav">
+    <a href="../../index.html" class="book-title-link">Building Conversational AI with LLMs and Agents</a>
+    <a href="../../toc.html" class="toc-link" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+</nav>
+    <div class="part-label"><a href="../index.html">Part 5: Retrieval and Conversation</a></div>
+    <div class="chapter-label"><a href="index.html">Chapter 19: Retrieval-Augmented Generation</a></div>
+    <h1>Advanced RAG Techniques</h1>
+</header>
+
+<main class="content">
+
+    <blockquote class="epigraph">
+        <p>It is not enough to find the right answer. You must first learn to ask the right question.</p>        <cite><span class="agent-avatar-inline" style="background-color: #2980b9;"><img src="../../front-matter/images/agents/rag.png" alt="RAG"></span> <a href="../../front-matter/wisdom-council.html#rag">RAG</a> <span class="agent-desc">AI Agent</span></cite>
+    </blockquote>
+
+<figure class="illustration">
+ <img src="images/advanced-rag-treasure-hunt.png" alt="An adventurer following a multi-step treasure map with clues leading to progressively better answers" loading="lazy">
+ <figcaption><strong>Figure 19.2.1</strong>: Advanced RAG is a treasure hunt where each retrieval step gets you closer to the answer. Query rewriting, re-ranking, and iterative refinement are your map and compass.</figcaption>
+</figure>
+
+    <div class="prerequisites">
+        <h3>Prerequisites</h3>
+        <p>This section extends the basic RAG architecture from <a href="section-19.1.html">Section 19.1</a> with advanced retrieval techniques. You should understand embedding similarity search from <a class="cross-ref" href="../module-19-embeddings-vector-db/section-18.1.html">Section 18.1</a> and document chunking strategies from <a class="cross-ref" href="../module-19-embeddings-vector-db/section-18.4.html">Section 18.4</a>. The reranking models discussed here build on the cross-encoder concepts that complement the bi-encoder approach covered in the embedding chapter.</p>
+    </div>
+
+    <div class="callout big-picture">
+        <div class="callout-title">Big Picture</div>
+        <p><strong>Naive RAG fails when the query and the relevant documents use different words, when <a class="cross-ref" href="../../part-1-foundations/module-05-decoding-text-generation/section-5.2.html">top-k</a> retrieval misses the best result, or when the model generates claims not supported by context.</strong> Advanced RAG techniques attack each of these failure modes: query transformation rewrites the query to improve retrieval, hybrid search combines dense and sparse signals, re-ranking uses powerful cross-encoders to refine initial results, and self-corrective approaches like CRAG and Self-RAG let the system verify and improve its own outputs. Building on the basic RAG architecture from <a href="section-19.1.html">Section 19.1</a>, mastering these techniques is the difference between a demo and a production system.</p>    </div>
+
+<figure class="illustration">
+ <img src="images/reranking-judges-panel.png" alt="A panel of judges re-scoring contestants after an initial screening round, representing cross-encoder reranking" loading="lazy">
+ <figcaption><strong>Figure 19.2.2</strong>: Reranking is the callback round: initial retrieval gives you candidates, then a cross-encoder judge takes a closer look at each one to pick the real winners.</figcaption>
+</figure>
+
+    <h2>1. Query Transformation</h2>
+
+    <p>
+        The user's raw query is often a poor match for the retrieval index. Queries may be vague, use
+        different terminology than the source documents (a challenge rooted in <a class="cross-ref" href="../../part-1-foundations/module-01-foundations-nlp-text-representation/index.html">text representation</a>), or bundle multiple sub-questions into one. Query
+        transformation techniques rewrite, expand, or decompose the original query to improve retrieval recall
+        and precision.
+    </p>
+
+    <h3>1.1 HyDE: Hypothetical Document Embeddings</h3>
+
+    <p>
+        HyDE (Gao et al., 2022) takes a counterintuitive approach: instead of embedding the query directly,
+        it first asks the LLM to generate a hypothetical answer to the query (a creative application of <a class="cross-ref" href="../../part-3-working-with-llms/module-11-prompt-engineering/index.html">prompt engineering</a>), then embeds that hypothetical
+        answer and uses it for retrieval. The intuition is that a hypothetical answer, even if factually
+        incorrect, will be more lexically and semantically similar to real documents that contain the actual
+        answer than the short query itself.
+    </p>
+
+<figure class="illustration">
+ <img src="images/hyde-crystal-ball.png" alt="A crystal ball generating a hypothetical answer that is then used to search for real documents" loading="lazy">
+ <figcaption><strong>Figure 19.2.3</strong>: HyDE peers into a crystal ball to generate a hypothetical answer first, then uses that answer to find real documents. Sometimes the best search query is a rough draft of the answer itself.</figcaption>
+</figure>
+
+
+    <div class="callout fun-note">
+       <div class="callout-title">Fun Fact</div>
+        <p>HyDE essentially asks the model to hallucinate on purpose, then uses that hallucination to find real documents. It is one of the few techniques in AI where being confidently wrong is a feature, not a bug. Code Fragment 19.2.1 below puts this into practice.</p>
+    </div>
+
+<pre><code class="language-python"># implement hyde_retrieve
+# Key operations: retrieval pipeline, API interaction
+
+from openai import OpenAI
+
+client = OpenAI()
+
+def hyde_retrieve(query, collection, k=5):
+    """HyDE: Generate hypothetical answer, embed it, retrieve."""
+
+    # Step 1: Generate a hypothetical document
+    hypo_response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{
+            "role": "system",
+            "content": <span style="color:#a6e3a1;">"Write a short passage that would answer the "
+                       "following question. Be specific and detailed."</span>
+        }, {
+            "role": "user",
+            "content": query
+        }],
+        temperature=0.7
+    )
+    hypothetical_doc = hypo_response.choices[0].message.content
+
+    # Step 2: Retrieve using the hypothetical document
+    results = collection.query(
+        query_texts=[hypothetical_doc],
+        n_results=k
+    )
+
+    return results["documents"][0], results["metadatas"][0]
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 19.2.1:</strong> Using HyDE (Hypothetical Document Embeddings): the LLM generates a hypothetical answer, which is embedded and used for retrieval instead of the raw query.</div>
+
+<div class="callout library-shortcut">
+<p class="callout-label">Library Shortcut</p>
+<p>The same HyDE retrieval pattern in 6 lines with <strong><a class="cross-ref" href="../../part-6-agentic-ai/module-22-ai-agents/section-22.5.html">LangChain</a></strong> (<code>pip install langchain</code>):</p>
+<pre><code class="language-python">
+from langchain.retrievers import HypotheticalDocumentEmbedder
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+
+hyde = HypotheticalDocumentEmbedder.from_llm(
+    llm=ChatOpenAI(model="gpt-4o-mini"),
+    base_embeddings=OpenAIEmbeddings(),
+    prompt_key="web_search",  # built-in prompt for hypothetical docs
+)
+results = vectorstore.similarity_search_by_vector(
+    hyde.embed_query("How does photosynthesis work?"), k=5
+)
+</code></pre>
+</div>
+
+    <p>While dense retrievers like HyDE excel at semantic similarity, sparse lexical retrievers remain essential for exact keyword matching. The most widely used sparse scoring function is BM25, which extends TF-IDF with document length normalization and term frequency saturation:</p>
+
+    <div class="math-block">
+    <p><strong>BM25 Scoring Formula.</strong></p>
+
+$$BM25(q, d) = \Sigma _{t \in q} IDF(t) \cdot (f(t,d) \cdot (k_{1} + 1)) / (f(t,d) + k_{1} \cdot (1 - b + b \cdot |d| / avgdl))$$
+
+<p>where f(t,d) is term frequency of t in document d, |d| is document length, avgdl is average document length, and IDF(t) = log((N - n(t) + 0.5) / (n(t) + 0.5)). Standard parameters: k<sub>1</sub> = 1.2, b = 0.75.</p>
+
+</div>
+
+    <p>When combining results from multiple retrievers, Reciprocal Rank Fusion provides a simple but effective score aggregation that does not require normalizing the raw scores:</p>
+
+    <div class="math-block">
+    <p><strong>Reciprocal Rank Fusion (RRF).</strong></p>
+
+$$RRF(d) = \Sigma _{r \in ranklists} 1 / (k + rank_{r}(d))$$
+
+<p>where rank<sub>r</sub>(d) is the rank of document d in ranklist r, and k = 60 is a constant that prevents high-ranked documents from dominating. RRF merges results from multiple retrievers (e.g., BM25 + dense search) without requiring score normalization.</p>
+
+<p><strong>Worked example.</strong></p>
+
+<p>(doc X: rank 1 in dense, rank 3 in BM25):</p>
+
+$$\bullet RRF(X) = 1/(60+1) + 1/(60+3) = 0.0164 + 0.0159 = \textbf{0.0323}$$
+    
+</div>
+
+    <h3>1.2 Multi-Query Expansion</h3>
+
+    <p>
+        Multi-query expansion generates several rephrased versions of the original query, retrieves results
+        for each variant, and merges the result sets. This approach captures different phrasings and
+        perspectives that might match different documents in the corpus.
+     Code Fragment 19.2.2 below puts this into practice.</p>
+
+<figure class="illustration">
+ <img src="images/lost-in-middle-sandwich.png" alt="A sandwich where the middle filling is being ignored while the top and bottom bread get all the attention" loading="lazy">
+ <figcaption><strong>Figure 19.2.4</strong>: The lost-in-the-middle problem: LLMs pay attention to the first and last documents but forget what is sandwiched in between. Position matters more than it should.</figcaption>
+</figure>
+
+
+<pre><code class="language-python"># implement multi_query_retrieve
+# Key operations: retrieval pipeline, API interaction
+
+def multi_query_retrieve(query, collection, k=5, num_variants=3):
+    """Generate multiple query variants and merge results."""
+
+    # Generate query variants
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{
+            "role": "system",
+            "content": f"Generate {num_variants} alternative phrasings of "
+                       "the following search query. Return one per line."
+        }, {
+            "role": "user",
+            "content": query
+        }]
+    )
+    variants = response.choices[0].message.content.strip().split("\n")
+    all_queries = [query] + variants
+
+    # Retrieve for each variant
+    seen_ids = set()
+    merged_results = []
+
+    for q in all_queries:
+        results = collection.query(query_texts=[q], n_results=k)
+        for doc, meta, doc_id in zip(
+            results["documents"][0],
+            results["metadatas"][0],
+            results["ids"][0]
+        ):
+            if doc_id not in seen_ids:
+                seen_ids.add(doc_id)
+                merged_results.append({
+                    "document": doc,
+                    "metadata": meta
+                })
+
+    return merged_results[:k * 2]  # Return expanded set
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 19.2.2:</strong> Generating multiple query reformulations with an LLM and merging their retrieval results to improve recall on ambiguous or multi-faceted questions.</div>
+
+<div class="callout library-shortcut">
+<p class="callout-label">Library Shortcut</p>
+<p>The same multi-query expansion and fusion in 6 lines with <strong>LangChain</strong> (<code>pip install langchain</code>):</p>
+<pre><code class="language-python">
+from langchain.retrievers import MultiQueryRetriever
+from langchain_openai import ChatOpenAI
+
+# Automatically generates query variants and merges results
+multi_retriever = MultiQueryRetriever.from_llm(
+    retriever=vectorstore.as_retriever(search_kwargs={"k": 5}),
+    llm=ChatOpenAI(model="gpt-4o-mini", temperature=0.7),
+)
+results = multi_retriever.invoke("What are the economic trends in Japan?")
+</code></pre>
+</div>
+
+    <h3>1.3 Step-Back Prompting</h3>
+
+    <p>
+        Step-back prompting (Zheng et al., 2023) generates a more abstract or general version of the query
+        before retrieval. For example, the query "What was the GDP growth rate of Japan in Q3 2024?" might
+        be stepped back to "What are the recent economic trends in Japan?" The broader query retrieves
+        documents that provide necessary background context, which is then combined with results from the
+        specific query.
+     Figure 19.2.1 compares these three query transformation strategies.</p>
+
+    <!-- SVG: Query Transformation Strategies -->
+    <div class="diagram-container">
+        <svg role="img" aria-label="Diagram: Query Transformation Strategies" viewBox="0 -10 760 350" xmlns="http://www.w3.org/2000/svg" font-family="Georgia, serif">
+
+            <!-- Original Query -->
+            <rect x="270" y="45" width="220" height="40" rx="8" fill="#e3f2fd" stroke="#1565c0" stroke-width="2" stroke-linecap="round"/>
+            <text x="380" y="70" text-anchor="middle" font-size="12" font-weight="bold" fill="#0d47a1">Original Query</text>
+
+            <!-- Arrows -->
+            <line x1="320" y1="85" x2="130" y2="125" stroke="#666" stroke-width="1.5" marker-end="url(#aqt)" stroke-linecap="round"/>
+            <line x1="380" y1="85" x2="380" y2="125" stroke="#666" stroke-width="1.5" marker-end="url(#aqt)" stroke-linecap="round"/>
+            <line x1="440" y1="85" x2="630" y2="125" stroke="#666" stroke-width="1.5" marker-end="url(#aqt)" stroke-linecap="round"/>
+
+            <!-- HyDE -->
+            <rect x="30" y="125" width="200" height="90" rx="8" fill="#fff3e0" stroke="#e65100" stroke-width="1.5" stroke-linecap="round"/>
+            <text x="130" y="148" text-anchor="middle" font-size="12" font-weight="bold" fill="#e65100">HyDE</text>
+            <text x="130" y="168" text-anchor="middle" font-size="11" fill="#555">LLM generates a</text>
+            <text x="130" y="183" text-anchor="middle" font-size="11" fill="#555">hypothetical answer;</text>
+            <text x="130" y="198" text-anchor="middle" font-size="11" fill="#555">embed that instead</text>
+
+            <!-- Multi-Query -->
+            <rect x="280" y="125" width="200" height="90" rx="8" fill="#e8f5e9" stroke="#2e7d32" stroke-width="1.5" stroke-linecap="round"/>
+            <text x="380" y="148" text-anchor="middle" font-size="12" font-weight="bold" fill="#2e7d32">Multi-Query</text>
+            <text x="380" y="168" text-anchor="middle" font-size="11" fill="#555">Generate N rephrasings;</text>
+            <text x="380" y="183" text-anchor="middle" font-size="11" fill="#555">retrieve for each;</text>
+            <text x="380" y="198" text-anchor="middle" font-size="11" fill="#555">merge result sets</text>
+
+            <!-- Step-Back -->
+            <rect x="530" y="125" width="200" height="90" rx="8" fill="#f3e5f5" stroke="#7b1fa2" stroke-width="1.5" stroke-linecap="round"/>
+            <text x="630" y="148" text-anchor="middle" font-size="12" font-weight="bold" fill="#7b1fa2">Step-Back</text>
+            <text x="630" y="168" text-anchor="middle" font-size="11" fill="#555">Abstract to a broader</text>
+            <text x="630" y="183" text-anchor="middle" font-size="11" fill="#555">question; retrieve</text>
+            <text x="630" y="198" text-anchor="middle" font-size="11" fill="#555">background context</text>
+
+            <!-- Converge arrows -->
+            <line x1="130" y1="215" x2="320" y2="265" stroke="#666" stroke-width="1.5" marker-end="url(#aqt)" stroke-linecap="round"/>
+            <line x1="380" y1="215" x2="380" y2="265" stroke="#666" stroke-width="1.5" marker-end="url(#aqt)" stroke-linecap="round"/>
+            <line x1="630" y1="215" x2="440" y2="265" stroke="#666" stroke-width="1.5" marker-end="url(#aqt)" stroke-linecap="round"/>
+
+            <!-- Better Retrieval -->
+            <rect x="270" y="265" width="220" height="45" rx="8" fill="#e8eaf6" stroke="#283593" stroke-width="2" stroke-linecap="round"/>
+            <text x="380" y="285" text-anchor="middle" font-size="12" font-weight="bold" fill="#283593">Improved Retrieval</text>
+            <text x="380" y="300" text-anchor="middle" font-size="11" fill="#555">Higher recall and precision</text>
+
+            <defs><filter id="stdShadow6" x="-4%" y="-4%" width="108%" height="116%"><feDropShadow dx="1" dy="2" stdDeviation="2" flood-opacity="0.08"/></filter><linearGradient id="stdGrad5" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" style="stop-color:#f8f9fa;stop-opacity:0.7"/><stop offset="100%" style="stop-color:#e9ecef;stop-opacity:0.3"/></linearGradient>
+                <marker id="aqt" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                    <path d="M 0 0 L 10 5 L 0 10 z" fill="#666"/>
+                </marker>
+            </defs>
+        </svg>
+        <div class="diagram-caption"><strong>Figure 19.2.5</strong>: Three query transformation strategies, each addressing different causes of retrieval failure.</div>
+    </div>
+
+    <h2>2. Hybrid Retrieval: Dense + Sparse</h2>
+
+    <p>
+        Dense retrieval (embedding similarity) excels at semantic matching but can miss exact keyword matches.
+        Sparse retrieval (BM25) excels at keyword matching but misses semantic relationships. Hybrid retrieval
+        combines both signals, typically using Reciprocal Rank Fusion (RRF) to merge the ranked result lists.
+    </p>
+
+    <h3>2.1 BM25 for Sparse Retrieval</h3>
+
+    <p>
+        BM25 is a term-frequency scoring function that has been the backbone of search engines for decades.
+        It assigns higher scores to documents containing query terms that are rare in the corpus (high
+        IDF, or Inverse Document Frequency) and that appear frequently in the specific document (high
+        TF, or Term Frequency), with saturation to prevent long documents from dominating.
+     Code Fragment 19.2.3 below puts this into practice.</p>
+
+<pre><code class="language-python"># Define HybridRetriever; implement __init__, retrieve
+# Key operations: retrieval pipeline, vector search, evaluation logic
+
+from rank_bm25 import BM25Okapi
+import numpy as np
+
+class HybridRetriever:
+    """Combine dense (vector) and sparse (BM25) retrieval."""
+
+    def __init__(self, documents, collection):
+        self.documents = documents
+        self.collection = collection  # ChromaDB collection
+
+        # Build BM25 index
+        tokenized = [doc.lower().split() for doc in documents]
+        self.bm25 = BM25Okapi(tokenized)
+
+    def retrieve(self, query, k=5, alpha=0.5):
+        <span style="color:#a6adc8;">"""Hybrid retrieval with Reciprocal Rank Fusion.
+
+        Args:
+            alpha: Weight for dense results (1-alpha for sparse).
+        """</span>
+        # Dense retrieval
+        dense_results = self.collection.query(
+            query_texts=[query], n_results=k * 2
+        )
+        dense_ids = dense_results["ids"][0]
+
+        # Sparse retrieval (BM25)
+        tokenized_query = query.lower().split()
+        bm25_scores = self.bm25.get_scores(tokenized_query)
+        sparse_top = np.argsort(bm25_scores)[::-1][:k * 2]
+
+        # Reciprocal Rank Fusion
+        rrf_scores = {}
+        rrf_k = 60  # Standard RRF constant
+
+        for rank, doc_id in enumerate(dense_ids):
+            rrf_scores[doc_id] = rrf_scores.get(doc_id, 0)
+            rrf_scores[doc_id] += alpha / (rrf_k + rank + 1)
+
+        for rank, idx in enumerate(sparse_top):
+            doc_id = f"doc_{idx}"
+            rrf_scores[doc_id] = rrf_scores.get(doc_id, 0)
+            rrf_scores[doc_id] += (1 - alpha) / (rrf_k + rank + 1)
+
+        # Sort by fused score
+        ranked = sorted(
+            rrf_scores.items(),
+            key=lambda x: x[1],
+            reverse=True
+        )
+        return ranked[:k]
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 19.2.3:</strong> The HybridRetriever class implements 2.1 bm25 for sparse retrieval, with methods including __init__, retrieve.</div>
+
+<div class="callout library-shortcut">
+<p class="callout-label">Library Shortcut</p>
+<p>The same hybrid retrieval with RRF in 6 lines with <strong>LangChain</strong> (<code>pip install langchain-community</code>):</p>
+<pre><code class="language-python">
+from langchain.retrievers import EnsembleRetriever
+from langchain_community.retrievers import BM25Retriever
+
+bm25 = BM25Retriever.from_documents(documents, k=10)
+dense = vectorstore.as_retriever(search_kwargs={"k": 10})
+
+# EnsembleRetriever applies Reciprocal Rank Fusion automatically
+hybrid = EnsembleRetriever(
+    retrievers=[bm25, dense], weights=[0.5, 0.5]
+)
+results = hybrid.invoke("database indexing strategies")
+</code></pre>
+</div>
+
+    <div class="callout note">
+        <div class="callout-title">Note</div>
+        <p>The <code>HybridRetriever</code> above is simplified for clarity. In a production implementation, you would need to map BM25 array indices to the same document ID namespace used by the vector store, so that RRF can correctly merge results from both systems. Libraries like LangChain and LlamaIndex handle this mapping automatically in their hybrid retriever implementations.</p>
+    </div>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight</div>
+        <p>Hybrid retrieval consistently outperforms either dense or sparse retrieval alone across benchmarks. In the BEIR benchmark, combining BM25 with a dense retriever using RRF improved NDCG@10 (Normalized Discounted Cumulative Gain at rank 10, a standard retrieval quality metric) by 5 to 15% compared to using either method alone. The gains are largest on technical domains where exact terminology matters (legal, medical, code) but dense semantic understanding is also needed.</p>
+    </div>
+
+    <h2>3. Re-Ranking with Cross-Encoders</h2>
+
+    <p>
+        Initial retrieval (whether dense, sparse, or hybrid) uses fast but approximate scoring. Re-ranking
+        applies a more powerful but slower model to the initial candidate set. Cross-encoder models are
+        particularly effective because they jointly encode the query and document together, enabling
+        fine-grained interaction between query and passage tokens.
+    </p>
+
+    <h3>3.1 How Cross-Encoders Differ from Bi-Encoders</h3>
+
+    <p>
+        Bi-encoders (used for initial retrieval) encode the query and document independently, then compute
+        similarity via dot product or cosine. This allows pre-computing document embeddings but limits
+        interaction between query and document representations. Cross-encoders encode the query and document
+        as a single concatenated input, enabling full token-level attention between them. This produces
+        much more accurate relevance scores but requires running inference for every (query, document) pair,
+        making it too slow for searching millions of documents.
+     Figure 19.2.2 shows the architectural difference between bi-encoders and cross-encoders in a retrieval pipeline. Code Fragment 19.2.4 below puts this into practice.</p>
+
+    <!-- SVG: Bi-Encoder vs Cross-Encoder -->
+    <div class="diagram-container">
+        <svg role="img" aria-label="Diagram: Bi-Encoder vs Cross-Encoder" viewBox="0 -12 760 292" xmlns="http://www.w3.org/2000/svg" font-family="Georgia, serif"><defs><filter id="stdShadow4" x="-4%" y="-4%" width="108%" height="116%"><feDropShadow dx="1" dy="2" stdDeviation="2" flood-opacity="0.08"/></filter><linearGradient id="stdGrad3" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" style="stop-color:#f8f9fa;stop-opacity:0.7"/><stop offset="100%" style="stop-color:#e9ecef;stop-opacity:0.3"/></linearGradient></defs>
+
+            <!-- Bi-Encoder Side -->
+            <rect x="20" y="40" width="340" height="220" rx="10" fill="#f8f9fa" stroke="#dee2e6" stroke-width="1" stroke-linecap="round"/>
+            <text x="190" y="62" text-anchor="middle" font-size="13" font-weight="bold" fill="#1a1a2e">Bi-Encoder (Retrieval)</text>
+
+            <rect x="50" y="80" width="120" height="35" rx="5" fill="#e3f2fd" stroke="#1565c0" stroke-width="1" stroke-linecap="round"/>
+            <text x="110" y="102" text-anchor="middle" font-size="11" fill="#0d47a1">Query Encoder</text>
+            <rect x="200" y="80" width="120" height="35" rx="5" fill="#fff3e0" stroke="#e65100" stroke-width="1" stroke-linecap="round"/>
+            <text x="260" y="102" text-anchor="middle" font-size="11" fill="#e65100">Doc Encoder</text>
+
+            <line x1="110" y1="115" x2="110" y2="145" stroke="#1565c0" stroke-width="1.5" stroke-linecap="round"/>
+            <line x1="260" y1="115" x2="260" y2="145" stroke="#e65100" stroke-width="1.5" stroke-linecap="round"/>
+
+            <rect x="70" y="145" width="80" height="25" rx="4" fill="#bbdefb" stroke="#1565c0" stroke-width="1" stroke-linecap="round"/>
+            <text x="110" y="162" text-anchor="middle" font-size="11" fill="#0d47a1">q vector</text>
+            <rect x="220" y="145" width="80" height="25" rx="4" fill="#ffe0b2" stroke="#e65100" stroke-width="1" stroke-linecap="round"/>
+            <text x="260" y="162" text-anchor="middle" font-size="11" fill="#e65100">d vector</text>
+
+            <line x1="150" y1="157" x2="220" y2="157" stroke="#333" stroke-width="1" stroke-dasharray="4,3" stroke-linecap="round"/>
+            <text x="185" y="152" text-anchor="middle" font-size="11" fill="#333">cosine</text>
+
+            <text x="190" y="205" text-anchor="middle" font-size="11" fill="#2e7d32">Fast: pre-compute doc vectors</text>
+            <text x="190" y="220" text-anchor="middle" font-size="11" fill="#c62828">Limited: no token interaction</text>
+            <text x="190" y="240" text-anchor="middle" font-size="11" fill="#555">Use for: initial retrieval (millions)</text>
+
+            <!-- Cross-Encoder Side -->
+            <rect x="400" y="40" width="340" height="220" rx="10" fill="#f8f9fa" stroke="#dee2e6" stroke-width="1" stroke-linecap="round"/>
+            <text x="570" y="62" text-anchor="middle" font-size="13" font-weight="bold" fill="#1a1a2e">Cross-Encoder (Re-ranking)</text>
+
+            <rect x="440" y="80" width="260" height="35" rx="5" fill="#e8f5e9" stroke="#2e7d32" stroke-width="1" stroke-linecap="round"/>
+            <text x="570" y="102" text-anchor="middle" font-size="11" fill="#2e7d32">[CLS] Query [SEP] Document [SEP]</text>
+
+            <line x1="570" y1="115" x2="570" y2="145" stroke="#2e7d32" stroke-width="1.5" stroke-linecap="round"/>
+
+            <rect x="500" y="145" width="140" height="25" rx="4" fill="#c8e6c9" stroke="#2e7d32" stroke-width="1" stroke-linecap="round"/>
+            <text x="570" y="162" text-anchor="middle" font-size="11" fill="#2e7d32">Relevance Score (0 to 1)</text>
+
+            <text x="570" y="205" text-anchor="middle" font-size="11" fill="#c62828">Slow: per-pair inference</text>
+            <text x="570" y="220" text-anchor="middle" font-size="11" fill="#2e7d32">Accurate: full cross-attention</text>
+            <text x="570" y="240" text-anchor="middle" font-size="11" fill="#555">Use for: re-ranking top 20 to 100</text>
+        </svg>
+        <div class="diagram-caption"><strong>Figure 19.2.6</strong>: Bi-encoders enable fast retrieval by encoding independently; cross-encoders enable accurate re-ranking through joint encoding.</div>
+    </div>
+
+    <h3>3.2 Using Cohere Rerank</h3>
+
+<pre><code class="language-python"># implement rerank_results
+# Key operations: retrieval pipeline, API interaction
+
+import cohere
+
+co = cohere.ClientV2("YOUR_API_KEY")
+
+def rerank_results(query, documents, top_n=5):
+    """Re-rank retrieved documents using Cohere Rerank."""
+    response = co.rerank(
+        model="rerank-v3.5",
+        query=query,
+        documents=documents,
+        top_n=top_n,
+        return_documents=True
+    )
+
+    reranked = []
+    for result in response.results:
+        reranked.append({
+            "text": result.document.text,
+            "relevance_score": result.relevance_score,
+            "original_index": result.index
+        })
+
+    return reranked
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 19.2.4:</strong> This snippet demonstrates the rerank_results function using retrieval, API calls. Notice how the retrieval step filters candidates before passing them to downstream processing. Tracing through each step builds the intuition needed when debugging or extending similar systems.</div>
+
+    <h2>4. Contextual Retrieval</h2>
+
+    <p>
+        Standard chunking strips away the surrounding context that gives a chunk its meaning. A chunk
+        reading "The company reported 15% growth" is ambiguous without knowing which company, which
+        metric, and which time period. Contextual retrieval (Anthropic, 2024) prepends each chunk with
+        a short contextual summary generated by an LLM, creating self-contained chunks that embed and
+        retrieve much more accurately.
+    </p>
+
+    <div class="callout note">
+        <div class="callout-title">Note</div>
+        <p>Anthropic's experiments showed that contextual retrieval reduced retrieval failure rates by 49% compared to standard chunking, and by 67% when combined with BM25 hybrid search. The contextual prefix is typically 50 to 100 tokens describing the document title, section heading, and the chunk's role within the broader document. This prefix is included when embedding but can be omitted when presenting the chunk to the LLM for generation.</p>
+    </div>
+
+    <h2>5. Self-Corrective RAG</h2>
+
+    <p>
+        Standard RAG blindly trusts the retrieval results and generates from whatever context is provided.
+        Self-corrective RAG systems evaluate the quality of retrieved documents and the faithfulness of
+        generated answers, triggering corrective actions when problems are detected.
+    </p>
+
+    <h3>5.1 CRAG: Corrective Retrieval-Augmented Generation</h3>
+
+    <p>
+        CRAG (Yan et al., 2024) adds a retrieval evaluator that classifies each retrieved document as
+        "correct," "incorrect," or "ambiguous." If all documents are incorrect, the system falls back to
+        web search. If documents are ambiguous, the system refines the query and re-retrieves. Only when
+        documents are classified as correct does generation proceed normally.
+    </p>
+
+    <h3>5.2 Self-RAG</h3>
+
+    <p>
+        Self-RAG (Asai et al., 2023) trains the LLM itself to generate special reflection tokens that
+        assess whether retrieval is needed, whether retrieved passages are relevant, whether the generated
+        response is supported by the evidence, and whether the response is useful. These self-assessments
+        allow the model to adaptively decide when to retrieve, which passages to use, and when to regenerate.
+     Figure 19.2.3 illustrates how CRAG branches into correction paths based on retrieval quality.</p>
+
+    <!-- SVG: CRAG Flow -->
+    <div class="diagram-container">
+        <svg role="img" aria-label="Diagram: CRAG Flow" viewBox="0 -12 760 312" xmlns="http://www.w3.org/2000/svg" font-family="Georgia, serif">
+
+            <!-- Query -->
+            <rect x="20" y="110" width="100" height="50" rx="8" fill="#e3f2fd" stroke="#1565c0" stroke-width="1.5" stroke-linecap="round"/>
+            <text x="70" y="140" text-anchor="middle" font-size="11" font-weight="bold" fill="#0d47a1">Query</text>
+
+            <line x1="120" y1="135" x2="155" y2="135" stroke="#333" stroke-width="1.5" marker-end="url(#acrag)" stroke-linecap="round"/>
+
+            <!-- Retrieve -->
+            <rect x="160" y="105" width="110" height="60" rx="8" fill="#fff3e0" stroke="#e65100" stroke-width="1.5" stroke-linecap="round"/>
+            <text x="215" y="130" text-anchor="middle" font-size="11" font-weight="bold" fill="#e65100">Retrieve</text>
+            <text x="215" y="148" text-anchor="middle" font-size="11" fill="#555">top-k docs</text>
+
+            <line x1="270" y1="135" x2="305" y2="135" stroke="#333" stroke-width="1.5" marker-end="url(#acrag)" stroke-linecap="round"/>
+
+            <!-- Evaluate -->
+            <rect x="310" y="90" width="140" height="90" rx="8" fill="#fce4ec" stroke="#c62828" stroke-width="2" stroke-linecap="round"/>
+            <text x="380" y="118" text-anchor="middle" font-size="12" font-weight="bold" fill="#c62828">Evaluate</text>
+            <text x="380" y="136" text-anchor="middle" font-size="11" fill="#555">Correct?</text>
+            <text x="380" y="150" text-anchor="middle" font-size="11" fill="#555">Ambiguous?</text>
+            <text x="380" y="164" text-anchor="middle" font-size="11" fill="#555">Incorrect?</text>
+
+            <!-- Three paths -->
+            <!-- Correct -->
+            <line x1="450" y1="110" x2="530" y2="80" stroke="#2e7d32" stroke-width="1.5" marker-end="url(#acrag)" stroke-linecap="round"/>
+            <rect x="535" y="55" width="120" height="45" rx="6" fill="#e8f5e9" stroke="#2e7d32" stroke-width="1.5" stroke-linecap="round"/>
+            <text x="595" y="75" text-anchor="middle" font-size="11" font-weight="bold" fill="#2e7d32">Generate</text>
+            <text x="595" y="90" text-anchor="middle" font-size="11" fill="#555">Standard RAG</text>
+
+            <!-- Ambiguous -->
+            <line x1="450" y1="135" x2="530" y2="135" stroke="#f57f17" stroke-width="1.5" marker-end="url(#acrag)" stroke-linecap="round"/>
+            <rect x="535" y="112" width="120" height="45" rx="6" fill="#fff8e1" stroke="#f57f17" stroke-width="1.5" stroke-linecap="round"/>
+            <text x="595" y="132" text-anchor="middle" font-size="11" font-weight="bold" fill="#f57f17">Refine Query</text>
+            <text x="595" y="147" text-anchor="middle" font-size="11" fill="#555">Re-retrieve</text>
+
+            <!-- Incorrect -->
+            <line x1="450" y1="160" x2="530" y2="195" stroke="#c62828" stroke-width="1.5" marker-end="url(#acrag)" stroke-linecap="round"/>
+            <rect x="535" y="175" width="120" height="45" rx="6" fill="#fce4ec" stroke="#c62828" stroke-width="1.5" stroke-linecap="round"/>
+            <text x="595" y="195" text-anchor="middle" font-size="11" font-weight="bold" fill="#c62828">Web Search</text>
+            <text x="595" y="210" text-anchor="middle" font-size="11" fill="#555">Fallback retrieval</text>
+
+            <!-- Labels -->
+            <text x="500" y="75" font-size="11" fill="#2e7d32" font-weight="bold">Correct</text>
+            <text x="500" y="130" font-size="11" fill="#f57f17" font-weight="bold">Ambiguous</text>
+            <text x="500" y="195" font-size="11" fill="#c62828" font-weight="bold">Incorrect</text>
+
+            <!-- Converge -->
+            <line x1="655" y1="77" x2="700" y2="135" stroke="#333" stroke-width="1" marker-end="url(#acrag)" stroke-linecap="round"/>
+            <line x1="655" y1="135" x2="700" y2="135" stroke="#333" stroke-width="1" marker-end="url(#acrag)" stroke-linecap="round"/>
+            <line x1="655" y1="197" x2="700" y2="135" stroke="#333" stroke-width="1" marker-end="url(#acrag)" stroke-linecap="round"/>
+            <rect x="705" y="115" width="45" height="40" rx="6" fill="#e8eaf6" stroke="#283593" stroke-width="1.5" stroke-linecap="round"/>
+            <text x="727" y="140" text-anchor="middle" font-size="11" font-weight="bold" fill="#283593">Out</text>
+
+            <defs><filter id="stdShadow2" x="-4%" y="-4%" width="108%" height="116%"><feDropShadow dx="1" dy="2" stdDeviation="2" flood-opacity="0.08"/></filter><linearGradient id="stdGrad1" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" style="stop-color:#f8f9fa;stop-opacity:0.7"/><stop offset="100%" style="stop-color:#e9ecef;stop-opacity:0.3"/></linearGradient>
+                <marker id="acrag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                    <path d="M 0 0 L 10 5 L 0 10 z" fill="#333"/>
+                </marker>
+            </defs>
+        </svg>
+        <div class="diagram-caption"><strong>Figure 19.2.7</strong>: CRAG evaluates retrieved documents and branches into three correction paths based on retrieval quality.</div>
+    </div>
+
+    <h2>6. Fusion Retrieval and Multi-Modal RAG</h2>
+
+    <p>
+        Fusion retrieval goes beyond combining dense and sparse signals. RAG Fusion (Raudaschl, 2023)
+        generates multiple search queries, retrieves results for each, and applies RRF across all result
+        sets. This approach captures diverse perspectives on the query and is particularly effective for
+        complex, multi-faceted questions.
+    </p>
+
+    <h3>6.1 Multi-Modal RAG</h3>
+
+    <p>
+        Multi-modal RAG extends retrieval beyond text to include images, tables, charts, and diagrams.
+        This is essential for domains where critical information is encoded visually, such as scientific
+        papers (figures and plots), financial reports (tables and charts), or technical documentation
+        (architecture diagrams). Vision-language models like GPT-4o and Claude can process both retrieved
+        text and images in their context window.
+    </p>
+
+    <div class="callout warning">
+        <div class="callout-title">Warning</div>
+        <p>Multi-modal RAG introduces several unique challenges: (1) embedding images and text into a shared vector space is still an active research area, with models like CLIP providing only coarse alignment; (2) table extraction from PDFs is error-prone, often requiring specialized tools; (3) the token cost of including images in the context is high (a single image may consume 500+ tokens); and (4) evaluation is more complex because both visual and textual relevance must be assessed.</p>
+    </div>
+
+    <h2>7. Comparison of Advanced RAG Techniques</h2>
+
+    <div class="comparison-table">
+        <div class="comparison-table-title">7. Comparison of Advanced RAG Techniques</div>
+        <table>
+        <tr>
+            <th scope="col">Technique</th>
+            <th scope="col">What It Fixes</th>
+            <th scope="col">Latency Cost</th>
+            <th scope="col">Best For</th>
+        </tr>
+        <tr>
+            <td>HyDE</td>
+            <td>Query-document vocabulary gap</td>
+            <td>+1 LLM call</td>
+            <td>Technical/domain queries</td>
+        </tr>
+        <tr>
+            <td>Multi-Query</td>
+            <td>Single-perspective retrieval</td>
+            <td>+1 LLM call, N retrievals</td>
+            <td>Ambiguous or broad queries</td>
+        </tr>
+        <tr>
+            <td>Step-Back</td>
+            <td>Missing background context</td>
+            <td>+1 LLM call, 2 retrievals</td>
+            <td>Specific factual questions</td>
+        </tr>
+        <tr>
+            <td>BM25 Hybrid</td>
+            <td>Missed keyword matches</td>
+            <td>Minimal (BM25 is fast)</td>
+            <td>Technical, legal, medical</td>
+        </tr>
+        <tr>
+            <td>Cross-Encoder Rerank</td>
+            <td>Imprecise initial ranking</td>
+            <td>+N model inferences</td>
+            <td>High-precision applications</td>
+        </tr>
+        <tr>
+            <td>Contextual Retrieval</td>
+            <td>Context-stripped chunks</td>
+            <td>Ingestion-time LLM cost</td>
+            <td>Large document corpora</td>
+        </tr>
+        <tr>
+            <td>CRAG / Self-RAG</td>
+            <td>Blind trust in bad retrieval</td>
+            <td>+1 to 3 LLM calls</td>
+            <td>Safety-critical applications</td>
+        </tr>
+    </table>
+    </div>
+
+    <!-- Quiz -->
+    <div class="quiz">
+        <h3>Section 19.2 Quiz</h3>
+
+        <div class="quiz-question">1. How does HyDE improve retrieval compared to directly embedding the user query?</div>
+        <details open>
+            <summary>Show Answer</summary>
+            <div class="answer">HyDE generates a hypothetical answer to the query using an LLM, then embeds this hypothetical document for retrieval instead of the raw query. The hypothetical answer is longer and more semantically similar to real documents than the short query, bridging the vocabulary and length gap between queries and documents. Even if the hypothetical answer is factually wrong, it uses the same style, terminology, and structure as real documents in the index.</div>
+        </details>
+
+        <div class="quiz-question">2. Why does hybrid retrieval (dense + BM25) outperform either method alone?</div>
+        <details open>
+            <summary>Show Answer</summary>
+            <div class="answer">Dense retrieval captures semantic similarity (paraphrases, synonyms, conceptual matches) but can miss exact keyword matches. BM25 captures exact term matches and handles rare terms well but misses semantic relationships. By combining both with Reciprocal Rank Fusion (RRF), hybrid retrieval gets the best of both worlds: documents that are semantically relevant and those that contain exact query terms both contribute to the final ranking.</div>
+        </details>
+
+        <div class="quiz-question">3. Why are cross-encoders more accurate than bi-encoders for relevance scoring?</div>
+        <details open>
+            <summary>Show Answer</summary>
+            <div class="answer">Cross-encoders encode the query and document as a single concatenated input, enabling full token-level attention between query and document tokens. This allows fine-grained interaction and comparison. Bi-encoders encode query and document independently, computing similarity only through a simple dot product or cosine of the final vectors. The trade-off is that cross-encoders are too slow for searching millions of documents, so they are used only for re-ranking a small candidate set (typically 20 to 100 documents).</div>
+        </details>
+
+        <div class="quiz-question">4. How does CRAG differ from standard RAG in handling retrieval failures?</div>
+        <details open>
+            <summary>Show Answer</summary>
+            <div class="answer">Standard RAG blindly trusts whatever documents are retrieved and generates from them regardless of quality. CRAG adds a retrieval evaluator that classifies each document as correct, ambiguous, or incorrect. If documents are correct, generation proceeds normally. If ambiguous, the query is refined and retrieval is repeated. If incorrect, the system falls back to web search. This three-way branching prevents the model from generating answers grounded in irrelevant or misleading context.</div>
+        </details>
+
+        <div class="quiz-question">5. What problem does contextual retrieval solve, and what is the cost?</div>
+        <details open>
+            <summary>Show Answer</summary>
+            <div class="answer">Contextual retrieval solves the problem of context-stripped chunks that lose their meaning when isolated from surrounding text. It prepends each chunk with an LLM-generated contextual summary (50 to 100 tokens) describing the document, section, and the chunk's role. This makes chunks self-contained for embedding and retrieval. The cost is an additional LLM call per chunk during ingestion (not at query time), which can be significant for large corpora but is a one-time expense.</div>
+        </details>
+    </div>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight: RAG as Cognitive Architecture</div>
+        <p>RAG recapitulates the distinction cognitive scientists draw between working memory and long-term memory. The LLM's context window functions as working memory: limited in capacity, fast to access, and where active reasoning occurs. The <a class="cross-ref" href="../module-19-embeddings-vector-db/section-19.2.html">vector database</a> serves as long-term memory: vast in capacity, slower to query, and requiring a retrieval cue to access. The retrieval step itself mirrors the process psychologists call "cue-dependent recall," where a query (the cue) activates related memories based on associative similarity. The advanced techniques in this section parallel known features of human memory. Query expansion mimics how humans reformulate a question when their first attempt at recall fails. Re-ranking mirrors the metacognitive process of evaluating whether a retrieved memory is actually relevant. Self-corrective RAG parallels how humans recognize when they have retrieved an incorrect memory and try again. This convergence is not accidental: both biological and artificial systems face the same fundamental problem of retrieving relevant information from a large store to support reasoning in a limited-capacity processor.</p>
+    </div>
+
+<div class="callout practical-example">
+    <div class="callout-title">Practical Example: Measuring RAG Improvements with Ragas</div>
+    <p>After adding query expansion, reranking, or contextual retrieval, you need to measure whether the pipeline actually improved. The <code>ragas</code> library (<code>pip install ragas</code>) provides RAG-specific metrics that evaluate both retrieval quality and generation faithfulness. See <a href="../../part-8-evaluation-production/module-29-evaluation-observability/section-25.3.html">Section 25.3</a> for a deeper treatment of RAG evaluation.</p>
+    <pre><code class="language-python"># pip install ragas
+from ragas import evaluate
+from ragas.metrics import faithfulness, answer_relevancy, context_precision
+from datasets import Dataset
+
+# Prepare evaluation samples (typically 50 to 200 labeled examples)
+eval_data = Dataset.from_dict({
+    "question":        ["What is the return policy for electronics?"],
+    "answer":          ["Electronics can be returned within 30 days..."],
+    "contexts":        [["Our return policy allows 30-day returns for electronics..."]],
+    "ground_truth":    ["Electronics: 30-day return window with receipt."],
+})
+
+results = evaluate(
+    dataset=eval_data,
+    metrics=[faithfulness, answer_relevancy, context_precision],
+)
+print(results)  # {'faithfulness': 0.95, 'answer_relevancy': 0.88, ...}
+</code></pre>
+</div>
+
+    <!-- Key Takeaways -->
+    <div class="takeaways">
+        <h2>Key Takeaways</h2>
+        <ul>
+            <li><strong>Query transformation bridges the vocabulary gap:</strong> HyDE, multi-query, and step-back prompting each address different causes of retrieval failure by rewriting the query before it reaches the index.</li>
+            <li><strong>Hybrid retrieval is almost always better:</strong> Combining dense and sparse (BM25) retrieval with Reciprocal Rank Fusion consistently outperforms either method alone, especially in technical domains.</li>
+            <li><strong>Re-ranking is high-impact and low-effort:</strong> Adding a cross-encoder re-ranker on top of initial retrieval is one of the highest-ROI improvements you can make to a RAG pipeline.</li>
+            <li><strong>Contextual retrieval makes chunks self-contained:</strong> Prepending LLM-generated context to chunks at ingestion time reduces retrieval failures by 49% (67% with BM25 hybrid).</li>
+            <li><strong>Self-corrective RAG prevents blind trust:</strong> CRAG and Self-RAG evaluate retrieval quality and generation faithfulness, triggering corrective actions when problems are detected.</li>
+        </ul>
+    </div>
+
+    <div class="callout practical-example">
+      <div class="callout-title">Adding Query Expansion and Reranking to an E-Commerce FAQ Bot</div>
+      <p><strong>Who:</strong> A product engineer at an online marketplace with 15,000 FAQ entries covering returns, shipping, seller policies, and payment issues</p>
+      <p><strong>Situation:</strong> The naive RAG system answered 68% of customer queries correctly, but struggled with ambiguous questions like "what happens if my package never arrived" (which could relate to refund policy, insurance claims, or seller disputes).</p>
+      <p><strong>Problem:</strong> Single-vector retrieval often returned chunks from only one relevant topic, missing the other facets of multi-aspect questions. Customers received incomplete answers and escalated to human agents.</p>
+      <p><strong>Dilemma:</strong> Retrieving more chunks (top-20 instead of top-5) improved coverage but introduced noise, causing the LLM to generate confused or contradictory responses. A cross-encoder reranker improved precision but added 200ms of latency per query.</p>
+      <p><strong>Decision:</strong> They implemented a two-stage pipeline: (1) query expansion using an LLM to generate three alternative phrasings, (2) retrieve top-10 per variant, deduplicate, then (3) rerank the merged set with a lightweight cross-encoder (ms-marco-MiniLM-L-6-v2) to select the final top-5.</p>
+      <p><strong>How:</strong> Query expansion ran asynchronously in parallel. The cross-encoder reranker was quantized to INT8 and served on a GPU endpoint, reducing reranking latency to 40ms for 30 candidates.</p>
+      <p><strong>Result:</strong> Correct answer rate rose from 68% to 86%. Human escalation dropped 28%. Total end-to-end latency was 320ms, within the 500ms SLA.</p>
+      <p><strong>Lesson:</strong> <strong>Query expansion and reranking are complementary: expansion increases recall by casting a wider net, while reranking restores precision by filtering out noise before the LLM sees the context.</strong></p>
+    </div>
+
+
+<div class="callout research-frontier">
+    <div class="callout-title">Research Frontier</div>
+    <p><strong>Learned sparse retrieval</strong> (SPLADE v3, 2024) is narrowing the gap with dense retrieval while maintaining the interpretability and efficiency of sparse methods. <strong>Listwise reranking</strong> with LLMs (e.g., RankGPT) directly outputs a reranked list rather than scoring documents independently, capturing inter-document relevance signals. <strong>Multi-vector retrieval</strong> models like ColBERT v2 and ColPali are achieving cross-encoder quality at bi-encoder speeds through late interaction. Research into <strong>retrieval-aware training</strong> is producing LLMs that are jointly optimized for both generating and utilizing retrieved passages, blurring the line between the retriever and the generator.</p>
+</div>
+
+<div class="whats-next">
+    <h3>What's Next?</h3>
+    <p>In the next section, <a href="section-19.3.html">Section 19.3: RAG with Knowledge Graphs</a>, we examine RAG with knowledge graphs, combining structured and unstructured retrieval for richer context.</p>
+</div>
+
+<section class="bibliography">
+    <h3 class="bibliography-title">References &amp; Further Reading</h3>
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://arxiv.org/abs/1901.04085" target="_blank" rel="noopener">Nogueira, R. &amp; Cho, K. (2019). "Passage Re-ranking with BERT." <em>arXiv preprint</em>.</a></p>
+        <p class="bib-annotation">Pioneering work on using <a class="cross-ref" href="../../part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.1.html">BERT</a> cross-encoders for passage re-ranking. Demonstrates significant improvements over traditional retrieval methods. Foundational reading for anyone implementing re-ranking in RAG.</p>
+        <span class="bib-meta">Paper</span>
+    </div>
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://arxiv.org/abs/2305.14283" target="_blank" rel="noopener">Ma, X. et al. (2023). "Query Rewriting for Retrieval-Augmented Large Language Models." <em>EMNLP 2023</em>.</a></p>
+        <p class="bib-annotation">Shows how LLMs can rewrite user queries to improve retrieval quality. A practical technique that consistently boosts RAG performance. Recommended for teams optimizing retrieval pipelines.</p>
+        <span class="bib-meta">Paper</span>
+    </div>
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://arxiv.org/abs/2310.11511" target="_blank" rel="noopener">Asai, A. et al. (2023). "Self-RAG: Learning to Retrieve, Generate, and Critique through Self-Reflection." <em>arXiv preprint</em>.</a></p>
+        <p class="bib-annotation">Introduces a self-reflective RAG approach where the model decides when to retrieve and critiques its own outputs. A key advance in adaptive retrieval strategies. Essential for researchers exploring autonomous RAG.</p>
+        <span class="bib-meta">Paper</span>
+    </div>
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://arxiv.org/abs/2401.15884" target="_blank" rel="noopener">Yan, S. et al. (2024). "Corrective Retrieval Augmented Generation." <em>arXiv preprint</em>.</a></p>
+        <p class="bib-annotation">Proposes corrective mechanisms that detect and fix retrieval errors before generation. Addresses a critical failure mode in production RAG systems. Valuable for engineers building robust pipelines.</p>
+        <span class="bib-meta">Paper</span>
+    </div>
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://arxiv.org/abs/2207.06300" target="_blank" rel="noopener">Glass, M. et al. (2022). "Re2G: Retrieve, Rerank, Generate." <em>NAACL 2022</em>.</a></p>
+        <p class="bib-annotation">Presents a unified framework combining retrieval, re-ranking, and generation stages. Demonstrates the value of multi-stage processing. Useful reference for designing advanced RAG architectures.</p>
+        <span class="bib-meta">Paper</span>
+    </div>
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://huggingface.co/cross-encoder" target="_blank" rel="noopener">Cross-Encoder Models on Hugging Face.</a></p>
+        <p class="bib-annotation">A collection of pre-trained cross-encoder models for semantic similarity and re-ranking. Provides ready-to-use models that integrate easily into RAG systems. Ideal for practitioners who want to add re-ranking quickly.</p>
+        <span class="bib-meta">Tool</span>
+    </div>
+</section>
+
+
+    <footer>
+        <p class="footer-title">Building Conversational AI with LLMs and Agents, Fifth Edition</p>
+        <p>&copy; 2026 Alexander Apartsin &amp; Yehudit Aperstein &middot; <a href="../../toc.html">Contents</a></p>
+        <p class="footer-updated">Last updated: <script>document.write(new Date(document.lastModified).toLocaleDateString('en-US', {year:'numeric', month:'long', day:'numeric'}))</script></p>
+    </footer>
+</main>
+
+<nav class="chapter-nav">
+    <a class="prev" href="section-19.1.html">RAG Architecture &amp; Fundamentals</a>
+    <a class="next" href="section-19.3.html">RAG with Knowledge Graphs</a>
+</nav>
+</body>
+</html>
