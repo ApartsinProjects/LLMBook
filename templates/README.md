@@ -43,7 +43,8 @@ All callouts use: `<div class="callout TYPE" title="TOOLTIP"><div class="callout
 | Fun Fact | `fun-note` | Fun Fact | Fun Fact: Interesting trivia |
 | Research Frontier | `research-frontier` | Research Frontier | Research Frontier: Cutting-edge development |
 | Algorithm | `algorithm` | Algorithm: NAME | Algorithm: Step-by-step procedure |
-| Tip | `tip` | Tip (or Production Alternative) | Tip: Helpful suggestion |
+| Tip | `tip` | Tip: TITLE | Tip: Helpful suggestion |
+| Library Shortcut | `library-shortcut` | Library Shortcut: TOOL in Practice | Library Shortcut: Production tool recommendation |
 | Exercise | `exercise` | Exercise N.M.K: Title BADGE | Exercise: Practice problem |
 
 ## Exercise Badges

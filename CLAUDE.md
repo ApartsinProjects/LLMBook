@@ -24,13 +24,33 @@ When performing book production tasks, you MUST read the relevant agent descript
 - When **adding code captions**, read `agents/book-skills/agents/40-code-caption-agent.md`
 - When **auditing agent quality**, read `agents/book-skills/agents/36-meta-agent.md`
 
-## Image Generation
+## Visual Content (Three Pipelines)
 
-- Script: `agents/book-skills/scripts/generate_icons_gemini.py`
-- For multiple images, always use `--engine gemini --batch` (50% discount)
-- For single images, use `C:/Users/apart/.claude/skills/gemini-imagegen/scripts/generate_image.py`
+### 1. Gemini Illustrations (cartoons, visual metaphors)
+- Batch: `agents/book-skills/scripts/generate_icons_gemini.py` with `--engine gemini --batch` (50% discount)
+- Single: `C:/Users/apart/.claude/skills/gemini-imagegen/scripts/generate_image.py`
 - Prompt style: warm cartoon, whimsical, no text in images, Kurzgesagt meets XKCD
 - Embed with `<figure class="illustration">` pattern from `agents/book-skills/agents/31-illustrator.md`
+
+### 2. Mermaid Diagrams (flowcharts, architectures, pipelines)
+- Render: `mmdc -i input.mmd -o output.png -c scripts/mermaid/mermaid-config.json -w 1200 -s 3 --backgroundColor white`
+- ELK layout (complex hierarchies): use `scripts/mermaid/mermaid-config-elk.json` instead
+- Source `.mmd` files saved alongside PNGs for future editing
+- Generation script: `scripts/mermaid/generate_mermaid_diagrams.py`
+- Dependencies: `@mermaid-js/mermaid-cli`, `@mermaid-js/layout-elk`
+- Embed with `<div class="diagram-container"><img>` pattern
+
+### 3. Matplotlib Charts (data visualizations with axes)
+- Scripts: `scripts/svg_to_matplotlib/gen_figure_*.py`
+- Shared style: `scripts/svg_to_matplotlib/chart_style.py` (300 DPI, consistent fonts/colors)
+- Run: `C:/Python314/python scripts/svg_to_matplotlib/gen_figure_X_Y_Z.py`
+- Use `PchipInterpolator` for monotonic curves (avoids spline overshoot)
+
+### Decision: which pipeline?
+- Cartoon/metaphor/humor → Gemini
+- Axes/data points/quantitative → Matplotlib
+- Boxes/arrows/flows/trees → Mermaid
+- Default (uncertain) → Mermaid (free, editable, consistent)
 
 ## Global Rules
 - NEVER use em dashes or double dashes in generated text

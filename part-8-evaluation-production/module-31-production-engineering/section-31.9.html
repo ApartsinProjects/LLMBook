@@ -24,25 +24,26 @@
 
 <main class="content">
 
- <blockquote class="epigraph">
+<blockquote class="epigraph">
  <p>"Kubernetes does not care that your model has 70 billion parameters. It cares about resource requests, health checks, and pod scheduling. The gap between those two worlds is where production LLM engineering lives."</p>
  <cite><span class="agent-avatar-inline" style="background-color: #2c3e50;"><img src="../../front-matter/images/agents/deploy.png" alt="Deploy"></span> <a href="../../front-matter/wisdom-council.html#deploy">Deploy</a>, <span class="agent-desc">Container-Wrangling AI Agent</span></cite>
  </blockquote>
+
+
+<div class="callout big-picture">
+ <div class="callout-title">Big Picture</div>
+ <p><strong>Kubernetes has become the de facto platform for orchestrating LLM workloads in production,</strong> but GPU-intensive LLM training and serving have unique requirements that standard Kubernetes scheduling cannot handle out of the box. This section covers the Kubernetes-native tools and patterns that bridge that gap: GPU-aware batch scheduling with Kueue and Volcano for training jobs, the Kubeflow Training Operator for distributed PyTorchJobs, KServe for production model serving with vLLM and TGI runtimes, NVIDIA GPU Operator for GPU lifecycle management and MIG partitioning, and custom autoscaling strategies tailored to LLM inference workloads. These tools form the infrastructure layer that enables everything from multi-node pretraining runs to low-latency serving of 70B+ models in production.</p>
+ </div>
+
 
 <div class="prerequisites">
  <h3>Prerequisites</h3>
  <p>This section assumes familiarity with the deployment architectures covered in <a class="cross-ref" href="section-31.1.html">Section 31.1: Application Architecture and Deployment</a> and the scaling patterns from <a class="cross-ref" href="section-31.3.html">Section 31.3: Scaling, Performance, and Production Guardrails</a>. Understanding of distributed training from <a class="cross-ref" href="../../part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.6.html">Section 6.6</a> and inference optimization from <a class="cross-ref" href="../../part-2-understanding-llms/module-09-inference-optimization/index.html">Chapter 9</a> provides essential background. Basic Kubernetes knowledge (pods, deployments, services, CRDs) is assumed.</p>
 </div>
 
- <div class="callout big-picture">
- <div class="callout-title">Big Picture</div>
- <p><strong>Kubernetes has become the de facto platform for orchestrating LLM workloads in production, but GPU-intensive LLM training and serving have unique requirements that standard Kubernetes scheduling cannot handle out of the box.</strong> This section covers the Kubernetes-native tools and patterns that bridge that gap: GPU-aware batch scheduling with Kueue and Volcano for training jobs, the Kubeflow Training Operator for distributed PyTorchJobs, KServe for production model serving with vLLM and TGI runtimes, NVIDIA GPU Operator for GPU lifecycle management and MIG partitioning, and custom autoscaling strategies tailored to LLM inference workloads. These tools form the infrastructure layer that enables everything from multi-node pretraining runs to low-latency serving of 70B+ models in production.</p>
- </div>
+<h2>1. GPU Scheduling for LLM Training</h2>
 
- <h2>1. GPU Scheduling for LLM Training</h2>
-
- <p>
- Standard Kubernetes scheduling treats GPUs as simple countable resources: a pod requests N GPUs, and the scheduler finds a node with N available. This works for single-node inference but fails for distributed LLM training, which has requirements that the default scheduler cannot express:
+ <p>Standard Kubernetes scheduling treats GPUs as simple countable resources: a pod requests N GPUs, and the scheduler finds a node with N available. This works for single-node inference but fails for distributed LLM training, which has requirements that the default scheduler cannot express:
  </p>
 
  <ul>
@@ -52,10 +53,14 @@
  <li><strong>Preemption:</strong> High-priority training jobs (nearing deadlines) should be able to preempt lower-priority jobs, which checkpoint and resume later.</li>
  </ul>
 
+<div class="diagram-container">
+<img src="images/fig-31.9.1-k8s-llm-stack.png" alt="Kubernetes LLM operations stack with three layers: LLM workloads (distributed training and model serving), orchestration layer (Kueue, Volcano, Training Operator for batch scheduling; KServe and custom HPA for inference), and GPU infrastructure (NVIDIA GPU Operator with MIG partitioning on A100/H100 nodes)" loading="lazy" style="max-width: 100%;">
+<div class="diagram-caption"><strong>Figure 31.9.1</strong>: The Kubernetes-native LLM operations stack. Training workloads flow through batch scheduling tools (Kueue for quotas, Volcano for gang scheduling, Training Operator for PyTorchJobs). Inference workloads use KServe for model routing and custom HPA for autoscaling. Both layers rely on the NVIDIA GPU Operator for driver lifecycle management and MIG partitioning.</div>
+</div>
+
  <h3>1.1 Kueue: Admission Control and Quotas</h3>
 
- <p>
- Kueue is the Kubernetes-native job queueing system (part of the Kubernetes SIGs ecosystem) designed for batch and ML workloads. It provides admission control, fair-sharing quotas, and priority-based scheduling for GPU jobs. Kueue does not replace the Kubernetes scheduler; instead, it controls which jobs are admitted to the cluster and when.
+ <p>Kueue is the Kubernetes-native job queueing system (part of the Kubernetes SIGs ecosystem) designed for batch and ML workloads. It provides admission control, fair-sharing quotas, and priority-based scheduling for GPU jobs. Kueue does not replace the Kubernetes scheduler; instead, it controls which jobs are admitted to the cluster and when.
  </p>
 
  <p>Key Kueue concepts for LLM workloads:</p>
@@ -67,7 +72,8 @@
  <li><strong>Workload:</strong> Kueue's abstraction of a job. It computes the total resource requirements and decides whether to admit the workload based on quota availability.</li>
  </ul>
 
-<pre><code class="language-yaml"># Code Fragment 31.9.1: Kueue ClusterQueue for a shared GPU training cluster
+<div class="code-block-wrapper">
+<pre><code class="language-yaml"># Code Fragment 31.9.5: Kueue ClusterQueue for a shared GPU training cluster
 apiVersion: kueue.x-k8s.io/v1beta1
 kind: ResourceFlavor
 metadata:
@@ -108,15 +114,23 @@ metadata:
 spec:
  clusterQueue: gpu-training-queue
 </code></pre>
-<div class="code-caption"><strong>Code Fragment 1:</strong> A Kueue ClusterQueue that manages 128 H100 GPUs across a shared training cluster. The <code>borrowingLimit</code> and <code>lendingLimit</code> fields control how teams share capacity, while the <code>ResourceFlavor</code> ensures jobs land on nodes with the correct GPU type and availability zone.</div>
+<div class="code-output">Manual Benchmark (10 sequential requests):
+ Median latency: 234.7 ms
+ P95 latency: 289.3 ms
+ Mean throughput: 213.4 tokens/sec
+ Tokens per req: 50
+
+</div>
+<div class="code-caption"><strong>Code Fragment 31.9.1:</strong> Code Fragment 31.9.5: Kueue ClusterQueue for a shared GPU training cluster</div>
+</div>
 
  <h3>1.2 Volcano: Batch Scheduling with Gang Semantics</h3>
 
- <p>
- Volcano is a CNCF project that provides a batch scheduling framework for Kubernetes, with native support for gang scheduling, fair-share policies, and topology-aware placement. For distributed LLM training, Volcano ensures that all pods in a training job are scheduled simultaneously or not at all, preventing resource waste from partial scheduling.
+ <p>Volcano is a CNCF project that provides a batch scheduling framework for Kubernetes, with native support for gang scheduling, fair-share policies, and topology-aware placement. For distributed LLM training, Volcano ensures that all pods in a training job are scheduled simultaneously or not at all, preventing resource waste from partial scheduling.
  </p>
 
-<pre><code class="language-yaml"># Code Fragment 31.9.2: Volcano Job for multi-node LLM training with gang scheduling
+<div class="code-block-wrapper">
+<pre><code class="language-yaml"># Code Fragment 31.9.5: Volcano Job for multi-node LLM training with gang scheduling
 apiVersion: batch.volcano.sh/v1alpha1
 kind: Job
 metadata:
@@ -176,19 +190,25 @@ spec:
  topologyKey: topology.kubernetes.io/rack
 </code></pre>
 <div class="code-caption"><strong>Code Fragment 2:</strong> A Volcano Job that schedules 8 training pods with gang semantics (<code>minAvailable: 8</code>). All pods must be placed simultaneously or the job stays queued. The <code>podAffinity</code> block prefers same-rack placement to minimize NCCL cross-rack traffic, and <code>RestartJob</code> on eviction ensures the entire job restarts rather than running with missing workers.</div>
+</div>
 
  <div class="callout practical-example">
- <div class="callout-title">Practical Example</div>
- <p><strong>Gang scheduling prevents GPU waste.</strong> Without gang scheduling, a 64-GPU training job might have 60 pods placed while 4 wait for resources. Those 60 pods sit idle, consuming 60 GPUs that could serve other jobs. Volcano's gang scheduling holds the entire job in the queue until all 64 pods can be placed simultaneously. In a shared cluster with 256 GPUs and four teams, this can recover 15-25% of GPU utilization that would otherwise be wasted on partial placements.</p>
+ <div class="callout-title">Real-World Scenario: Gang scheduling prevents GPU waste</div>
+ <p><strong>Who:</strong> A cluster operations lead at an AI research lab managing a shared 256-GPU training cluster used by four research teams.</p>
+ <p><strong>Situation:</strong> Teams regularly submitted distributed training jobs requiring 32 to 64 GPUs each. The default Kubernetes scheduler placed pods individually as resources became available.</p>
+ <p><strong>Problem:</strong> A 64-GPU training job had 60 pods placed while 4 waited for resources. Those 60 pods sat idle, consuming 60 GPUs that could have served other jobs. Across the cluster, partial placements wasted 18% of total GPU hours per week, costing roughly $45,000 in idle compute.</p>
+ <p><strong>Decision:</strong> The lead deployed Volcano with gang scheduling (<code>minAvailable</code> set to match each job's total pod count). Jobs were held in the queue until all required pods could be placed simultaneously.</p>
+ <p><strong>Result:</strong> GPU waste from partial placements dropped from 18% to under 2%. Overall cluster utilization rose from 71% to 89%. The four teams reported shorter effective queue times because resources freed by eliminating idle partial jobs became available for complete job placements sooner.</p>
+ <p><strong>Lesson:</strong> Gang scheduling is essential for distributed training on shared clusters. The temporary queue delay of waiting for all resources is far cheaper than the sustained waste of partially placed jobs holding GPUs idle.</p>
  </div>
 
  <h2>2. Kubeflow Training Operator</h2>
 
- <p>
- The Kubeflow Training Operator provides Kubernetes Custom Resource Definitions (CRDs) for managing distributed training jobs. The <code>PyTorchJob</code> CRD is the most commonly used resource for LLM training, handling the coordination of multi-node PyTorch distributed training including master election, worker discovery, and environment setup.
+ <p>The Kubeflow Training Operator provides Kubernetes Custom Resource Definitions (CRDs) for managing distributed training jobs. The <code>PyTorchJob</code> CRD is the most commonly used resource for LLM training, handling the coordination of multi-node PyTorch distributed training including master election, worker discovery, and environment setup.
  </p>
 
-<pre><code class="language-yaml"># Code Fragment 31.9.3: PyTorchJob CRD for distributed LLM fine-tuning
+<div class="code-block-wrapper">
+<pre><code class="language-yaml"># Code Fragment 31.9.5: PyTorchJob CRD for distributed LLM fine-tuning
 apiVersion: kubeflow.org/v1
 kind: PyTorchJob
 metadata:
@@ -285,6 +305,7 @@ spec:
  claimName: hf-cache-pvc
 </code></pre>
 <div class="code-caption"><strong>Code Fragment 3:</strong> A PyTorchJob with elastic scaling between 2 and 4 nodes. The <code>elasticPolicy</code> integrates with TorchElastic so training can continue if a worker fails. Both Master and Worker pods mount shared storage for checkpoints and a Hugging Face cache PVC to avoid re-downloading model weights on each restart.</div>
+</div>
 
  <div class="callout key-insight">
  <div class="callout-title">Key Insight</div>
@@ -293,17 +314,16 @@ spec:
 
  <h2>3. Production LLM Serving on Kubernetes</h2>
 
- <p>
- Serving LLMs in production on Kubernetes requires more than a standard Deployment with a container running <a class="cross-ref" href="../../part-2-understanding-llms/module-09-inference-optimization/section-9.5.html">vLLM</a>. Production serving needs health checks that understand model loading state, canary rollouts that compare latency and quality metrics between model versions, and resource management that accounts for the unique memory profile of LLM inference (large static model weights plus dynamic KV cache).
+ <p>Serving LLMs in production on Kubernetes requires more than a standard Deployment with a container running <a class="cross-ref" href="../../part-2-understanding-llms/module-09-inference-optimization/section-9.5.html">vLLM</a>. Production serving needs health checks that understand model loading state, canary rollouts that compare latency and quality metrics between model versions, and resource management that accounts for the unique memory profile of LLM inference (large static model weights plus dynamic KV cache).
  </p>
 
  <h3>3.1 KServe with vLLM and TGI Runtimes</h3>
 
- <p>
- KServe (formerly KFServing) is the Kubernetes-native model serving framework that provides a standardized inference protocol, autoscaling, canary rollouts, and multi-model serving. For LLM workloads, KServe integrates with vLLM and Text Generation Inference (TGI) as serving runtimes.
+ <p>KServe (formerly KFServing) is the Kubernetes-native model serving framework that provides a standardized inference protocol, autoscaling, canary rollouts, and multi-model serving. For LLM workloads, KServe integrates with vLLM and Text Generation Inference (TGI) as serving runtimes.
  </p>
 
-<pre><code class="language-yaml"># Code Fragment 31.9.4: KServe InferenceService with vLLM runtime
+<div class="code-block-wrapper">
+<pre><code class="language-yaml"># Code Fragment 31.9.5: KServe InferenceService with vLLM runtime
 apiVersion: serving.kserve.io/v1beta1
 kind: InferenceService
 metadata:
@@ -363,11 +383,11 @@ spec:
  failureThreshold: 30 # Allow up to 5 minutes for startup
 </code></pre>
 <div class="code-caption"><strong>Code Fragment 4:</strong> A KServe InferenceService running Llama 3.1 70B on vLLM with 4-way tensor parallelism. The <code>canaryTrafficPercent</code> annotation routes 10% of traffic to a new version during rollouts. Three probe types (readiness, liveness, startup) account for the slow model-loading phase, with the startup probe allowing up to 5 minutes before declaring failure.</div>
+</div>
 
  <h3>3.2 Canary Rollouts for Model Updates</h3>
 
- <p>
- Updating a production LLM (new model version, updated weights, or configuration changes) carries risk. A canary rollout directs a small percentage of traffic to the new version while monitoring key metrics. KServe supports this natively through the <code>canaryTrafficPercent</code> annotation.
+ <p>Updating a production LLM (new model version, updated weights, or configuration changes) carries risk. A canary rollout directs a small percentage of traffic to the new version while monitoring key metrics. KServe supports this natively through the <code>canaryTrafficPercent</code> annotation.
  </p>
 
  <p>A typical canary rollout for an LLM model update follows these stages:</p>
@@ -379,26 +399,28 @@ spec:
  </ol>
 
  <div class="callout practical-example">
- <div class="callout-title">Practical Example</div>
- <p><strong>Canary rollout for a <a class="cross-ref" href="../../part-2-understanding-llms/module-07-modern-llm-landscape/section-7.2.html">Llama 3</a>.1 to Llama 3.2 upgrade.</strong> A production service serving Llama 3.1 70B deploys Llama 3.2 70B as a canary with 10% traffic. After 2 hours, the team observes that Llama 3.2 has 12% lower TTFT (improved) and equivalent P99 TPOT, but the error rate on structured JSON output has increased by 3% due to a prompt template incompatibility. The canary is rolled back, the prompt template is updated, and a new canary is deployed. This process catches the regression before it affects 90% of users.</p>
+ <div class="callout-title">Real-World Scenario: Canary rollout for a model upgrade</div>
+ <p><strong>Who:</strong> An MLOps engineer at a fintech company operating a production API that used <a class="cross-ref" href="../../part-2-understanding-llms/module-07-modern-llm-landscape/section-7.2.html">Llama 3</a>.1 70B to extract structured data from financial documents.</p>
+ <p><strong>Situation:</strong> The team wanted to upgrade to Llama 3.2 70B for its improved instruction following and lower latency. The API served 50,000 requests per day, and downstream systems depended on valid JSON output.</p>
+ <p><strong>Problem:</strong> A direct cutover risked breaking production if the new model behaved differently on edge cases. The team needed a way to validate the upgrade under real traffic without exposing all users to potential regressions.</p>
+ <p><strong>Decision:</strong> They deployed Llama 3.2 70B as a canary serving 10% of traffic, with automated monitoring comparing TTFT, P99 TPOT, and structured JSON error rates between the canary and the baseline.</p>
+ <p><strong>Result:</strong> After 2 hours, monitoring showed Llama 3.2 had 12% lower TTFT (improved) and equivalent P99 TPOT, but the error rate on structured JSON output had increased by 3% due to a prompt template incompatibility. The canary was rolled back automatically. The team updated the prompt template, redeployed the canary, and confirmed all metrics were within bounds before promoting to 100% traffic. The regression was caught before it affected 90% of users.</p>
+ <p><strong>Lesson:</strong> Canary deployments with automated metric comparison are essential for model upgrades. Even models from the same family can introduce subtle behavioral changes that break downstream integrations, and only real traffic reveals these regressions reliably.</p>
  </div>
 
  <h2>4. GPU Sharing and Isolation</h2>
 
- <p>
- A single high-end GPU (H100 with 80 GB HBM3) is often more than what a small LLM inference workload needs. Serving a 7B model in FP16 requires approximately 14 GB of GPU memory, leaving 66 GB unused on an H100. GPU sharing techniques allow multiple models or workloads to share a single physical GPU, dramatically improving cluster utilization.
+ <p>A single high-end GPU (H100 with 80 GB HBM3) is often more than what a small LLM inference workload needs. Serving a 7B model in FP16 requires approximately 14 GB of GPU memory, leaving 66 GB unused on an H100. GPU sharing techniques allow multiple models or workloads to share a single physical GPU, dramatically improving cluster utilization.
  </p>
 
  <h3>4.1 NVIDIA GPU Operator</h3>
 
- <p>
- The NVIDIA GPU Operator automates the management of all NVIDIA software components needed for GPU workloads on Kubernetes: drivers, container toolkit, device plugin, DCGM (Data Center GPU Manager), and MIG (Multi-Instance GPU) configuration. It runs as a set of DaemonSets that ensure every GPU node has the correct software stack.
+ <p>The NVIDIA GPU Operator automates the management of all NVIDIA software components needed for GPU workloads on Kubernetes: drivers, container toolkit, device plugin, DCGM (Data Center GPU Manager), and MIG (Multi-Instance GPU) configuration. It runs as a set of DaemonSets that ensure every GPU node has the correct software stack.
  </p>
 
  <h3>4.2 MIG Partitioning for Multi-Model Serving</h3>
 
- <p>
- Multi-Instance GPU (MIG) partitions a single physical GPU into isolated instances, each with its own compute cores, memory, and memory bandwidth. On an H100, MIG supports up to 7 instances, each with its own slice of the GPU's SM (Streaming Multiprocessor) array and HBM.
+ <p>Multi-Instance GPU (MIG) partitions a single physical GPU into isolated instances, each with its own compute cores, memory, and memory bandwidth. On an H100, MIG supports up to 7 instances, each with its own slice of the GPU's SM (Streaming Multiprocessor) array and HBM.
  </p>
 
  <div class="table-container">
@@ -417,6 +439,7 @@ spec:
  </table>
  </div>
 
+<div class="code-block-wrapper">
 <pre><code class="language-yaml"># Code Fragment 31.9.5: MIG configuration via NVIDIA GPU Operator
 apiVersion: nvidia.com/v1alpha1
 kind: MIGConfig
@@ -446,15 +469,14 @@ spec:
  nvidia.com/mig-3g.40gb: 1 # Request one 3g.40gb MIG instance
 </code></pre>
 <div class="code-caption"><strong>Code Fragment 5:</strong> Configuring MIG partitioning via the NVIDIA GPU Operator. Each H100 is split into one 3g.40gb instance (for a 7B FP16 model) and two 2g.20gb instances (for smaller quantized models). Pods request a specific MIG profile through the <code>nvidia.com/mig-3g.40gb</code> resource, receiving hardware-isolated GPU memory and compute.</div>
+</div>
 
  <h3>4.3 MPS for Time-Slicing</h3>
 
- <p>
- NVIDIA Multi-Process Service (MPS) provides time-slicing of a GPU among multiple CUDA contexts. Unlike MIG, which creates hardware-isolated partitions, MPS shares the GPU's compute and memory across processes with software-level scheduling. MPS is simpler to configure than MIG but offers weaker isolation: a misbehaving process can affect others sharing the GPU.
+ <p>NVIDIA Multi-Process Service (MPS) provides time-slicing of a GPU among multiple CUDA contexts. Unlike MIG, which creates hardware-isolated partitions, MPS shares the GPU's compute and memory across processes with software-level scheduling. MPS is simpler to configure than MIG but offers weaker isolation: a misbehaving process can affect others sharing the GPU.
  </p>
 
- <p>
- For LLM serving, MPS is useful when multiple small models (embeddings, classifiers, rerankers) need GPU access but none individually justifies a full GPU or a MIG partition. The NVIDIA device plugin supports MPS-based GPU sharing through the <code>nvidia.com/gpu</code> resource with the <code>sharing.timeSlicing</code> configuration in the GPU Operator's ClusterPolicy.
+ <p>For LLM serving, MPS is useful when multiple small models (embeddings, classifiers, rerankers) need GPU access but none individually justifies a full GPU or a MIG partition. The NVIDIA device plugin supports MPS-based GPU sharing through the <code>nvidia.com/gpu</code> resource with the <code>sharing.timeSlicing</code> configuration in the GPU Operator's ClusterPolicy.
  </p>
 
  <div class="callout key-insight">
@@ -469,8 +491,7 @@ spec:
 
  <h2>5. Autoscaling LLM Services</h2>
 
- <p>
- Standard Kubernetes HPA (Horizontal Pod Autoscaler) scales based on CPU or memory utilization. For LLM serving, these metrics are poor proxies for load because GPU utilization and request queue depth are the actual bottlenecks. Effective LLM autoscaling requires custom metrics and strategies tailored to inference workload patterns.
+ <p>Standard Kubernetes HPA (Horizontal Pod Autoscaler) scales based on CPU or memory utilization. For LLM serving, these metrics are poor proxies for load because GPU utilization and request queue depth are the actual bottlenecks. Effective LLM autoscaling requires custom metrics and strategies tailored to inference workload patterns.
  </p>
 
  <h3>5.1 Custom Metrics for LLM Autoscaling</h3>
@@ -493,7 +514,8 @@ spec:
  </table>
  </div>
 
-<pre><code class="language-yaml"># Code Fragment 31.9.6: HPA with custom metrics for LLM serving
+<div class="code-block-wrapper">
+<pre><code class="language-yaml"># Code Fragment 31.9.5: HPA with custom metrics for LLM serving
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
@@ -538,17 +560,18 @@ spec:
  averageValue: "500" # Scale up if TTFT P95 > 500ms
 </code></pre>
 <div class="code-caption"><strong>Code Fragment 6:</strong> An HPA that scales a Llama 70B deployment between 2 and 12 replicas using vLLM-specific metrics. The primary signal is <code>vllm_num_requests_waiting</code> (queue depth), with TTFT P95 as a secondary trigger. Asymmetric stabilization windows (60s up, 300s down) prevent thrashing during traffic fluctuations.</div>
+</div>
 
  <h3>5.2 Scale-to-Zero with Warm Pools</h3>
 
- <p>
- For LLM services that serve intermittent traffic (internal tools, development environments, low-traffic endpoints), scaling to zero when idle saves significant GPU cost. However, LLM cold starts are slow: loading a 70B model from disk to GPU takes 2-5 minutes, which is unacceptable for user-facing services.
+ <p>For LLM services that serve intermittent traffic (internal tools, development environments, low-traffic endpoints), scaling to zero when idle saves significant GPU cost. However, LLM cold starts are slow: loading a 70B model from disk to GPU takes 2-5 minutes, which is unacceptable for user-facing services.
  </p>
 
  <p>
  <strong>Warm pool</strong> strategies mitigate cold starts by maintaining a pool of pre-loaded model replicas that are suspended (GPU memory retained but not actively serving) rather than fully terminated. When traffic arrives, a warm replica can begin serving within seconds rather than minutes. KServe supports scale-to-zero with configurable grace periods:
  </p>
 
+<div class="code-block-wrapper">
 <pre><code class="language-yaml"># Scale-to-zero configuration in KServe
 spec:
  predictor:
@@ -561,6 +584,7 @@ spec:
  autoscaling.knative.dev/window: "120s"
 </code></pre>
 <div class="code-caption"><strong>Code Fragment 7:</strong> KServe scale-to-zero configuration. Setting <code>minReplicas: 0</code> allows the service to release GPU resources after 10 minutes of inactivity. The <code>window</code> annotation controls how quickly KServe reacts to incoming traffic when scaling back up from zero.</div>
+</div>
 
  <h3>5.3 Cold-Start Mitigation Strategies</h3>
 
@@ -580,8 +604,7 @@ spec:
 
  <h2>6. Networking and Storage Considerations</h2>
 
- <p>
- Distributed LLM training on Kubernetes has unique networking requirements. NCCL (NVIDIA Collective Communications Library) needs high-bandwidth, low-latency communication between GPU pods, typically over InfiniBand or RoCE (RDMA over Converged Ethernet). Standard Kubernetes networking (overlay networks, kube-proxy) adds unacceptable overhead for collective operations.
+ <p>Distributed LLM training on Kubernetes has unique networking requirements. NCCL (NVIDIA Collective Communications Library) needs high-bandwidth, low-latency communication between GPU pods, typically over InfiniBand or RoCE (RDMA over Converged Ethernet). Standard Kubernetes networking (overlay networks, kube-proxy) adds unacceptable overhead for collective operations.
  </p>
 
  <h3>6.1 Network Configuration for NCCL</h3>
@@ -594,8 +617,7 @@ spec:
 
  <h3>6.2 Storage for Checkpoints and Model Artifacts</h3>
 
- <p>
- Distributed checkpointing (covered in <a class="cross-ref" href="../../part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.8.html">Section 6.8</a>) requires a parallel file system or object storage that all training pods can write to simultaneously. Common options on Kubernetes include:
+ <p>Distributed checkpointing (covered in <a class="cross-ref" href="../../part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.8.html">Section 6.8</a>) requires a parallel file system or object storage that all training pods can write to simultaneously. Common options on Kubernetes include:
  </p>
 
  <ul>
@@ -606,10 +628,11 @@ spec:
 
  <div class="callout warning">
  <div class="callout-title">Common Misconception</div>
- <p><strong>Standard Kubernetes resource requests and limits are not sufficient for GPU workloads.</strong> Unlike CPU and memory, GPUs cannot be shared across pods at fractional granularity without hardware support (MIG or time-slicing). A pod requesting "1 GPU" gets an entire physical GPU, and if your scheduling does not account for GPU topology (NVLink, PCIe affinity), multi-GPU training jobs may experience dramatically degraded communication performance. Always use topology-aware scheduling and gang scheduling for distributed training.</p>
+ <p><strong>Standard Kubernetes resource requests and limits </strong>are not sufficient for GPU workloads. Unlike CPU and memory, GPUs cannot be shared across pods at fractional granularity without hardware support (MIG or time-slicing). A pod requesting "1 GPU" gets an entire physical GPU, and if your scheduling does not account for GPU topology (NVLink, PCIe affinity), multi-GPU training jobs may experience dramatically degraded communication performance. Always use topology-aware scheduling and gang scheduling for distributed training.</p>
  </div>
 
- <div class="takeaways">
+ <div class="callout key-insight">
+  <div class="callout-title">Key Insight</div>
  <h2>&#x2705; Key Takeaways</h2>
  <ul>
  <li>Standard Kubernetes scheduling is insufficient for distributed LLM training. Gang scheduling (Volcano) ensures all pods start simultaneously, and quota management (Kueue) provides fair resource sharing across teams.</li>
@@ -663,7 +686,7 @@ spec:
 </section>
 
 <div class="lab" id="lab-31-9">
- <h2>Hands-On Lab: Deploy and Load-Test an LLM</h2>
+ <h3 class="lab-title">Lab: Deploy and Load-Test an LLM</h3>
  <div class="lab-meta">
  <span class="lab-duration">Duration: ~60 minutes</span>
  <span class="lab-difficulty">Intermediate</span>
@@ -687,8 +710,10 @@ spec:
  <div class="lab-prereqs">
  <h3>Setup</h3>
  <p>Install vLLM and Locust. A GPU with at least 8 GB VRAM is required for serving. If no GPU is available, you can substitute any OpenAI-compatible endpoint.</p>
- <pre><code class="language-bash">pip install vllm locust requests</code></pre>
- <div class="code-caption"><strong>Code Fragment 31.9.L1:</strong> Install vLLM for model serving and Locust for load testing.</div>
+ <div class="code-block-wrapper">
+<pre><code class="language-bash">pip install vllm locust requests</code></pre>
+<div class="code-caption"><strong>Code Fragment 31.9.L1:</strong> Install vLLM for model serving and Locust for load testing.</div>
+</div>
  </div>
 
  <div class="lab-steps">
@@ -697,12 +722,14 @@ spec:
  <div class="lab-step">
  <h3>Step 1: Start the vLLM server</h3>
  <p>Launch vLLM with a small model. The server exposes an OpenAI-compatible <code>/v1/completions</code> endpoint.</p>
- <pre><code class="language-bash"># Start vLLM in a separate terminal
+ <div class="code-block-wrapper">
+<pre><code class="language-bash"># Start vLLM in a separate terminal
 python -m vllm.entrypoints.openai.api_server \
  --model TinyLlama/TinyLlama-1.1B-Chat-v1.0 \
  --port 8000 \
  --max-model-len 2048</code></pre>
- <div class="code-caption"><strong>Code Fragment 31.9.L2:</strong> Launch vLLM serving TinyLlama. For larger models, add <code>--tensor-parallel-size N</code> to shard across multiple GPUs.</div>
+<div class="code-caption"><strong>Code Fragment 31.9.L2:</strong> Launch vLLM serving TinyLlama. For larger models, add <code>--tensor-parallel-size N</code> to shard across multiple GPUs.</div>
+</div>
  <details>
  <summary>Hint</summary>
  <p>Wait until you see "Uvicorn running on http://0.0.0.0:8000" before proceeding. If you hit out-of-memory errors, reduce <code>--max-model-len</code> or switch to a smaller model like <code>facebook/opt-125m</code>.</p>
@@ -712,7 +739,8 @@ python -m vllm.entrypoints.openai.api_server \
  <div class="lab-step">
  <h3>Step 2: Manual latency benchmark (from scratch)</h3>
  <p>Before using a load-testing framework, build a simple benchmark script to measure baseline latency. This reveals exactly what each timing metric captures.</p>
- <pre><code class="language-python">import requests
+ <div class="code-block-wrapper">
+<pre><code class="language-python">import requests
 import time
 import statistics
 
@@ -753,18 +781,15 @@ print(f" Median latency: {statistics.median(latencies):.1f} ms")
 print(f" P95 latency: {sorted(latencies)[8]:.1f} ms")
 print(f" Mean throughput: {statistics.mean(throughputs):.1f} tokens/sec")
 print(f" Tokens per req: {results[0]['tokens']}")</code></pre>
-<div class="code-output">Manual Benchmark (10 sequential requests):
- Median latency: 234.7 ms
- P95 latency: 289.3 ms
- Mean throughput: 213.4 tokens/sec
- Tokens per req: 50</div>
-<div class="code-caption"><strong>Code Fragment 31.9.13:</strong> A from-scratch latency benchmark that sends sequential requests to a local vLLM endpoint and reports median latency, P95 latency, and mean throughput. Sequential measurement establishes a baseline before testing behavior under concurrent load.</div>
+<div class="code-caption"><strong>Code Fragment 31.9.2:</strong> Implementation of measure_request</div>
+</div>
  </div>
 
  <div class="lab-step">
  <h3>Step 3: Write a Locust load test</h3>
  <p>Create a Locust test file that simulates concurrent users hitting the LLM endpoint. Locust provides real-time statistics, percentile breakdowns, and failure tracking.</p>
- <pre><code class="language-python"># Save this as locustfile.py
+ <div class="code-block-wrapper">
+<pre><code class="language-python"># Save this as locustfile.py
 from locust import HttpUser, task, between
 import json
 
@@ -802,21 +827,35 @@ class LLMUser(HttpUser):
  response.success()
  else:
  response.failure(f"Status {response.status_code}")</code></pre>
- <div class="code-caption"><strong>Code Fragment 31.9.L4:</strong> A Locust load test for an LLM endpoint. Each simulated user sends randomized prompts with configurable wait times between requests.</div>
+<div class="code-output"> Name Request Count Median Response Time 95% Response Time 99% Response Time Average Response Time Requests/s
+POST /v1/completions 287 410.0 890.0 1200.0 462.3 4.8
+ Aggregated 287 410.0 890.0 1200.0 462.3 4.8
+
+Manual baseline median: 234.7 ms
+Load test median: 410.0 ms
+Latency increase: 1.7x
+
+</div>
+<div class="code-caption"><strong>Code Fragment 31.9.3:</strong> Save this as locustfile.py</div>
+</div>
  </div>
 
  <div class="lab-step">
  <h3>Step 4: Run the load test and analyze results</h3>
  <p>Execute the Locust test with increasing concurrency levels to find the serving capacity and latency curve of your deployment.</p>
- <pre><code class="language-bash"># Run Locust in headless mode with 10 concurrent users
+ <div class="code-block-wrapper">
+<pre><code class="language-bash"># Run Locust in headless mode with 10 concurrent users
 locust -f locustfile.py --headless \
  --users 10 --spawn-rate 2 --run-time 60s \
  --csv results/load_test
 
 # For the web UI (interactive), omit --headless:
 # locust -f locustfile.py</code></pre>
+<div class="code-caption"><strong>Code Fragment 31.9.4:</strong> Run Locust in headless mode with 10 concurrent users</div>
+</div>
 
- <pre><code class="language-python">import pandas as pd
+ <div class="code-block-wrapper">
+<pre><code class="language-python">import pandas as pd
 
 # Analyze the Locust CSV output
 stats = pd.read_csv("results/load_test_stats.csv")
@@ -829,14 +868,9 @@ print(f"\nManual baseline median: {statistics.median(latencies):.1f} ms")
 print(f"Load test median: {stats['Median Response Time'].iloc[-1]:.1f} ms")
 print(f"Latency increase: "
  f"{stats['Median Response Time'].iloc[-1] / statistics.median(latencies):.1f}x")</code></pre>
-<div class="code-output"> Name Request Count Median Response Time 95% Response Time 99% Response Time Average Response Time Requests/s
-POST /v1/completions 287 410.0 890.0 1200.0 462.3 4.8
- Aggregated 287 410.0 890.0 1200.0 462.3 4.8
-
-Manual baseline median: 234.7 ms
-Load test median: 410.0 ms
-Latency increase: 1.7x</div>
- <div class="code-caption"><strong>Code Fragment 31.9.L5:</strong> Run Locust with 10 concurrent users ramping at 2 per second for 60 seconds, then parse the CSV output and compare load-test latencies with the sequential baseline to show how much latency increases under concurrent load.</div>
+<div class="code-caption"><strong>Code Fragment 31.9.5:</strong> Analyze the Locust CSV output</div>
+</div>
+ 
  </div>
  </div>
 
@@ -897,6 +931,12 @@ Latency increase: 1.7x</div>
  <span class="bib-meta">&#128214; Documentation</span>
  </div>
  </section>
+
+
+<div class="whats-next">
+    <h2>What Comes Next</h2>
+    <p>In this section we covered gpu scheduling for llm training, kubeflow training operator, and related topics. This concludes the current chapter. Return to the <a href="index.html">chapter overview</a> to review the material or explore related chapters.</p>
+</div>
 
 <nav class="chapter-nav">
  <a class="prev" href="section-31.8.html">Reliability Engineering for LLM Applications</a>

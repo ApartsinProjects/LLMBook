@@ -29,8 +29,116 @@ humorous cartoon, or visual metaphor) would make it click instantly?"
 
 ## Responsibility Boundary
 - Does NOT enforce CSS, layout consistency, or visual identity standards; that is #25 Visual Identity Director.
-- Does NOT create SVG diagrams, flowcharts, or technical architecture figures; those are authored directly. This agent produces Gemini-generated cartoon/illustration assets only.
-- Does NOT write prose, captions for non-illustration figures, or alt text for existing SVG diagrams; content agents handle those.
+- Does NOT write prose, captions for non-illustration figures, or alt text for existing diagrams; content agents handle those.
+
+## Three Illustration Pipelines
+
+This agent supports THREE production pipelines for visual content. Choose the right tool for each situation:
+
+### Pipeline 1: Gemini Image Generation (Cartoon Illustrations)
+**Use for:** Humorous cartoons, visual metaphors, mental model illustrations, chapter openers.
+**Tool:** Gemini Batch API (`batch_generate.py`) or single image (`generate_image.py`).
+**Output:** PNG files with warm, cartoon-like style (Kurzgesagt meets XKCD).
+**Cost:** ~$0.04/image (batch, 50% discount) or ~$0.08/image (sync).
+See the "Batch Image Generation Workflow" section below.
+
+### Pipeline 2: Mermaid Diagrams (Flowcharts, Architectures, Pipelines)
+**Use for:** Flowcharts, decision trees, sequence diagrams, architecture diagrams, pipeline flows, tree structures, grouped/classified concept maps. Any diagram with boxes, arrows, and labels.
+**Tool:** Mermaid CLI (`mmdc`) with custom theme config.
+**Output:** High-resolution PNG at 3x scale with white background.
+**Cost:** Free (local rendering).
+
+#### Mermaid Rendering Command
+```bash
+mmdc -i input.mmd -o output.png \
+  -c E:/Projects/LLMCourse/scripts/mermaid/mermaid-config.json \
+  -w 1200 -s 3 --backgroundColor white
+```
+
+For complex hierarchical diagrams with many subgroups, use the ELK layout engine config:
+```bash
+mmdc -i input.mmd -o output.png \
+  -c E:/Projects/LLMCourse/scripts/mermaid/mermaid-config-elk.json \
+  -w 1200 -s 3 --backgroundColor white
+```
+
+#### Mermaid Style Guidelines
+- Use HTML labels: `["<b>Title</b><br/><i>subtitle</i>"]`
+- Color palette (match book theme):
+  - Blues: `fill:#e3f2fd,stroke:#1565c0,color:#1a1a2e`
+  - Greens: `fill:#e8f5e9,stroke:#2e7d32,color:#1a1a2e`
+  - Purples: `fill:#f3e5f5,stroke:#6a1b9a,color:#1a1a2e`
+  - Oranges: `fill:#fff3e0,stroke:#e65100,color:#1a1a2e`
+  - Reds: `fill:#fce4ec,stroke:#c62828,color:#1a1a2e`
+  - Dark (emphasis): `fill:#1a1a2e,stroke:#0f3460,color:#fff`
+- Use `subgraph` for grouping related concepts
+- Use dashed arrows (`-.->`) for optional/feedback flows
+- Use solid arrows (`-->`) for primary flows
+- Add edge labels: `-->|"label"|`
+- Diagram types: `flowchart LR`, `flowchart TB`, `flowchart TD`, `sequenceDiagram`, `classDiagram`
+
+#### Mermaid Diagram Template
+```mermaid
+flowchart LR
+    A["<b>Step 1</b><br/><i>description</i>"]
+    B["<b>Step 2</b><br/><i>description</i>"]
+    C["<b>Step 3</b><br/><i>description</i>"]
+
+    A -->|"action"| B -->|"action"| C
+
+    style A fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#1a1a2e
+    style B fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,color:#1a1a2e
+    style C fill:#f3e5f5,stroke:#6a1b9a,stroke-width:2px,color:#1a1a2e
+```
+
+#### Mermaid HTML Embedding
+```html
+<div class="diagram-container">
+<img src="images/descriptive-name.png" alt="Description of diagram" loading="lazy" style="max-width: 100%;">
+<div class="diagram-caption"><strong>Figure X.Y.Z</strong>: Caption describing the concept.</div>
+</div>
+```
+
+#### Existing Mermaid Infrastructure
+- Config files: `scripts/mermaid/mermaid-config.json` (dagre, default), `scripts/mermaid/mermaid-config-elk.json` (ELK, complex layouts)
+- Generation script: `scripts/mermaid/generate_mermaid_diagrams.py` (with `render_mermaid()` helper)
+- Save `.mmd` source files alongside PNGs for future editing
+- Dependencies: `npm install -g @mermaid-js/mermaid-cli @mermaid-js/layout-elk`
+
+### Pipeline 3: Matplotlib Charts (Data Visualizations)
+**Use for:** Line charts, bar charts, scatter plots, radar charts, any diagram with axes, data points, or quantitative comparisons.
+**Tool:** Python matplotlib with shared style module.
+**Output:** 300 DPI PNG with consistent typography and colors.
+**Cost:** Free (local rendering).
+
+#### Matplotlib Rendering
+```bash
+C:/Python314/python scripts/svg_to_matplotlib/gen_figure_X_Y_Z.py
+```
+
+#### Matplotlib Style Module
+All chart scripts import `chart_style.py` from `scripts/svg_to_matplotlib/`:
+```python
+import sys, os
+sys.path.insert(0, os.path.dirname(__file__))
+from chart_style import *
+apply_style()
+```
+
+This provides: `plt`, `np`, `save_figure()`, consistent font sizes, color palette, and 300 DPI output.
+
+#### Matplotlib Guidelines
+- Use `PchipInterpolator` (not `make_interp_spline`) for monotonic curves to avoid overshoot artifacts
+- Color palette: `#1a4a80` (primary blue), `#e94560` (accent red), `#27ae60` (green), `#f39c12` (orange)
+- Always include axis labels, use `fontsize=12, color='#555'`
+- Remove top/right spines: `ax.spines['top'].set_visible(False)`
+- Use `fig, ax = plt.subplots(figsize=(10, 5.5))` for standard charts
+
+### Pipeline Selection Decision Tree
+1. Is it a **cartoon, metaphor, or humorous scene**? → Gemini
+2. Does it have **axes, data points, or quantitative data**? → Matplotlib
+3. Is it a **flowchart, architecture, pipeline, decision tree, or grouped concept map**? → Mermaid
+4. When in doubt, prefer **Mermaid** (free, editable, consistent styling)
 
 ## Batch Image Generation Workflow
 

@@ -1,18 +1,19 @@
 /**
- * Book interactivity: collapsible code blocks, exercises, and answers.
+ * Book interactivity: collapsible code blocks, exercises, labs, bibliography, and answers.
  * Loaded by all section HTML files via <script defer src="...scripts/book.js">.
  */
 document.addEventListener('DOMContentLoaded', function () {
 
   // 1. Make ALL <pre> code blocks collapsible.
-  //    - Caption (.code-caption) and output (.code-output) stay OUTSIDE the <details>
+  //    - Code goes inside a <details> element within the wrapper
+  //    - Output (.code-output) and caption (.code-caption) stay visible
   //    - Short code blocks (10 lines or fewer) start OPEN
   //    - Longer code blocks start COLLAPSED
   document.querySelectorAll('pre').forEach(function (pre) {
     // Skip if already inside a <details> element
     if (pre.closest('details')) return;
-    // Skip if inside a callout (exercises, algorithms, etc.)
-    if (pre.closest('.callout')) return;
+    // Skip if inside a callout UNLESS it's wrapped in a code-block-wrapper
+    if (pre.closest('.callout') && !pre.closest('.code-block-wrapper')) return;
     // Skip inline-style pre (very short, less than 20 chars)
     var text = pre.textContent || '';
     if (text.trim().length < 20) return;
@@ -25,7 +26,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     var isShort = lineCount <= 10;
 
-    // Create the <details> wrapper
+    // Create the <details> wrapper for just the code
     var details = document.createElement('details');
     details.className = 'code-collapse';
     if (isShort) {
@@ -33,33 +34,77 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     var summary = document.createElement('summary');
-    summary.textContent = isShort ? 'Code (' + lineCount + ' lines)' : 'Show Code (' + lineCount + ' lines)';
+    var icon = document.createElement('img');
+    var cssLink = document.querySelector('link[rel="stylesheet"][href*="book.css"]');
+    icon.src = cssLink ? cssLink.href.replace('book.css', 'icons/callout-code.svg') : '../../styles/icons/callout-code.svg';
+    icon.alt = '';
+    icon.className = 'code-collapse-icon';
+    summary.appendChild(icon);
+    summary.appendChild(document.createTextNode(isShort ? 'Code (' + lineCount + ' lines)' : 'Show Code (' + lineCount + ' lines)'));
     details.appendChild(summary);
 
     // Insert details before the pre, then move pre inside
     pre.parentNode.insertBefore(details, pre);
     details.appendChild(pre);
 
-    // NOTE: .code-output and .code-caption stay OUTSIDE the <details>
-    // so they remain visible even when code is collapsed
+    // Output and caption stay outside <details> (visible when code collapsed)
   });
 
   // 2. Remove standalone "Exercises" headings (redundant with the container title).
-  //    Matches <h2>Exercises</h2> that directly precede exercise callouts.
+  //    Matches: "Exercises", "8. Exercises", "Section 8: Exercises", etc.
   document.querySelectorAll('h2').forEach(function (h2) {
-    if (h2.textContent.trim() === 'Exercises') {
-      // Check if the next meaningful sibling is an exercise callout
-      var next = h2.nextElementSibling;
-      while (next && next.nodeType === 1 && next.tagName === 'BR') next = next.nextElementSibling;
-      if (next && next.classList.contains('callout') && next.classList.contains('exercise')) {
-        h2.remove();
-      }
+    var text = h2.textContent.trim();
+    if (/^(?:\d+\.\s*)?Exercises$/i.test(text) || /^Section\s+\d+[.:]\s*Exercises$/i.test(text)) {
+      h2.remove();
     }
   });
 
-  // 3. Merge consecutive exercise callouts into a single collapsible container.
-  //    Finds runs of adjacent .callout.exercise elements and wraps them in one
-  //    <details> block, collapsed by default.
+  // 2b. Remove "Hands-On Lab" exercise callouts (redundant with collapsible lab).
+  document.querySelectorAll('.callout.exercise').forEach(function (ex) {
+    var title = ex.querySelector('.callout-title');
+    if (title && title.textContent.trim() === 'Hands-On Lab') {
+      ex.remove();
+    }
+  });
+
+  // 3. Reposition elements before .whats-next in correct order:
+  //    ... content ... [lab] [self-check] [exercises] [whats-next] ...
+  var whatsNext = document.querySelector('.whats-next');
+
+  if (whatsNext) {
+    // Move all exercises to just before .whats-next
+    var allExercises = document.querySelectorAll('.callout.exercise');
+    allExercises.forEach(function (ex) {
+      whatsNext.parentNode.insertBefore(ex, whatsNext);
+    });
+
+    // Move self-check to just before the first exercise (or before .whats-next if no exercises)
+    var selfCheck = document.querySelector('.callout.self-check');
+    if (selfCheck) {
+      var firstExercise = document.querySelector('.callout.exercise');
+      var target = firstExercise || whatsNext;
+      target.parentNode.insertBefore(selfCheck, target);
+    }
+
+    // Move labs to just before self-check, exercises, or .whats-next
+    // (runs before collapsible wrapping, so move raw elements)
+    document.querySelectorAll('.lab').forEach(function (lab) {
+      // Also grab the h3.lab-title if it precedes the lab
+      var prev = lab.previousElementSibling;
+      var labTitleEl = (prev && prev.classList && prev.classList.contains('lab-title')) ? prev : null;
+
+      var target = document.querySelector('.callout.self-check') ||
+                   document.querySelector('.callout.exercise') ||
+                   whatsNext;
+
+      if (target) {
+        if (labTitleEl) target.parentNode.insertBefore(labTitleEl, target);
+        target.parentNode.insertBefore(lab, target);
+      }
+    });
+  }
+
+  // 4. Merge all consecutive .callout.exercise into a single collapsible container
   var exercises = document.querySelectorAll('.callout.exercise');
   var processed = new Set();
 
@@ -76,7 +121,6 @@ document.addEventListener('DOMContentLoaded', function () {
       next = next.nextElementSibling;
     }
 
-    // Count exercises in this group
     var count = group.length;
 
     // Create wrapper <details> (collapsed by default)
@@ -93,7 +137,6 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Move all exercises into the wrapper
     group.forEach(function (el) {
-      // Remove the outer callout border since the wrapper provides it
       el.classList.add('exercise-inside-group');
       // Ensure individual exercise answers are collapsed
       el.querySelectorAll('details[open]').forEach(function (d) {
@@ -103,8 +146,160 @@ document.addEventListener('DOMContentLoaded', function () {
     });
   });
 
-  // 3. Also collapse self-check answers by default (if open)
-  document.querySelectorAll('.callout.self-check details[open]').forEach(function (d) {
-    d.removeAttribute('open');
+  // 5. Make self-check collapsible and collapsed by default.
+  document.querySelectorAll('.callout.self-check').forEach(function (sc) {
+    // Skip if already wrapped
+    if (sc.closest('details.selfcheck-collapse')) return;
+
+    var titleEl = sc.querySelector('.callout-title');
+    var scTitle = titleEl ? titleEl.textContent.trim() : 'Self-Check';
+
+    var details = document.createElement('details');
+    details.className = 'selfcheck-collapse';
+
+    var summary = document.createElement('summary');
+    summary.className = 'selfcheck-collapse-summary';
+    summary.innerHTML = '<span class="selfcheck-collapse-icon">&#9745;</span> ' + scTitle;
+    details.appendChild(summary);
+
+    // Remove the callout-title since it is in the summary now
+    if (titleEl) titleEl.remove();
+
+    sc.parentNode.insertBefore(details, sc);
+    details.appendChild(sc);
+
+    // Collapse individual answers inside
+    sc.querySelectorAll('details[open]').forEach(function (d) {
+      d.removeAttribute('open');
+    });
+  });
+
+  // 6. Make labs collapsible and collapsed by default.
+  //    Pattern: <h3 class="lab-title">Lab: ...</h3> followed by <div class="lab">
+  //    Also handles labs with h2/h3 title inside the lab div itself.
+  document.querySelectorAll('.lab').forEach(function (lab) {
+    // Skip if already inside a details
+    if (lab.closest('details.lab-collapse')) return;
+
+    var titleEl = lab.previousElementSibling;
+    var labTitle = 'Hands-On Lab';
+    var removeInternalHeading = false;
+    var internalHeading = null;
+
+    if (titleEl && titleEl.classList.contains('lab-title')) {
+      labTitle = titleEl.textContent.trim();
+    } else {
+      // Check for h2/h3 inside the lab div as title source
+      internalHeading = lab.querySelector('h2, h3');
+      if (internalHeading) {
+        var headingText = internalHeading.textContent.trim();
+        // Strip "Hands-On Lab:" prefix if present
+        labTitle = headingText.replace(/^Hands-On Lab:\s*/i, 'Lab: ');
+        if (labTitle === headingText && !headingText.toLowerCase().startsWith('lab')) {
+          labTitle = 'Lab: ' + headingText;
+        }
+        removeInternalHeading = true;
+      }
+    }
+
+    // Create <details> wrapper (collapsed by default)
+    var details = document.createElement('details');
+    details.className = 'lab-collapse';
+
+    var summary = document.createElement('summary');
+    summary.className = 'lab-collapse-summary';
+    summary.innerHTML = '<span class="lab-collapse-icon">&#128736;</span> ' + labTitle;
+    details.appendChild(summary);
+
+    var insertBefore = (titleEl && titleEl.classList.contains('lab-title')) ? titleEl : lab;
+    insertBefore.parentNode.insertBefore(details, insertBefore);
+
+    if (titleEl && titleEl.classList.contains('lab-title')) {
+      details.appendChild(titleEl);
+    }
+    // Remove internal heading since title is now in the collapsible summary
+    if (removeInternalHeading && internalHeading) {
+      internalHeading.remove();
+    }
+    details.appendChild(lab);
+  });
+
+  // 7. Make code output collapsible and collapsed by default.
+  document.querySelectorAll('.code-output').forEach(function (out) {
+    // Skip if already inside a details
+    if (out.closest('details.output-collapse')) return;
+
+    var lines = (out.textContent || '').split('\n');
+    var lineCount = lines.length;
+    while (lineCount > 0 && lines[lineCount - 1].trim() === '') lineCount--;
+
+    var details = document.createElement('details');
+    details.className = 'output-collapse';
+
+    var summary = document.createElement('summary');
+    summary.className = 'output-collapse-summary';
+    summary.textContent = 'Output (' + lineCount + ' lines)';
+    details.appendChild(summary);
+
+    out.parentNode.insertBefore(details, out);
+    details.appendChild(out);
+  });
+
+  // 8. Make bibliography/references collapsible and collapsed by default.
+  document.querySelectorAll('section.bibliography').forEach(function (bib) {
+    // Skip if already inside a details
+    if (bib.closest('details.bib-collapse')) return;
+
+    // Find the heading: h2, or .bibliography-title div
+    var heading = bib.querySelector('h2') || bib.querySelector('.bibliography-title');
+    var bibTitle = heading ? heading.textContent.trim() : 'References and Further Reading';
+
+    var details = document.createElement('details');
+    details.className = 'bib-collapse';
+
+    var summary = document.createElement('summary');
+    summary.className = 'bib-collapse-summary';
+    summary.innerHTML = '<span class="bib-collapse-icon">&#128218;</span> ' + bibTitle;
+    details.appendChild(summary);
+
+    // Remove the heading since we have it in the summary
+    if (heading) heading.remove();
+
+    bib.parentNode.insertBefore(details, bib);
+    details.appendChild(bib);
+  });
+
+  // 9. Make practical-example callouts collapsible and collapsed by default.
+  document.querySelectorAll('.callout.practical-example').forEach(function (pe) {
+    if (pe.closest('details.scenario-collapse')) return;
+
+    var titleEl = pe.querySelector('.callout-title');
+    var peTitle = titleEl ? titleEl.textContent.trim() : 'Real-World Scenario';
+
+    // Split title into prefix ("Real-World Scenario:") and topic
+    var prefix = 'Real-World Scenario';
+    var topic = '';
+    var colonIdx = peTitle.indexOf(':');
+    if (colonIdx > 0 && peTitle.substring(0, colonIdx).trim().indexOf('Scenario') >= 0) {
+      prefix = peTitle.substring(0, colonIdx).trim();
+      topic = peTitle.substring(colonIdx + 1).trim();
+    } else if (peTitle !== 'Real-World Scenario') {
+      topic = peTitle;
+    }
+
+    var details = document.createElement('details');
+    details.className = 'scenario-collapse';
+
+    var summary = document.createElement('summary');
+    summary.className = 'scenario-collapse-summary';
+    var label = '<span class="scenario-collapse-icon">&#127758;</span> <strong>' + prefix + '</strong>';
+    if (topic) label += ': ' + topic;
+    summary.innerHTML = label;
+    details.appendChild(summary);
+
+    if (titleEl) titleEl.remove();
+
+    pe.parentNode.insertBefore(details, pe);
+    details.appendChild(pe);
   });
 });
