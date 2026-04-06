@@ -370,6 +370,71 @@ class CausalSelfAttention(nn.Module):
 <div class="code-caption"><strong>Code Fragment 4.2.2:</strong> Key, Query, Value projections combined into one matrix.</div>
 
 <div class="callout key-insight">
+    <div class="callout-title">Key Insight: Why We Scale by 1/&radic;d<sub>k</sub></div>
+    <p>
+        Notice the line <code>scores = (q @ k.transpose(-2, -1)) * (self.d_k ** -0.5)</code>. That
+        <code>** -0.5</code> term (equivalent to dividing by &radic;d<sub>k</sub>) is not cosmetic; it
+        prevents softmax from collapsing into a near-one-hot distribution.
+    </p>
+    <p>
+        Here is why. If the entries of Q and K are drawn roughly from a standard normal distribution
+        (mean 0, variance 1), then each element of the dot product Q&middot;K is the sum of
+        d<sub>k</sub> products of independent unit-normal variables. By the properties of variance,
+        the dot product has variance d<sub>k</sub>. For our config with d<sub>k</sub>&nbsp;=&nbsp;32,
+        this means raw scores have a standard deviation around 5 to 6. For a larger model with
+        d<sub>k</sub>&nbsp;=&nbsp;128, the standard deviation grows to about 11.
+    </p>
+    <p>
+        Feed values that large into softmax and the result becomes near-one-hot: almost all the
+        attention weight concentrates on a single position, and the gradients of all other positions
+        effectively vanish. The model stops learning. Dividing by &radic;d<sub>k</sub> rescales the
+        scores back to unit variance, keeping the softmax in a numerically healthy region where it
+        produces diffuse distributions and carries gradients to all attended positions.
+    </p>
+    <p>
+        <strong>Concrete example:</strong> with d<sub>k</sub>&nbsp;=&nbsp;128 and no scaling,
+        a single score might be 14 while others cluster around 0. softmax(14, 0, 0, &hellip;)
+        &asymp; (0.9999, 0.00003, &hellip;). After dividing by &radic;128&nbsp;&asymp;&nbsp;11.3,
+        the same score becomes ~1.2, and softmax produces a much more spread-out distribution where
+        all positions can receive meaningful gradient signal. Section 4.3 explores how RoPE and
+        other positional encodings interact with this scaling.
+    </p>
+</div>
+
+<div class="callout key-insight">
+    <div class="callout-title">Key Insight: Why Use Multiple Heads?</div>
+    <p>
+        Our config uses <code>n_heads=4</code>, splitting d<sub>model</sub>=128 into four 32-dimensional
+        subspaces. Why not just do one big attention over all 128 dimensions?
+    </p>
+    <p>
+        Each head learns to attend to a <em>different kind of relationship</em> simultaneously.
+        In a trained language model, different heads specialize in distinct patterns. Some heads
+        focus on <strong>syntactic relationships</strong>: the subject attending to its verb, or a
+        pronoun attending to its antecedent. Other heads capture <strong>positional patterns</strong>:
+        attending to the immediately preceding token or to the first token in the sequence (a common
+        "global anchor" behavior). Still others detect <strong>semantic similarity</strong>: tokens
+        that occur in similar contexts across the corpus attracting one another.
+    </p>
+    <p>
+        If you used a single attention head over the full d<sub>model</sub>-dimensional space, the
+        attention weight at each position is a single scalar. Multiple heads produce
+        <code>n_heads</code> independent attention distributions over the sequence; the concatenation
+        of their weighted value outputs gives the model the ability to simultaneously retrieve
+        information along all these different relational axes. The output projection W<sub>O</sub>
+        then integrates these parallel "views" into a single updated representation.
+    </p>
+    <p>
+        Clark et al. (2019) visualized BERT's attention heads and found that individual heads develop
+        highly interpretable functions: one head predominantly attends to the
+        <code>[SEP]</code> separator token (global context anchor), another tracks direct objects of
+        verbs, and another follows coreference chains. These specializations emerge from training
+        alone; they are not explicitly programmed. See
+        <a class="cross-ref" href="section-4.3.html">Section 4.3</a> for more on attention head behavior.
+    </p>
+</div>
+
+<div class="callout key-insight">
     <div class="callout-title">Key Insight: Fused QKV Projection</div>
     <p>
         We compute Q, K, and V with a single linear layer (<code>qkv_proj</code>) of size
@@ -463,6 +528,32 @@ class TransformerBlock(nn.Module):
     <code>x = x + SubLayer(LayerNorm(x))</code>. The <a class="cross-ref" href="section-4.1.html">residual connection</a> is the <code>x +</code> at the
     beginning; the Pre-LN ordering means we normalize the input to each sub-layer, not the output.
 </p>
+
+<div class="callout note">
+    <div class="callout-title">Pre-LN vs. Post-LN: Why the Order Matters</div>
+    <p>
+        The original "Attention Is All You Need" paper (Vaswani et al., 2017) placed LayerNorm
+        <em>after</em> the residual add: <code>LayerNorm(x + SubLayer(x))</code>. This is called
+        Post-LN. Our implementation uses <em>Pre-LN</em>: <code>x + SubLayer(LayerNorm(x))</code>.
+        That subtle reordering has a large practical effect.
+    </p>
+    <p>
+        With Post-LN, the gradients flowing back through the network must pass through the LayerNorm
+        before reaching earlier layers. This creates large gradient variance that makes training
+        unstable at large scale, requiring careful learning-rate warmup schedules. Pre-LN sends
+        the raw residual gradient directly back to all earlier layers without passing through the
+        norm, resulting in much more stable gradient flow. Virtually every modern LLM (GPT-2 onward,
+        LLaMA, Mistral, Gemma) uses Pre-LN as a result.
+    </p>
+    <p>
+        There is also a simplified variant called RMSNorm (Zhang &amp; Sennrich, 2019) that removes
+        the mean-centering step of standard LayerNorm, keeping only the root-mean-square scaling.
+        This reduces computation slightly with no measurable quality loss and is used in LLaMA,
+        Mistral, and Qwen. For a full comparison of Post-LN, Pre-LN, and RMSNorm, including
+        an architecture diagram, see
+        <a class="cross-ref" href="section-4.3.html#pre-norm-post-norm">Section 4.3: Pre-Norm vs. Post-Norm</a>.
+    </p>
+</div>
 
 <h3>2.5 The Complete Model</h3>
 
@@ -1042,11 +1133,24 @@ print(tokenizer.decode(output[0], skip_special_tokens=True))</code></pre>
         <p class="bib-annotation">Introduces AdamW, the optimizer used in the training loop of this section. Explains why decoupled weight decay outperforms L2 regularization with Adam, a subtle but important distinction for training stability.</p>
         <span class="bib-meta">&#128196; Paper</span>
     </div>
+    <div class="bib-entry-card">
+        <p class="bib-ref">
+            <a href="https://arxiv.org/abs/1906.04341" target="_blank" rel="noopener">Clark, K., Khandelwal, U., Levy, O., &amp; Manning, C. D. (2019). "What Does BERT Look At? An Analysis of BERT's Attention." <em>BlackboxNLP, ACL 2019</em>.</a>
+        </p>
+        <p class="bib-annotation">Documents how individual BERT attention heads specialize in syntactic roles, local context, and coreference, providing empirical grounding for why multi-head attention outperforms single-head attention. The head visualization methodology is highly accessible and directly relevant to understanding why the multi-head design in this section's implementation works as well as it does.</p>
+        <span class="bib-meta">&#128196; Paper</span>
+    </div>
+    <div class="bib-entry-card">
+        <p class="bib-ref">
+            <a href="https://arxiv.org/abs/1910.07467" target="_blank" rel="noopener">Zhang, B. &amp; Sennrich, R. (2019). "Root Mean Square Layer Normalization." <em>NeurIPS 2019</em>.</a>
+        </p>
+        <p class="bib-annotation">Introduces RMSNorm, the simplified normalization variant used in LLaMA, Mistral, and most modern LLMs. Directly relevant to the LayerNorm discussion in this section, and to the Pre-LN vs. Post-LN analysis in Section 4.3.</p>
+        <span class="bib-meta">&#128196; Paper</span>
+    </div>
 </section>
 <nav class="chapter-nav">
     <a class="prev" href="section-4.1.html">Transformer Architecture Deep Dive</a>
-    <a class="up" href="index.html">The Transformer Architecture</a>
-    <a class="next" href="section-4.3.html">Transformer Variants &amp; Efficiency</a>
+<a class="next" href="section-4.3.html">Transformer Variants &amp; Efficiency</a>
 </nav>
 
     <footer><p>Fifth Edition, 2026 &middot; <a href="../../toc.html">Contents</a></p></footer>

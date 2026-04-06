@@ -295,15 +295,282 @@
         <p>The debate over emergence in LLMs echoes a central question in statistical physics: are phase transitions real discontinuities or artifacts of measurement? In physics, water does not "suddenly" become ice; at the molecular level, crystallization progresses continuously, but macroscopic properties like viscosity and density appear to change discontinuously at 0 degrees Celsius. The metric mirage hypothesis proposes the same explanation for LLM emergence: capabilities develop gradually, but discrete evaluation metrics create the illusion of a sudden jump. Whether or not sharp emergence is real, the power-law scaling of loss with compute is itself remarkable. Power laws in physics typically signal scale invariance and universality, arising when a system's behavior is governed by the same principles regardless of scale. The fact that neural scaling laws hold across architectures, datasets, and modalities suggests that something fundamental about learning from data obeys a universal scaling principle, a principle we do not yet fully understand.</p>
     </div>
 
-    <h2>7. Multi-Token Prediction and Scaling</h2>
+    <h2>7. Mixture-of-Experts Architecture</h2>
 
-    <p>Multi-token prediction (MTP), introduced in <a href="section-6.2.html" class="cross-ref">Section 6.2</a>, has interesting implications for scaling. By training the model to predict not just the next token but several future tokens simultaneously, MTP provides richer gradient signals per training step. Research from Meta (2024) showed that the benefits of MTP become more pronounced at larger model scales: while small models see modest improvements, models beyond 7B parameters show consistently better sample efficiency and downstream performance.</p>
+    <p>The scaling laws we have studied so far assume a <em>dense</em> model: one where every parameter participates in every forward pass. But what if you could double the number of parameters without doubling the compute cost per token? That is the core idea behind Mixture-of-Experts (MoE), a sparse architecture that is reshaping how frontier models are built.</p>
 
-    <p>From a scaling law perspective, MTP effectively shifts the loss curve downward, achieving the same loss at lower compute. This is not a change to the scaling exponent but rather to the constant factor, suggesting that MTP models are more efficient per FLOP.</p>
+    <p>An MoE layer replaces the single feed-forward network (FFN) sublayer in a transformer block with <em>N</em> expert FFN layers, but activates only <em>K</em> of them for any given token (where K is much smaller than N, typically K=2 or K=8 out of 64 or 256 experts). The parameter count grows with N, but the FLOPs per token grow only with K. The original idea was introduced by Shazeer et al. (2017), later scaled dramatically by Fedus et al. (2022) with Switch Transformers, and has since become a standard architectural choice at frontier scale.</p>
+
+    <h3>Router and Gating Mechanism</h3>
+
+    <p>The routing decision is made by a small learned <em>gating network</em>: a linear projection from the token's hidden state into N scores, one per expert. A softmax normalizes these scores into routing probabilities. For top-K routing (hard routing), only the K experts with the highest probabilities receive the token; the others are skipped entirely. The output of the MoE layer is a weighted combination of the K activated experts' outputs, weighted by their normalized routing probabilities.</p>
+
+    <p>Formally, given token representation <span class="math">$\mathbf{x}$</span>, the router computes:</p>
+
+    <div class="math-block">
+    $$g_i(\mathbf{x}) = \text{softmax}(\mathbf{W}_r \mathbf{x})_i$$
+    </div>
+
+    <p>The top-K selection produces a sparse gate vector <span class="math">$\tilde{g}$</span> with only K non-zero entries, and the layer output is:</p>
+
+    <div class="math-block">
+    $$\text{MoE}(\mathbf{x}) = \sum_{i \in \text{Top-K}} \tilde{g}_i(\mathbf{x}) \cdot \text{FFN}_i(\mathbf{x})$$
+    </div>
+
+    <p>The distinction between <em>hard routing</em> (top-K with exactly K winners) and <em>soft routing</em> (a weighted mixture of all experts with learned soft gates) has practical consequences. Hard routing is more compute-efficient because non-selected experts do not run at all, making the FLOPs savings concrete. Soft routing can be more stable during training but requires running all experts, negating the sparsity benefit during training itself.</p>
+
+    <h3>Load Balancing: Preventing Expert Collapse</h3>
+
+    <p>Without any constraint, routing networks collapse: the gating network discovers a few "popular" experts early in training and routes most tokens to them, while the remaining experts receive almost no gradient signal and never develop useful specializations. This is called <em>expert collapse</em>.</p>
+
+    <p>The standard fix is an auxiliary load-balancing loss added to the training objective. Define the fraction of tokens routed to expert <em>i</em> as <span class="math">$f_i$</span> and the average routing probability assigned to expert <em>i</em> as <span class="math">$p_i$</span>. The auxiliary loss penalizes uneven routing:</p>
+
+    <div class="math-block">
+    $$\mathcal{L}_{aux} = \alpha \cdot N \cdot \sum_{i=1}^{N} f_i \cdot p_i$$
+    </div>
+
+    <p>Here <span class="math">$\alpha$</span> is a small coefficient (typically 0.01 to 0.001) and the factor <span class="math">$N$</span> normalizes by the number of experts. This auxiliary loss is differentiable with respect to <span class="math">$p_i$</span> (the soft routing probabilities), even though the hard selection of top-K experts is not itself differentiable. The practical tuning of <span class="math">$\alpha$</span> is delicate: too high and the model sacrifices quality for perfect load balance; too low and collapse re-emerges.</p>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight: Specialization vs. Load Balance</div>
+        <p>The load-balancing loss creates a fundamental tension. Ideally, different experts would specialize in different domains (syntax, facts, code, math), and routing would send each token to its "best" experts. But forced load balancing means every expert must handle roughly equal traffic, limiting how specialized they can become. Research by Fedus et al. (2022) found that some specialization does emerge despite load balancing: experts tend to cluster by token type (punctuation, verbs, domain-specific terms) even under uniform routing pressure. DeepSeek-V3's technical report notes that their 256 experts developed measurably distinct specializations across domains, measurable by the input-distribution shift between expert inputs.</p>
+    </div>
+
+    <h3>MoE Layer Diagram</h3>
+
+    <div class="diagram-container">
+        <svg role="img" aria-label="Mixture-of-Experts layer diagram showing token routed to top-2 experts out of 6" viewBox="0 0 720 380" xmlns="http://www.w3.org/2000/svg">
+            <!-- Background -->
+            <rect width="720" height="380" fill="#fafafa" rx="10"/>
+
+            <!-- Input token box -->
+            <rect x="30" y="155" width="110" height="50" fill="#0f3460" rx="8"/>
+            <text x="85" y="176" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="12" font-weight="bold" fill="white">Token</text>
+            <text x="85" y="194" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="11" fill="#a8d8ea">hidden state x</text>
+
+            <!-- Arrow: token to router -->
+            <line x1="140" y1="180" x2="190" y2="180" stroke="#555" stroke-width="2" stroke-linecap="round"/>
+            <polygon points="190,174 202,180 190,186" fill="#555"/>
+
+            <!-- Router box -->
+            <rect x="202" y="145" width="100" height="70" fill="#e94560" rx="8"/>
+            <text x="252" y="172" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="12" font-weight="bold" fill="white">Router</text>
+            <text x="252" y="190" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="10" fill="#ffd6de">gating network</text>
+            <text x="252" y="206" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="10" fill="#ffd6de">top-2 of 6</text>
+
+            <!-- Arrows from router to experts -->
+            <!-- Expert 1 (active) -->
+            <line x1="302" y1="165" x2="368" y2="70" stroke="#27ae60" stroke-width="2.5" stroke-linecap="round"/>
+            <polygon points="365,62 374,72 362,74" fill="#27ae60"/>
+            <!-- Expert 2 (active) -->
+            <line x1="302" y1="172" x2="368" y2="160" stroke="#27ae60" stroke-width="2.5" stroke-linecap="round"/>
+            <polygon points="366,154 378,160 366,166" fill="#27ae60"/>
+            <!-- Expert 3 (inactive) -->
+            <line x1="302" y1="178" x2="368" y2="250" stroke="#ccc" stroke-width="1.5" stroke-dasharray="5,4" stroke-linecap="round"/>
+            <!-- Expert 4 (inactive) -->
+            <line x1="302" y1="183" x2="368" y2="310" stroke="#ccc" stroke-width="1.5" stroke-dasharray="5,4" stroke-linecap="round"/>
+            <!-- Expert 5 (inactive) -->
+            <line x1="302" y1="186" x2="368" y2="195" stroke="#ccc" stroke-width="1.5" stroke-dasharray="5,4" stroke-linecap="round"/>
+            <!-- Expert 6 (inactive) -->
+            <line x1="302" y1="188" x2="368" y2="130" stroke="#ccc" stroke-width="1.5" stroke-dasharray="5,4" stroke-linecap="round"/>
+
+            <!-- Expert boxes -->
+            <!-- Expert 1 (active, green) -->
+            <rect x="368" y="44" width="110" height="48" fill="#27ae60" rx="7"/>
+            <text x="423" y="63" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="12" font-weight="bold" fill="white">Expert 1</text>
+            <text x="423" y="81" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="10" fill="#d4f9e0">w=0.62 (active)</text>
+
+            <!-- Expert 2 (active, green) -->
+            <rect x="368" y="136" width="110" height="48" fill="#27ae60" rx="7"/>
+            <text x="423" y="155" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="12" font-weight="bold" fill="white">Expert 2</text>
+            <text x="423" y="173" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="10" fill="#d4f9e0">w=0.38 (active)</text>
+
+            <!-- Expert 3 (inactive, gray) -->
+            <rect x="368" y="228" width="110" height="44" fill="#c8c8c8" rx="7"/>
+            <text x="423" y="247" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="12" font-weight="bold" fill="#888">Expert 3</text>
+            <text x="423" y="263" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="10" fill="#aaa">skipped</text>
+
+            <!-- Expert 4 (inactive, gray) -->
+            <rect x="368" y="288" width="110" height="44" fill="#c8c8c8" rx="7"/>
+            <text x="423" y="307" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="12" font-weight="bold" fill="#888">Expert 4</text>
+            <text x="423" y="323" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="10" fill="#aaa">skipped</text>
+
+            <!-- Expert 5 (inactive) - abbreviated label only -->
+            <rect x="368" y="170" width="110" height="44" fill="#c8c8c8" rx="7"/>
+            <text x="423" y="189" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="12" font-weight="bold" fill="#888">Expert 5</text>
+            <text x="423" y="205" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="10" fill="#aaa">skipped</text>
+
+            <!-- Expert 6 (inactive) -->
+            <rect x="368" y="106" width="110" height="26" fill="#c8c8c8" rx="6"/>
+            <text x="423" y="123" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="11" font-weight="bold" fill="#888">Expert 6 (skipped)</text>
+
+            <!-- Arrows from active experts to sum -->
+            <line x1="478" y1="68" x2="548" y2="160" stroke="#27ae60" stroke-width="2.5" stroke-linecap="round"/>
+            <polygon points="545,153 552,163 541,165" fill="#27ae60"/>
+            <line x1="478" y1="160" x2="548" y2="170" stroke="#27ae60" stroke-width="2.5" stroke-linecap="round"/>
+            <polygon points="546,164 558,170 546,176" fill="#27ae60"/>
+
+            <!-- Weighted sum box -->
+            <rect x="556" y="140" width="115" height="55" fill="#3498db" rx="8"/>
+            <text x="614" y="160" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="12" font-weight="bold" fill="white">Weighted Sum</text>
+            <text x="614" y="178" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="10" fill="#d0eeff">0.62·E1 + 0.38·E2</text>
+            <text x="614" y="192" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="10" fill="#d0eeff">= MoE output</text>
+
+            <!-- Arrow out -->
+            <line x1="671" y1="167" x2="706" y2="167" stroke="#555" stroke-width="2" stroke-linecap="round"/>
+            <polygon points="704,161 716,167 704,173" fill="#555"/>
+
+            <!-- Legend -->
+            <rect x="30" y="320" width="14" height="14" fill="#27ae60" rx="3"/>
+            <text x="50" y="332" font-family="Segoe UI, sans-serif" font-size="11" fill="#333">Active expert (token routed here)</text>
+            <rect x="260" y="320" width="14" height="14" fill="#c8c8c8" rx="3"/>
+            <text x="280" y="332" font-family="Segoe UI, sans-serif" font-size="11" fill="#333">Skipped expert (no compute for this token)</text>
+            <line x1="30" y1="354" x2="44" y2="354" stroke="#27ae60" stroke-width="2.5"/>
+            <text x="50" y="358" font-family="Segoe UI, sans-serif" font-size="11" fill="#333">Active routing path</text>
+            <line x1="260" y1="354" x2="274" y2="354" stroke="#ccc" stroke-width="1.5" stroke-dasharray="5,3"/>
+            <text x="280" y="358" font-family="Segoe UI, sans-serif" font-size="11" fill="#333">Suppressed routing path (not selected)</text>
+        </svg>
+        <div class="diagram-caption"><strong>Figure 6.3.7</strong>: An MoE layer with 6 experts and top-2 routing. The router assigns probabilities to all experts but only activates the 2 highest-scoring ones for this token. The final output is a weighted sum of the two active experts' outputs. The other 4 experts perform no computation for this token, saving FLOPs while preserving parameter capacity.</div>
+    </div>
+
+    <h3>Landmark MoE Models: Mixtral and DeepSeek-V3</h3>
+
+    <p><strong>Mixtral 8x7B (Mistral AI, 2024)</strong> was the model that brought MoE into widespread practical use. The architecture uses 8 expert FFN layers per transformer block with top-2 routing. Despite having 47 billion total parameters (8 experts times the FFN size), only about 13 billion parameters are active for any given token, making inference cost comparable to a 13B dense model while achieving quality closer to a 70B dense model on most benchmarks. The reduction in active parameters directly translates to faster generation and lower memory bandwidth requirements at inference time.</p>
+
+    <p><strong>DeepSeek-V3 (DeepSeek AI, 2024)</strong> pushed MoE to a new scale. With 671 billion total parameters across 256 experts per layer and top-8 routing, only about 37 billion parameters are active per token. The architecture also incorporates auxiliary-loss-free load balancing, a refinement over the standard auxiliary loss approach: rather than penalizing imbalance during training, the router's bias terms are adjusted dynamically based on observed load, decoupling load balancing from the loss objective and allowing the router to specialize more aggressively. DeepSeek-V3 was trained on 14.8 trillion tokens, and its technical report claims the full training run cost approximately 2.8 million H800 GPU hours, a fraction of what comparable dense models cost. The key efficiency gain comes from the MoE architecture: the 671B total parameters provide the knowledge capacity of a very large model, but the 37B active parameters mean the FLOPs budget per training step is far below what a 671B dense model would require.</p>
+
+    <div class="callout practical-example">
+        <div class="callout-title">Practical Example: Running Mixtral 8x7B</div>
+        <p>Because only 13B parameters are active per token, Mixtral 8x7B fits on two consumer GPUs (2x RTX 3090 or 2x 4090, 24GB each) when quantized to 4-bit precision. A 70B dense model with equivalent quality would require 4 to 8 A100s. This is the MoE efficiency dividend in practice.</p>
+        <p>Using the <code>transformers</code> library, loading Mixtral is identical to loading any other model:</p>
+        <pre><code class="language-python">from transformers import AutoModelForCausalLM, AutoTokenizer
+import torch
+
+model = AutoModelForCausalLM.from_pretrained(
+    "mistralai/Mixtral-8x7B-v0.1",
+    device_map="auto",          # spreads across available GPUs
+    torch_dtype=torch.bfloat16,
+    load_in_4bit=True,          # BitsAndBytes 4-bit quantization
+)
+tokenizer = AutoTokenizer.from_pretrained("mistralai/Mixtral-8x7B-v0.1")
+
+# Check how many parameters are loaded vs. total
+total_params = sum(p.numel() for p in model.parameters())
+print(f"Total parameters loaded: {total_params / 1e9:.1f}B")
+# Active per forward pass: ~13B out of 47B total</code></pre>
+        <div class="code-caption"><strong>Code Fragment 6.3.1:</strong> Loading Mixtral 8x7B with 4-bit quantization. The <code>device_map="auto"</code> argument distributes the 8 experts per layer across available GPUs automatically.</div>
+    </div>
+
+    <h3>Expert Parallelism: Distributing MoE Across GPUs</h3>
+
+    <p>MoE introduces a new parallelism strategy called <em>expert parallelism</em>. In a dense model, tensor parallelism splits each matrix across GPUs. In an MoE model, different GPUs can hold different subsets of the expert pool. Because a given token only activates K of the N experts, and those experts may reside on different GPUs, expert parallelism requires an <em>all-to-all communication</em> pattern: after the router decides which experts each token goes to, the tokens must be dispatched to the GPUs holding those experts, processed, and then gathered back. This all-to-all communication is a significant engineering challenge at large scale. With 256 experts across dozens of GPUs, the communication volume can become a bottleneck, particularly when routing is uneven and some GPUs receive more tokens than others in a given batch. This is a second reason load balancing matters so much in practice: not just for gradient signal, but for communication efficiency.</p>
+
+    <h2>8. Scaling Laws for Sparse Models</h2>
+
+    <p>Sparse MoE models do not follow the same Chinchilla-optimal ratios as dense models. Clark et al. (2022) derived scaling laws specifically for routed models, finding that MoE introduces an additional scaling axis: the number of experts E. The effective parameter count for loss prediction is not the total parameter count N but something closer to the active parameter count multiplied by a factor that grows with E. Informally, experts add capacity at a discount: doubling experts improves loss, but by less than doubling the total parameter count of a dense model.</p>
+
+    <h3>The Effective Parameter Concept</h3>
+
+    <p>A useful practical heuristic for MoE models is the concept of <em>effective parameters</em>. An MoE model with N total parameters and K/E active fraction behaves somewhere between a dense model of size K*N/E (active parameters only) and a full dense model of size N, depending on the degree of expert specialization and the number of training tokens. For training compute budgeting, the relevant quantity is the FLOPs cost, which scales with active parameters, not total parameters. For inference quality, the relevant quantity is closer to total parameters, because different tokens see different experts and the model's "effective knowledge" is spread across the full expert pool.</p>
+
+    <p>Concretely: DeepSeek-V3 with 671B total parameters and 37B active behaves at inference quality roughly like a 70-100B dense model on most tasks, but its training FLOPs per token are set by the 37B active parameters. This means DeepSeek-V3 was trained at roughly the compute cost of a 37B dense model while achieving the quality of a much larger one. This breaks the implicit Chinchilla assumption that quality scales with the parameters receiving gradient signal: in MoE, parameters that are not selected for a given token are still updated indirectly through the load-balancing loss and through tokens that do route to them, but they receive less gradient signal per training step.</p>
+
+    <h3>Training Compute vs. Inference Compute</h3>
+
+    <p>MoE delivers efficiency advantages on both fronts. Training a 671B MoE model at 37B active parameters per token costs roughly the same per-step FLOPs as training a 37B dense model. At inference time, serving the model costs roughly as much memory bandwidth as serving a 37B dense model (plus the overhead of routing and all-to-all communication), while delivering quality closer to a 70-100B dense model. The cost tradeoffs differ between deployment contexts:</p>
+
+    <ul>
+        <li><strong>High-throughput batch inference:</strong> MoE models can be very efficient because all-to-all communication overhead is amortized over large batches, and the active-parameter FLOPs advantage is maximized.</li>
+        <li><strong>Low-latency single-token serving:</strong> The all-to-all communication adds latency overhead, and the full expert pool must reside in GPU memory (or be swapped, which is slow). Dense models with smaller active parameter counts may be preferable for strict latency requirements.</li>
+        <li><strong>Edge and on-device inference:</strong> MoE models are generally a poor fit because the full model must be loaded even though only a fraction executes per token. The memory constraint matters more than the compute constraint in this regime.</li>
+    </ul>
+
+    <h3>Dense vs. MoE Comparison</h3>
+
+    <div class="comparison-table">
+        <div class="comparison-table-title">Dense vs. Sparse MoE Model Comparison</div>
+        <table>
+        <thead>
+        <tr>
+            <th scope="col">Model</th>
+            <th scope="col">Architecture</th>
+            <th scope="col">Total Params</th>
+            <th scope="col">Active Params/Token</th>
+            <th scope="col">Training Tokens</th>
+            <th scope="col">Approx. Training FLOPs</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr>
+            <td>LLaMA 3 70B</td>
+            <td>Dense</td>
+            <td>70B</td>
+            <td>70B (all)</td>
+            <td>15T</td>
+            <td>~6.3 &times; 10<sup>24</sup></td>
+        </tr>
+        <tr>
+            <td>Mixtral 8x7B</td>
+            <td>MoE (8 exp, top-2)</td>
+            <td>47B</td>
+            <td>~13B</td>
+            <td>~1T</td>
+            <td>~3.0 &times; 10<sup>23</sup></td>
+        </tr>
+        <tr>
+            <td>DeepSeek-V3</td>
+            <td>MoE (256 exp, top-8)</td>
+            <td>671B</td>
+            <td>~37B</td>
+            <td>14.8T</td>
+            <td>~3.3 &times; 10<sup>24</sup></td>
+        </tr>
+        </tbody>
+        </table>
+        <p style="font-size: 0.85em; color: #666; margin-top: 0.5em; padding: 0 1em 0.5em;">Training FLOPs estimated using the 6ND approximation applied to active parameters. DeepSeek-V3's training cost is comparable to LLaMA 3 70B despite 10x more total parameters, illustrating the MoE efficiency dividend.</p>
+    </div>
+
+    <div class="callout research-frontier" style="margin-top: 1.5em;">
+        <div class="callout-title">Research Frontier: Fine-Grained MoE and Shared Experts</div>
+        <p>DeepSeek-V3 and several other recent architectures use "fine-grained" MoE: instead of a small number of large experts, they use many small experts (256 with hidden dimension scaled down accordingly), which improves routing granularity. Some architectures also add <em>shared experts</em> that always activate for every token alongside the routed experts, handling common knowledge while the routed experts specialize. This hybrid approach (DeepSeekMoE design) attempts to get the best of both worlds: shared capacity for universal patterns, specialized capacity for domain-specific content. Whether fine-grained or coarse-grained MoE scales more favorably is an open research question.</p>
+    </div>
+
+    <h2>9. Multi-Token Prediction and Scaling</h2>
+
+    <p>Standard language model training predicts one token at a time: given the context, predict the next token. <em>Multi-token prediction</em> (MTP) changes this by adding additional prediction heads to the model, each trained to predict a token further in the future. Gloeckle et al. (Meta, 2024) showed that this architectural change improves both sample efficiency and downstream performance, with the gains scaling favorably with model size.</p>
+
+    <h3>Architecture: Multiple Prediction Heads</h3>
+
+    <p>The standard MTP implementation adds <em>d</em> additional small transformer layers, each producing a prediction of the token <em>d</em> steps ahead. The architecture during training looks like:</p>
+
+    <ul>
+        <li>The main model body processes the sequence and produces hidden states.</li>
+        <li>Head 0 (the standard next-token head) predicts token <em>t+1</em>.</li>
+        <li>Head 1 (additional head) predicts token <em>t+2</em>, using the hidden state from head 0 concatenated with the embedding of the true token <em>t+1</em>.</li>
+        <li>Head 2 predicts token <em>t+3</em>, using head 1's hidden state concatenated with the embedding of the true token <em>t+2</em>.</li>
+        <li>And so on for the remaining <em>d-2</em> future heads.</li>
+    </ul>
+
+    <p>Each future head contributes its own cross-entropy loss term to the total training objective, with a weighting coefficient (typically 0.1 to 0.3 per future head) to avoid dominating the main next-token signal. During inference, only head 0 is used for standard auto-regressive generation; the future heads are discarded.</p>
+
+    <h3>Why MTP Improves Sample Efficiency</h3>
+
+    <p>The intuition is that predicting multiple future tokens provides richer gradient signal per forward pass. A single forward pass over a sequence of length <em>L</em> with <em>d</em> future prediction heads produces <em>d</em> times as many loss terms as standard training. Put differently, the model receives signal about global structure (several tokens ahead) in addition to local next-token prediction. This is especially valuable for tasks requiring planning: code generation, structured text, and mathematical reasoning, where the correct next token depends on knowing what the overall structure should be several steps later.</p>
+
+    <p>From a scaling law perspective, MTP effectively shifts the loss curve downward without changing the scaling exponent. A model trained with MTP achieves the same validation loss as a standard model trained on more data. Gloeckle et al. (2024) report that the gains from MTP are more pronounced at larger model scales: for models below 1B parameters, MTP shows modest improvements, but for models at 7B and above, MTP consistently delivers meaningful gains in coding and reasoning benchmarks at the same training compute budget.</p>
+
+    <h3>Connection to Speculative Decoding</h3>
+
+    <p>MTP creates an interesting synergy with speculative decoding, covered in <a href="../module-09-inference-optimization/index.html" class="cross-ref">Section 9.3</a>. In speculative decoding, a small "draft" model generates several tokens quickly, and the larger target model verifies them in parallel. If the model was trained with MTP, the future prediction heads can serve as the draft model directly, allowing the same model to speculate on its own output. This is called <em>self-speculative decoding</em>. The draft and target are the same weights; the future heads propose tokens that the main model verifies. DeepSeek-V3 reports using MTP-based self-speculation to improve throughput at inference time, getting meaningful speedups without a separate small draft model.</p>
+
+    <div class="callout key-insight">
+        <div class="callout-title">Key Insight: MTP as a Free Speedup</div>
+        <p>MTP training costs roughly 5-10% more compute per step (for the additional prediction heads) but yields models that are measurably better at a given compute budget and also faster to serve via self-speculative decoding. This makes it a strong candidate for inclusion in any new pretraining run, at the cost of slightly more engineering complexity in the training loop. The practical recipe: train with 2 to 4 future prediction heads, use the main head for standard inference, and optionally enable the future heads for self-speculative decoding at serving time.</p>
+    </div>
 
     <p>Now that we have covered the theory behind scaling laws and their practical implications, let us get hands-on. The following lab walks you through fitting your own scaling law curves to empirical data and using them to predict performance at larger scales.</p>
 
-    <h2>8. Practical Lab: Fitting Scaling Law Curves</h2>
+    <h2>10. Practical Lab: Fitting Scaling Law Curves</h2>
 
     <p>The following code demonstrates how to fit a scaling law from empirical training runs and extrapolate predictions for larger models.</p>
 
@@ -395,43 +662,66 @@ GPT-4 scale (1e25):
   Optimal model size: 288.7B parameters
   Optimal data:       5774B tokens
     </div>
-<div class="code-caption"><strong>Code Fragment 6.3.1:</strong> Empirical data from small training runs showing (parameters, final_loss) pairs and example compute budgets with optimal model size and data allocations.</div>
+<div class="code-caption"><strong>Code Fragment 6.3.2:</strong> Empirical data from small training runs showing (parameters, final_loss) pairs and example compute budgets with optimal model size and data allocations.</div>
 
-    <h2>9. Summary Table: Scaling Regimes</h2>
+    <h2>11. Summary Table: Scaling Regimes</h2>
 
     <div class="comparison-table">
-        <div class="comparison-table-title">9. Summary Table: Scaling Regimes Comparison</div>
+        <div class="comparison-table-title">11. Summary Table: Scaling Regimes Comparison</div>
         <table>
+        <thead>
         <tr>
             <th scope="col">Approach</th>
-            <th scope="col">Tokens/Param Ratio</th>
+            <th scope="col">Architecture</th>
+            <th scope="col">Tokens/Active-Param Ratio</th>
             <th scope="col">Priority</th>
             <th scope="col">Example</th>
         </tr>
+        </thead>
+        <tbody>
         <tr>
             <td>Kaplan</td>
+            <td>Dense</td>
             <td>~2</td>
             <td>Maximize model size</td>
             <td>GPT-3 (175B, 300B tok)</td>
         </tr>
         <tr>
             <td>Chinchilla</td>
+            <td>Dense</td>
             <td>~20</td>
             <td>Balance N and D equally</td>
             <td>Chinchilla (70B, 1.4T tok)</td>
         </tr>
         <tr>
             <td>Over-training</td>
+            <td>Dense</td>
             <td>50-200+</td>
             <td>Minimize inference cost</td>
             <td>Llama-1 7B (1T tok)</td>
         </tr>
         <tr>
+            <td>MoE (medium scale)</td>
+            <td>Sparse MoE</td>
+            <td>~77 (active params basis)</td>
+            <td>Quality at lower inference cost</td>
+            <td>Mixtral 8x7B (47B total, 13B active)</td>
+        </tr>
+        <tr>
+            <td>MoE (frontier scale)</td>
+            <td>Sparse MoE</td>
+            <td>~400 (active params basis)</td>
+            <td>Maximize quality, manage FLOP cost</td>
+            <td>DeepSeek-V3 (671B total, 37B active)</td>
+        </tr>
+        <tr>
             <td>Data-constrained</td>
+            <td>Dense or MoE</td>
             <td>Limited by data</td>
             <td>Use repeats + augmentation</td>
             <td>Low-resource languages</td>
         </tr>
+        </tbody>
     </table>
     </div>
 
@@ -462,6 +752,24 @@ GPT-4 scale (1e25):
             <summary>Show Answer</summary>
             <div class="answer">The total training FLOPs for a transformer can be approximated as <span class="math">$C \approx 6ND$</span>, where <span class="math">$N$</span> is the number of model parameters and <span class="math">$D$</span> is the number of training tokens. The factor of 6 comes from 2 FLOPs per parameter per token in the forward pass (a multiply and an add for each parameter), multiplied by 3 for the forward, backward, and gradient computation passes. This approximation is widely used for back-of-the-envelope compute budgeting.</div>
         </details>
+
+        <div class="quiz-question">5. A Mixture-of-Experts model has 256 experts per layer with top-8 routing. If the total parameters are 671B and the active parameters per token are 37B, how does this affect training FLOPs per step compared to a 671B dense model?</div>
+        <details>
+            <summary>Show Answer</summary>
+            <div class="answer">Training FLOPs per step are determined primarily by the active parameters, not the total parameters. The MoE model activates roughly 37B parameters per token (37/671 ≈ 5.5% of total parameters), so each forward and backward pass costs approximately the same FLOPs as a 37B dense model, not a 671B dense model. The 671B total parameters provide broader knowledge capacity (different tokens route to different experts over training), but the per-step compute cost is set by the active fraction. This is why DeepSeek-V3's training was reported to cost roughly 2.8 million H800 GPU-hours, far less than a comparable dense model at 671B scale would require.</div>
+        </details>
+
+        <div class="quiz-question">6. Why is load balancing critical for MoE training, and what problem does expert collapse create?</div>
+        <details>
+            <summary>Show Answer</summary>
+            <div class="answer">Without load balancing, the router tends to concentrate all token traffic on a few popular experts early in training. This is expert collapse: those experts receive abundant gradient signal and improve rapidly, making them even more popular, while the remaining experts receive almost no signal and stagnate. The result is a model that behaves like a much smaller dense model (only the popular experts are actually useful) despite having many times more parameters. Load balancing forces the router to distribute tokens more evenly across experts, ensuring all experts receive sufficient gradient signal to develop useful specializations. It also has a practical hardware implication: uneven routing causes some GPUs to be overloaded while others idle, wasting compute.</div>
+        </details>
+
+        <div class="quiz-question">7. How does Multi-Token Prediction (MTP) connect to speculative decoding at inference time?</div>
+        <details>
+            <summary>Show Answer</summary>
+            <div class="answer">In standard speculative decoding, a small draft model proposes several tokens, and the larger target model verifies them in a single parallel forward pass. If the model was trained with MTP, the additional prediction heads (which were trained to predict tokens several steps ahead) can serve as the draft within the same model, a technique called self-speculative decoding. The future heads propose tokens t+2, t+3, etc., and the main model body verifies them. This achieves the latency speedup of speculative decoding without needing a separate smaller draft model. The tradeoff is that MTP adds some training complexity and slightly increases per-step training cost.</div>
+        </details>
     </div>
     <div class="callout tip">
         <div class="callout-title">Tip: Deduplicate Your Training Data</div>
@@ -477,6 +785,10 @@ GPT-4 scale (1e25):
             <li><strong>Over-training</strong> is rational when inference cost matters: train a smaller model on more data than is compute-optimal to reduce serving costs.</li>
             <li><strong>Data constraints</strong> pose a real threat to scaling. Data repetition works up to about 4 epochs before returns diminish sharply.</li>
             <li><strong>Emergent capabilities</strong> may be partly an artifact of discrete evaluation metrics; continuous metrics often reveal smooth, predictable improvement.</li>
+            <li><strong>Mixture-of-Experts (MoE)</strong> breaks the dense model assumption: N total parameters with only K active per token delivers quality closer to N while costing FLOPs closer to K. Mixtral 8x7B and DeepSeek-V3 are the landmark examples at medium and frontier scale.</li>
+            <li><strong>MoE scaling laws differ from dense laws:</strong> Total parameters and active parameters must both be tracked. The Chinchilla ratio applies to active parameters for compute budgeting, but inference quality scales more favorably with total parameters due to expert specialization.</li>
+            <li><strong>Expert collapse and load balancing</strong> are the central training challenges for MoE. The auxiliary loss ensures all experts receive sufficient gradient signal and prevents hardware imbalance in expert-parallel deployments.</li>
+            <li><strong>Multi-Token Prediction (MTP)</strong> adds future prediction heads to improve sample efficiency and enables self-speculative decoding at inference time, with measurable gains at 7B parameters and above.</li>
         </ul>
     </div>
 
@@ -537,6 +849,40 @@ GPT-4 scale (1e25):
         <p class="bib-annotation">Argues that Chinchilla-optimal training ignores inference costs. When you factor in serving millions of queries, it becomes more efficient to overtrain smaller models, explaining why Llama and Mistral use more data than Chinchilla recommends.</p>
         <span class="bib-meta">📄 Paper</span>
     </div>
+
+    <div class="bib-category">Mixture-of-Experts</div>
+
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://arxiv.org/abs/1701.06538" target="_blank" rel="noopener">Shazeer, N. et al. (2017). "Outrageously Large Neural Networks: The Sparsely-Gated Mixture-of-Experts Layer." <em>ICLR 2017</em>.</a></p>
+        <p class="bib-annotation">The original modern MoE paper, introducing top-K hard routing with a learned gating network and the auxiliary load-balancing loss. Demonstrated that sparse expert layers can scale to very large parameter counts while keeping per-token FLOPs manageable. The architectural blueprint that all subsequent MoE LLMs build on.</p>
+        <span class="bib-meta">📄 Paper</span>
+    </div>
+
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://arxiv.org/abs/2101.03961" target="_blank" rel="noopener">Fedus, W., Zoph, B., &amp; Shazeer, N. (2022). "Switch Transformers: Scaling to Trillion Parameter Models with Simple and Efficient Sparsity." <em>JMLR 2022</em>.</a></p>
+        <p class="bib-annotation">Simplifies MoE routing to top-1 (each token routed to a single expert) and scales to trillion-parameter models using standard distributed training infrastructure. Provides a thorough empirical study of load balancing, capacity factors, and communication costs. The Switch Transformer architecture is the reference implementation for simple MoE.</p>
+        <span class="bib-meta">📄 Paper</span>
+    </div>
+
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://arxiv.org/abs/2401.04088" target="_blank" rel="noopener">Jiang, A. Q. et al. (2024). "Mixtral of Experts." <em>Mistral AI Technical Report</em>.</a></p>
+        <p class="bib-annotation">Describes the Mixtral 8x7B architecture: 8 experts per layer with top-2 routing, 47B total parameters, approximately 13B active per token. The model achieves performance comparable to Llama 2 70B on most benchmarks while being 5x cheaper at inference. This report made MoE models broadly accessible and triggered wide adoption across the open-source community.</p>
+        <span class="bib-meta">📄 Technical Report</span>
+    </div>
+
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://arxiv.org/abs/2412.19437" target="_blank" rel="noopener">DeepSeek-AI. (2024). "DeepSeek-V3 Technical Report." <em>arXiv preprint arXiv:2412.19437</em>.</a></p>
+        <p class="bib-annotation">Documents the training of DeepSeek-V3: 671B total parameters with 256 experts and top-8 routing (37B active per token), trained on 14.8T tokens. Introduces auxiliary-loss-free load balancing via dynamic routing bias, Multi-Token Prediction heads for training efficiency and self-speculative decoding, and Multi-head Latent Attention for memory efficiency. The cost analysis showing frontier-quality training at a fraction of expected compute made this report widely cited.</p>
+        <span class="bib-meta">📄 Technical Report</span>
+    </div>
+
+    <div class="bib-category">Multi-Token Prediction</div>
+
+    <div class="bib-entry-card">
+        <p class="bib-ref"><a href="https://arxiv.org/abs/2404.19737" target="_blank" rel="noopener">Gloeckle, F. et al. (2024). "Better &amp; Faster Large Language Models via Multi-token Prediction." <em>ICML 2024</em>.</a></p>
+        <p class="bib-annotation">Demonstrates that training language models to simultaneously predict multiple future tokens improves both sample efficiency and downstream performance, with gains scaling favorably with model size. Models trained with MTP show particular improvements in code generation and mathematical reasoning. Also demonstrates the connection to speculative decoding via self-drafting with the future prediction heads.</p>
+        <span class="bib-meta">📄 Paper</span>
+    </div>
 </section>
 
     <footer><p>Fifth Edition, 2026 &middot; <a href="../../toc.html">Contents</a></p></footer>
@@ -544,8 +890,7 @@ GPT-4 scale (1e25):
 
 <nav class="chapter-nav">
     <a class="prev" href="section-6.2.html">Pre-training Objectives &amp; Paradigms</a>
-    <a class="up" href="index.html">Pre-training, Scaling Laws &amp; Data Curation</a>
-    <a class="next" href="section-6.4.html">Data Curation at Scale</a>
+<a class="next" href="section-6.4.html">Data Curation at Scale</a>
 </nav>
 
 </body>
