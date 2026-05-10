@@ -489,6 +489,18 @@ def step_optimize() -> int:
     except Exception as _e:
         warn(f"recompression failed (non-fatal): {_e}")
 
+    # Step 7c: Kindle CSS sanitizer — replace unsupported values with safe defaults.
+    # Targets the 8000+ "Notice" patterns from KDP's converter (nullem/nanem/
+    # box-shadow/min-content/details/transition/transform). Suspected to be the
+    # cause of KDP's "internal error" fatal during conversion.
+    try:
+        from _sanitize_kindle_css import sanitize as kindle_sanitize
+        s = kindle_sanitize(epub, epub)
+        print(f"  [kindle-css] {s['removals']} unsupported CSS values replaced "
+              f"({s['css_files']} CSS, {s['html_files']} HTML)")
+    except Exception as _e:
+        warn(f"kindle-css sanitizer failed (non-fatal): {_e}")
+
     new_size = epub.stat().st_size
     pct = new_size / raw_size * 100
     saved = (raw_size - new_size) / 1024 / 1024
