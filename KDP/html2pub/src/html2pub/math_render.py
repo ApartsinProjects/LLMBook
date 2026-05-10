@@ -114,7 +114,11 @@ def render(soup: BeautifulSoup, math_cfg: MathSpec) -> int:
         new_el = soup.new_tag("span")
         for child in list(wrap.children if hasattr(wrap, "children") else []):
             new_el.append(child.extract() if hasattr(child, "extract") else child)
-        cls = ["katex-rendered"]
+        # CRITICAL: include the original `katex` class. KaTeX's own CSS
+        # (katex.min.css) targets `.katex .vlist-t`, `.katex .strut`,
+        # `.katex .msupsub` etc. Without it, sub/superscripts collapse to
+        # the baseline and \mathcal/\mathfrak font selection silently fails.
+        cls = ["katex", "katex-rendered"]
         if kind == "element" and "math-block" in (el.get("class") or []):
             cls.append("katex-display")
         new_el["class"] = cls
