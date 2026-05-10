@@ -228,12 +228,32 @@ def fix_math_alignment(soup: BeautifulSoup) -> int:
     for vs in soup.find_all(class_="vlist-s"):
         vs.decompose()
         n_vs += 1
-    # Force explicit </span> on empty KaTeX spans
+    # Also: empty padding spans (no class, inside KaTeX vlist containers).
+    # KaTeX writes things like <span class="vlist"><span></span></span>
+    # for height-only spacers; Kindle paints them as 1-2px boxes.
+    n_empty = 0
+    for kx in soup.find_all(class_=lambda c: c and "katex" in c):
+        for span in list(kx.find_all("span")):
+            cls = span.get("class") or []
+            # Drop only TRULY empty spans WITHOUT meaningful classes
+            # (preserve mord, mopen, mclose, strut etc. which KaTeX needs even when empty)
+            keep_classes = {
+                'mord', 'mopen', 'mclose', 'mbin', 'mrel', 'mop', 'mpunct',
+                'mspace', 'msupsub', 'strut', 'pstrut', 'mathnormal', 'mathrm',
+                'mathit', 'mathbf', 'mathcal', 'mathfrak', 'sizing', 'base',
+                'katex-html', 'katex', 'katex-display', 'katex-rendered',
+                'vlist-t', 'vlist-t2', 'vlist-r', 'vlist',
+                'svg-align', 'hide-tail', 'sqrt', 'accent', 'accent-body',
+            }
+            if not list(span.children) and not any(c in keep_classes for c in cls):
+                span.decompose()
+                n_empty += 1
+    # Force explicit </span> on remaining empty KaTeX spans
     for kx in soup.find_all(class_=lambda c: c and "katex" in c):
         for empty in kx.find_all("span"):
             if not list(empty.children):
                 from bs4 import NavigableString
-                empty.append(NavigableString(""))  # forces non-self-closing
+                empty.append(NavigableString(""))
                 n_closed += 1
     return n
 
