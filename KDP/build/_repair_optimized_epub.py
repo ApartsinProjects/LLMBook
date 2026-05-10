@@ -12,6 +12,14 @@ from pathlib import Path
 
 BROKEN_ENTITY_RE = re.compile(r'&(apos|quot|amp|gt|lt|nbsp)(?![a-zA-Z;#])')
 
+# Non-void HTML elements that ebooklib + lxml emit as self-closing
+# (e.g. `<span class="vlist-s"/>`). HTML5 readers don't honor self-closing
+# on these and treat them as opening-only tags, swallowing subsequent text.
+# Word-boundary requirement (\s or no attrs) prevents matching <img/> as <i + mg.../>
+SELF_CLOSING_RE = re.compile(
+    r'<(span|div|p|a|td|th|li|strong|em|b|i|sub|sup|small|code|pre)(\s[^>]*|)/>'
+)
+
 
 def repair(in_path: Path, out_path: Path) -> tuple[int, int]:
     """Returns (files_changed, total_replacements)."""
@@ -25,13 +33,18 @@ def repair(in_path: Path, out_path: Path) -> tuple[int, int]:
 
     files_changed = 0
     total_repls = 0
+    total_self_close = 0
     for p in work_dir.rglob("*.xhtml"):
         text = p.read_text(encoding="utf-8", errors="replace")
         new_text, n = BROKEN_ENTITY_RE.subn(lambda m: f"&{m.group(1)};", text)
-        if n:
+        new_text, n_sc = SELF_CLOSING_RE.subn(r'<\1\2></\1>', new_text)
+        if n or n_sc:
             p.write_text(new_text, encoding="utf-8")
             files_changed += 1
             total_repls += n
+            total_self_close += n_sc
+    if total_self_close:
+        print(f"  [repair] expanded {total_self_close} self-closing non-void tags")
 
     # Repack: mimetype first uncompressed, everything else stored compressed
     if out_path.exists():

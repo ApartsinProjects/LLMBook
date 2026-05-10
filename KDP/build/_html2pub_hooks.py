@@ -187,20 +187,13 @@ def slim_chapter_index_sections_list(soup: BeautifulSoup, src_rel: str) -> int:
 # Inline math: ensure $...$ and <span class="math"> become inline-aligned
 # ----------------------------------------------------------------------
 def fix_math_alignment(soup: BeautifulSoup) -> int:
-    """Add `katex-rendered` class + strip KaTeX zero-width-space markers.
-
-    html2pub renders KaTeX but emits raw <span class="katex"> blocks. The book's
-    epub_overrides.css expects `.katex-rendered` and `.katex-display` for proper
-    inline vs display separation. Without these, sub/superscripts and Greek
-    letters break vertical alignment.
-
-    KaTeX also embeds U+200B (ZWSP) inside <span class="vlist-s"> for vertical
-    measurement. KaTeX CSS sets font-size:1px on vlist-s but Kindle ignores
-    tiny font sizes and renders the ZWSP as a tofu glyph (■). Strip the ZWSPs
-    entirely — the vlist alignment still works without them.
+    """Add `katex-rendered` class + strip KaTeX ZWSP markers + force explicit
+    `<span></span>` closing on empty KaTeX spans (so EPUB readers that fall
+    back to HTML parsing don't misinterpret `<span/>` as an opening-only tag).
     """
     n = 0
     n_zwsp = 0
+    n_closed = 0
     for span in soup.find_all(["span", "div"]):
         cls = span.get("class") or []
         if "katex" in cls and "katex-rendered" not in cls:
@@ -212,7 +205,7 @@ def fix_math_alignment(soup: BeautifulSoup) -> int:
                 new_cls.append("katex-display")
             span["class"] = new_cls
             n += 1
-        # Strip ZWSPs from KaTeX vlist-s spans (Kindle renders them as tofu)
+        # Strip ZWSPs from KaTeX vlist-s spans
         if "vlist-s" in cls:
             for child in list(span.children):
                 if hasattr(child, "string") and child.string and "​" in child.string:
@@ -221,13 +214,21 @@ def fix_math_alignment(soup: BeautifulSoup) -> int:
                 elif isinstance(child, str) and "​" in child:
                     child.replace_with(child.replace("​", ""))
                     n_zwsp += 1
-    # Also do a global ZWSP strip inside any element with `katex` class
-    # (catch any other places KaTeX inserted them)
+    # Global ZWSP strip across all katex elements
     for kx in soup.find_all(class_=lambda c: c and "katex" in c):
         for ns in list(kx.find_all(string=True)):
             if "​" in ns:
                 ns.replace_with(ns.replace("​", ""))
                 n_zwsp += 1
+    # Force explicit </span> on empty KaTeX spans (so the serializer doesn't
+    # write `<span class="vlist-s"/>` which Kindle's HTML parser may
+    # mishandle, swallowing subsequent text into the "open" span)
+    for kx in soup.find_all(class_=lambda c: c and "katex" in c):
+        for empty in kx.find_all("span"):
+            if not list(empty.children):
+                from bs4 import NavigableString
+                empty.append(NavigableString(""))  # forces non-self-closing
+                n_closed += 1
     return n
 
 

@@ -279,6 +279,13 @@ def repair_optimized_entities(epub_path: Path) -> int:
     # `&amp` is intentionally excluded from the broad pattern because it's
     # a prefix of many valid entity names.
     fix_re = re.compile(r"&(apos|quot|lt|gt|nbsp|copy|reg|trade)(?=[^;a-zA-Z0-9])")
+    # Self-closing on non-void elements: ebooklib + lxml emit
+    # `<span class="vlist-s"/>` which Kindle interprets as an open tag,
+    # swallowing subsequent content. Force `<span></span>` instead.
+    # Word-boundary after tag name (\b) prevents <img/> being matched as <i + mg.../>
+    self_close_re = re.compile(
+        r'<(span|div|p|a|td|th|li|strong|em|b|i|sub|sup|small|code|pre)(\s[^>]*|)/>'
+    )
 
     src_zip = zipfile.ZipFile(epub_path, "r")
     fd, tmp_path = __import__("tempfile").mkstemp(suffix=".epub", dir=str(epub_path.parent))
@@ -292,8 +299,13 @@ def repair_optimized_entities(epub_path: Path) -> int:
                 if info.filename.endswith((".xhtml", ".html", ".opf", ".ncx")):
                     text = data.decode("utf-8", errors="replace")
                     new_text, n = fix_re.subn(lambda m: f"&{m.group(1)};", text)
-                    if n:
-                        n_total += n
+                    # Self-closing fix only on chapter content (.xhtml/.html);
+                    # OPF/NCX use self-closing on <item/> etc. and that is correct.
+                    n_sc = 0
+                    if info.filename.endswith((".xhtml", ".html")):
+                        new_text, n_sc = self_close_re.subn(r'<\1\2></\1>', new_text)
+                    if n or n_sc:
+                        n_total += n + n_sc
                         data = new_text.encode("utf-8")
                 # Preserve mimetype-first-uncompressed convention
                 if info.filename == "mimetype":
