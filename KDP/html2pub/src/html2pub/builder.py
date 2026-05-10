@@ -126,9 +126,12 @@ def build(cfg: Config) -> Path:
 
         soup = BeautifulSoup(html, "lxml")
         content_mod.clean_html(soup, cfg.transforms)
-        # Project-specific post-processing hook (Pygments, wisdom-council slim, etc.)
-        # If the project's html2pub.toml sets [plugins].post_process_html = "module.func",
-        # call it as func(soup, src_rel, cfg).
+        # Math rendering FIRST so post_process can clean up KaTeX artifacts
+        # (e.g., strip ZWSP markers that Kindle renders as tofu).
+        n_math_rendered += math_render.render(soup, cfg.math)
+        # Project-specific post-processing hook (Pygments, wisdom-council slim,
+        # KaTeX cleanup, etc.). Runs AFTER math_render so it can strip ZWSP +
+        # add `katex-rendered` class to the freshly-emitted KaTeX nodes.
         _post = cfg.raw.get("plugins", {}).get("post_process_html")
         if _post:
             try:
@@ -140,7 +143,6 @@ def build(cfg: Config) -> Path:
             except Exception as _e:
                 if i == 0:
                     print(f"  [warn] plugins.post_process_html failed: {_e}")
-        n_math_rendered += math_render.render(soup, cfg.math)
 
         title = _extract_title(soup, fallback=src_rel)
         chapter_map[src_rel]["title"] = title

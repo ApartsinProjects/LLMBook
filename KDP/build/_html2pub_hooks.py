@@ -187,20 +187,24 @@ def slim_chapter_index_sections_list(soup: BeautifulSoup, src_rel: str) -> int:
 # Inline math: ensure $...$ and <span class="math"> become inline-aligned
 # ----------------------------------------------------------------------
 def fix_math_alignment(soup: BeautifulSoup) -> int:
-    """Add `katex-rendered` class + ensure inline math has vertical-align: middle.
+    """Add `katex-rendered` class + strip KaTeX zero-width-space markers.
 
     html2pub renders KaTeX but emits raw <span class="katex"> blocks. The book's
     epub_overrides.css expects `.katex-rendered` and `.katex-display` for proper
     inline vs display separation. Without these, sub/superscripts and Greek
     letters break vertical alignment.
+
+    KaTeX also embeds U+200B (ZWSP) inside <span class="vlist-s"> for vertical
+    measurement. KaTeX CSS sets font-size:1px on vlist-s but Kindle ignores
+    tiny font sizes and renders the ZWSP as a tofu glyph (■). Strip the ZWSPs
+    entirely — the vlist alignment still works without them.
     """
     n = 0
+    n_zwsp = 0
     for span in soup.find_all(["span", "div"]):
         cls = span.get("class") or []
         if "katex" in cls and "katex-rendered" not in cls:
             new_cls = list(cls) + ["katex-rendered"]
-            # Detect display vs inline: display math is wrapped in <p class="math-block">
-            # or <div class="math-block">; inline is in <span class="math"> or text.
             parent = span.parent
             if parent and "math-block" in (parent.get("class") or []):
                 new_cls.append("katex-display")
@@ -208,6 +212,22 @@ def fix_math_alignment(soup: BeautifulSoup) -> int:
                 new_cls.append("katex-display")
             span["class"] = new_cls
             n += 1
+        # Strip ZWSPs from KaTeX vlist-s spans (Kindle renders them as tofu)
+        if "vlist-s" in cls:
+            for child in list(span.children):
+                if hasattr(child, "string") and child.string and "​" in child.string:
+                    child.string.replace_with(child.string.replace("​", ""))
+                    n_zwsp += 1
+                elif isinstance(child, str) and "​" in child:
+                    child.replace_with(child.replace("​", ""))
+                    n_zwsp += 1
+    # Also do a global ZWSP strip inside any element with `katex` class
+    # (catch any other places KaTeX inserted them)
+    for kx in soup.find_all(class_=lambda c: c and "katex" in c):
+        for ns in list(kx.find_all(string=True)):
+            if "​" in ns:
+                ns.replace_with(ns.replace("​", ""))
+                n_zwsp += 1
     return n
 
 
