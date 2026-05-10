@@ -371,9 +371,17 @@ def step_kindle_preview(epub: Path) -> int:
 
 
 def find_epub_optimizer() -> Path | None:
-    """Locate epub-optimizer's pipeline.js entry point."""
+    """Locate epub-optimizer's pipeline.js entry point.
+
+    Search order:
+      1. $EPUB_OPTIMIZER_JS env var (explicit override)
+      2. C:/Users/<user>/Tools/epub-optimizer (current install location)
+      3. Several legacy / cross-platform fallbacks
+    """
     candidates = [
+        Path.home() / "Tools" / "epub-optimizer" / "dist" / "src" / "pipeline.js",
         Path("E:/Tools/epub-optimizer/dist/src/pipeline.js"),
+        Path("C:/Tools/epub-optimizer/dist/src/pipeline.js"),
         Path.home() / "epub-optimizer" / "dist" / "src" / "pipeline.js",
         Path("/usr/local/lib/epub-optimizer/dist/src/pipeline.js"),
     ]
@@ -415,10 +423,15 @@ def step_optimize() -> int:
     shutil.copy2(epub, raw_backup)
 
     log = LOG_DIR / f"optimize_{ts()}.log"
+    # Quality-conscious settings: optimizer defaults (jpg=70 / png=0.6) lose
+    # too much fidelity on diagrams and photos. 80/0.85 keeps the file looking
+    # right while still saving ~35% over the unoptimized build.
     rc, out = run([
         "node", str(opt_js),
         "-i", str(epub),
         "-o", str(optimized),
+        "--jpg-quality", "80",
+        "--png-quality", "0.85",
         "--lang", "en",
         "--clean",
     ], log)
