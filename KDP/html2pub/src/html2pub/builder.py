@@ -187,6 +187,17 @@ def build(cfg: Config) -> Path:
 
         body = soup.find("body")
         body_inner = "".join(str(c) for c in body.children) if body is not None else str(soup)
+        # Force explicit closing on non-void elements that BS4/lxml emits as
+        # self-closing (e.g., `<span class="vlist-s"/>`). Some EPUB readers
+        # (Kindle especially) interpret `<span/>` as an opening-only tag and
+        # swallow subsequent content into the "open" span — visible as garbled
+        # math or missing close-paren in formulas. XHTML 1.1 only allows
+        # self-closing on void HTML elements (img, br, hr, input, link, meta).
+        body_inner = re.sub(
+            r'<(span|div|p|a|td|th|li|strong|em|b|i|sub|sup|small|code|pre)([^>]*)/>',
+            r'<\1\2></\1>',
+            body_inner,
+        )
 
         xhtml = (
             '<?xml version="1.0" encoding="UTF-8"?>\n'
