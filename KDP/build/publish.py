@@ -208,11 +208,12 @@ def step_regen_spine() -> int:
 
 
 def step_build_epub(quick: bool) -> int:
-    step("Building EPUB")
-    cmd = [PYTHON, str(BUILD_DIR / "build_epub.py")]
+    step("Building EPUB (html2pub)")
+    # Canonical builder is the html2pub package (KDP/html2pub/), driven by html2pub.toml at the project root.
+    cmd = [PYTHON, "-m", "html2pub", "build", str(PROJECT_ROOT)]
     if quick:
-        cmd += ["--max-image-side", "1200", "--jpeg-quality", "70"]
-        warn("quick mode: smaller images, lower quality (NOT for final submission)")
+        warn("quick mode requested — html2pub honors [images] settings in html2pub.toml; "
+             "for smaller files temporarily lower max_side/jpeg_quality and re-run.")
 
     log = LOG_DIR / f"build_{ts()}.log"
     rc, out = run(cmd, log)
