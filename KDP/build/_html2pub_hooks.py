@@ -117,6 +117,11 @@ def syntax_highlight(soup: BeautifulSoup) -> int:
                 code.clear()
                 code.append(wrap)
                 wrap.unwrap()
+                # Add pygments-highlighted class so the CSS selectors apply
+                # (CSS targets `.pygments-highlighted .c1` etc.)
+                cur_classes = code.get("class") or []
+                if "pygments-highlighted" not in cur_classes:
+                    code["class"] = cur_classes + ["pygments-highlighted"]
                 n += 1
         except Exception:
             continue

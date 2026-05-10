@@ -25,14 +25,52 @@ def section_sort_key(p: Path) -> tuple:
     return (major, minor, suffix)
 
 
+REDIRECT_MARKERS = (
+    'page reorganized',
+    'will be redirected automatically',
+    'this page has been split',
+    'this content has been moved',
+    'meta http-equiv="refresh"',
+)
+
+
+def _is_redirect_stub(path) -> bool:
+    """Detect tiny pages whose only purpose is to redirect to a new URL.
+
+    A stub is a file < 2 KB AND containing one of REDIRECT_MARKERS.
+    These pages have no place in an EPUB (no inline navigation in readers).
+    """
+    try:
+        if path.stat().st_size > 2048:
+            return False
+        text = path.read_text(encoding='utf-8', errors='replace').lower()
+    except Exception:
+        return False
+    return any(m in text for m in REDIRECT_MARKERS)
+
+
 def build_spine(cfg: Config) -> list[dict]:
     """Return [{path, kind, title_hint}] in EPUB read order."""
     if isinstance(cfg.content.spine, list) and cfg.content.spine:
-        return _spine_from_globs(cfg, cfg.content.spine)
-    if isinstance(cfg.content.spine, str) and cfg.content.spine != "auto":
+        spine = _spine_from_globs(cfg, cfg.content.spine)
+    elif isinstance(cfg.content.spine, str) and cfg.content.spine != "auto":
         manifest_path = (cfg.project_root / cfg.content.spine).resolve()
-        return json.loads(manifest_path.read_text(encoding="utf-8"))
-    return _autodiscover(cfg)
+        spine = json.loads(manifest_path.read_text(encoding="utf-8"))
+    else:
+        spine = _autodiscover(cfg)
+    # Filter out redirect stubs (page-reorganized / meta-refresh placeholders)
+    src = cfg.content.source_dir
+    filtered = []
+    n_dropped = 0
+    for ent in spine:
+        full = src / ent["path"]
+        if full.exists() and _is_redirect_stub(full):
+            n_dropped += 1
+            continue
+        filtered.append(ent)
+    if n_dropped:
+        print(f"[html2pub] spine: dropped {n_dropped} redirect-stub page(s)")
+    return filtered
 
 
 def _spine_from_globs(cfg: Config, patterns: list[str]) -> list[dict]:
