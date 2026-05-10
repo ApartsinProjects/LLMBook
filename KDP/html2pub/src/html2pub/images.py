@@ -37,14 +37,29 @@ def sniff_image_type(data: bytes, declared_ext: str):
 
 
 class ImageBundle:
-    def __init__(self, source_root: Path, max_side: int = 1280, jpeg_quality: int = 78):
+    def __init__(self, source_root: Path, max_side: int = 1280, jpeg_quality: int = 78,
+                 cache_dir: Path | None = None):
         self.source_root = source_root
         self.max_side = max_side
         self.jpeg_quality = jpeg_quality
+        # On-disk cache: re-encoded bytes keyed by source-hash + (max_side, quality).
+        # Set to None (default) to disable. Pass a Path to enable.
+        self.cache_dir = cache_dir
+        if cache_dir is not None:
+            cache_dir.mkdir(parents=True, exist_ok=True)
+        self.cache_hits = 0
+        self.cache_misses = 0
         self.path_to_bundle: dict[str, str] = {}
         self.bundled_bytes: dict[str, bytes] = {}
         self.bundled_mime: dict[str, str] = {}
         self.skipped: list[tuple[str, str]] = []
+
+    def _cache_key(self, src_hash: str, ext: str) -> str:
+        # Cache invalidates when input hash OR processing params change
+        import hashlib as _h
+        params = f"{self.max_side}-{self.jpeg_quality}"
+        param_hash = _h.md5(params.encode()).hexdigest()[:8]
+        return f"{src_hash}-{param_hash}.{ext.lstrip('.')}"
 
     def add(self, src_rel: str) -> str | None:
         if not src_rel:
@@ -75,6 +90,23 @@ class ImageBundle:
         return bundled
 
     def _reencode(self, full: Path):
+        src_hash = file_hash(full)
+        # Check cache for this src_hash + processing params
+        cached_data = None
+        cached_ext = None
+        if self.cache_dir:
+            for ext_try in ("jpg", "png"):
+                cpath = self.cache_dir / self._cache_key(src_hash, ext_try)
+                if cpath.exists():
+                    cached_data = cpath.read_bytes()
+                    cached_ext = ext_try
+                    break
+        if cached_data is not None:
+            self.cache_hits += 1
+            out_mime = "image/jpeg" if cached_ext == "jpg" else "image/png"
+            bundled = f"img/{src_hash}_{slugify(full.stem)}.{cached_ext}"
+            return cached_data, bundled, out_mime
+        self.cache_misses += 1
         with Image.open(full) as im:
             im.load()
             w, h = im.size
@@ -94,5 +126,11 @@ class ImageBundle:
             else:
                 im.save(buf, format="PNG", optimize=True)
             data = buf.getvalue()
-        bundled = f"img/{file_hash(full)}_{slugify(full.stem)}.{out_ext}"
+        # Save to cache
+        if self.cache_dir:
+            try:
+                (self.cache_dir / self._cache_key(src_hash, out_ext)).write_bytes(data)
+            except Exception:
+                pass
+        bundled = f"img/{src_hash}_{slugify(full.stem)}.{out_ext}"
         return data, bundled, out_mime
