@@ -282,18 +282,54 @@ def build(cfg: Config) -> Path:
                         content=font.read_bytes(),
                     ))
 
-    # User stylesheets
+    # User stylesheets — also bundle any url(...) referenced assets (icons, bg images)
+    import re as _re
+    _css_url_re = _re.compile(r"""url\(\s*['"]?([^'")]+)['"]?\s*\)""")
+    _bundled_css_assets: set[str] = set()
     for i, css_rel in enumerate(cfg.styling.stylesheets):
         css_path = (cfg.project_root / css_rel).resolve()
         if not css_path.exists():
             print(f"  [warn] stylesheet not found: {css_rel}")
             continue
         css_name = css_path.name
+        css_text = css_path.read_text(encoding="utf-8", errors="replace")
         book.add_item(epub.EpubItem(
             uid=f"css_user_{i}", file_name=f"styles/{css_name}",
-            media_type="text/css", content=css_path.read_bytes(),
+            media_type="text/css", content=css_text.encode("utf-8"),
         ))
         stylesheet_links.append(f"../styles/{css_name}")
+        # Bundle assets referenced via url(...)
+        css_dir = css_path.parent
+        for url in _css_url_re.findall(css_text):
+            if url.startswith(("data:", "http:", "https:", "//")):
+                continue
+            url_clean = url.split("#")[0].split("?")[0]
+            if not url_clean:
+                continue
+            asset_path = (css_dir / url_clean).resolve()
+            if not asset_path.exists():
+                print(f"  [warn] css asset missing: {url_clean} (referenced from {css_name})")
+                continue
+            # Asset goes under EPUB/styles/<relative_path_from_css>
+            try:
+                rel_in_styles = asset_path.relative_to(css_dir).as_posix()
+            except ValueError:
+                rel_in_styles = asset_path.name
+            target = f"styles/{rel_in_styles}"
+            if target in _bundled_css_assets:
+                continue
+            _bundled_css_assets.add(target)
+            ext = asset_path.suffix.lower().lstrip(".")
+            mime = {
+                "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
+                "gif": "image/gif", "svg": "image/svg+xml", "webp": "image/webp",
+            }.get(ext, "application/octet-stream")
+            book.add_item(epub.EpubItem(
+                uid=f"css_asset_{slugify(rel_in_styles)}", file_name=target,
+                media_type=mime, content=asset_path.read_bytes(),
+            ))
+    if _bundled_css_assets:
+        print(f"[html2pub] bundled {len(_bundled_css_assets)} CSS-referenced asset(s)")
 
     # EPUB overrides (user-supplied or built-in default)
     if cfg.styling.epub_overrides:
@@ -360,6 +396,17 @@ def build(cfg: Config) -> Path:
     )
     nav_item.properties = ["nav"]
     book.add_item(nav_item)
+
+    # Populate book.toc so EpubNcx() renders non-empty navMap (epubcheck RSC-005)
+    toc_entries = []
+    for ent in spine_entries:
+        src_rel = ent.get("path") if isinstance(ent, dict) else None
+        info = chapter_map.get(src_rel) if src_rel else None
+        if not info:
+            continue
+        title = (info.get("title") or src_rel).strip() or src_rel
+        toc_entries.append(epub.Link(info["file"], title, info["id"]))
+    book.toc = tuple(toc_entries)
     book.add_item(epub.EpubNcx())
 
     # Spine
