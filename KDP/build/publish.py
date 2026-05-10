@@ -459,6 +459,24 @@ def step_optimize() -> int:
 
     # Promote optimized to main EPUB
     shutil.move(str(optimized), str(epub))
+    pre_recompress_size = epub.stat().st_size
+
+    # Step 7b: post-optimize JPEG (MozJPEG) + PNG (OxiPNG) recompression.
+    # epub-optimizer uses sharp (libjpeg) + pngquant; MozJPEG and OxiPNG
+    # squeeze out additional ~1-2 MB at no quality cost.
+    try:
+        sys.path.insert(0, str(BUILD_DIR))
+        from _recompress_images import recompress_epub, MOZJPEG, OXIPNG
+        if MOZJPEG and OXIPNG:
+            print("  [recompress] running MozJPEG + OxiPNG...")
+            stats = recompress_epub(epub, epub)
+            print(f"    MozJPEG: {stats['jpg_files']} files, saved {stats['jpg_saved']/1024:.0f} KB")
+            print(f"    OxiPNG:  {stats['png_files']} files, saved {stats['png_saved']/1024:.0f} KB")
+        else:
+            warn("MozJPEG/OxiPNG not installed; skipping post-optimize recompression")
+    except Exception as _e:
+        warn(f"recompression failed (non-fatal): {_e}")
+
     new_size = epub.stat().st_size
     pct = new_size / raw_size * 100
     saved = (raw_size - new_size) / 1024 / 1024
