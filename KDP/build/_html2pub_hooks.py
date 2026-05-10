@@ -220,9 +220,15 @@ def fix_math_alignment(soup: BeautifulSoup) -> int:
             if "​" in ns:
                 ns.replace_with(ns.replace("​", ""))
                 n_zwsp += 1
-    # Force explicit </span> on empty KaTeX spans (so the serializer doesn't
-    # write `<span class="vlist-s"/>` which Kindle's HTML parser may
-    # mishandle, swallowing subsequent text into the "open" span)
+    # NUCLEAR: remove .vlist-s spans entirely (after ZWSP strip they're empty
+    # but still 2px wide via display:table-cell; some Kindle versions paint
+    # the cell as a tiny box ■). The vertical alignment they provided was
+    # only useful for KaTeX's web layout — Kindle ignores those rules anyway.
+    n_vs = 0
+    for vs in soup.find_all(class_="vlist-s"):
+        vs.decompose()
+        n_vs += 1
+    # Force explicit </span> on empty KaTeX spans
     for kx in soup.find_all(class_=lambda c: c and "katex" in c):
         for empty in kx.find_all("span"):
             if not list(empty.children):
