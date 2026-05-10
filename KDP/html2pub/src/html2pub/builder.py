@@ -126,6 +126,20 @@ def build(cfg: Config) -> Path:
 
         soup = BeautifulSoup(html, "lxml")
         content_mod.clean_html(soup, cfg.transforms)
+        # Project-specific post-processing hook (Pygments, wisdom-council slim, etc.)
+        # If the project's html2pub.toml sets [plugins].post_process_html = "module.func",
+        # call it as func(soup, src_rel, cfg).
+        _post = cfg.raw.get("plugins", {}).get("post_process_html")
+        if _post:
+            try:
+                import importlib
+                mod_name, func_name = _post.rsplit(".", 1)
+                _mod = importlib.import_module(mod_name)
+                _fn = getattr(_mod, func_name)
+                _fn(soup, src_rel, cfg)
+            except Exception as _e:
+                if i == 0:
+                    print(f"  [warn] plugins.post_process_html failed: {_e}")
         n_math_rendered += math_render.render(soup, cfg.math)
 
         title = _extract_title(soup, fallback=src_rel)
