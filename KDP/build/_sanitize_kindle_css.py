@@ -29,11 +29,25 @@ CSS_VALUE_REPLACEMENTS = [
     (re.compile(r':\s*(?:min|max|fit)-content\b', re.IGNORECASE), ': auto'),
     # negative margins -> 0
     (re.compile(r'(margin(?:-\w+)?\s*:\s*)-\d+(?:\.\d+)?(?:px|em|rem|%)?', re.IGNORECASE), r'\g<1>0'),
-    # caption-side: bottom -> caption-side: top (Kindle default)
-    (re.compile(r'caption-side\s*:\s*bottom', re.IGNORECASE), 'caption-side: top'),
-    # box-shadow: REMOVE only the value, keep "box-shadow: none" so syntax stays valid
-    (re.compile(r'(?:^|;|\{)\s*((?:[-_a-zA-Z]+-)?box-shadow)\s*:[^;}]+(?=[;}])', re.IGNORECASE),
-     lambda m: m.group(0).split(':')[0].rstrip() + ': none'),
+    # caption-side: ANY -> Kindle does not support caption positioning. Drop entirely.
+    (re.compile(r'(?P<sep>^|;|\{)\s*caption-side\s*:[^;}]+(?=[;}])', re.IGNORECASE),
+     lambda m: m.group('sep')),
+    # box-shadow (any prefix): REMOVE the declaration entirely (don't even keep "none";
+    # Kindle flags '-webkit-box-shadow=none' as unsupported even with our prior fix).
+    # Use named group 'sep' to keep ONLY the leading separator (;{ or { or ;)
+    # so we don't leave orphan property names like '-webkit-' behind.
+    (re.compile(r'(?P<sep>^|;|\{)\s*(?:-webkit-|-moz-|-o-|-ms-)?box-shadow\s*:[^;}]+(?=[;}])', re.IGNORECASE),
+     lambda m: m.group('sep')),
+    # gap: Kindle CSS engine doesn't understand flex/grid gap; can produce
+    # "nullem" reports. Drop the entire declaration (including any
+    # row-/column- prefix). Keep only the leading separator (;{ or { or ;).
+    (re.compile(r'(?P<sep>^|;|\{)\s*(?:row-|column-)?gap\s*:[^;}]+(?=[;}])', re.IGNORECASE),
+     lambda m: m.group('sep')),
+    # min() / max() / clamp() in length contexts: Kindle can't compute these
+    # Replace the entire CSS function call with a sane fallback.
+    # We pick the FIRST argument as a conservative replacement.
+    (re.compile(r'\b(?:min|max|clamp)\(\s*([^,()]+?)\s*[,)][^)]*\)', re.IGNORECASE),
+     r'\1'),
     # transition / transform / filter / animation: replace value with "none"
     (re.compile(r'(?:^|;|\{)\s*(transition|transform|filter|backdrop-filter|-webkit-backdrop-filter|animation)\s*:[^;}]+(?=[;}])', re.IGNORECASE),
      lambda m: m.group(0).split(':')[0].rstrip() + ': none'),
@@ -52,6 +66,15 @@ def _sanitize_text(text: str, is_css: bool) -> tuple[str, int]:
         new_text, count = pat.subn(repl, text)
         text = new_text
         n += count
+    # Post-pass: collapse stray `;;` (left behind when we drop a whole
+    # declaration that was preceded by `;`) and `{;` (declaration was
+    # the first inside a rule). CSS-ONLY — running these on HTML mangles
+    # entity references like `&quot;}` -> `&quot}` which produces fatal
+    # XHTML parse errors (RSC-016).
+    if is_css:
+        text = re.sub(r';\s*;+', ';', text)
+        text = re.sub(r'\{\s*;+', '{', text)
+        text = re.sub(r';\s*\}', '}', text)
     if not is_css:
         text, n_sum = SUMMARY_RE.subn(r'<p class="details-title"><strong>\1</strong></p>', text)
         text, n_dop = DETAILS_OPEN_RE.subn('<div class="details-shim">', text)
