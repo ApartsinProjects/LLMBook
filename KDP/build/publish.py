@@ -638,5 +638,35 @@ def main(argv: list[str] | None = None) -> int:
     return final_rc
 
 
+
+
+def step_pagefind() -> int:
+    """Rebuild the Pagefind static search index over the HTML site.
+    Pagefind writes to <root>/pagefind/ ; we ship that directory with
+    GitHub Pages so the search box on every section works without any
+    backend.
+    """
+    step("Build Pagefind search index")
+    pagefind = PROJECT_ROOT / "node_modules" / ".bin" / ("pagefind.cmd" if sys.platform == "win32" else "pagefind")
+    if not pagefind.exists():
+        warn("Pagefind not installed; run `npm install -D pagefind` to enable search.")
+        return 0
+    try:
+        proc = sp.run([str(pagefind), "--site", str(PROJECT_ROOT)],
+                      capture_output=True, text=True, timeout=120)
+        if proc.returncode != 0:
+            warn(f"Pagefind failed: {proc.stderr[:200]}")
+            return 1
+        # Parse the "Indexed X pages" line for a friendly summary
+        for line in proc.stdout.splitlines():
+            if line.strip().startswith("Indexed"):
+                ok("  " + line.strip())
+    except sp.TimeoutExpired:
+        warn("Pagefind timed out after 120s")
+        return 1
+    ok("Pagefind index updated at /pagefind/")
+    return 0
+
+
 if __name__ == "__main__":
     raise SystemExit(main())
