@@ -40,19 +40,19 @@ Leave blank, or fill if you plan a series of related books.
 
 ### Keywords (up to 7)
 > See [keywords.txt](keywords.txt) — paste each one into a separate keyword box:
-> 1. large language models textbook
-> 2. build AI agents production
-> 3. RAG retrieval augmented generation guide
-> 4. transformer architecture from scratch
-> 5. LLM fine tuning LoRA RLHF
-> 6. prompt engineering practitioners guide
-> 7. machine learning deep learning NLP
+> 1. RAG vector database semantic search
+> 2. LangChain LangGraph CrewAI tutorial
+> 3. transformer architecture from scratch attention
+> 4. prompt engineering ChatGPT Claude Gemini
+> 5. LLM fine tuning LoRA QLoRA RLHF DPO
+> 6. AI agent multi-agent system LLM production
+> 7. MLOps LLM observability evaluation engineering
 
 ### Categories (up to 3)
 > See [categories.txt](categories.txt) for category paths. Click "Choose categories" and pick:
 > 1. Computers > Computer Science > Artificial Intelligence (= COM004000)
-> 2. Computers > Computer Science > Neural Networks (= COM044000)
-> 3. Computers > Programming > General (= COM051300)
+> 2. Computers > Programming Languages > Python (= COM051460)
+> 3. Computers > Computer Science > Neural Networks (= COM044000)
 
 ### Age and Grade Range (optional)
 > Leave blank — adult/general technical audience.
