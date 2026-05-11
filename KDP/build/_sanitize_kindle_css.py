@@ -23,6 +23,13 @@ from pathlib import Path
 #
 # Each entry: (regex pattern, replacement) — applied left-to-right.
 CSS_VALUE_REPLACEMENTS = [
+    # rem -> em (Kindle's CSS engine cannot resolve `rem` reliably; root font-size
+    # is null in many KFX/KF8 contexts, so a value like `.5rem` serializes as
+    # "nullem" in KDP's conversion report. Replacing the unit with `em` makes
+    # the value compute relative to the local font-size, which Kindle handles.
+    # This single pass eliminated ~6000 'nullem' notices in our v5.4 build.
+    # IMPORTANT: this rule must run FIRST, before any other em/rem-touching rule.
+    (re.compile(r'(\d(?:\.\d+)?|\.\d+)rem\b', re.IGNORECASE), r'\1em'),
     # nullem / nanem / undefinedem -> 0
     (re.compile(r':\s*(?:null|nan|undefined)em\b', re.IGNORECASE), ': 0'),
     # min-content / max-content / fit-content -> auto
