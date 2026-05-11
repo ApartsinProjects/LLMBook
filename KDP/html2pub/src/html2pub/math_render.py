@@ -16,20 +16,47 @@ from html2pub.config import MathSpec
 
 RENDER_SCRIPT = Path(__file__).parent / "render_math.js"
 
-# TeX-source rewrites applied BEFORE KaTeX rendering. Two purposes:
+# TeX-source rewrites applied BEFORE KaTeX rendering. Three purposes:
 #   1. Schema-valid MathML output (avoids epubcheck RSC-005 errors where
 #      KaTeX emits an `<mo>` inside `<msub>` for `\text{...}` subscripts).
 #   2. \mathrm renders identically to \text for alphanumeric-only content
 #      (the visual difference only matters when \text contains spaces or
 #      punctuation, which we leave untouched).
+#   3. Multi-line display math written as `$$ a \\ b \\ c $$` is rendered by
+#      KaTeX as ONE wide line that overflows narrow Kindle pages with a
+#      horizontal scrollbar. Wrapping in `\begin{aligned}` produces real
+#      stacked lines that wrap naturally.
 import re as _re
 # Match \text{XXX} where XXX is letters/digits/underscore only — safe to
 # rewrite to \mathrm. Skip cases with spaces, accented chars, or escapes.
 _TEXT_TO_MATHRM = _re.compile(r"\\text\{([A-Za-z0-9_]+)\}")
+# Detect `\\` line-break in TeX source (NOT inside an existing aligned/array
+# environment, which we leave alone). Heuristic: if the TeX contains `\\`
+# AND does NOT already contain `\begin{aligned`/`\begin{align`/`\begin{gathered`/`\begin{cases`/`\begin{matrix`/`\begin{array`,
+# wrap the whole thing.
+_BACKSLASH_BREAK = _re.compile(r"\\\\")
+_HAS_ENV = _re.compile(r"\\begin\{(?:aligned|align\*?|gathered|cases|matrix|array|bmatrix|pmatrix|vmatrix|smallmatrix|split|multline)\}")
+# `=` becomes `&=` inside aligned for proper column alignment, when each
+# line has at most one top-level `=`. We do this conservatively: only insert
+# `&` at the FIRST `=` per line.
+_EQ_PER_LINE = _re.compile(r"^([^=&\n]*)=", _re.MULTILINE)
 
 
-def _rewrite_tex(tex: str) -> str:
-    return _TEXT_TO_MATHRM.sub(r"\\mathrm{\1}", tex)
+def _wrap_aligned(tex: str) -> str:
+    if not _BACKSLASH_BREAK.search(tex):
+        return tex
+    if _HAS_ENV.search(tex):
+        return tex
+    # Insert `&` before first `=` on each line for column alignment
+    aligned_body = _EQ_PER_LINE.sub(r"\1&=", tex)
+    return r"\begin{aligned}" + aligned_body + r"\end{aligned}"
+
+
+def _rewrite_tex(tex: str, display: bool = False) -> str:
+    tex = _TEXT_TO_MATHRM.sub(r"\\mathrm{\1}", tex)
+    if display:
+        tex = _wrap_aligned(tex)
+    return tex
 
 
 def render(soup: BeautifulSoup, math_cfg: MathSpec) -> int:
@@ -54,7 +81,7 @@ def render(soup: BeautifulSoup, math_cfg: MathSpec) -> int:
             if not tex:
                 continue
             display = ("math-block" in cls) or tex_raw.strip().startswith("$$")
-            items.append({"id": str(len(items)), "tex": _rewrite_tex(tex), "display": display})
+            items.append({"id": str(len(items)), "tex": _rewrite_tex(tex, display=display), "display": display})
             targets.append(("element", el))
 
     # 2. text nodes with $$...$$ or \(...\) or \[...\]
@@ -180,7 +207,7 @@ def _split_text(s: str, items: list):
         if start > pos:
             parts.append(("text", s[pos:start]))
         mid = str(len(items))
-        items.append({"id": mid, "tex": _rewrite_tex(tex), "display": display})
+        items.append({"id": mid, "tex": _rewrite_tex(tex, display=display), "display": display})
         parts.append(("math", mid))
         pos = close_pos + len(close_d)
         found = True
