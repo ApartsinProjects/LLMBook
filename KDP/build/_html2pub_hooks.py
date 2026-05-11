@@ -213,6 +213,15 @@ def fix_math_alignment(soup: BeautifulSoup) -> int:
             # U+2063 (invisible separator), U+2064 (invisible plus)
             if any(c in txt for c in ("⁡", "⁢", "⁣", "⁤")):
                 child.decompose()
+    # KaTeX emits <mtable columnspacing=""> for \begin{aligned} (empty value
+    # because aligned doesn't specify columns). Empty-string fails epubcheck
+    # RSC-005 (must match mathlength regex). Drop the empty attribute and
+    # also fix rowspacing/columnalign if empty.
+    for mtable in soup.find_all("mtable"):
+        for attr in ("columnspacing", "rowspacing", "columnalign", "rowalign"):
+            v = mtable.get(attr, None)
+            if v is not None and (not v or not v.strip()):
+                del mtable[attr]
     # Mark wrappers
     for el in soup.find_all(class_=lambda c: c and "katex" in c):
         cls = el.get("class") or []
@@ -314,13 +323,31 @@ def set_explicit_avatar_dimensions(soup: BeautifulSoup) -> int:
 # ----------------------------------------------------------------------
 # Master entrypoint called from html2pub builder
 # ----------------------------------------------------------------------
+def fix_svg_viewbox(soup: BeautifulSoup) -> int:
+    """SVG attribute is `viewBox` (camelCase per the SVG spec). Browsers
+    parsing HTML5 lenient-mode accept lowercase `viewbox`, but XHTML
+    parsers (which EPUB uses) and Kindle's strict renderer ignore the
+    misnamed attribute, falling back to the SVG intrinsic size and
+    causing diagrams to clip / paint at the wrong dimensions.
+
+    This is purely a casing fix; no content change."""
+    n = 0
+    for svg in soup.find_all("svg"):
+        if svg.has_attr("viewbox") and not svg.has_attr("viewBox"):
+            svg["viewBox"] = svg["viewbox"]
+            del svg["viewbox"]
+            n += 1
+    return n
+
+
 def post_process(soup: BeautifulSoup, src_rel: str, cfg) -> None:
     """Apply all project transforms to the parsed chapter HTML."""
     if "wisdom-council" in src_rel:
         slim_wisdom_council(soup)
     syntax_highlight(soup)
     normalize_code_block_content(soup)
-    wrap_wide_tables(soup, min_cols=6)
+    wrap_wide_tables(soup, min_cols=4)  # lowered from 6: 5-col tables also overflow Kindle
     slim_chapter_index_sections_list(soup, src_rel)
     fix_math_alignment(soup)
+    fix_svg_viewbox(soup)
     set_explicit_avatar_dimensions(soup)
