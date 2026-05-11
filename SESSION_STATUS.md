@@ -1,6 +1,6 @@
-# Session Status: 2026-05-11
+# Session Status: 2026-05-11 (final)
 
-Snapshot of major work-in-progress on the LLMBook EPUB pipeline and book restructure.
+Comprehensive snapshot covering the v3.x → v5.x restructure session of the LLMBook.
 
 ## Repo state
 
@@ -8,148 +8,150 @@ Snapshot of major work-in-progress on the LLMBook EPUB pipeline and book restruc
 |---|---|
 | Repo | https://github.com/ApartsinProjects/LLMBook |
 | Branch | `main` |
-| Last committed work | `9d11ef0 fix(epub): switch math to MathML, fix silent hook failures` |
-| Tag for safe rollback | `v3-pre-restructure` (pushed) |
-| In-progress (uncommitted) | Restructure file deletes + Steps 1-5 helper scripts under `KDP/build/_step*.py` |
-| Latest EPUB | `KDP/output/building-conversational-ai-llms-agents.epub` |
+| Latest commit | v5.2 — `2a400ce v5.2: 140 new exercises across 35 sections` |
+| Latest tag | `v5.2` |
+| Safety baseline | `v3-pre-restructure` (pushed; full content + structure pre-session) |
+| Latest EPUB | `KDP/output/building-conversational-ai-llms-agents.epub` (~36.5 MB) |
 
-## Word counts
+## Cumulative metrics (v3-pre-restructure → v5.2)
 
-| Metric | Before this session | After Steps 1-5 |
-|---|---|---|
-| Sections (parts only) | 245 | 226 |
-| Sections (appendices) | 108 | 83 |
-| **Total sections** | **353** | **309** (-12%) |
-| Word count | 1,284,573 | 1,311,654 (note: still high; cuts so far were duplicates, no large prose-trimming yet) |
-| Appendices | 22 (A-V) | 17 (M, N, O, P, Q removed) |
-
-## Completed work this session (chronological)
-
-### A. EPUB math + validation fixes (committed)
-1. **Switched math rendering from KaTeX HTML to MathML** (`KDP/html2pub/src/html2pub/render_math.js`). Eliminated the ~400 empty structural spans per chapter that Kindle painted as black-box tofu (`???`).
-2. **Fixed silent plugin failure**: `python -m html2pub` couldn't import `_html2pub_hooks` because `KDP/build/` was not on PYTHONPATH. The "[warn] No module named '_html2pub_hooks'" was swallowed in batch output. Across many builds the project hooks (Pygments highlighting, wisdom-council slim, math cleanup) were silently doing nothing.
-   - Fix in `KDP/build/publish.py`: sets `PYTHONPATH=KDP/build` before invoking html2pub.
-   - Fix in `KDP/html2pub/src/html2pub/builder.py`: `post_process` plugin loading now hard-fails with a clear error, never silently no-ops.
-3. **OPF-014 (71 epubcheck errors)**: chapters with `<math>` now declare `properties="mathml"` in the OPF manifest (`builder.py`).
-4. **TeX rewrite**: `\text{XYZ}` -> `\mathrm{XYZ}` for alphanumeric content, applied in `math_render.py` before sending to KaTeX. Avoids a KaTeX MathML schema bug.
-5. **Strip invisible-operator `<mo>`** from `<msub>`/`<msup>` children, fixing remaining schema violations from `\max`, `\min`, `\sup` in subscripts.
-
-Result: **epubcheck passes 0 errors / 0 warnings.** Math is centered, sits on text baseline, no tofu.
-
-### B. CSS adjustments (committed)
-- `KDP/html2pub/src/html2pub/default_overrides.css`: MathML-specific alignment rules added.
-  - `math { vertical-align: -0.25em }` for inline math (Kindle puts inline `<math>` at top of line by default).
-  - `.math-block { text-align: center }` plus inline-block centering for display math.
-
-### C. Book restructure (uncommitted)
-Tagged v3-pre-restructure baseline first. Then executed five planned cuts via one-shot scripts under `KDP/build/_step*.py`:
-
-| Step | Script | Action | Outcome |
+| Metric | Start | Now | Δ |
 |---|---|---|---|
-| 1 | `_redirect_rewrites.py` | Deleted 5 duplicate sections (29.5, 29.7 stubs + 22.2, 29.8, 35.7 dups) | 59 cross-refs rewritten, 5 files removed |
-| 2 | `_move_35_to_26.py` | Moved 35.5/35.6/35.8 (agent reliability content misplaced in "AI & Society") into Module 26 as 26.8/26.9/26.10 | 3 files moved, inbound refs updated |
-| 3 | `_step3_slim_eval.py` | Slimmed evaluation: removed 13.3, 21.7, 22.8, 25.6, 29.3, 29.9, 29.12, 30.4 | 8 files removed, 86 refs rewritten |
-| 4 | `_step4_consolidate.py` | Consolidated reasoning + agents: removed 11.5, 24.3, 24.4, 25.3, 25.5, 25.8 | 6 files removed, 44 refs rewritten |
-| 5 | `_step5_appendix_cut.py` | Dropped appendices M (LangGraph), N (CrewAI), O (LlamaIndex), P (Semantic Kernel), Q (DSPy) | 5 directories / 25 sections removed, 90 refs rewritten |
+| EPUB size | 87 MB | 36.5 MB | -58% |
+| Total sections | 353 | 213 | -40% |
+| Modules | 39 | 33 | -6 (Module 16/30/35/37 absorbed) |
+| Appendices | 22 (A-V) | 17 | -5 (M/N/O/P/Q dropped) |
+| Front matter pages | 30 | 12 | -60% |
+| Front matter words | ~16K | 9.7K | -39% |
+| epubcheck errors | many | 0 | clean |
+| Internal hrefs broken | many | 0 | clean |
+| Exercises in book | ~780 | 992 | +212 (+27%) |
+| New diagrams | 0 | 15 | + |
+| Citations added (factual claims) | 0 | 6 papers | + |
+| html2pub skill lessons | 16 | 25 | +9 |
+| Helper scripts | 0 | 40+ | reproducible audit trail |
+| Total individual edits | — | ~4,100 across 700+ files | massive |
+| Tags pushed | 1 (v3) | 18 incremental (v3.1 → v5.2) | + |
+| Chapter review markdowns | 0 | 35 | per-chapter audit log |
 
-**Total: 24 source-section files deleted, 5 appendix directories removed, ~280 cross-references rewritten across ~130 files.**
+## Major work themes
 
-## Pending / not committed
+### A. EPUB math + Kindle rendering (v3.0 baseline)
+- KaTeX HTML → MathML output (eliminated ~400 empty spans per chapter that Kindle painted as ■ tofu)
+- KaTeX schema fixes: stripped invisible operators from msub/msup, removed empty mtable layout attrs
+- Pre-render TeX rewrite: `\text{XYZ}` → `\mathrm{XYZ}`; multi-line `$$...\\\\...$$` → `\begin{aligned}`
+- CSS overrides for inline math vertical-align, code-block overflow, callout `box-decoration-break: clone`
+- 170 SVGs: lowercase `viewbox=` → camelCase `viewBox=` (Kindle XML parser rejects lowercase)
+- All-of-the-above made `epubcheck` go from many errors to 0 errors / 0 warnings
 
-1. **Verify final EPUB build** - rebuild was triggered (background task `bvq6nrmpt`) but I have not yet confirmed:
-   - `epubcheck` still passes 0 errors after restructure
-   - All inbound cross-references resolve (no broken `<a href>`)
-   - Actual EPUB file size + chapter count match `spine_manifest.json` (309)
+### B. Plugin loading (silent-failure fix)
+- `python -m html2pub` couldn't import project hooks; warning swallowed in batch output
+- Result: every project hook (Pygments, wisdom-council, math cleanup) was silently a no-op for many builds
+- Fix: `publish.py` sets `PYTHONPATH=KDP/build`; `builder.py` HARD-FAILS on missing plugin
 
-2. **Commit the restructure**. Pending message:
-   ```
-   restructure(v3.1): drop 24 sections + 5 framework appendices for adoption
+### C. Major structural restructure (v3.1 → v3.4)
+- Deleted 24 duplicate sections (29.5/29.7 stubs, 22.2 Memory dup, 29.8 Arena dup, 35.7 Memory misplaced, etc.)
+- Moved sections (35.5/35.6/35.8 → Module 26 as 26.8/9/10)
+- Slimmed evaluation: 13 → 5 sections kept
+- Module 16 (Distillation) → merged into Module 15 (PEFT)
+- Module 30 (Observability) → merged into Module 29 (Evaluation)
+- Module 35 (AI & Society) → merged into Module 32 (Safety)
+- Module 18 (Interpretability) moved from Part 2 → Part 10 (Frontiers)
+- Module 37 (Building & Steering) → merged into Module 36 (Idea-to-Product) as 36.5-36.9
+- Module 33.6 (Build vs Buy duplicate) deleted; 33.7-8 renumbered
+- 5 framework appendices dropped (M LangGraph, N CrewAI, O LlamaIndex, P Semantic Kernel, Q DSPy)
 
-   - Step 1: 5 duplicate sections removed
-   - Step 2: 35.5/35.6/35.8 moved into Module 26 (correct home)
-   - Step 3: evaluation slimmed 13->5 sections
-   - Step 4: 6 small/duplicate sections removed (11.5, 24.3-4, 25.3/5/8)
-   - Step 5: appendices M/N/O/P/Q dropped (kept K HuggingFace + L LangChain)
-   - 280+ cross-references rewritten to point to surviving canonical sections
-   - Spine: 353 -> 309 sections (-12%)
-   ```
+### D. Navigation + cross-reference repair (v3.5 → v3.9)
+- 158 broken inter-module hrefs auto-fixed via filename-lookup
+- 140 anchor-text-vs-href mismatches corrected
+- 498 in-prose `<a>Section X.Y</a>` anchors unwrapped (where they had replaced domain terms like "softmax" → "Section 4.1")
+- 809 self-referential cross-refs stripped + 89 epigraph anchors
+- 383 stale H2/H3 prefixes synced to filename
+- 178 duplicate figure caption renumbers
+- 415 stale Code Fragment caption prefixes
+- 329 orphan `(Code Fragment X.Y.Z)` parentheticals stripped from prose
+- 287 bib annotations stripped (citations preserved)
+- 319 "puts this into practice" filler sentences stripped
+- 152 generic captions improved
+- 150 lab-appendix code blocks captioned
+- 719 `<strong>Output:</strong>` labels added to code-output blocks
 
-3. **Update `BOOK_CONFIG.md`** to reflect the new spine: section gaps in Module 22 (no 22.2), Module 24 (no 24.3, 24.4), Module 25 (no 25.3, 25.5, 25.8), Module 29 (no 29.3, 29.5, 29.7, 29.8, 29.9, 29.12), Module 30 (no 30.4), Module 35 (no 35.5, 35.6, 35.7, 35.8). Module 26 grew (now has 26.8, 26.9, 26.10).
+### E. Editorial content cuts (v4.0 → v5.1)
+- Module 32 essays 32.16/17/18 deleted (-15.7K words)
+- Module 32 mergers: 32.10 → 32.3 (Cross-Cultural NLP into Bias/Fairness), 32.13 → 32.12 (Federated → Privacy)
+- Module 32.14 (Alignment Frontiers) → moved to Module 17 as 17.5
+- Module 36/38 weak sections deleted: 36.4 (Case Studies), 36.8 (AI Coding Assistants), 38.5 (Capstone Lab)
+- Module 22.1.5 trimmed (Agent Memory Systems → 1-paragraph teaser, full content lives in 22.6)
+- Section 4.1.2 (Information Theory primer, 22.7K chars) → moved to new Appendix A.6
+- Module 32 chapter-opener regenerated via Gemini (was duplicate of Module 31)
+- Front matter dropped: section-fm.5 (How This Book Was Created), wisdom-council.html, FM.8/FM.9 cards, all 19 pathway sub-pages + 8 syllabus sub-pages (consolidated to 2 single-table indexes)
+- Author bios shortened (Apartsin patents claim dropped)
 
-4. **Tag v3.1** after the restructure commit lands and EPUB verifies clean.
+### F. Authoring augmentation (v3.x and v5.2)
+- 72 new exercises across Modules 3/4/5 (early v3.x agent run)
+- 140 new exercises across 35 sections in Modules 0/6/7/8/11/12/13/15/20/29/31/32/36/38 (v5.2 agent run)
+- 13 new Mermaid diagrams across Modules 26/27/34/38 (diagram-design agent)
+- 2 split diagrams (Module 6 production-training architecture: data plane + reliability plane)
+- 6 paper citations added to factual claims (PaLM-E, Chinchilla, Medusa, Cohen's kappa, linear-attention-as-GD, ZeRO)
 
-## Pending follow-ups (not started)
+### G. Lint + validation (v4.6 → v4.7)
+- Code-runnability lint on 1,370 Python blocks (45 syntax errors flagged)
+- Cross-reference validity sweep: 7,804 hrefs checked, 75 auto-fixed, 31 anchored to deleted appendix sections unwrapped → 0 broken
+- Anchor-level (#fragment) validation added
+- PDF sample re-rendered (2.3 MB)
 
-These were discussed but not executed:
+## In flight at session end
 
-- **Renumber to remove gaps**: Currently chapters have gaps like 22.1, 22.3, 22.4, 22.5, 22.6, 22.7. Renumbering to 22.1-6 would be cleaner but breaks every cross-reference + reader bookmarks. Defer until v4.
-- **Slim H2/H3 in over-headed chapters**: 32.1 (14 H2 / 18 H3), 4.1 (14/19), 4.3 (12/26), 27.7 (8/39), 12.5 (12/21). Hard cap at 6 H2 / 12 H3 was suggested. Not done yet, requires per-chapter manual editing.
-- **Module 18 (Interpretability)**: suggested move from Part 2 to Part 10 (Frontiers). Not done.
-- **Module 16 (Distillation & Merging)**: suggested merge into Module 15 (PEFT). Not done.
-- **Module 35 (AI & Society)**: now half-empty after Step 2. Suggest merging the remaining 4 sections (35.1-35.4 + 35.9) into Module 32 (Safety & Ethics) and deleting Module 35 entirely. Not done.
-- **Module 36/37/38** (product strategy): suggested compression to 1 chapter "From Prototype to Production". Not done.
-- **Module 29 + 30 merger**: highly redundant after evaluation slim. One unified chapter would drop ~40K words. Not done.
-- **Index pages**: 38 module-index files repeat what part-level intro covers (~30K words of "in this chapter you will learn..."). Replace each with 100-word abstract + section list. Not done.
+- **Final exercise agent** for the last 9 sections in Modules 0/1/2/34 — running in background
+- Will land as v5.3
+
+## Truly remaining (genuinely deferred, requires writer judgment)
+
+- Voice/tone normalization across 213 sections (auto-rewrite risks corrupting authorial voice)
+- Module 32.1 actual file split (12 sub-sections → separate files; ~30 cross-refs to rewrite)
+- Module 4 actual file split (sections 4.3-4.5 → appendices; same risk)
+- ~5 false-positive Python syntax errors flagged by lint that need per-block manual review
+- Self-Check pop-quiz consistency between chapters (minor)
+- Authoring NEW content beyond what scaffold-agents can generate
 
 ## Useful commands for next session
 
 ```bash
-# Repo
-cd /e/Projects/BookBlogsHome/LLMBook
-git status
-git log --oneline -5
-
-# Build EPUB (uses PYTHONPATH=KDP/build for hook loading)
+# Build EPUB (uses PYTHONPATH=KDP/build for hook loading; required since v3.6)
 /c/Python314/python KDP/build/publish.py
 
-# Direct html2pub build (faster, no optimization)
+# Direct html2pub build (faster, no optimize)
 PYTHONPATH=/e/Projects/BookBlogsHome/LLMBook/KDP/build /c/Python314/python -m html2pub build .
 
-# Spot check EPUB content
-/c/Python314/python -c "
-import zipfile, re
-z = zipfile.ZipFile('KDP/output/building-conversational-ai-llms-agents.epub')
-h = z.read('EPUB/chapters/ch_0029_part-1-foundations-module-03-sequence-models-attention-section-3-1.xhtml').decode('utf-8')
-print(h[:2000])
-"
-
-# Word count audit
+# Word count + section count audit
 /c/Python314/python -c "
 import re
 from pathlib import Path
 total = sum(len(re.sub(r'<[^>]+>',' ',p.read_text('utf-8','replace')).split())
             for p in Path('.').glob('part-*/module-*/section-*.html'))
-print(f'{total:,} words')
+n = sum(1 for p in Path('.').glob('part-*/module-*/section-*.html'))
+print(f'{n} sections, {total:,} words')
 "
+
+# Validate cross-refs (current state)
+C:/Users/apart/AppData/Local/Programs/Python/Python311/python.exe KDP/build/_v46_lint_pass.py
 
 # Regenerate spine after deletions
 /c/Python314/python KDP/build/generate_spine.py
-
-# Validate
-java -jar /e/Tools/epubcheck/epubcheck-5.1.0/epubcheck.jar KDP/output/building-conversational-ai-llms-agents.epub
 ```
 
-## Key files (orientation for future work)
+## Key reference files
 
 | Path | Purpose |
 |---|---|
-| `BOOK_CONFIG.md` | Canonical chapter map. **Stale after restructure - needs update.** |
-| `KDP/html2pub/src/html2pub/builder.py` | Main EPUB assembly. Hard-fails on missing plugin (new). |
-| `KDP/html2pub/src/html2pub/math_render.py` | TeX -> MathML via Node bridge. Pre-rewrites `\text` -> `\mathrm`. |
-| `KDP/html2pub/src/html2pub/render_math.js` | KaTeX renderToString with `output: 'mathml'`. |
-| `KDP/html2pub/src/html2pub/default_overrides.css` | EPUB CSS overrides (math, code, captions, KaTeX legacy). |
-| `KDP/build/_html2pub_hooks.py` | Project post_process hook. Strips invisible `<mo>` from `<msub>/<msup>`. |
-| `KDP/build/publish.py` | Pipeline orchestrator. Sets `PYTHONPATH=KDP/build` before html2pub. |
-| `KDP/build/spine_manifest.json` | Generated by `generate_spine.py` from disk walk. |
-| `KDP/build/_redirect_rewrites.py` | Step 1 (one-shot, can re-run safely if needed). |
-| `KDP/build/_move_35_to_26.py` | Step 2 (idempotent file moves + path fixups). |
-| `KDP/build/_step3_slim_eval.py` | Step 3. |
-| `KDP/build/_step4_consolidate.py` | Step 4. |
-| `KDP/build/_step5_appendix_cut.py` | Step 5. |
-| `~/.claude/skills/html2pub/SKILL.md` | html2pub Claude skill v1.2.1 with 16 production lessons. **Update to v1.3 with Lesson 17 (MathML over HTML for Kindle) and Lesson 18 (PYTHONPATH for project plugins) is pending.** |
-
-## Open questions for next session
-
-- Confirm the restructured EPUB still passes `epubcheck` clean. If new errors surface (broken cross-refs, invalid OPF after deletions), fix before committing.
-- Decide whether to renumber to remove section-number gaps now (clean) vs later (avoids cross-ref churn twice).
-- Decide whether to proceed with the deferred follow-ups (Module 35 merger, Module 36-38 compression, index-page slim, H2/H3 cap enforcement).
+| `BOOK_CONFIG.md` | Canonical chapter map. **STALE — needs update post-v5.2** |
+| `CHANGELOG.md` | Tag-by-tag history (auto-generated) |
+| `KDP/html2pub/src/html2pub/builder.py` | Main EPUB assembly. Hard-fails on missing plugin. |
+| `KDP/html2pub/src/html2pub/math_render.py` | TeX → MathML; pre-rewrites `\text` → `\mathrm` and multi-line → aligned |
+| `KDP/html2pub/src/html2pub/default_overrides.css` | EPUB CSS (math align, code overflow, callout box-decoration-break, etc.) |
+| `KDP/build/_html2pub_hooks.py` | Project post_process hook (Pygments, wisdom-council slim, viewBox case fix, etc.) |
+| `KDP/build/publish.py` | Pipeline orchestrator. Sets PYTHONPATH=KDP/build. |
+| `KDP/build/_v3*.py / _v4*.py / _v5*.py` | 40+ one-shot helper scripts for restructure / lint / fix passes (idempotent) |
+| `chapter_review/module-*.md` | 35 chapter audit reports from review-agent rounds |
+| `scripts/insert_exercises.py` + `scripts/_exercise_payloads/` | Exercise generator helper + payload dumps from authoring-agent rounds |
+| `~/.claude/skills/html2pub/SKILL.md` | html2pub Claude skill v1.3 (25 production lessons including post-v3.x restructure) |
