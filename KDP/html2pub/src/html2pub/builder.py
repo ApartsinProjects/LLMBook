@@ -119,6 +119,23 @@ def build(cfg: Config) -> Path:
     n_imgs_seen = 0
     n_math_rendered = 0
 
+    # Resolve post_process_html plugin ONCE before the loop (hard-fail if missing)
+    _post_name = cfg.raw.get("plugins", {}).get("post_process_html")
+    _hook_fn = None
+    if _post_name:
+        import importlib
+        try:
+            mod_name, func_name = _post_name.rsplit(".", 1)
+            _mod = importlib.import_module(mod_name)
+            _hook_fn = getattr(_mod, func_name)
+            print(f"[html2pub] post_process plugin loaded: {_post_name}")
+        except (ImportError, AttributeError, ValueError) as _e:
+            raise RuntimeError(
+                f"plugins.post_process_html='{_post_name}' could not be loaded: {_e}. "
+                f"If the hook lives in a project-local file, ensure its directory is on "
+                f"PYTHONPATH before invoking html2pub."
+            ) from _e
+
     for i, entry in enumerate(spine_entries):
         src_rel = entry["path"]
         full = cfg.content.source_dir / src_rel
@@ -136,17 +153,13 @@ def build(cfg: Config) -> Path:
         # Project-specific post-processing hook (Pygments, wisdom-council slim,
         # KaTeX cleanup, etc.). Runs AFTER math_render so it can strip ZWSP +
         # add `katex-rendered` class to the freshly-emitted KaTeX nodes.
-        _post = cfg.raw.get("plugins", {}).get("post_process_html")
-        if _post:
+        if _hook_fn is not None:
             try:
-                import importlib
-                mod_name, func_name = _post.rsplit(".", 1)
-                _mod = importlib.import_module(mod_name)
-                _fn = getattr(_mod, func_name)
-                _fn(soup, src_rel, cfg)
+                _hook_fn(soup, src_rel, cfg)
             except Exception as _e:
-                if i == 0:
-                    print(f"  [warn] plugins.post_process_html failed: {_e}")
+                # Per-chapter exceptions DURING hook execution remain warnings
+                # (one bad chapter shouldn't abort the whole book).
+                print(f"  [warn] post_process failed for {src_rel}: {_e}")
 
         title = _extract_title(soup, fallback=src_rel)
         chapter_map[src_rel]["title"] = title
@@ -411,8 +424,16 @@ def build(cfg: Config) -> Path:
         # Stylesheets MUST be registered through add_link() to render in EPUB.
         for href in stylesheet_links:
             ch.add_link(href=href, rel="stylesheet", type="text/css")
-        if "<svg" in chapter_xhtml[src_rel].lower():
-            ch.properties = ["svg"]
+        # OPF property declarations: chapters that embed SVG or MathML must
+        # declare those properties on their manifest <item> (epubcheck OPF-014).
+        _props = []
+        _src_lower = chapter_xhtml[src_rel].lower()
+        if "<svg" in _src_lower:
+            _props.append("svg")
+        if "<math" in _src_lower:
+            _props.append("mathml")
+        if _props:
+            ch.properties = _props
         book.add_item(ch)
         chapter_items.append(ch)
 
