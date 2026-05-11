@@ -1,44 +1,56 @@
-"""Figure 33.1.1: AI Readiness Radar chart."""
-import sys, os
-sys.path.insert(0, os.path.dirname(__file__))
-from chart_style import *
+"""Figure 33.1.1: AI Readiness — converted from radar chart to horizontal bar.
+
+(v6.3 redesign — was a 4-axis radar before. Audit finding #10 noted that
+radars with fewer than 6 axes systematically distort relative magnitudes
+through quadratic area scaling. A horizontal bar chart with a "minimum
+viable" reference line at 3 makes the weakest pillar immediately scannable.)
+"""
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent))
+from chart_style import apply_style, save_figure
+import matplotlib.pyplot as plt
+import numpy as np
+
 apply_style()
 
-fig, ax = plt.subplots(figsize=(8, 8), subplot_kw=dict(polar=True))
+PILLARS = ['Talent\n(ML eng + product)',
+           'Org Culture\n(experimentation, change mgmt)',
+           'Tech Infra\n(GPUs, MLOps, data pipes)',
+           'Data Maturity\n(quality, lineage, governance)']
+SCORES  = [3, 2, 3, 4]
+COLORS  = ['#2980b9', '#e74c3c', '#27ae60', '#f39c12']
 
-# Data from SVG: 4 pillars with scores
-categories = ['Data Maturity', 'Tech Infra', 'Org Culture', 'Talent']
-scores = [4, 3, 2, 3]
+fig, ax = plt.subplots(figsize=(10, 5.5))
 
-# Close the polygon - start from top (90 degrees = pi/2)
-angles = (np.linspace(0, 2 * np.pi, len(categories), endpoint=False) + np.pi/2).tolist()
-scores_closed = scores + [scores[0]]
-angles_closed = angles + [angles[0]]
+bars = ax.barh(PILLARS, SCORES, color=COLORS, alpha=0.85,
+               edgecolor='black', linewidth=0.8, height=0.55)
 
-# Draw grid
-for i in range(1, 6):
-    circle = plt.Circle((0, 0), i, transform=ax.transData, fill=False,
-                        color='#ddd', linewidth=0.5)
+for bar, score, color in zip(bars, SCORES, COLORS):
+    ax.text(bar.get_width() + 0.08, bar.get_y() + bar.get_height() / 2,
+            f'{score} / 5',
+            va='center', fontsize=11, color=color, fontweight='bold')
 
-# Plot
-ax.plot(angles_closed, scores_closed, 'o-', color='#4a90d9', linewidth=2.5,
-        markersize=8, zorder=5)
-ax.fill(angles_closed, scores_closed, alpha=0.15, color='#4a90d9')
+ax.axvline(3, color='#666', ls='--', lw=1.5, alpha=0.7)
+ax.text(3, len(PILLARS) - 0.4, '  minimum viable (3 / 5)',
+        fontsize=10, color='#444', style='italic', va='top')
 
-# Configure
-ax.set_thetagrids(np.degrees(angles), categories, fontsize=13, fontweight='bold', color='#1a1a2e')
-ax.set_rgrids([1, 2, 3, 4, 5], labels=['1', '2', '3', '4', '5'],
-              fontsize=10, color='#999')
-ax.set_rlim(0, 5)
-ax.spines['polar'].set_color('#ddd')
-ax.grid(color='#ddd', linewidth=0.5)
+ax.set_xlim(0, 5.5)
+ax.set_xlabel('Readiness score (0 = absent, 5 = world-class)', fontsize=11)
+ax.set_title('AI Readiness Pillars — example mid-size fintech',
+             fontsize=13, pad=12)
+ax.set_xticks([0, 1, 2, 3, 4, 5])
+ax.set_axisbelow(True)
+ax.grid(True, axis='x', alpha=0.3)
 
-# Add score annotations
-for angle, score in zip(angles, scores):
-    ax.annotate(f'{score}', xy=(angle, score), xytext=(5, 5),
-                textcoords='offset points', fontsize=12, fontweight='bold',
-                color='#4a90d9')
+# Highlight weakest pillar
+weakest_idx = SCORES.index(min(SCORES))
+ax.text(0.05, weakest_idx, '  ← lowest pillar:\n  invest here first',
+        fontsize=9, color='#c0392b', style='italic', va='center', fontweight='bold')
 
-outpath = os.path.join(os.path.dirname(__file__),
-    '../../part-9-safety-strategy/module-33-strategy-product-roi/images/figure-33.1.1.png')
-save_figure(fig, os.path.abspath(outpath))
+OUT = Path(__file__).resolve().parent.parent.parent / \
+      'part-9-safety-strategy/module-33-strategy-product-roi/images'
+save_figure(fig, OUT / 'fig-33.1.1-ai-readiness-bars.png')
+fig.savefig(OUT / 'fig-33.1.1-ai-readiness-bars.svg', format='svg',
+            bbox_inches='tight', pad_inches=0.1, facecolor='white')
+print(f'Saved SVG: {OUT}/fig-33.1.1-ai-readiness-bars.svg')
