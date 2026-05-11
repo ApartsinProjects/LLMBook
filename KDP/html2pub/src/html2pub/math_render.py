@@ -16,6 +16,21 @@ from html2pub.config import MathSpec
 
 RENDER_SCRIPT = Path(__file__).parent / "render_math.js"
 
+# TeX-source rewrites applied BEFORE KaTeX rendering. Two purposes:
+#   1. Schema-valid MathML output (avoids epubcheck RSC-005 errors where
+#      KaTeX emits an `<mo>` inside `<msub>` for `\text{...}` subscripts).
+#   2. \mathrm renders identically to \text for alphanumeric-only content
+#      (the visual difference only matters when \text contains spaces or
+#      punctuation, which we leave untouched).
+import re as _re
+# Match \text{XXX} where XXX is letters/digits/underscore only — safe to
+# rewrite to \mathrm. Skip cases with spaces, accented chars, or escapes.
+_TEXT_TO_MATHRM = _re.compile(r"\\text\{([A-Za-z0-9_]+)\}")
+
+
+def _rewrite_tex(tex: str) -> str:
+    return _TEXT_TO_MATHRM.sub(r"\\mathrm{\1}", tex)
+
 
 def render(soup: BeautifulSoup, math_cfg: MathSpec) -> int:
     """Render math in-place; returns count rendered."""
@@ -39,7 +54,7 @@ def render(soup: BeautifulSoup, math_cfg: MathSpec) -> int:
             if not tex:
                 continue
             display = ("math-block" in cls) or tex_raw.strip().startswith("$$")
-            items.append({"id": str(len(items)), "tex": tex, "display": display})
+            items.append({"id": str(len(items)), "tex": _rewrite_tex(tex), "display": display})
             targets.append(("element", el))
 
     # 2. text nodes with $$...$$ or \(...\) or \[...\]
@@ -165,7 +180,7 @@ def _split_text(s: str, items: list):
         if start > pos:
             parts.append(("text", s[pos:start]))
         mid = str(len(items))
-        items.append({"id": mid, "tex": tex, "display": display})
+        items.append({"id": mid, "tex": _rewrite_tex(tex), "display": display})
         parts.append(("math", mid))
         pos = close_pos + len(close_d)
         found = True

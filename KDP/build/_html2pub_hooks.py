@@ -187,10 +187,42 @@ def slim_chapter_index_sections_list(soup: BeautifulSoup, src_rel: str) -> int:
 # Inline math: ensure $...$ and <span class="math"> become inline-aligned
 # ----------------------------------------------------------------------
 def fix_math_alignment(soup: BeautifulSoup) -> int:
-    """Add `katex-rendered` class + strip KaTeX ZWSP markers + force explicit
-    `<span></span>` closing on empty KaTeX spans (so EPUB readers that fall
-    back to HTML parsing don't misinterpret `<span/>` as an opening-only tag).
+    """Post-process MathML output: strip TeX annotation (would leak as
+    fallback text on non-MathML readers), add katex-rendered class, and
+    mark display vs inline math for CSS targeting.
+
+    Historical: this used to handle KaTeX HTML output which had ~400 empty
+    structural spans per chapter (strut/pstrut/vlist) — Kindle painted those
+    as tofu (■). We now render math as MathML (single <math> element), so
+    those issues are gone. The legacy span-cleanup code below is kept as a
+    safety net for any HTML-mode renders that slip through.
     """
+    # Strip <annotation> tags: when Kindle falls back from MathML to plain
+    # text, these would display the raw TeX source like "(x_1, x_2, T)".
+    for ann in soup.find_all("annotation"):
+        ann.decompose()
+    # KaTeX bug: when an operator with limits (\max, \min, \sup, \inf) is used
+    # as a subscript (e.g., D_{\max}), KaTeX emits a trailing
+    # <mo>&#x2061;</mo> (function application, invisible) INSIDE the <msub>,
+    # which violates the MathML schema (msub takes exactly 2 children) and
+    # triggers epubcheck RSC-005. The character is invisible — safe to strip.
+    for parent in soup.find_all(["msub", "msup", "msubsup"]):
+        for child in list(parent.find_all("mo", recursive=False)):
+            txt = child.get_text() or ""
+            # U+2061 (function application), U+2062 (invisible times),
+            # U+2063 (invisible separator), U+2064 (invisible plus)
+            if any(c in txt for c in ("⁡", "⁢", "⁣", "⁤")):
+                child.decompose()
+    # Mark wrappers
+    for el in soup.find_all(class_=lambda c: c and "katex" in c):
+        cls = el.get("class") or []
+        if "katex-rendered" not in cls:
+            cls = list(cls) + ["katex-rendered"]
+            el["class"] = cls
+        parent = el.parent
+        if parent and "math-block" in (parent.get("class") or []):
+            if "katex-display" not in cls:
+                el["class"] = cls + ["katex-display"]
     n = 0
     n_zwsp = 0
     n_closed = 0

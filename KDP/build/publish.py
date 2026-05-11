@@ -66,10 +66,10 @@ def fail(msg: str) -> None:
     print(_color(31, f"  [FAIL] {msg}"))
 
 
-def run(cmd: list[str], log_path: Path | None = None) -> tuple[int, str]:
+def run(cmd: list[str], log_path: Path | None = None, env: dict | None = None) -> tuple[int, str]:
     """Run a subprocess; capture combined output. Tee to log file if given."""
     print(f"  $ {' '.join(cmd)}")
-    proc = subprocess.run(cmd, cwd=str(PROJECT_ROOT), capture_output=True, text=True, encoding="utf-8")
+    proc = subprocess.run(cmd, cwd=str(PROJECT_ROOT), capture_output=True, text=True, encoding="utf-8", env=env)
     out = (proc.stdout or "") + (proc.stderr or "")
     if log_path:
         log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -215,8 +215,14 @@ def step_build_epub(quick: bool) -> int:
         warn("quick mode requested — html2pub honors [images] settings in html2pub.toml; "
              "for smaller files temporarily lower max_side/jpeg_quality and re-run.")
 
+    # Make project-local plugin module (_html2pub_hooks.py) importable
+    import os as _os
+    _env = _os.environ.copy()
+    _bd = str(BUILD_DIR)
+    _env["PYTHONPATH"] = _bd + _os.pathsep + _env.get("PYTHONPATH", "")
+
     log = LOG_DIR / f"build_{ts()}.log"
-    rc, out = run(cmd, log)
+    rc, out = run(cmd, log, env=_env)
     if rc != 0:
         fail("build failed")
         print(out[-2000:])
