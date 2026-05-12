@@ -302,4 +302,46 @@ document.addEventListener('DOMContentLoaded', function () {
     pe.parentNode.insertBefore(details, pe);
     details.appendChild(pe);
   });
+
+  // 10. Google-like search results (v6.37): Pagefind UI prefixes each result
+  //     title with "[Part X › Ch Y]  Real Title" because we cannot inject HTML
+  //     into result.meta.title (Pagefind UI escapes it). After Pagefind renders
+  //     a result, lift the prefix out of the link text and into a separate
+  //     <span class="pf-breadcrumb"> placed BEFORE the title — like Google's
+  //     URL/breadcrumb path above the page title.
+  function liftBreadcrumbs(root) {
+    var links = root.querySelectorAll('.pagefind-ui__result-link');
+    links.forEach(function (a) {
+      if (a.dataset.pfBcDone) return;
+      var text = a.textContent || '';
+      var m = text.match(/^\[([^\]]+)\]\s+(.+)$/);
+      if (!m) { a.dataset.pfBcDone = '1'; return; }
+      var crumb = m[1];
+      var title = m[2];
+      // Title may already contain Pagefind <mark> highlights — preserve them
+      // by using the link's existing innerHTML and stripping the prefix.
+      var html = a.innerHTML;
+      var prefixEnd = html.indexOf(']');
+      if (prefixEnd !== -1) {
+        // Remove "[crumb]  " prefix from the link's HTML (preserves <mark>)
+        html = html.slice(prefixEnd + 1).replace(/^\s+/, '');
+        a.innerHTML = html;
+      }
+      // Insert a small breadcrumb element BEFORE the link's parent <p>
+      var titleP = a.closest('p, .pagefind-ui__result-title') || a.parentNode;
+      var bc = document.createElement('div');
+      bc.className = 'pf-breadcrumb';
+      bc.textContent = crumb;
+      titleP.parentNode.insertBefore(bc, titleP);
+      a.dataset.pfBcDone = '1';
+    });
+  }
+  // Watch the search container for new results
+  var searchEl = document.getElementById('search');
+  if (searchEl && window.MutationObserver) {
+    var mo = new MutationObserver(function (mutations) {
+      liftBreadcrumbs(searchEl);
+    });
+    mo.observe(searchEl, { childList: true, subtree: true });
+  }
 });
