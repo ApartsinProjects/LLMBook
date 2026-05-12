@@ -172,24 +172,33 @@ class ImageBundle:
         return bundled
 
     def _reencode(self, full: Path) -> tuple[bytes, str, str]:
-        """Resize and (where appropriate) JPEG-ify a raster image."""
+        """Resize and (where appropriate) JPEG-ify a raster image.
+
+        Strategy: figures inside the EPUB always render on a white page
+        background. So we ALWAYS composite onto white and emit JPEG, which
+        compresses dramatically better than RGBA PNG. This removes the
+        Mermaid-leaves-transparent-corners bloat (saves ~15 MB across the
+        book). The only exception is small icons / logos where preserving
+        edge transparency matters; those are bundled from styles/icons/
+        through a different code path.
+        """
         with Image.open(full) as im:
             im.load()
             w, h = im.size
 
-            # Decide target format
-            has_alpha = (im.mode in ("RGBA", "LA", "P")
-                         and ("transparency" in im.info or im.mode in ("RGBA", "LA")))
-            if has_alpha:
-                out_mode = "RGBA"
-                out_ext = "png"
-                out_mime = "image/png"
+            # Composite onto white background (handles RGBA, LA, palette-with-
+            # transparency, and the common case of Mermaid PNGs with alpha=0
+            # in the corner padding).
+            if im.mode in ("RGBA", "LA", "P"):
+                rgba = im.convert("RGBA")
+                white_bg = Image.new("RGB", rgba.size, (255, 255, 255))
+                white_bg.paste(rgba, mask=rgba.split()[-1])
+                im = white_bg
             else:
-                out_mode = "RGB"
-                out_ext = "jpg"
-                out_mime = "image/jpeg"
+                im = im.convert("RGB")
 
-            im = im.convert(out_mode)
+            out_ext = "jpg"
+            out_mime = "image/jpeg"
 
             # Downscale if longest side > max_side
             if max(w, h) > self.max_side:
