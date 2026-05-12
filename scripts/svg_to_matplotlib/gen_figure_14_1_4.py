@@ -52,5 +52,5 @@ ax.spines['right'].set_visible(False)
 ax.grid(False)
 
 outpath = os.path.join(os.path.dirname(__file__),
-    '../../part-4-training-adapting/module-14-fine-tuning-fundamentals/images/figure-14.1.4.png')
+    '../../part-4-training-adapting/module-14-fine-tuning-fundamentals/images/figure-14.1.3.png')
 save_figure(fig, os.path.abspath(outpath))
