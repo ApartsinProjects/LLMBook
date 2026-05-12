@@ -172,3 +172,50 @@ process the remaining 39 candidates; they would mostly be no-ops.
 **Wave 5 conclusion**: the 43 FIX candidates are marked KEEP. Only the
 2 verified defects (training-loop, error-recovery) actually needed
 intervention.
+
+## Wave 6 — REWORK-AS-Gemini triage results (2026-05-12)
+
+5 candidates flagged by metaphor-keyword detection in `.mmd` label text:
+
+| Candidate | Audit flag | Verdict |
+|---|---|---|
+| fig-32.4.2-world-model-architecture | "imagined rollouts" | KEEP (RL terminology; formal architecture with math notation) |
+| fig-34.4-world-model | "dreams" | KEEP (literal V-M-C paper terminology, "dream training") |
+| fig-18.8.1-rag-ingestion-pipeline | "pipeline" | KEEP (concrete tools: Confluence, OAuth, vector DB) |
+| fig-25.6.1-robot-cloud-edge-hierarchy | "clean the kitchen" | KEEP (worked-example goal, not analogy) |
+| fig-28.9.1-k8s-llm-stack | "stack" | KEEP (3-layer K8s architecture with named operators) |
+
+False-positive rate: 100% (5/5). The metaphor-keyword detector fires
+on incidental vocabulary in technical diagrams (RL terms from papers,
+worked-example goals, generic words like "pipeline" and "stack").
+
+## Audit closeout summary
+
+Across 168 Mermaid diagrams (waves 2, 5, 6) the text-only audit's
+"action required" verdicts had these false-positive rates:
+
+| Verdict | Candidates | False positives | Real |
+|---|---|---|---|
+| DROP | 19 | 17 (89%) | 1 orphan + 2 promoted to FIX |
+| FIX | 43+2 | ~80%+ (sampled) | 2 verified defects |
+| REWORK-AS-Gemini | 5 | 5 (100%) | 0 |
+| REWORK-AS-matplotlib | 3 | 3 (100%, all already charts) | 0 |
+
+**Takeaway**: the v6.50 text-only heuristic should not be used as the
+sole signal for diagram action. Useful as a *triage filter* to surface
+candidates, but every flagged item needs visual verification of the
+rendered PNG. The single most reliable signal across all 3 axes was
+visual inspection.
+
+Real defects fixed across all waves:
+- 1 caption mismatch (fig-13.1.2 seed-data text on annotation-cost chart)
+- 1 orphan diagram dropped (fig-4.1.9-residual-stream)
+- 3 chapter-opener typos (Imagen-mangled text in ch16/17/18 openers)
+- 5 caption/file-id mismatches across 4 chapters
+- 1 orphan illustration adopted (rlvr-auto-graded-exam to section 16.4)
+- 2 publishing defects (training-loop clipping, error-recovery overlap)
+
+Tools/scripts added:
+- scripts/images/add_chapter_title.py (PIL title overlay for Gemini openers)
+- scripts/images/svg_to_png.cjs (puppeteer SVG→PNG renderer)
+- Wave-level documentation in this file
