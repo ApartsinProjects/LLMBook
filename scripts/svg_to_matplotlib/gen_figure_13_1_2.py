@@ -53,17 +53,13 @@ ax.set_yticklabels([m[0] for m in METHODS], fontsize=10)
 ax.invert_yaxis()
 ax.set_xlabel('Cost per training example (USD, log scale)', fontsize=11)
 ax.set_title('Annotation cost per example across sourcing methods',
-             fontsize=13, pad=12)
+             fontsize=13, pad=24)
+# Subtitle line below the main title, well above the first bar.
+ax.text(0.5, 1.04, '~10,000× cost spread end-to-end',
+        transform=ax.transAxes, ha='center', va='bottom',
+        fontsize=10, color='#666', style='italic')
 ax.grid(True, axis='x', which='both', alpha=0.25)
 ax.set_axisbelow(True)
-
-# Annotate the cost ratio
-ax.annotate(
-    '10,000× cheaper end-to-end',
-    xy=(0.001, 3), xytext=(0.7, 3.4),
-    fontsize=10, color='#444', style='italic',
-    arrowprops=dict(arrowstyle='->', color='#888', lw=1.0, connectionstyle='arc3,rad=-0.3'),
-)
 
 OUT = (Path(__file__).resolve().parent.parent.parent /
        'part-4-training-adapting/module-13-synthetic-data/images')
