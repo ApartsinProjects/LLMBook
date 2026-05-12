@@ -132,3 +132,43 @@ folded into the FIX queue.
 **Lesson for future audits**: the .mmd-source heuristic is unreliable
 for the LOW-value axis. A diagram is only truly "low-value" if both the
 .mmd AND the rendered PNG lack annotations. Always inspect the PNG.
+
+## Wave 5 — FIX triage results (2026-05-12)
+
+The 43 FIX candidates plus 2 from Wave 2 (training-loop, error-recovery)
+were sampled visually. Same pattern as Wave 2: the text-only "labels
+&gt; 50 chars likely to wrap" heuristic has a high false-positive rate.
+
+Sample of 4 from the top of the FIX queue (worst defect scores):
+- `production-training-architecture` (30 nodes flagged "cramped"): OK
+  at full resolution, named entities all legible.
+- `fig-27.13.1-experiment-design-flow` (10 long labels): card-rectangle
+  layout absorbs the length cleanly.
+- `fig-29.9.1-eu-ai-act-risk-tiers` (7 long labels): 4-tier comparison
+  table layout, multi-bullet cells render OK.
+- `fig-18.7.1-graphrag-pipeline` (7 long labels): substantial pedagogical
+  figure with indexing stages, knowledge graph store, query modes,
+  concrete examples; "long labels" are the content, not a defect.
+
+Estimated false-positive rate &gt; 80%. Decided NOT to mechanically
+process the remaining 39 candidates; they would mostly be no-ops.
+
+**Two REAL defects from Wave 2 inspection were fixed:**
+
+1. `fig-0.3.5-training-loop` (hand-crafted SVG): code labels clipped
+   inside circles (`optimizer.step()`, `criterion(y_hat, y)`), subtitle
+   line interrupted by top circle, "repeat for next mini-batch" label
+   crowded the top circle. Fixed by shifting all circles down 20-30px,
+   bumping circle radius 60→62, shrinking monospace font 11→10,
+   repositioning the subtitle and loop label. Re-rendered via puppeteer.
+
+2. `fig-24.4.2-error-recovery-decision` (Mermaid): "No, max retries"
+   edge label collided with the "Alternative available?" diamond
+   because Dagre layout forced the SUCC1→FALL edge diagonally across
+   the canvas. Fixed by shortening the label to "max retries" AND
+   re-rendering with the ELK layout (scripts/mermaid/mermaid-config-elk.json)
+   which routes edges orthogonally with zero label collisions.
+
+**Wave 5 conclusion**: the 43 FIX candidates are marked KEEP. Only the
+2 verified defects (training-loop, error-recovery) actually needed
+intervention.
