@@ -858,26 +858,8 @@ def get_all_diagrams():
     "Causal lower-triangular attention mask: each position attends only to previous positions",
     700)
 
-    add("sec4.1-residual-stream", """flowchart LR
-    EMB["<b>x_embed</b>"]
-    A1["<b>Attn 1</b>"]
-    F1["<b>FFN 1</b>"]
-    A2["<b>Attn 2</b>"]
-    F2["<b>FFN 2</b>"]
-    OUT["<b>Output</b>"]
-
-    EMB -->|"+ residual"| A1 -->|"+ residual"| F1 -->|"+ residual"| A2 -->|"+ residual"| F2 -->|"..."| OUT
-
-    style EMB fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
-    style A1 fill:#f3e5f5,stroke:#6a1b9a,stroke-width:2px
-    style F1 fill:#fff3e0,stroke:#e65100,stroke-width:2px
-    style A2 fill:#f3e5f5,stroke:#6a1b9a,stroke-width:2px
-    style F2 fill:#fff3e0,stroke:#e65100,stroke-width:2px
-    style OUT fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px""",
-    "part-1-foundations/module-04-transformer-architecture/section-4.1.html", 4,
-    "images/fig-4.1.9-residual-stream.png",
-    "Residual stream: each sub-layer reads from and adds back to a shared communication channel",
-    1200)
+    # sec4.1-residual-stream: dropped per Wave 2 audit (orphan, never embedded;
+    # prose redundancy without sidebar annotations). See KDP/MERMAID_AUDIT_HIGHLIGHTS.md
 
     add("sec4.2-decoder-only", """flowchart TB
     EMB["<b>Token + Position<br/>Embedding</b>"]
