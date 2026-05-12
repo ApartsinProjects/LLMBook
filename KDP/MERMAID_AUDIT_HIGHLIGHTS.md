@@ -109,3 +109,26 @@ move long text to captions). Top offenders:
    pipeline that produced them.
 
 The 98 KEEP figures need no action.
+
+## Wave 2 — DROP triage results (2026-05-12)
+
+19 DROP candidates manually inspected against rendered PNGs (not just
+.mmd source). The text-only heuristic had an **89% false-positive rate**
+on this axis: rendered diagrams almost always include SVG sidebar
+annotations (How-it-works boxes, Key-idea footers, worked-example
+values) that the .mmd source does not capture.
+
+| Verdict | Count | Files |
+|---|---|---|
+| KEEP (false positive) | 17 | comp-graph, rl-loop, elmo-layers, vanishing-grad, complexity, logit-lens, token-to-dollar-pipeline, bayesian, speculative-decoding, function-calling-loop, 10.3-svg1, 11.2-svg1, 11.2-svg2, 11.3-svg1, memory-taxonomy, 24.4.2-error-recovery, 26.1.2-fim |
+| DROP | 1 | `fig-4.1.9-residual-stream` (orphan; never embedded in any HTML; pure prose redundancy without annotations) |
+| Move to FIX queue | 1 | `fig-0.3.5-training-loop` (text clipped inside circles) |
+| Bonus FIX flag | +1 | `fig-24.4.2-error-recovery-decision` (label "No, max retries" overlaps the "Alternative available?" diamond) |
+
+**Action taken**: deleted the residual-stream files + removed the entry
+from `scripts/mermaid/generate_all_mermaid.py`. Two FIX-flagged diagrams
+folded into the FIX queue.
+
+**Lesson for future audits**: the .mmd-source heuristic is unreliable
+for the LOW-value axis. A diagram is only truly "low-value" if both the
+.mmd AND the rendered PNG lack annotations. Always inspect the PNG.
