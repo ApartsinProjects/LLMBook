@@ -50,6 +50,7 @@ DETECTORS: list[tuple[str, str, str]] = [
     ('_v701_audit_broken_navs.py',          'chapter-nav junk text (orphan anchors)',        'fatal'),
     ('_v702_bump_footer_edition.py',        'stale footer edition strings',                  'fatal'),
     ('_v703_audit_main_close_placement.py', '</main> placement (page-stretch bug)',          'fatal'),
+    ('_v715_audit_unclosed_lab.py',         'unclosed <div class="lab"> containers',         'fatal'),
     ('run_epubcheck.py',                    'EPUBCheck 5.2.1 (EPUB 3.3 conformance)',        'fatal'),
 ]
 
