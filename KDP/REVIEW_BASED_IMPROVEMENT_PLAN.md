@@ -156,8 +156,8 @@ The book is **adoption-blocked** for graduate courses today (numbering, broken c
 #### Deliverables
 1. Reconcile chapter-numbering metadata across the entire book.
    - Sweep every `<title>`, `<h1>`, `<div class="chapter-label">`, `data-pagefind-meta="chapter:..."`, `data-pagefind-meta="part:..."` so they all reflect the canonical numbering (Chapter 0–34 with the directory names as the source of truth).
-   - Particular hotspots: `module-20-ai-agents/*` (currently 22.x in metadata), `module-22-multi-agent-systems/*` (currently 20.x in metadata), `module-24-agent-safety-production/*`, `module-26-llm-applications/*`, `module-31-interpretability/*` ("Part 10" with no name), `module-33-idea-to-product/*`, `module-34-shipping-scaling/*`.
-2. De-duplicate Chapter 20 index entries — confirm 20.4 and 20.6 each appear exactly once with their canonical title.
+   - Particular hotspots: `module-21-ai-agents/*` (currently 22.x in metadata), `module-23-multi-agent-systems/*` (currently 20.x in metadata), `module-25-agent-safety-production/*`, `module-27-llm-applications/*`, `module-10-interpretability/*` ("Part 10" with no name), `module-34-idea-to-product/*`, `module-35-shipping-scaling/*`.
+2. De-duplicate Chapter 21 index entries — confirm 20.4 and 20.6 each appear exactly once with their canonical title.
 3. Replace `REPLACE-WITH-ASIN` and `ISBN: TBA` placeholders in `index.html`. If the ASIN is not yet assigned, hide the buy-now button entirely (don't render it).
 4. Build a **`KDP/build/_v660_audit_chapter_metadata.py`** detector that:
    - Reads canonical chapter→title→number mapping from `BOOK_CONFIG.md`
@@ -181,11 +181,11 @@ The book is **adoption-blocked** for graduate courses today (numbering, broken c
 #### Deliverables
 1. Re-run `python_structure_audit.csv` (already exists per staff-engineer review) and process every flagged code block.
 2. Specifically fix the named flagship examples:
-   - `section-10.3.html` Code Fragment 10.3.3 (`CircuitBreaker`)
-   - `section-28.4.html` Code Fragments 28.4.1, 28.4.2, 28.4.3 (`PromptRegistry`, `ABExperiment`, `FeedbackCollector`)
-   - `section-28.3.html` (`TokenBucket`, `BackpressureQueue`)
-   - `section-28.1.html` FastAPI chat endpoint (lines 154–180)
-   - `section-24.1.html` `SecureAgentExecutor` (lines 75–113)
+   - `section-11.3.html` Code Fragment 11.3.3 (`CircuitBreaker`)
+   - `section-29.4.html` Code Fragments 28.4.1, 28.4.2, 28.4.3 (`PromptRegistry`, `ABExperiment`, `FeedbackCollector`)
+   - `section-29.3.html` (`TokenBucket`, `BackpressureQueue`)
+   - `section-29.1.html` FastAPI chat endpoint (lines 154–180)
+   - `section-25.1.html` `SecureAgentExecutor` (lines 75–113)
 3. Build a **`KDP/build/_v661_validate_python_blocks.py`** that:
    - Extracts every `<pre><code class="lang-python">` block
    - Strips Pygments span tags
@@ -243,7 +243,7 @@ The book is **adoption-blocked** for graduate courses today (numbering, broken c
 - Cross-reference forward from ch 14, 18, 20.
 
 #### Bridge 2: The Proxy Problem (Goodhart's Law) (D11, D33)
-- New big-picture callout opening `section-27.1.html` explicitly framing **Goodhart's Law** as the governing challenge of LLM evaluation.
+- New big-picture callout opening `section-28.1.html` explicitly framing **Goodhart's Law** as the governing challenge of LLM evaluation.
 - New "Proxy-Failure Taxonomy" callout (4 quadrants: distributional shift, overfitting the proxy, proxy insensitivity, proxy unfaithfulness).
 - Cross-reference from ch 16 (reward hacking), ch 18 (citation hallucination), ch 27 (benchmark saturation), ch 31 (attention-not-causation), ch 32 (metric mirage).
 - Add benchmark-contamination subsection citing Golchin/Surdeanu 2023, Yang 2023, Oren 2024.
@@ -254,8 +254,8 @@ The book is **adoption-blocked** for graduate courses today (numbering, broken c
 - Add Process Reward Models (PRM) section in ch 16.1 citing Lightman et al. 2023; explicitly connect to chain-of-thought training in DeepSeek-R1.
 
 #### Bridge 4: Induction Heads Mechanistic Bridge (D14, D37)
-- New "Why Few-Shot Works" callout in `section-11.1.html` (≈ 200 words), citing Olsson et al. 2022 induction heads + Xie et al. 2022 Bayesian-ICL.
-- Cross-reference forward to `section-31.1.html` mechanistic-interpretability treatment of induction heads.
+- New "Why Few-Shot Works" callout in `section-12.1.html` (≈ 200 words), citing Olsson et al. 2022 induction heads + Xie et al. 2022 Bayesian-ICL.
+- Cross-reference forward to `section-10.1.html` mechanistic-interpretability treatment of induction heads.
 - Backward reference from ch 31 to "this is the mechanism behind the few-shot prompting in section 11.1."
 
 #### Bridge 5: Alignment Verification Gap (D16)
@@ -526,7 +526,7 @@ The book is **adoption-blocked** for graduate courses today (numbering, broken c
   - OpenAI Codex CLI (April 2025) added to the tool survey.
 
 **Reasoning models scoping (D67)**
-- Add scoping signals: Ch 7 should say "landscape overview, details in Ch 8"; Ch 8 should be canonical deep treatment; Section 20.3 should explicitly say "applying what you learned in Ch 8" and limit itself to agent-specific configuration concerns (thinking budgets, when to call o3 vs faster model).
+- Add scoping signals: Ch 7 should say "landscape overview, details in Ch 8"; Ch 8 should be canonical deep treatment; Section 21.3 should explicitly say "applying what you learned in Ch 8" and limit itself to agent-specific configuration concerns (thinking budgets, when to call o3 vs faster model).
 
 **Talent-show / closed-book metaphor revisit (D72, D73)**
 - Either retire or qualify the exhausted metaphors:
@@ -549,8 +549,8 @@ The book is **adoption-blocked** for graduate courses today (numbering, broken c
 - 3 intermediate projects exist + are linked from front-matter syllabus pages
 - Reading pathways include per-section guidance
 - ≥ 5 named war stories with public sources
-- Section 23.4 has workflow-design subsection
-- Section 20.3 + Ch 7 + Ch 8 have explicit scoping signals
+- Section 24.4 has workflow-design subsection
+- Section 21.3 + Ch 7 + Ch 8 have explicit scoping signals
 - Per-chapter epigraph density: 1 epigraph per chapter (the chapter opener), not per section
 
 ---

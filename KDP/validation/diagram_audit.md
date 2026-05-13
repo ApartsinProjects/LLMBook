@@ -32,20 +32,20 @@ _Generated from `KDP/validation/_raw/audit_full.json` (4,209 total issues across
 | Module | Diagram issues |
 |--------|----------------|
 | `front-matter` | 101 |
-| `part-8-evaluation-production/module-29-evaluation-observability` | 80 |
-| `part-9-safety-strategy/module-32-safety-ethics-regulation` | 73 |
+| `part-8-evaluation-production/module-30-evaluation-observability` | 80 |
+| `part-9-safety-strategy/module-33-safety-ethics-regulation` | 73 |
 | `part-2-understanding-llms/module-06-pretraining-scaling-laws` | 70 |
-| `part-8-evaluation-production/module-31-production-engineering` | 68 |
-| `part-5-retrieval-conversation/module-20-rag` | 66 |
-| `part-9-safety-strategy/module-33-strategy-product-roi` | 63 |
-| `part-5-retrieval-conversation/module-19-embeddings-vector-db` | 62 |
+| `part-8-evaluation-production/module-10-production-engineering` | 68 |
+| `part-5-retrieval-conversation/module-21-rag` | 66 |
+| `part-9-safety-strategy/module-34-strategy-product-roi` | 63 |
+| `part-5-retrieval-conversation/module-20-embeddings-vector-db` | 62 |
 | `part-2-understanding-llms/module-09-inference-optimization` | 52 |
 | `part-1-foundations/module-04-transformer-architecture` | 48 |
-| `part-4-training-adapting/module-13-synthetic-data` | 45 |
+| `part-4-training-adapting/module-14-synthetic-data` | 45 |
 | `part-1-foundations/module-01-foundations-nlp-text-representation` | 43 |
 | `part-1-foundations/module-02-tokenization-subword-models` | 42 |
-| `part-2-understanding-llms/module-18-interpretability` | 40 |
-| `part-3-working-with-llms/module-11-prompt-engineering` | 38 |
+| `part-2-understanding-llms/module-19-interpretability` | 40 |
+| `part-3-working-with-llms/module-12-prompt-engineering` | 38 |
 
 ## HIGH-severity issues (fix before KDP submission)
 
@@ -59,7 +59,7 @@ First 10 examples:
 
 | File | Line | Detail |
 |------|------|--------|
-| `front-matter/section-fm.4.html` | 139 | 'Code Fragment 11.2.3' referenced in prose but no caption defines it |
+| `front-matter/section-fm.4.html` | 139 | 'Code Fragment 12.2.3' referenced in prose but no caption defines it |
 | `front-matter/section-fm.4.html` | 140 | 'Figure 4.1.2' referenced in prose but no caption defines it |
 | `part-11-idea-to-product/module-38-shipping-scaling/section-38.5.html` | 62 | 'Code Fragment 38.5.1' referenced in prose but no caption defines it |
 | `part-11-idea-to-product/module-38-shipping-scaling/section-38.5.html` | 68 | 'Code Fragment 38.5.2' referenced in prose but no caption defines it |
@@ -77,16 +77,16 @@ First 10 examples:
 
 | File | Line | Detail |
 |------|------|--------|
-| `part-8-evaluation-production/module-29-evaluation-observability/section-29.11.html` | 168 | Duplicate "Code Fragment 29.11.2" on lines: 168, 202 |
-| `part-8-evaluation-production/module-29-evaluation-observability/section-29.11.html` | 302 | Duplicate "Code Fragment 29.11.5" on lines: 302, 572 |
-| `part-8-evaluation-production/module-29-evaluation-observability/section-29.11.html` | 572 | Duplicate "Code Fragment 29.11.7" on lines: 572, 666, 713 |
-| `part-8-evaluation-production/module-29-evaluation-observability/section-29.12.html` | 150 | Duplicate "Code Fragment 29.12.2" on lines: 150, 252 |
-| `part-8-evaluation-production/module-29-evaluation-observability/section-29.12.html` | 366 | Duplicate "Code Fragment 29.12.3" on lines: 366, 579 |
-| `part-8-evaluation-production/module-29-evaluation-observability/section-29.12.html` | 366 | Duplicate "Code Fragment 29.12.5" on lines: 366, 579 |
-| `part-8-evaluation-production/module-29-evaluation-observability/section-29.13.html` | 125 | Duplicate "Code Fragment 29.13.2" on lines: 125, 302 |
-| `part-8-evaluation-production/module-29-evaluation-observability/section-29.13.html` | 302 | Duplicate "Code Fragment 29.13.5" on lines: 302, 570, 747 |
-| `part-8-evaluation-production/module-29-evaluation-observability/section-29.14.html` | 153 | Duplicate "Code Fragment 29.14.2" on lines: 153, 248 |
-| `part-8-evaluation-production/module-30-observability-monitoring/section-30.5.html` | 266 | Duplicate "Code Fragment 30.5.8" on lines: 266, 653 |
+| `part-8-evaluation-production/module-30-evaluation-observability/section-30.11.html` | 168 | Duplicate "Code Fragment 30.11.2" on lines: 168, 202 |
+| `part-8-evaluation-production/module-30-evaluation-observability/section-30.11.html` | 302 | Duplicate "Code Fragment 30.11.5" on lines: 302, 572 |
+| `part-8-evaluation-production/module-30-evaluation-observability/section-30.11.html` | 572 | Duplicate "Code Fragment 30.11.7" on lines: 572, 666, 713 |
+| `part-8-evaluation-production/module-30-evaluation-observability/section-30.12.html` | 150 | Duplicate "Code Fragment 30.12.2" on lines: 150, 252 |
+| `part-8-evaluation-production/module-30-evaluation-observability/section-30.12.html` | 366 | Duplicate "Code Fragment 30.12.3" on lines: 366, 579 |
+| `part-8-evaluation-production/module-30-evaluation-observability/section-30.12.html` | 366 | Duplicate "Code Fragment 30.12.5" on lines: 366, 579 |
+| `part-8-evaluation-production/module-30-evaluation-observability/section-30.13.html` | 125 | Duplicate "Code Fragment 30.13.2" on lines: 125, 302 |
+| `part-8-evaluation-production/module-30-evaluation-observability/section-30.13.html` | 302 | Duplicate "Code Fragment 30.13.5" on lines: 302, 570, 747 |
+| `part-8-evaluation-production/module-30-evaluation-observability/section-30.14.html` | 153 | Duplicate "Code Fragment 30.14.2" on lines: 153, 248 |
+| `part-8-evaluation-production/module-31-observability-monitoring/section-31.5.html` | 266 | Duplicate "Code Fragment 31.5.8" on lines: 266, 653 |
 | ... | ... | _and 31 more_ |
 
 ### `SVG_OVERLAP` (150 occurrences)
@@ -104,9 +104,9 @@ First 10 examples:
 | `capstone/requirements.html` | 242 | Overlapping panels at y~8.0: [x=8.0,w=200.0] and [x=8.0,w=180.0] overlap by 200px |
 | `capstone/requirements.html` | 242 | Overlapping panels at y~8.0: [x=8.0,w=180.0] and [x=8.0,w=200.0] overlap by 180px |
 | `capstone/requirements.html` | 242 | Overlapping panels at y~8.0: [x=8.0,w=200.0] and [x=8.0,w=200.0] overlap by 200px |
-| `part-9-safety-strategy/module-32-safety-ethics-regulation/section-32.1.html` | 72 | Overlapping panels at y~0.15: [x=6.0,w=190.0] and [x=6.0,w=190.0] overlap by 190px |
-| `part-9-safety-strategy/module-32-safety-ethics-regulation/section-32.1.html` | 72 | Overlapping panels at y~50.0: [x=12.0,w=260.0] and [x=12.0,w=260.0] overlap by 260px |
-| `part-9-safety-strategy/module-32-safety-ethics-regulation/section-32.1.html` | 72 | Overlapping panels at y~50.0: [x=12.0,w=260.0] and [x=12.0,w=260.0] overlap by 260px |
+| `part-9-safety-strategy/module-33-safety-ethics-regulation/section-33.1.html` | 72 | Overlapping panels at y~0.15: [x=6.0,w=190.0] and [x=6.0,w=190.0] overlap by 190px |
+| `part-9-safety-strategy/module-33-safety-ethics-regulation/section-33.1.html` | 72 | Overlapping panels at y~50.0: [x=12.0,w=260.0] and [x=12.0,w=260.0] overlap by 260px |
+| `part-9-safety-strategy/module-33-safety-ethics-regulation/section-33.1.html` | 72 | Overlapping panels at y~50.0: [x=12.0,w=260.0] and [x=12.0,w=260.0] overlap by 260px |
 | ... | ... | _and 140 more_ |
 
 ### `SVG_TEXT_CLIPPING` (5 occurrences)
@@ -131,16 +131,16 @@ First 10 examples:
 
 | File | Line | Detail |
 |------|------|--------|
-| `part-9-safety-strategy/module-33-strategy-product-roi/section-33.1.html` | 427 | Text "Tickets" overflows circle (r=18): est 42px vs 36px diameter (+17%) |
-| `part-9-safety-strategy/module-33-strategy-product-roi/section-33.1.html` | 614 | Text "• Data pipeline setup" overflows circle (r=4): est 127px vs 8px diameter (+1488%) |
-| `part-9-safety-strategy/module-33-strategy-product-roi/section-33.1.html` | 615 | Text "• Evaluation framework" overflows circle (r=4): est 133px vs 8px diameter (+1563%) |
-| `part-9-safety-strategy/module-33-strategy-product-roi/section-33.1.html` | 617 | Text "• Governance basics" overflows circle (r=4): est 115px vs 8px diameter (+1336%) |
-| `part-5-retrieval-conversation/module-19-embeddings-vector-db/section-19.1.html` | 409 | Text "128d" overflows circle (r=5): est 24px vs 10px diameter (+142%) |
-| `part-5-retrieval-conversation/module-21-conversational-ai/section-21.1.html` | 129 | Text "• Task + chitchat" overflows circle (r=50): est 103px vs 100px diameter (+2%) |
-| `part-5-retrieval-conversation/module-21-conversational-ai/section-21.1.html` | 134 | Text "virtual assistants, retail" overflows circle (r=50): est 157px vs 100px diameter (+57%) |
-| `part-5-retrieval-conversation/module-21-conversational-ai/section-21.1.html` | 135 | Text "Structure: Medium" overflows circle (r=50): est 103px vs 100px diameter (+2%) |
-| `part-5-retrieval-conversation/module-21-conversational-ai/section-21.1.html` | 140 | Text "• Freeform topics" overflows circle (r=50): est 103px vs 100px diameter (+2%) |
-| `part-5-retrieval-conversation/module-21-conversational-ai/section-21.1.html` | 483 | Text "Response Generator (LLM)" overflows circle (r=50): est 158px vs 100px diameter (+58%) |
+| `part-9-safety-strategy/module-34-strategy-product-roi/section-34.1.html` | 427 | Text "Tickets" overflows circle (r=18): est 42px vs 36px diameter (+17%) |
+| `part-9-safety-strategy/module-34-strategy-product-roi/section-34.1.html` | 614 | Text "• Data pipeline setup" overflows circle (r=4): est 127px vs 8px diameter (+1488%) |
+| `part-9-safety-strategy/module-34-strategy-product-roi/section-34.1.html` | 615 | Text "• Evaluation framework" overflows circle (r=4): est 133px vs 8px diameter (+1563%) |
+| `part-9-safety-strategy/module-34-strategy-product-roi/section-34.1.html` | 617 | Text "• Governance basics" overflows circle (r=4): est 115px vs 8px diameter (+1336%) |
+| `part-5-retrieval-conversation/module-20-embeddings-vector-db/section-20.1.html` | 409 | Text "128d" overflows circle (r=5): est 24px vs 10px diameter (+142%) |
+| `part-5-retrieval-conversation/module-22-conversational-ai/section-22.1.html` | 129 | Text "• Task + chitchat" overflows circle (r=50): est 103px vs 100px diameter (+2%) |
+| `part-5-retrieval-conversation/module-22-conversational-ai/section-22.1.html` | 134 | Text "virtual assistants, retail" overflows circle (r=50): est 157px vs 100px diameter (+57%) |
+| `part-5-retrieval-conversation/module-22-conversational-ai/section-22.1.html` | 135 | Text "Structure: Medium" overflows circle (r=50): est 103px vs 100px diameter (+2%) |
+| `part-5-retrieval-conversation/module-22-conversational-ai/section-22.1.html` | 140 | Text "• Freeform topics" overflows circle (r=50): est 103px vs 100px diameter (+2%) |
+| `part-5-retrieval-conversation/module-22-conversational-ai/section-22.1.html` | 483 | Text "Response Generator (LLM)" overflows circle (r=50): est 158px vs 100px diameter (+58%) |
 | ... | ... | _and 7 more_ |
 
 ## MEDIUM-severity issues (fix during quality polish)
@@ -155,11 +155,11 @@ First 5 examples:
 
 | File | Line | Detail |
 |------|------|--------|
-| `part-9-safety-strategy/module-32-safety-ethics-regulation/section-32.1.html` | 246 | Caption appears BEFORE code block at line 249 (should be after) |
-| `part-9-safety-strategy/module-32-safety-ethics-regulation/section-32.10.html` | 128 | Caption appears BEFORE code block at line 131 (should be after) |
-| `part-9-safety-strategy/module-32-safety-ethics-regulation/section-32.11.html` | 181 | Caption appears BEFORE code block at line 184 (should be after) |
-| `part-9-safety-strategy/module-32-safety-ethics-regulation/section-32.12.html` | 125 | Caption appears BEFORE code block at line 128 (should be after) |
-| `part-9-safety-strategy/module-32-safety-ethics-regulation/section-32.2.html` | 157 | Caption appears BEFORE code block at line 160 (should be after) |
+| `part-9-safety-strategy/module-33-safety-ethics-regulation/section-33.1.html` | 246 | Caption appears BEFORE code block at line 249 (should be after) |
+| `part-9-safety-strategy/module-33-safety-ethics-regulation/section-33.10.html` | 128 | Caption appears BEFORE code block at line 131 (should be after) |
+| `part-9-safety-strategy/module-33-safety-ethics-regulation/section-33.11.html` | 181 | Caption appears BEFORE code block at line 184 (should be after) |
+| `part-9-safety-strategy/module-33-safety-ethics-regulation/section-33.12.html` | 125 | Caption appears BEFORE code block at line 128 (should be after) |
+| `part-9-safety-strategy/module-33-safety-ethics-regulation/section-33.2.html` | 157 | Caption appears BEFORE code block at line 160 (should be after) |
 | ... | ... | _and 90 more_ |
 
 ### `FIGURE_SEQUENCE` (90)
@@ -170,11 +170,11 @@ First 5 examples:
 
 | File | Line | Detail |
 |------|------|--------|
-| `part-9-safety-strategy/module-32-safety-ethics-regulation/section-32.1.html` | 1032 | Code Fragment 32.1.10 (line 1032) appears after Code Fragment 32.1.13 (line 970) |
-| `part-5-retrieval-conversation/module-19-embeddings-vector-db/section-19.2.html` | 160 | Figure 19.2.2 (line 160) appears after Figure 19.2.3 (line 133) |
-| `part-5-retrieval-conversation/module-20-rag/section-20.3.html` | 382 | Figure 20.3.4 (line 382) appears after Figure 20.3.4 (line 134) |
-| `part-4-training-adapting/module-16-distillation-merging/section-16.1.html` | 606 | Figure 16.1.3 (line 606) appears after Figure 16.1.6 (line 305) |
-| `part-4-training-adapting/module-16-distillation-merging/section-16.2.html` | 461 | Figure 16.2.4 (line 461) appears after Figure 16.2.5 (line 275) |
+| `part-9-safety-strategy/module-33-safety-ethics-regulation/section-33.1.html` | 1032 | Code Fragment 33.1.10 (line 1032) appears after Code Fragment 33.1.13 (line 970) |
+| `part-5-retrieval-conversation/module-20-embeddings-vector-db/section-20.2.html` | 160 | Figure 20.2.2 (line 160) appears after Figure 20.2.3 (line 133) |
+| `part-5-retrieval-conversation/module-21-rag/section-21.3.html` | 382 | Figure 21.3.4 (line 382) appears after Figure 21.3.4 (line 134) |
+| `part-4-training-adapting/module-17-distillation-merging/section-17.1.html` | 606 | Figure 17.1.3 (line 606) appears after Figure 17.1.6 (line 305) |
+| `part-4-training-adapting/module-17-distillation-merging/section-17.2.html` | 461 | Figure 17.2.4 (line 461) appears after Figure 17.2.5 (line 275) |
 | ... | ... | _and 85 more_ |
 
 ### `GENERIC_SVG_LABEL` (86)
@@ -185,11 +185,11 @@ First 5 examples:
 
 | File | Line | Detail |
 |------|------|--------|
-| `part-9-safety-strategy/module-32-safety-ethics-regulation/section-32.1.html` | 72 | Generic SVG aria-label: "Diagram" |
-| `part-9-safety-strategy/module-32-safety-ethics-regulation/section-32.1.html` | 344 | Generic SVG aria-label: "Diagram" |
-| `part-9-safety-strategy/module-32-safety-ethics-regulation/section-32.2.html` | 201 | Generic SVG aria-label: "Diagram" |
-| `part-9-safety-strategy/module-32-safety-ethics-regulation/section-32.2.html` | 279 | Generic SVG aria-label: "Diagram" |
-| `part-9-safety-strategy/module-32-safety-ethics-regulation/section-32.2.html` | 318 | Generic SVG aria-label: "Diagram" |
+| `part-9-safety-strategy/module-33-safety-ethics-regulation/section-33.1.html` | 72 | Generic SVG aria-label: "Diagram" |
+| `part-9-safety-strategy/module-33-safety-ethics-regulation/section-33.1.html` | 344 | Generic SVG aria-label: "Diagram" |
+| `part-9-safety-strategy/module-33-safety-ethics-regulation/section-33.2.html` | 201 | Generic SVG aria-label: "Diagram" |
+| `part-9-safety-strategy/module-33-safety-ethics-regulation/section-33.2.html` | 279 | Generic SVG aria-label: "Diagram" |
+| `part-9-safety-strategy/module-33-safety-ethics-regulation/section-33.2.html` | 318 | Generic SVG aria-label: "Diagram" |
 | ... | ... | _and 81 more_ |
 
 ### `SVG_ARIA_TRUNCATED` (17)
@@ -201,10 +201,10 @@ First 5 examples:
 | File | Line | Detail |
 |------|------|--------|
 | `capstone/requirements.html` | 242 | SVG aria-label appears truncated: "...owing how all 11 requirements integrate into a single system" |
-| `part-9-safety-strategy/module-33-strategy-product-roi/section-33.1.html` | 607 | SVG aria-label appears truncated: "...ram: 6. Building an AI Roadmap (6 to 18 Months) Intermediate" |
-| `part-8-evaluation-production/module-31-production-engineering/section-31.1.html` | 73 | SVG aria-label appears truncated: "...API layer) communicate through a well-defined service window" |
-| `part-8-evaluation-production/module-31-production-engineering/section-31.1.html` | 240 | SVG aria-label appears truncated: "...ram: 2. Streaming Protocols: SSE and WebSockets Intermediate" |
-| `part-7-multimodal-applications/module-27-multimodal/section-27.2.html` | 331 | SVG aria-label appears truncated: "...iagram: Architecture: Diffusion Transformers (DiT) for Video" |
+| `part-9-safety-strategy/module-34-strategy-product-roi/section-34.1.html` | 607 | SVG aria-label appears truncated: "...ram: 6. Building an AI Roadmap (6 to 18 Months) Intermediate" |
+| `part-8-evaluation-production/module-10-production-engineering/section-10.1.html` | 73 | SVG aria-label appears truncated: "...API layer) communicate through a well-defined service window" |
+| `part-8-evaluation-production/module-10-production-engineering/section-10.1.html` | 240 | SVG aria-label appears truncated: "...ram: 2. Streaming Protocols: SSE and WebSockets Intermediate" |
+| `part-7-multimodal-applications/module-28-multimodal/section-28.2.html` | 331 | SVG aria-label appears truncated: "...iagram: Architecture: Diffusion Transformers (DiT) for Video" |
 | ... | ... | _and 12 more_ |
 
 ### `SVG_PANEL_ASYM` (6)
@@ -215,11 +215,11 @@ First 5 examples:
 
 | File | Line | Detail |
 |------|------|--------|
-| `part-9-safety-strategy/module-33-strategy-product-roi/section-33.5.html` | 393 | Asymmetric panels at y~75: 650x60 vs 389x60 vs 116x60 (ratio 5.60x) |
-| `part-9-safety-strategy/module-33-strategy-product-roi/section-33.5.html` | 498 | Asymmetric panels at y~75: 650x60 vs 389x60 vs 116x60 (ratio 5.60x) |
-| `part-7-multimodal-applications/module-27-multimodal/section-27.1.html` | 256 | Asymmetric panels at y~20: 150x60 vs 200x60 (ratio 1.33x) |
-| `part-7-multimodal-applications/module-27-multimodal/section-27.1.html` | 256 | Asymmetric panels at y~150: 150x60 vs 200x60 (ratio 1.33x) |
-| `part-7-multimodal-applications/module-27-multimodal/section-27.3.html` | 126 | Asymmetric panels at y~40: 120x160 vs 160x170 (ratio 1.33x) |
+| `part-9-safety-strategy/module-34-strategy-product-roi/section-34.5.html` | 393 | Asymmetric panels at y~75: 650x60 vs 389x60 vs 116x60 (ratio 5.60x) |
+| `part-9-safety-strategy/module-34-strategy-product-roi/section-34.5.html` | 498 | Asymmetric panels at y~75: 650x60 vs 389x60 vs 116x60 (ratio 5.60x) |
+| `part-7-multimodal-applications/module-28-multimodal/section-28.1.html` | 256 | Asymmetric panels at y~20: 150x60 vs 200x60 (ratio 1.33x) |
+| `part-7-multimodal-applications/module-28-multimodal/section-28.1.html` | 256 | Asymmetric panels at y~150: 150x60 vs 200x60 (ratio 1.33x) |
+| `part-7-multimodal-applications/module-28-multimodal/section-28.3.html` | 126 | Asymmetric panels at y~40: 120x160 vs 160x170 (ratio 1.33x) |
 | ... | ... | _and 1 more_ |
 
 ### `SVG_TITLE_TEXT` (1)
@@ -230,7 +230,7 @@ First 5 examples:
 
 | File | Line | Detail |
 |------|------|--------|
-| `part-4-training-adapting/module-15-peft/section-15.4.html` | 76 | SVG title text (redundant with caption): "Insertion Points by Method" |
+| `part-4-training-adapting/module-16-peft/section-16.4.html` | 76 | SVG title text (redundant with caption): "Insertion Points by Method" |
 
 ## LOW-severity issues
 

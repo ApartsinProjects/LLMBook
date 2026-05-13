@@ -41,7 +41,7 @@ would teach more:
 - `fig-2.1.3-multilingual-tokens.mmd` — multilingual token-cost
   comparison. Should be a horizontal bar chart of token-per-char by
   language with the cost-multiplier on a secondary axis.
-- `fig-32.9.1-tool-orchestration-economy.mmd` — tool-call cost
+- `fig-33.9.1-tool-orchestration-economy.mmd` — tool-call cost
   breakdown. Should be a stacked-bar / pareto chart of cost components.
 - `section-11.3-svg2.mmd` — prompt-optimization score trajectory.
   Should be a simple line chart of score-over-iterations.
@@ -51,11 +51,11 @@ would teach more:
 These would benefit from warm-cartoon framing rather than box-and-arrow
 formality:
 
-- `fig-32.4.2-world-model-architecture.mmd`
+- `fig-33.4.2-world-model-architecture.mmd`
 - `fig-34.4-world-model.mmd`
-- `fig-18.8.1-rag-ingestion-pipeline.mmd`
-- `fig-25.6.1-robot-cloud-edge-hierarchy.mmd`
-- `fig-28.9.1-k8s-llm-stack.mmd`
+- `fig-19.8.1-rag-ingestion-pipeline.mmd`
+- `fig-26.6.1-robot-cloud-edge-hierarchy.mmd`
+- `fig-29.9.1-k8s-llm-stack.mmd`
 
 ### DROP candidates (19)
 
@@ -72,13 +72,13 @@ Top of the list:
 | `fig-3.1.3-vanishing-grad` | Step-by-step gradient flow narration |
 | `fig-4.1.9-residual-stream` | < 3 nodes; trivial |
 | `fig-4.5.2-complexity` | Sequential complexity-class hierarchy |
-| `fig-31.1.3-logit-lens` | "Layer 0 → 4 → 8 → 11" — but: each layer has a concrete prediction (the/France/Paris/Paris) which my heuristic missed. **Re-review before dropping.** |
-| `fig-34.1.1-token-to-dollar-pipeline` | "User → App → Tokenizer → API → Billing → Invoice" — but the per-step cost formulas matter. **Re-review.** |
+| `fig-10.1.3-logit-lens` | "Layer 0 → 4 → 8 → 11" — but: each layer has a concrete prediction (the/France/Paris/Paris) which my heuristic missed. **Re-review before dropping.** |
+| `fig-35.1.1-token-to-dollar-pipeline` | "User → App → Tokenizer → API → Billing → Invoice" — but the per-step cost formulas matter. **Re-review.** |
 
 **Caveat**: the auto-classifier weighs my "named-entity" list heavily;
 it doesn't recognize all PyTorch / interpretability internals. Two
-candidates (`fig-31.1.3-logit-lens` showing concrete model predictions
-per layer, and `fig-34.1.1-token-to-dollar-pipeline` showing cost
+candidates (`fig-10.1.3-logit-lens` showing concrete model predictions
+per layer, and `fig-35.1.1-token-to-dollar-pipeline` showing cost
 formulas) are likely false-positives — review the actual image before
 dropping. Apply v6.48 Policy criteria: a worked-example with concrete
 values DOES carry weight.
@@ -123,7 +123,7 @@ values) that the .mmd source does not capture.
 | KEEP (false positive) | 17 | comp-graph, rl-loop, elmo-layers, vanishing-grad, complexity, logit-lens, token-to-dollar-pipeline, bayesian, speculative-decoding, function-calling-loop, 10.3-svg1, 11.2-svg1, 11.2-svg2, 11.3-svg1, memory-taxonomy, 24.4.2-error-recovery, 26.1.2-fim |
 | DROP | 1 | `fig-4.1.9-residual-stream` (orphan; never embedded in any HTML; pure prose redundancy without annotations) |
 | Move to FIX queue | 1 | `fig-0.3.5-training-loop` (text clipped inside circles) |
-| Bonus FIX flag | +1 | `fig-24.4.2-error-recovery-decision` (label "No, max retries" overlaps the "Alternative available?" diamond) |
+| Bonus FIX flag | +1 | `fig-25.4.2-error-recovery-decision` (label "No, max retries" overlaps the "Alternative available?" diamond) |
 
 **Action taken**: deleted the residual-stream files + removed the entry
 from `scripts/mermaid/generate_all_mermaid.py`. Two FIX-flagged diagrams
@@ -142,11 +142,11 @@ were sampled visually. Same pattern as Wave 2: the text-only "labels
 Sample of 4 from the top of the FIX queue (worst defect scores):
 - `production-training-architecture` (30 nodes flagged "cramped"): OK
   at full resolution, named entities all legible.
-- `fig-27.13.1-experiment-design-flow` (10 long labels): card-rectangle
+- `fig-28.13.1-experiment-design-flow` (10 long labels): card-rectangle
   layout absorbs the length cleanly.
-- `fig-29.9.1-eu-ai-act-risk-tiers` (7 long labels): 4-tier comparison
+- `fig-30.9.1-eu-ai-act-risk-tiers` (7 long labels): 4-tier comparison
   table layout, multi-bullet cells render OK.
-- `fig-18.7.1-graphrag-pipeline` (7 long labels): substantial pedagogical
+- `fig-19.7.1-graphrag-pipeline` (7 long labels): substantial pedagogical
   figure with indexing stages, knowledge graph store, query modes,
   concrete examples; "long labels" are the content, not a defect.
 
@@ -162,7 +162,7 @@ process the remaining 39 candidates; they would mostly be no-ops.
    bumping circle radius 60→62, shrinking monospace font 11→10,
    repositioning the subtitle and loop label. Re-rendered via puppeteer.
 
-2. `fig-24.4.2-error-recovery-decision` (Mermaid): "No, max retries"
+2. `fig-25.4.2-error-recovery-decision` (Mermaid): "No, max retries"
    edge label collided with the "Alternative available?" diamond
    because Dagre layout forced the SUCC1→FALL edge diagonally across
    the canvas. Fixed by shortening the label to "max retries" AND
@@ -179,11 +179,11 @@ intervention.
 
 | Candidate | Audit flag | Verdict |
 |---|---|---|
-| fig-32.4.2-world-model-architecture | "imagined rollouts" | KEEP (RL terminology; formal architecture with math notation) |
+| fig-33.4.2-world-model-architecture | "imagined rollouts" | KEEP (RL terminology; formal architecture with math notation) |
 | fig-34.4-world-model | "dreams" | KEEP (literal V-M-C paper terminology, "dream training") |
-| fig-18.8.1-rag-ingestion-pipeline | "pipeline" | KEEP (concrete tools: Confluence, OAuth, vector DB) |
-| fig-25.6.1-robot-cloud-edge-hierarchy | "clean the kitchen" | KEEP (worked-example goal, not analogy) |
-| fig-28.9.1-k8s-llm-stack | "stack" | KEEP (3-layer K8s architecture with named operators) |
+| fig-19.8.1-rag-ingestion-pipeline | "pipeline" | KEEP (concrete tools: Confluence, OAuth, vector DB) |
+| fig-26.6.1-robot-cloud-edge-hierarchy | "clean the kitchen" | KEEP (worked-example goal, not analogy) |
+| fig-29.9.1-k8s-llm-stack | "stack" | KEEP (3-layer K8s architecture with named operators) |
 
 False-positive rate: 100% (5/5). The metaphor-keyword detector fires
 on incidental vocabulary in technical diagrams (RL terms from papers,

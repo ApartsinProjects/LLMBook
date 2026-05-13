@@ -60,7 +60,7 @@ What's missing:
 - ACP (Agent Communication Protocol) by Cisco
 - The protocol stack standardization wars
 
-Where: **Chapter 23 (Tool Use, Function Calling & Protocols)** — already has §23.2 MCP and §23.3. Update §23.3 to compare A2A, ACP, AGNTCY, and MCP head-to-head.
+Where: **Chapter 24 (Tool Use, Function Calling & Protocols)** — already has §23.2 MCP and §23.3. Update §23.3 to compare A2A, ACP, AGNTCY, and MCP head-to-head.
 
 Effort: **medium** (rewrite §23.3, ~2000 words, 1 protocol-comparison table, 1 architecture diagram).
 
@@ -73,7 +73,7 @@ What's missing:
 - IDE integrations: tab-completion at the CoT/agent level (not just lines)
 - Failure modes: phantom edits, context-window blowouts, repo amnesia
 
-Where: **Chapter 25 §25.4 Code/Work Workflows and Agentic Coding** — exists but pre-2026. Refresh with current tooling landscape.
+Where: **Chapter 26 §25.4 Code/Work Workflows and Agentic Coding** — exists but pre-2026. Refresh with current tooling landscape.
 
 Effort: **medium** (~1500 word refresh, screenshots/diagrams update).
 
@@ -85,7 +85,7 @@ What's missing:
 - 3D / Gaussian splatting integration with LLMs
 - Audio: ElevenLabs v3, OpenAI Realtime API, Suno 4
 
-Where: **Chapter 27 (Multimodal Generation)** — needs a 2026 update sweep, especially §27.4 and §27.5.
+Where: **Chapter 28 (Multimodal Generation)** — needs a 2026 update sweep, especially §27.4 and §27.5.
 
 Effort: **medium** (~2000 words across two sections, 1 timeline figure of video model releases).
 
@@ -97,7 +97,7 @@ What's missing:
 - LiveBench (continuously refreshed)
 - Eval contamination / data-leak detection methods
 
-Where: **Chapter 29 (Evaluation & Experiment Design)** — add a section "Frontier Benchmarks and the Saturation Problem".
+Where: **Chapter 30 (Evaluation & Experiment Design)** — add a section "Frontier Benchmarks and the Saturation Problem".
 
 Effort: **small** (~1500 words, 1 saturation chart).
 
@@ -122,7 +122,7 @@ What's missing:
 - HyDE, GraphRAG maturation
 - Reranker market consolidation (Cohere Rerank 3, Jina Reranker v2)
 
-Where: **Chapter 20 (RAG)** — extend §20.5+ with agentic retrieval patterns.
+Where: **Chapter 21 (RAG)** — extend §20.5+ with agentic retrieval patterns.
 
 Effort: **medium** (~2000 words, 1 new section).
 
@@ -135,7 +135,7 @@ What's missing:
 - Test-time alignment (best-of-N, rejection sampling for safety)
 - Sleeper agents, sycophancy mitigation, alignment faking research
 
-Where: **Chapter 17 (Alignment)** + **Chapter 32 (Safety, Ethics & Regulation)**.
+Where: **Chapter 18 (Alignment)** + **Chapter 33 (Safety, Ethics & Regulation)**.
 
 Effort: **medium** (~2000 words split across both chapters).
 
@@ -146,7 +146,7 @@ What's missing:
 - Episodic vs semantic vs procedural memory in LLM agents
 - Knowledge-graph + LLM hybrid memory
 
-Where: **Chapter 22 (AI Agent Foundations)** §22.6 (already exists) and **Chapter 21 (Conversational AI)** §21.x.
+Where: **Chapter 23 (AI Agent Foundations)** §22.6 (already exists) and **Chapter 22 (Conversational AI)** §21.x.
 
 Effort: **medium** (~1500 words, 1 memory-types diagram).
 
@@ -159,7 +159,7 @@ What's missing:
 - UK AI Bill (2026)
 - Voluntary commitments: Frontier Model Forum, AI Safety Institutes
 
-Where: **Chapter 32 (Safety, Ethics & Regulation)** — §32.4-§32.10 needs 2026 refresh.
+Where: **Chapter 33 (Safety, Ethics & Regulation)** — §32.4-§32.10 needs 2026 refresh.
 
 Effort: **medium** (~2500 words, regulatory-timeline diagram update).
 
@@ -171,7 +171,7 @@ What's missing:
 - The "cents-per-million-tokens" frontier
 - Spot/batch pricing maturity (Anthropic Batch, OpenAI Batch with 50% discount)
 
-Where: **Chapter 31 (Production Engineering)** + **Chapter 33 (Strategy & ROI)**.
+Where: **Chapter 10 (Production Engineering)** + **Chapter 34 (Strategy & ROI)**.
 
 Effort: **small** (~1000 words, 1 price-trajectory chart).
 
@@ -193,7 +193,7 @@ What's missing:
 - Transluce / Constellation interpretability tools
 - Production interpretability: attribution dashboards, debugging-by-circuits
 
-Where: **Chapter 18 (Interpretability)** — refresh §18.3.
+Where: **Chapter 19 (Interpretability)** — refresh §18.3.
 
 Effort: **small** (~800 words, 1 dashboard screenshot).
 
@@ -213,10 +213,10 @@ Recommend this rollout sequence (each is one focused PR):
 
 1. Chapter 7 landscape refresh (large, but foundational)
 2. Chapter 8 reasoning models update + new §8.7
-3. Chapter 23 protocol comparison update
-4. Chapter 27 multimodal refresh
-5. Chapter 25 §25.4 vibe coding update
-6. Chapter 32 regulatory refresh
+3. Chapter 24 protocol comparison update
+4. Chapter 28 multimodal refresh
+5. Chapter 26 §25.4 vibe coding update
+6. Chapter 33 regulatory refresh
 7. Cross-cutting bibliography + pricing-table pass
 8. All others as time permits
 

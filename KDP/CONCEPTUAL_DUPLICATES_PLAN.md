@@ -63,7 +63,7 @@ The `action` column is filled in by manual review:
 
 ### Rule 1: every concept has ONE canonical home
 
-Defined by the `concept_anchors.json` (Hyperlinks Plan deliverable). When in doubt, the chapter whose TOPIC IS the concept wins. E.g. attention's canonical home is Chapter 4 (Transformer Architecture), not Chapter 22 (which uses attention).
+Defined by the `concept_anchors.json` (Hyperlinks Plan deliverable). When in doubt, the chapter whose TOPIC IS the concept wins. E.g. attention's canonical home is Chapter 4 (Transformer Architecture), not Chapter 23 (which uses attention).
 
 ### Rule 2: non-canonical mentions get a "lift, then link" rewrite
 

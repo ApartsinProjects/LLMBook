@@ -25,8 +25,8 @@
 
 1. `part-2-understanding-llms/module-06-pretraining-scaling-laws/images/fig-6.1.4-param-growth.mmd` - "exponential growth in model parameters" rendered as a 4-node flowchart. **This must be a log-scale line chart**, not a flowchart. The layout actively hides the exponential growth that is the entire point.
 2. `part-2-understanding-llms/module-06-pretraining-scaling-laws/images/fig-6.1.2-encoder-timeline.mmd` - timeline (BERT 2018 -> ModernBERT 2024) drawn as 5 boxes connected by arrows. **Use a horizontal timeline / `gantt`-style figure**; the temporal axis is invisible in the current rendering.
-3. `part-3-working-with-llms/module-11-prompt-engineering/images/section-11.2-svg2.mmd` - "Tree of Thoughts" rendered as a single linear chain of 6 nodes ("N0 --> N1 --> N2 --> N3 --> N4 --> N5"). **A tree-of-thoughts figure that is not a tree is a contradiction.** Tree structure with branching, scores, and pruned branches is mandatory.
-4. `part-3-working-with-llms/module-11-prompt-engineering/images/section-11.2-svg3.mmd` - "Decision flowchart for prompting techniques" implemented as a single linear chain N0 -> N1 -> ... -> N12 with all branches collapsed. Loses every "Yes/No" branch that defines a decision tree.
+3. `part-3-working-with-llms/module-12-prompt-engineering/images/section-11.2-svg2.mmd` - "Tree of Thoughts" rendered as a single linear chain of 6 nodes ("N0 --> N1 --> N2 --> N3 --> N4 --> N5"). **A tree-of-thoughts figure that is not a tree is a contradiction.** Tree structure with branching, scores, and pruned branches is mandatory.
+4. `part-3-working-with-llms/module-12-prompt-engineering/images/section-11.2-svg3.mmd` - "Decision flowchart for prompting techniques" implemented as a single linear chain N0 -> N1 -> ... -> N12 with all branches collapsed. Loses every "Yes/No" branch that defines a decision tree.
 5. `part-2-understanding-llms/module-08-reasoning-test-time-compute/images/fig-8.1.2-performance-as-a-function-of-total-compute.mmd` - claims to show "performance as a function of total compute under three scaling strategies" but is three textual boxes labelled "Train-time", "Test-time", "Combined" with no axes, no curves, no comparison. Caption promises a chart; figure delivers a glossary.
 
 **Top 5 templates worth emulating:**
@@ -40,7 +40,7 @@
 **Patterns observed:**
 
 - **Module 0-5 (Part 1 Foundations) and Module 9 (Inference Optimization)** are the strongest: figures are anatomically correct, labels carry mathematical meaning, multi-panel comparisons use parallel structure.
-- **Module 11 (Prompt Engineering) `section-11.2-*` and `section-11.3-*` figures** are the worst sub-cluster in the book - generic linear chains of `N0 -> N1 -> ... -> Nk` boxes with prose stuffed inside `<b>` tags. They appear to be auto-generated from text and never edited. 9 of the worst-15 figures are in this module.
+- **Module 12 (Prompt Engineering) `section-11.2-*` and `section-11.3-*` figures** are the worst sub-cluster in the book - generic linear chains of `N0 -> N1 -> ... -> Nk` boxes with prose stuffed inside `<b>` tags. They appear to be auto-generated from text and never edited. 9 of the worst-15 figures are in this module.
 - **Module 6, 7, 8** (Pretraining / Modern Landscape / Reasoning) repeatedly use flowcharts where time-series, log-scale charts, or tables would communicate better.
 - **Architecture diagrams** (LSTM cell, MoE block, transformer block, RWKV/Mamba) are generally good but inconsistently include tensor shapes; only Module 3-4 figures annotate dimensions like `(n, d_model)`. Reader cannot reconstruct what flows through the wires in many later figures.
 - **Decision trees and trees in general** are systematically mis-rendered as linear flows; the book lacks any true branching tree figure despite multiple opportunities (Tree of Thoughts, MCTS, decision flowcharts, taxonomy trees).
@@ -69,23 +69,23 @@ Mean scores below are out of 25.
 | `module-07-modern-llm-landscape` | 11 | 16.9 | 1 | 5 | 4 | 1 | `frontier-ecosystem` (TIER 1/TIER 2 boxes) is essentially a table; `multilingual-performance-gap` should be a bar chart. Native-vs-bolt-on multimodal duplicates exist. |
 | `module-08-reasoning-test-time-compute` | 5 | 15.0 | 0 | 2 | 2 | 1 | `fig-8.1.2-perf-vs-compute` and `fig-8.5.1-compute-optimal-frontier` both promise plots in caption; deliver bullet lists. Decision flowchart (`fig-8.4.1`) is one of only two correct decision-tree figures in the book. |
 | `module-09-inference-optimization` | 11 | 19.4 | 3 | 6 | 2 | 0 | Together with module 0, the best technical-detail module. Figures actually visualize tradeoffs (PagedAttention, GQA, RadixAttention) rather than restating prose. |
-| `module-18-interpretability` | 8 | 17.5 | 0 | 5 | 3 | 0 | Solid debugging-workflow figure (`fig-18.3.2`); `attention head types` is a flat 4-box list and could include mini-heatmap glyphs. `fig-18.4.2` "explanation methods on faithfulness vs cost" should be a 2-D scatter, not a chain. |
-| `module-10-llm-apis` | 6 | 17.7 | 1 | 3 | 1 | 1 | `fig-10.1.5-request-response` is excellent. `section-10.3-svg1` and `section-10.5-svg1` are linear chains of 5 boxes that hide a clearly-tiered relationship. |
-| `module-11-prompt-engineering` | 9 | 12.9 | 0 | 1 | 2 | 6 | **Worst module in the book.** All `section-11.2-*` and `section-11.3-*` figures are auto-generated linear chains. Tree of Thoughts is not a tree; decision flow is not branching; self-refine loop is fine but trivial. |
-| `module-12-hybrid-ml-llm` | 1 | 20.0 | 0 | 1 | 0 | 0 | Refinery metaphor works well. |
-| `module-15-peft` | 1 | 22.0 | 1 | 0 | 0 | 0 | Genuine decision tree for PEFT method choice; one of the best decision figures. |
-| `module-20-rag` | 4 | 19.5 | 1 | 3 | 0 | 0 | Naive vs Advanced vs Modular RAG and GraphRAG figures are well-structured. |
-| `module-21-conversational-ai` | 1 | 20.0 | 0 | 1 | 0 | 0 | Voice agent vs voice pipeline comparison is clear. |
-| `module-22-ai-agents` | 2 | 21.0 | 1 | 1 | 0 | 0 | Tiered reasoning routing and 5-layer memory taxonomy are useful. |
-| `module-25-specialized-agents` | 1 | 20.0 | 0 | 1 | 0 | 0 | Coding agent generations would be even better as a timeline. |
-| `module-26-agent-safety-production` | 1 | 21.0 | 1 | 0 | 0 | 0 | Error recovery decision tree is an actual tree. |
-| `module-28-llm-applications` | 1 | 14.0 | 0 | 0 | 1 | 0 | FIM diagram has only 4 nodes and obscures the key idea (`<PRE> prefix <SUF> suffix <MID>` token format). |
-| `module-29-evaluation-observability` | 1 | 21.0 | 1 | 0 | 0 | 0 | Four-phase experiment design is well-structured. |
-| `module-30-observability-monitoring` | 1 | 21.0 | 1 | 0 | 0 | 0 | OTel trace structure with attribute schemas is concrete and useful. |
-| `module-31-production-engineering` | 5 | 19.0 | 1 | 3 | 1 | 0 | Saga compensation, durable execution recovery, retry taxonomy all readable. K8s stack figure is slightly busy but informative. |
-| `module-32-safety-ethics-regulation` | 2 | 19.5 | 0 | 2 | 0 | 0 | Risk pyramid claim doesn't match implementation (linear chain) - could become a real triangle. |
-| `module-33-strategy-product-roi` | 1 | 18.0 | 0 | 1 | 0 | 0 | Enterprise auth flow is reasonable; would be better as a sequence diagram. |
-| `module-34-emerging-architectures` | 6 | 17.5 | 1 | 4 | 1 | 0 | Mamba/RWKV block diagrams are detailed; world-model figure is busy but accurate. Mostly orphans (not in HTML). |
+| `module-19-interpretability` | 8 | 17.5 | 0 | 5 | 3 | 0 | Solid debugging-workflow figure (`fig-18.3.2`); `attention head types` is a flat 4-box list and could include mini-heatmap glyphs. `fig-18.4.2` "explanation methods on faithfulness vs cost" should be a 2-D scatter, not a chain. |
+| `module-11-llm-apis` | 6 | 17.7 | 1 | 3 | 1 | 1 | `fig-11.1.5-request-response` is excellent. `section-10.3-svg1` and `section-10.5-svg1` are linear chains of 5 boxes that hide a clearly-tiered relationship. |
+| `module-12-prompt-engineering` | 9 | 12.9 | 0 | 1 | 2 | 6 | **Worst module in the book.** All `section-11.2-*` and `section-11.3-*` figures are auto-generated linear chains. Tree of Thoughts is not a tree; decision flow is not branching; self-refine loop is fine but trivial. |
+| `module-13-hybrid-ml-llm` | 1 | 20.0 | 0 | 1 | 0 | 0 | Refinery metaphor works well. |
+| `module-16-peft` | 1 | 22.0 | 1 | 0 | 0 | 0 | Genuine decision tree for PEFT method choice; one of the best decision figures. |
+| `module-21-rag` | 4 | 19.5 | 1 | 3 | 0 | 0 | Naive vs Advanced vs Modular RAG and GraphRAG figures are well-structured. |
+| `module-22-conversational-ai` | 1 | 20.0 | 0 | 1 | 0 | 0 | Voice agent vs voice pipeline comparison is clear. |
+| `module-23-ai-agents` | 2 | 21.0 | 1 | 1 | 0 | 0 | Tiered reasoning routing and 5-layer memory taxonomy are useful. |
+| `module-26-specialized-agents` | 1 | 20.0 | 0 | 1 | 0 | 0 | Coding agent generations would be even better as a timeline. |
+| `module-27-agent-safety-production` | 1 | 21.0 | 1 | 0 | 0 | 0 | Error recovery decision tree is an actual tree. |
+| `module-29-llm-applications` | 1 | 14.0 | 0 | 0 | 1 | 0 | FIM diagram has only 4 nodes and obscures the key idea (`<PRE> prefix <SUF> suffix <MID>` token format). |
+| `module-30-evaluation-observability` | 1 | 21.0 | 1 | 0 | 0 | 0 | Four-phase experiment design is well-structured. |
+| `module-31-observability-monitoring` | 1 | 21.0 | 1 | 0 | 0 | 0 | OTel trace structure with attribute schemas is concrete and useful. |
+| `module-10-production-engineering` | 5 | 19.0 | 1 | 3 | 1 | 0 | Saga compensation, durable execution recovery, retry taxonomy all readable. K8s stack figure is slightly busy but informative. |
+| `module-33-safety-ethics-regulation` | 2 | 19.5 | 0 | 2 | 0 | 0 | Risk pyramid claim doesn't match implementation (linear chain) - could become a real triangle. |
+| `module-34-strategy-product-roi` | 1 | 18.0 | 0 | 1 | 0 | 0 | Enterprise auth flow is reasonable; would be better as a sequence diagram. |
+| `module-35-emerging-architectures` | 6 | 17.5 | 1 | 4 | 1 | 0 | Mamba/RWKV block diagrams are detailed; world-model figure is busy but accurate. Mostly orphans (not in HTML). |
 
 ---
 
@@ -107,13 +107,13 @@ Score columns: D=Didactic, I=Informativeness, V=Visualization choice, T=Technica
 - **Why:** A "timeline" with no time axis. Five boxes (BERT 2018 → RoBERTa 2019 → DeBERTa 2020 → DeBERTa V3 2021 → ModernBERT 2024) connected by arrows is a chronology disguised as a flow.
 - **Recommendation:** Use Mermaid `timeline` syntax or a horizontal Gantt-like SVG with year axis. Place innovations as labels under each year tick.
 
-#### F3-F4. `part-3-working-with-llms/module-11-prompt-engineering/images/section-11.2-svg2.mmd` (Tree of Thoughts) and `section-11.2-svg3.mmd` (decision flowchart)
+#### F3-F4. `part-3-working-with-llms/module-12-prompt-engineering/images/section-11.2-svg2.mmd` (Tree of Thoughts) and `section-11.2-svg3.mmd` (decision flowchart)
 - **Captions:** missing in HTML (orphans).
 - **Scores:** ToT - D=2 I=2 V=1 T=2 L=1 → **Σ=8**. Decision flow - D=2 I=2 V=1 T=3 L=1 → **Σ=9**.
 - **Why:** The Tree of Thoughts mmd is a single chain `N0 → N1 → N2 → N3 → N4 → N5`. There is literally no branching, so it cannot illustrate tree search. The "decision flowchart" likewise collapses Yes/No branches into a single line and stuffs both branch labels into adjacent prose nodes.
-- **Recommendation:** Author both as actual `flowchart TD` with branching: ToT needs a root → 3 children → 9 grandchildren with score annotations and pruned-branch styling. Decision flowchart needs `Q1{...} -->|"Yes"| ...` with multiple terminal nodes (zero-shot, CoT, ReAct, self-consistency, step-back, reasoning-model). Compare with the one good decision tree in the book: `module-15-peft/images/peft-decision-flowchart.mmd`, and copy its structure.
+- **Recommendation:** Author both as actual `flowchart TD` with branching: ToT needs a root → 3 children → 9 grandchildren with score annotations and pruned-branch styling. Decision flowchart needs `Q1{...} -->|"Yes"| ...` with multiple terminal nodes (zero-shot, CoT, ReAct, self-consistency, step-back, reasoning-model). Compare with the one good decision tree in the book: `module-16-peft/images/peft-decision-flowchart.mmd`, and copy its structure.
 
-#### F5-F8. Remaining `module-11-prompt-engineering/images/section-11.*-svg*.mmd` orphans (6 files: 11.1-svg1, 11.1-svg2, 11.2-svg1, 11.3-svg1, 11.3-svg2, 11.3-svg3)
+#### F5-F8. Remaining `module-12-prompt-engineering/images/section-11.*-svg*.mmd` orphans (6 files: 11.1-svg1, 11.1-svg2, 11.2-svg1, 11.3-svg1, 11.3-svg2, 11.3-svg3)
 - **Captions:** all missing (orphans, not embedded in HTML).
 - **Scores:** all in 8-12 range.
 - **Why:** Every one is a flat linear chain of `N0 → N1 → ... → Nk` boxes, with prose paragraphs encoded as bold + italic text *inside* boxes. They are essentially text rendered as boxes. They lack any visual structure that adds information beyond the surrounding paragraph.
@@ -125,12 +125,12 @@ Score columns: D=Didactic, I=Informativeness, V=Visualization choice, T=Technica
   - `11.3-svg2` (model chaining pipeline) → already has subgraphs; salvageable as MAJOR fix
   - `11.3-svg3` (optimizer LLM history) → table of (prompt version, score) rows, NOT a chain
 
-#### F9. `part-3-working-with-llms/module-10-llm-apis/images/section-10.3-svg1.mmd`
+#### F9. `part-3-working-with-llms/module-11-llm-apis/images/section-10.3-svg1.mmd`
 - **Orphan.** Five-level fallback chain rendered as `N0 → N1 → N2 → N3 → N4 → N5`.
 - **Scores:** D=2 I=3 V=2 T=4 L=2 → **Σ=13** (REPLACE bordering on MAJOR).
 - **Recommendation:** This is a tiered degradation hierarchy, not a sequence. Use a vertical bar with color gradient (best UX → worst UX) and arrows showing fallback transitions only when an upper tier fails. Or render as a numbered table with columns `Level | Trigger | UX Cost | Latency`.
 
-#### F10. `part-3-working-with-llms/module-10-llm-apis/images/section-10.5-svg1.mmd`
+#### F10. `part-3-working-with-llms/module-11-llm-apis/images/section-10.5-svg1.mmd`
 - **Orphan.** "Dense → Prune → Quantize → Distill" pipeline.
 - **Scores:** D=3 I=3 V=2 T=4 L=2 → **Σ=14**.
 - **Recommendation:** Could become a horizontal stacked-bar chart showing memory at each stage (140 GB → 70 GB → 18 GB → recovered) so the compression is *visible*, not just stated.
@@ -159,7 +159,7 @@ Score columns: D=Didactic, I=Informativeness, V=Visualization choice, T=Technica
 - **Why:** P, NC1, TC0, AC0 rendered as a linear chain `P --- NC1 --- TC0 --- AC0`. This is a *containment* hierarchy (AC0 ⊆ TC0 ⊆ NC1 ⊆ P), not a sequence.
 - **Recommendation:** Render as nested concentric boxes (Russian doll), or as a Venn-style containment with each class as a box inside the next, labels on the borders. The hierarchy IS the lesson.
 
-#### F15. `part-2-understanding-llms/module-18-interpretability/images/fig-18.4.2-approximate-positioning-of-explanation-methods-on-faithfulness-vs-cost.mmd`
+#### F15. `part-2-understanding-llms/module-19-interpretability/images/fig-19.4.2-approximate-positioning-of-explanation-methods-on-faithfulness-vs-cost.mmd`
 - **Caption:** "Approximate positioning of explanation methods on faithfulness vs. computational cost."
 - **Scores:** D=2 I=2 V=1 T=4 L=2 → **Σ=11**.
 - **Why:** Caption explicitly describes a 2-D scatter ("faithfulness vs cost"). Figure is a 1-D linear chain `RA → RO → GA → IG → LRP → SHAP` ordered by cost only. Faithfulness axis is invisible.
@@ -176,7 +176,7 @@ Pattern: an evolution / chronology / generation sequence drawn as boxes-with-arr
 |---|---|---|---|
 | `module-01-foundations-nlp/images/fig-1.4-evolution.mmd` | "evolution of text representation" | 16 | Use Mermaid `timeline` with eras (BoW/TF-IDF, Word2Vec, ELMo, Transformers) and put the "what it solved" annotation under each era. |
 | `module-01/images/fig-1.1.2-nlp-eras.mmd` (orphan) | NLP eras 1950s-Present | 14 | Same: timeline with 4 eras. |
-| `module-25-specialized-agents/images/fig-25.7.1-coding-agent-generations.mmd` | "Four generations of AI-assisted coding" | 17 | Timeline with year ranges 2021-22, 2023, 2024, 2025+. Already labels years in box titles - move them to the axis. |
+| `module-26-specialized-agents/images/fig-26.7.1-coding-agent-generations.mmd` | "Four generations of AI-assisted coding" | 17 | Timeline with year ranges 2021-22, 2023, 2024, 2025+. Already labels years in box titles - move them to the axis. |
 | `module-06/images/fig-6.1.2-encoder-timeline.mmd` | encoder timeline | 14 | (REPLACE; see F2) |
 | `module-06/images/fig-6.1.4-param-growth.mmd` | parameter growth | 11 | (REPLACE; see F1) |
 | `module-08/images/fig-8.1.3-four-reasoning-architectures.mmd` | four arch. approaches | 12 | (REPLACE; see F13) |
@@ -197,12 +197,12 @@ Pattern: caption uses words like "performance", "frontier", "growth", "scatter",
 | `module-05/images/fig-5.1.2-greedy.mmd` | "greedy vs better path" with probabilities | 17 | Probabilities (0.6 x 0.4 x 0.5) shown as text inside boxes; should be edge-weighted graph with bar-glyphs or thicker arrows for higher probability. |
 | `module-05/images/fig-5.1.3-beam-search.mmd` | "beam search k=2" | 17 | Currently a 2-wide tree across 4 steps; would benefit from showing pruned beams (greyed) so the "best may not start with greediest" lesson is explicit. |
 | `module-05/images/fig-5.2.3-top-p-sampling.mmd` | "nucleus expands when uncertain" | 17 | Two probability distributions shown as boxes with numbers; should be two bar charts side-by-side with the nucleus shaded. |
-| `module-18/images/fig-18.4.2-explanation-methods.mmd` | faithfulness vs cost | 11 | (REPLACE; see F15) |
+| `module-18/images/fig-19.4.2-explanation-methods.mmd` | faithfulness vs cost | 11 | (REPLACE; see F15) |
 
 #### Group C: "Comparison rendered as parallel subgraphs that should be a table" (12 figures)
 Pattern: 2-3 subgraphs side-by-side, each containing the same set of properties as bullet points. Reader has to scan back-and-forth to compare.
 
-Affected: `fig-1.4.2-static-contextual` (Static vs Contextual), `fig-1.2.2-stem-lemma` (Stemming vs Lemmatization), `fig-2.3.4-tokenizer-landscape` (BBPE/WordPiece/Unigram), `fig-4.3.2-three-families` (encoder-only/decoder-only/encoder-decoder), `fig-4.3.4-pos-strategies` (4 positional encoding strategies), `fig-5.4.3-ar-vs-diffusion`, `fig-6.2.2-clm-mlm` (CLM vs MLM), `fig-6.3.4-scaling-laws` (Kaplan vs Chinchilla), `fig-7.1.2-frontier-ecosystem` (Tier 1 vs Tier 2 model providers), `fig-7.3.2-train-test-scaling` (Train-time vs Test-time), `fig-9.1.3-gptq-vs-awq`, `fig-18.2.4-no-superposition-vs-superposition`. Σ range 14-17.
+Affected: `fig-1.4.2-static-contextual` (Static vs Contextual), `fig-1.2.2-stem-lemma` (Stemming vs Lemmatization), `fig-2.3.4-tokenizer-landscape` (BBPE/WordPiece/Unigram), `fig-4.3.2-three-families` (encoder-only/decoder-only/encoder-decoder), `fig-4.3.4-pos-strategies` (4 positional encoding strategies), `fig-5.4.3-ar-vs-diffusion`, `fig-6.2.2-clm-mlm` (CLM vs MLM), `fig-6.3.4-scaling-laws` (Kaplan vs Chinchilla), `fig-7.1.2-frontier-ecosystem` (Tier 1 vs Tier 2 model providers), `fig-7.3.2-train-test-scaling` (Train-time vs Test-time), `fig-9.1.3-gptq-vs-awq`, `fig-19.2.4-no-superposition-vs-superposition`. Σ range 14-17.
 
 **Recommendation:** Most of these would be more scannable as a comparison table with rows = property, columns = approach. Where the figures should remain visual, enforce parallel-vertical alignment (same property must appear at the same vertical position in each panel) and use small icon glyphs or color coding for shared properties (✓/✗, low/medium/high). Currently the subgraphs are all `direction TB` with text bullets in arbitrary order, which forces eye-darting.
 
@@ -222,7 +222,7 @@ Pattern: an architecture diagram (block of layers, attention variants, normaliza
 | `module-34/images/fig-34.3-rwkv-block.mmd` (orphan) | RWKV block | 15 | Add channel dimensions; clarify where time-mixing introduces O(1) inference cost. |
 
 #### Group E: "Decision tree rendered as linear chain" (4 figures)
-Already covered above (F3, F4, plus two listed in REPLACE). For completeness: Module 11's `section-11.2-svg3` and Module 8's `fig-8.4.1` are the two decision figures; the latter is already correctly branching and is one of only two well-formed decision trees in the book (the other being PEFT).
+Already covered above (F3, F4, plus two listed in REPLACE). For completeness: Module 12's `section-11.2-svg3` and Module 8's `fig-8.4.1` are the two decision figures; the latter is already correctly branching and is one of only two well-formed decision trees in the book (the other being PEFT).
 
 #### Group F: "Three-or-more-experts MoE/router with no per-expert detail" (3 figures)
 - `module-06/images/fig-6.3.7-moe-layer.mmd` - Σ=22 (KEEP, baseline reference).
@@ -241,7 +241,7 @@ Already covered above (F3, F4, plus two listed in REPLACE). For completeness: Mo
 | `module-06/images/fig-6.5.3-grokking.mmd` | 15 | Grokking is a *curve* (train acc rises early, val acc plateaus then jumps). Three boxes can't capture that. Use a line chart with two curves and a big arrow marking "grokking moment". |
 | `module-07/images/fig-7.3.3-orms-vs-prms.mmd` | 17 | Conceptually right (parallel chains for ORM and PRM); add a "where ORM gets stuck" arrow vs "where PRM diverges" annotation. |
 | `module-09/images/fig-9.2.3-static-vs-continuous-batching.mmd` | 17 | Two text-block subgraphs. Should be a Gantt-style timeline showing 4 sequences, with idle boxes (white) in static and packed (filled) in continuous. |
-| `module-32/images/fig-32.9.1-eu-ai-act-risk-tiers.mmd` | 17 | Caption says "PYRAMID" but figure is 4 chained boxes. Render as actual pyramid (trapezoids stacked). |
+| `module-32/images/fig-33.9.1-eu-ai-act-risk-tiers.mmd` | 17 | Caption says "PYRAMID" but figure is 4 chained boxes. Render as actual pyramid (trapezoids stacked). |
 
 ---
 
@@ -309,8 +309,8 @@ In all these cases the *flow* is the content, so a flowchart is the right tool.
 **Tier 1 - replace these 15 figures before next print run** (~15 hours):
 - All 6 `module-11/section-11.*-svg*.mmd` figures (Tree of Thoughts, decision flowchart, prompt anatomy, model chaining, etc.) - the worst-served chapter.
 - 5 charts-pretending-to-be-flowcharts: `fig-6.1.4-param-growth`, `fig-6.1.2-encoder-timeline`, `fig-6.5.3-grokking`, `fig-8.1.2-perf-vs-compute`, `fig-8.5.1-frontier`.
-- 3 hierarchy figures: `fig-4.5.2-complexity` (TC0/AC0), `fig-32.9.1-eu-ai-act-risk-tiers` (pyramid), `fig-1.1.6-linguistic-layers` (nested layers).
-- 1 multi-axis comparison: `fig-18.4.2-explanation-methods`.
+- 3 hierarchy figures: `fig-4.5.2-complexity` (TC0/AC0), `fig-33.9.1-eu-ai-act-risk-tiers` (pyramid), `fig-1.1.6-linguistic-layers` (nested layers).
+- 1 multi-axis comparison: `fig-19.4.2-explanation-methods`.
 
 **Tier 2 - restructure these 53 MAJOR figures** (~25 hours):
 - 8 timelines → use Mermaid `timeline` (cheap fix)

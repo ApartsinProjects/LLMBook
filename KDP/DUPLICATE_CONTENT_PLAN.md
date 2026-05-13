@@ -75,14 +75,14 @@ Concept → canonical home (from `concept_anchors.json` in the Hyperlinks Plan):
 | Attention mechanism      | Chapter 4 (Transformer Architecture)               |
 | Tokenization             | Chapter 2 (Tokenization & Subword Models)          |
 | Pretraining loss/objective | Chapter 6 (Pretraining & Scaling Laws)           |
-| RAG architecture         | Chapter 20 (RAG)                                   |
-| Tool use / function calling | Chapter 23 (Tool Use & Protocols)               |
-| LoRA / QLoRA             | Chapter 15 (PEFT)                                  |
-| RLHF / DPO               | Chapter 17 (Alignment)                             |
-| Evaluation metrics       | Chapter 29 (Evaluation & Observability)            |
+| RAG architecture         | Chapter 21 (RAG)                                   |
+| Tool use / function calling | Chapter 24 (Tool Use & Protocols)               |
+| LoRA / QLoRA             | Chapter 16 (PEFT)                                  |
+| RLHF / DPO               | Chapter 18 (Alignment)                             |
+| Evaluation metrics       | Chapter 30 (Evaluation & Observability)            |
 | (full list — 80 entries — lives in `concept_anchors.json`)     |
 
-When a paragraph in Chapter 22 explains attention from scratch, the canonical home is Chapter 4. Replace Chapter 22's paragraph with: "Attention recap — see [Section 4.1](…) for the full derivation. The key property we need here is that …".
+When a paragraph in Chapter 23 explains attention from scratch, the canonical home is Chapter 4. Replace Chapter 23's paragraph with: "Attention recap — see [Section 4.1](…) for the full derivation. The key property we need here is that …".
 
 ### Acceptance criteria for the consolidation pass
 

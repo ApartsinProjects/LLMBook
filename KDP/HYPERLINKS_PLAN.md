@@ -33,7 +33,7 @@ Build `KDP/validation/concept_anchors.json`. Schema:
     "deep_explanation": "part-1-foundations/module-04-transformer-architecture/section-4.1.html#anchor",
     "applications": [
       "part-2-understanding-llms/module-08-reasoning-test-time-compute/section-8.3.html",
-      "part-5-retrieval-conversation/module-19-embeddings-vector-db/section-19.4.html"
+      "part-5-retrieval-conversation/module-20-embeddings-vector-db/section-20.4.html"
     ],
     "extensions": [
       "part-2-understanding-llms/module-09-inference-optimization/section-9.2.html"

@@ -175,12 +175,12 @@ Always include the chapter title after the number.
 ```html
 <!-- DO -->
 <div class="chapter-label">
-  <a href="section-18.1.html">Chapter 18: Prompt Engineering</a>
+  <a href="section-19.1.html">Chapter 19: Prompt Engineering</a>
 </div>
 
 <!-- DON'T -->
 <div class="chapter-label">
-  <a class="chapter-label" href="section-18.1.html">Chapter 18</a>
+  <a class="chapter-label" href="section-19.1.html">Chapter 19</a>
 </div>
 ```
 
@@ -326,13 +326,13 @@ Start numbering at 1 (not 0).
 
 ```html
 <!-- DO -->
-<figcaption><strong>Figure 12.3.1</strong>: Step one.</figcaption>
+<figcaption><strong>Figure 13.3.1</strong>: Step one.</figcaption>
 <!-- ... content ... -->
-<figcaption><strong>Figure 12.3.2</strong>: Step two.</figcaption>
+<figcaption><strong>Figure 13.3.2</strong>: Step two.</figcaption>
 
 <!-- DON'T -->
-<figcaption><strong>Figure 12.3.2</strong>: Step two.</figcaption>
-<figcaption><strong>Figure 12.3.1</strong>: Step one.</figcaption>  <!-- out of order -->
+<figcaption><strong>Figure 13.3.2</strong>: Step two.</figcaption>
+<figcaption><strong>Figure 13.3.1</strong>: Step one.</figcaption>  <!-- out of order -->
 ```
 
 ### 3.3 No Broken Figure References (BROKEN_FIGURE_REF, P1)
@@ -634,10 +634,10 @@ Navigation link text must not end with an ellipsis. Write the full title.
 
 ```html
 <!-- DO -->
-<a href="section-12.1.html">Transformer Architecture</a>
+<a href="section-13.1.html">Transformer Architecture</a>
 
 <!-- DON'T -->
-<a href="section-12.1.html">Transformer Arch...</a>
+<a href="section-13.1.html">Transformer Arch...</a>
 ```
 
 ---

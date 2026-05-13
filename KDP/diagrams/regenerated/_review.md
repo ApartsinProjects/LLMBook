@@ -68,10 +68,10 @@ Generation script: `KDP/build/regenerate_diagram.py`
 
 ---
 
-## 5. Figure 34.10.1 - Domain Tokenization Pipeline
+## 5. Figure 35.10.1 - Domain Tokenization Pipeline
 
-- **Source HTML**: `part-10-frontiers/module-34-emerging-architectures/section-34.10.html` (line 62)
-- **Original PNG**: `part-10-frontiers/module-34-emerging-architectures/images/fig-34.10-domain-tokenization.png` (currently 8049 x 1224, 6.58 aspect - unreadable on Kindle)
+- **Source HTML**: `part-10-frontiers/module-35-emerging-architectures/section-35.10.html` (line 62)
+- **Original PNG**: `part-10-frontiers/module-35-emerging-architectures/images/fig-34.10-domain-tokenization.png` (currently 8049 x 1224, 6.58 aspect - unreadable on Kindle)
 - **Concept**: three lanes (Proteins / Molecules / DNA-RNA), 4 stages per lane (Raw Input -> Pre-tokenization -> BPE/Unigram Training [shared] -> Merge with Base LM Vocab [shared]).
 - **Aspect**: portrait 3:4
 - **Variants**:
@@ -110,13 +110,13 @@ This batch redraws the seven third-party diagrams flagged in `KDP/validation/cop
 
 All seven were generated via `KDP/build/regenerate_diagram.py` with Imagen 4 (`imagen-4.0-generate-001`), n=4. Prompt files saved alongside variants as `*_prompt.txt`.
 
-### 1. Figure 15.1.3 - LoRA weight decomposition (replaces `lora-weights-raschka.png`)
+### 1. Figure 16.1.3 - LoRA weight decomposition (replaces `lora-weights-raschka.png`)
 
-- **Source HTML**: `part-4-training-adapting/module-15-peft/section-15.1.html` line 91
+- **Source HTML**: `part-4-training-adapting/module-16-peft/section-16.1.html` line 91
 - **Original attribution**: "Source: Sebastian Raschka, 2023. *Parameter-Efficient LLM Finetuning With Low-Rank Adaptation (LoRA)*" (sebastianraschka.com blog).
 - **Concept**: Frozen pretrained matrix W (d x k) in parallel with low-rank update Delta-W = B . A where B is d x r and A is r x k, with r much smaller than d, k. Output: h = Wx + BAx.
-- **Prompt file**: `fig-15.1.3-lora-decomposition_v20260510-113935_prompt.txt`
-- **Variants**: [v1](fig-15.1.3-lora-decomposition_v20260510-113935_1.png), [v2](fig-15.1.3-lora-decomposition_v20260510-113935_2.png), [v3](fig-15.1.3-lora-decomposition_v20260510-113935_3.png), [v4](fig-15.1.3-lora-decomposition_v20260510-113935_4.png)
+- **Prompt file**: `fig-16.1.3-lora-decomposition_v20260510-113935_prompt.txt`
+- **Variants**: [v1](fig-16.1.3-lora-decomposition_v20260510-113935_1.png), [v2](fig-16.1.3-lora-decomposition_v20260510-113935_2.png), [v3](fig-16.1.3-lora-decomposition_v20260510-113935_3.png), [v4](fig-16.1.3-lora-decomposition_v20260510-113935_4.png)
 - **Recommendation: v4.** Cleanest topology: frozen W with lock icon on the left, parallel B.A path on the right, explicit "+" merge node, dimension labels d x k / d x r / r x k correctly placed, "rank r << d, k" annotation, and the `h = Wx + BAx` equation rendered crisply at the bottom. v2 is a viable backup but slightly busier.
 - **Equivalence**: Conveys exactly the same low-rank-bypass idea as the Raschka original; safe swap, no narrative change in the surrounding text.
 
@@ -130,19 +130,19 @@ All seven were generated via `KDP/build/regenerate_diagram.py` with Imagen 4 (`i
 - **Recommendation: v2.** All four numbered stages visible (Initialize, Count pairs, Merge most frequent pair, Repeat), clear character tiles for `l o w e r n s t`, frequency table on the right with readable pair counts, and visible merge of `l + o` to `lo`. Minor typo in stage 4 caption ("uneed", "voculary"); fix in post via overlay.
 - **Equivalence**: Same algorithmic flow as the Raschka diagram, plus an explicit frequency table the original lacked. Safe swap.
 
-### 3. Figure 20.1.3 - RAG pipeline (replaces `rag-pipeline-nvidia.png`)
+### 3. Figure 21.1.3 - RAG pipeline (replaces `rag-pipeline-nvidia.png`)
 
-- **Source HTML**: `part-5-retrieval-conversation/module-20-rag/section-20.1.html` line 105
+- **Source HTML**: `part-5-retrieval-conversation/module-21-rag/section-21.1.html` line 105
 - **Original attribution**: "Source: NVIDIA, 2023. *RAG 101: Demystifying Retrieval-Augmented Generation Pipelines*" (NVIDIA Developer Blog).
 - **Concept**: Two-lane RAG architecture: offline ingestion (Documents, Chunker, Embedding Model, Vector DB) and online query (Query, Embedding Model, Retriever, Top-k, Prompt Builder, LLM, Answer), sharing the central Vector DB.
-- **Prompt file**: `fig-20.1.3-rag-pipeline_v20260510-114050_prompt.txt`
-- **Variants**: [v1](fig-20.1.3-rag-pipeline_v20260510-114050_1.png), [v2](fig-20.1.3-rag-pipeline_v20260510-114050_2.png), [v3](fig-20.1.3-rag-pipeline_v20260510-114050_3.png), [v4](fig-20.1.3-rag-pipeline_v20260510-114050_4.png)
+- **Prompt file**: `fig-21.1.3-rag-pipeline_v20260510-114050_prompt.txt`
+- **Variants**: [v1](fig-21.1.3-rag-pipeline_v20260510-114050_1.png), [v2](fig-21.1.3-rag-pipeline_v20260510-114050_2.png), [v3](fig-21.1.3-rag-pipeline_v20260510-114050_3.png), [v4](fig-21.1.3-rag-pipeline_v20260510-114050_4.png)
 - **Recommendation: v3.** Both lanes drawn, all eight nodes labelled correctly (Documents, Chunker, Embedding Model, Vector Database for ingestion; User Query, Retriever, Embedding Model, Top-k Chunks, Prompt Builder, LLM, Answer for query). Distinct teal/amber lane backgrounds. Note: the query lane in v3 reads slightly right-to-left after Retriever; if that bothers an editor, v2 is a simpler fallback (no LLM box rendered, would need overlay).
 - **Equivalence**: Architecturally identical to the NVIDIA diagram, same two lanes, same nodes, same shared vector store. Safe swap.
 
 ### 4. Figure 17.1.2a - RLHF PPO step (replaces `hf-rlhf-training.png`)
 
-- **Source HTML**: `part-4-training-adapting/module-17-alignment-rlhf-dpo/section-17.1.html` line 85
+- **Source HTML**: `part-4-training-adapting/module-18-alignment-rlhf-dpo/section-18.1.html` line 85
 - **Original attribution**: "Source: Lambert et al., *Illustrating RLHF*, Hugging Face Blog, 2023" (CC-BY per HF policy, but the audit recommends a clean redraw to avoid downstream verification).
 - **Concept**: PPO optimization step: Policy LM generates response from prompt; Reward Model scores; frozen Reference LM contributes log-probs for KL penalty; combined `r - beta . KL` signal feeds PPO gradient update back to Policy LM.
 - **Prompt file**: `fig-17.1.2a-rlhf-rl-step_v20260510-114153_prompt.txt`
@@ -152,7 +152,7 @@ All seven were generated via `KDP/build/regenerate_diagram.py` with Imagen 4 (`i
 
 ### 5. Figure 17.1.2b - RLHF three-stage pipeline (replaces `huyenchip-rlhf-pipeline.png`)
 
-- **Source HTML**: `part-4-training-adapting/module-17-alignment-rlhf-dpo/section-17.1.html` line 89
+- **Source HTML**: `part-4-training-adapting/module-18-alignment-rlhf-dpo/section-18.1.html` line 89
 - **Original attribution**: "Source: Chip Huyen, *RLHF: Reinforcement Learning from Human Feedback*, 2023" (huyenchip.com personal blog, no license).
 - **Concept**: Three-stage RLHF training pipeline: (1) SFT on instruction-response demos, (2) Reward Model training on human-ranked pairs, (3) PPO using the SFT model as policy init and the reward model as reward signal.
 - **Prompt file**: `fig-17.1.2b-rlhf-three-stage_v20260510-114233_prompt.txt`
@@ -160,23 +160,23 @@ All seven were generated via `KDP/build/regenerate_diagram.py` with Imagen 4 (`i
 - **Recommendation: v4.** All three stages clearly numbered top-to-bottom with distinct teal/amber/navy bands, model artifacts (Pretrained Base LM, SFT Model, Reward Model, Aligned LM) flow correctly between stages, and the PPO loop arrow at the bottom is visible. Some auxiliary text needs touch-up ("Scorip" should be "Score").
 - **Equivalence**: Same three-stage decomposition as Huyen's diagram. Safe swap after a label cleanup pass.
 
-### 6. Figure 27.1.3 - Diffusion forward/reverse process (replaces `ddpm-forward-reverse-process.png`)
+### 6. Figure 28.1.3 - Diffusion forward/reverse process (replaces `ddpm-forward-reverse-process.png`)
 
-- **Source HTML**: `part-7-multimodal-applications/module-27-multimodal/section-27.1.html` line 69
+- **Source HTML**: `part-7-multimodal-applications/module-28-multimodal/section-28.1.html` line 69
 - **Original attribution**: "Diagram from Lilian Weng, lilianweng.github.io" (personal blog, no license).
 - **Concept**: DDPM Markov chain. Forward `q(x_t | x_{t-1})` adds Gaussian noise from x_0 to x_T; reverse `p_theta(x_{t-1} | x_t)` denoises step-by-step using a learned network epsilon_theta.
-- **Prompt file**: `fig-27.1.3-ddpm-process_v20260510-114324_prompt.txt`
-- **Variants**: [v1](fig-27.1.3-ddpm-process_v20260510-114324_1.png), [v2](fig-27.1.3-ddpm-process_v20260510-114324_2.png), [v3](fig-27.1.3-ddpm-process_v20260510-114324_3.png), [v4](fig-27.1.3-ddpm-process_v20260510-114324_4.png)
+- **Prompt file**: `fig-28.1.3-ddpm-process_v20260510-114324_prompt.txt`
+- **Variants**: [v1](fig-28.1.3-ddpm-process_v20260510-114324_1.png), [v2](fig-28.1.3-ddpm-process_v20260510-114324_2.png), [v3](fig-28.1.3-ddpm-process_v20260510-114324_3.png), [v4](fig-28.1.3-ddpm-process_v20260510-114324_4.png)
 - **Recommendation: v4.** Clearest two-arrow Markov chain: forward arrow (top, navy) with sharp teapot becoming progressively noisier thumbnails ending in static; reverse arrow (bottom, teal) labelled "learned denoiser" goes the other direction with epsilon_theta icons between steps. Both `q(...)` and `p_theta(...)` formulas rendered. v1 is also viable if a different subject illustration is preferred.
 - **Equivalence**: Functionally identical to the Lilian Weng figure (forward chain + reverse chain + noise schedule notation). Safe swap.
 
-### 7. Figure 20.3.4 - GraphRAG pipeline (replaces `fig-20.3-graphrag-pipeline.png`)
+### 7. Figure 21.3.4 - GraphRAG pipeline (replaces `fig-20.3-graphrag-pipeline.png`)
 
-- **Source HTML**: `part-5-retrieval-conversation/module-20-rag/section-20.3.html` line 311
+- **Source HTML**: `part-5-retrieval-conversation/module-21-rag/section-21.3.html` line 311
 - **Original attribution**: "Source: Edge et al., *From Local to Global: A Graph RAG Approach to Query-Focused Summarization*, 2024" (arXiv 2404.16130).
 - **Concept**: Two-phase GraphRAG architecture. (A) indexing: Documents, LLM entity/relation extraction, Knowledge Graph, Leiden community detection, LLM community summaries. (B) query: User Query, Router, Local Search (entity neighbors) for specific questions or Global Search (map-reduce over community summaries) for broad questions, Response.
-- **Prompt file**: `fig-20.3.4-graphrag-pipeline_v20260510-114413_prompt.txt`
-- **Variants**: [v1](fig-20.3.4-graphrag-pipeline_v20260510-114413_1.png), [v2](fig-20.3.4-graphrag-pipeline_v20260510-114413_2.png), [v3](fig-20.3.4-graphrag-pipeline_v20260510-114413_3.png), [v4](fig-20.3.4-graphrag-pipeline_v20260510-114413_4.png)
+- **Prompt file**: `fig-21.3.4-graphrag-pipeline_v20260510-114413_prompt.txt`
+- **Variants**: [v1](fig-21.3.4-graphrag-pipeline_v20260510-114413_1.png), [v2](fig-21.3.4-graphrag-pipeline_v20260510-114413_2.png), [v3](fig-21.3.4-graphrag-pipeline_v20260510-114413_3.png), [v4](fig-21.3.4-graphrag-pipeline_v20260510-114413_4.png)
 - **Recommendation: v4.** Best of the batch: Phase A and Phase B are clearly separated bands (teal / amber), all five indexing stages are present, and the query phase shows both Local Search and Global Search lanes converging on Response with a Router diamond. Labels are crisp and almost typo-free.
 - **Equivalence**: Faithful redraw of the Edge et al. two-phase pipeline. Safe swap.
 
@@ -196,26 +196,26 @@ All seven were generated via `KDP/build/regenerate_diagram.py` with Imagen 4 (`i
 
 To promote a variant, copy it over the source image (filenames retained so the source HTML keeps working unchanged):
 
-    cp KDP/diagrams/regenerated/fig-15.1.3-lora-decomposition_v20260510-113935_4.png \
-       part-4-training-adapting/module-15-peft/images/lora-weights-raschka.png
+    cp KDP/diagrams/regenerated/fig-16.1.3-lora-decomposition_v20260510-113935_4.png \
+       part-4-training-adapting/module-16-peft/images/lora-weights-raschka.png
 
     cp KDP/diagrams/regenerated/fig-2.2-bpe-overview_v20260510-114010_2.png \
        part-1-foundations/module-02-tokenization-subword-models/images/raschka-bpe-overview.jpg
 
-    cp KDP/diagrams/regenerated/fig-20.1.3-rag-pipeline_v20260510-114050_3.png \
-       part-5-retrieval-conversation/module-20-rag/images/rag-pipeline-nvidia.png
+    cp KDP/diagrams/regenerated/fig-21.1.3-rag-pipeline_v20260510-114050_3.png \
+       part-5-retrieval-conversation/module-21-rag/images/rag-pipeline-nvidia.png
 
     cp KDP/diagrams/regenerated/fig-17.1.2a-rlhf-rl-step_v20260510-114153_1.png \
-       part-4-training-adapting/module-17-alignment-rlhf-dpo/images/hf-rlhf-training.png
+       part-4-training-adapting/module-18-alignment-rlhf-dpo/images/hf-rlhf-training.png
 
     cp KDP/diagrams/regenerated/fig-17.1.2b-rlhf-three-stage_v20260510-114233_4.png \
-       part-4-training-adapting/module-17-alignment-rlhf-dpo/images/huyenchip-rlhf-pipeline.png
+       part-4-training-adapting/module-18-alignment-rlhf-dpo/images/huyenchip-rlhf-pipeline.png
 
-    cp KDP/diagrams/regenerated/fig-27.1.3-ddpm-process_v20260510-114324_4.png \
-       part-7-multimodal-applications/module-27-multimodal/images/ddpm-forward-reverse-process.png
+    cp KDP/diagrams/regenerated/fig-28.1.3-ddpm-process_v20260510-114324_4.png \
+       part-7-multimodal-applications/module-28-multimodal/images/ddpm-forward-reverse-process.png
 
-    cp KDP/diagrams/regenerated/fig-20.3.4-graphrag-pipeline_v20260510-114413_4.png \
-       part-5-retrieval-conversation/module-20-rag/images/fig-20.3-graphrag-pipeline.png
+    cp KDP/diagrams/regenerated/fig-21.3.4-graphrag-pipeline_v20260510-114413_4.png \
+       part-5-retrieval-conversation/module-21-rag/images/fig-20.3-graphrag-pipeline.png
 
 Once promoted, also update the `figcaption` / `diagram-caption` HTML in each section to remove the "Source: ..." attribution lines and the cited URLs, since the figures will then be original work by the authors.
 

@@ -48,7 +48,7 @@ Inventory of the project's figure assets:
 | Tall figures (aspect < 0.6) | **40** | Cropped or scrolled on landscape readers |
 | Square-ish figures (0.85–1.2) | 11 | Best fit for Kindle |
 | Ultra-wide (aspect > 4) | **3** | `fig-20.3-graphrag-pipeline.png` (3.32), `fig-34.10-domain-tokenization.png` (**6.58**!), `fig-2.2.5-byte-level-bpe...` (2.52) |
-| Ultra-tall (aspect < 0.4) | **9** | `fig-30.5.1-otel-llm-trace.png` (0.34), `fig-3.1.6-encoder-decoder-seq2seq` (0.34), etc. |
+| Ultra-tall (aspect < 0.4) | **9** | `fig-31.5.1-otel-llm-trace.png` (0.34), `fig-3.1.6-encoder-decoder-seq2seq` (0.34), etc. |
 
 The figures all share a similar visual fingerprint: simple rectangle nodes, sans-serif labels, gray arrows, pastel-blue/orange/purple color fills. Strongly suggests they were all rendered from Mermaid source via `scripts/mermaid/` (which exists in the repo). The Mermaid auto-layout algorithm makes the same composition mistakes everywhere:
 
@@ -71,14 +71,14 @@ Sampled from the inventory, these are very likely to have the L-shape / wasted-w
 - `fig-2.2.5-byte-level-bpe-starts-with-256-byte-tokens.png` (3483×1383, aspect 2.52)
 
 **Moderate priority** (production / appendix chapters):
-- `fig-30.5.1-otel-llm-trace.png` (1263×3714, aspect 0.34 — Gantt-chart-tall)
-- `fig-31.6.3-saga-compensation.png` (801×2583, aspect 0.31 — ultra-tall)
-- `fig-26.4.2-error-recovery-decision.png` (1335×3711, aspect 0.36)
-- `fig-25.7.1-coding-agent-generations.png` (924×2643, aspect 0.35)
+- `fig-31.5.1-otel-llm-trace.png` (1263×3714, aspect 0.34 — Gantt-chart-tall)
+- `fig-10.6.3-saga-compensation.png` (801×2583, aspect 0.31 — ultra-tall)
+- `fig-27.4.2-error-recovery-decision.png` (1335×3711, aspect 0.36)
+- `fig-26.7.1-coding-agent-generations.png` (924×2643, aspect 0.35)
 
 **Worst-aspect outliers** (will not render at all on Kindle):
 - `fig-34.10-domain-tokenization.png` — **6.58 aspect** (8049×1224). Unreadable on any reader.
-- `fig-31.6.4-retry-taxonomy.png` — 1.50 (better, but mermaid-style)
+- `fig-10.6.4-retry-taxonomy.png` — 1.50 (better, but mermaid-style)
 
 ---
 
@@ -145,7 +145,7 @@ For each highest-priority figure, here's a concrete Gemini prompt direction:
 | `fig-3.3.3-multi-head.png` | Mermaid auto-layout puts heads in awkward grid | 3-row stack: input embeddings → 8 small parallel head boxes → concatenation → output projection |
 | `fig-4.1.7-residual-stream.png` | Wide aspect, fundamental concept buried | Vertical "stream" as central column, with branches for each layer's contribution, labels on branches |
 | `fig-4.3.6-pre-post-ln2.png` | Ultra-tall narrow column | Two side-by-side columns: "Post-LN (original)" vs "Pre-LN (modern)" — re-aspected to landscape |
-| `fig-30.5.1-otel-llm-trace.png` | Gantt-chart-tall, won't fit | Compress to square; if still doesn't work, mark as "complex - read on tablet" callout |
+| `fig-31.5.1-otel-llm-trace.png` | Gantt-chart-tall, won't fit | Compress to square; if still doesn't work, mark as "complex - read on tablet" callout |
 | `fig-34.10-domain-tokenization.png` | 6.58 aspect — unreadable | Restructure into 3 stacked rows or split into 3 separate figures |
 
 ### Estimated effort and order

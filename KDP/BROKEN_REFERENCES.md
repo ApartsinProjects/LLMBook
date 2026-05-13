@@ -27,13 +27,13 @@ and HTTP 200/301/302/202 (working).
   - was: _Specification of the ChatML format used by OpenAI's chat mod_
   - error: HTTP Error 404: Not Found
 
-## part-10-frontiers/module-34-emerging-architectures/section-34.1.html
+## part-10-frontiers/module-35-emerging-architectures/section-35.1.html
 
 - **[403]** `https://papers.ssrn.com/sol3/papers.cfm?abstract_id=4573321`
   - was: _A rigorous field experiment with BCG consultants showing tha_
   - error: GET-retry: HTTP Error 403: Forbidden
 
-## part-10-frontiers/module-34-emerging-architectures/section-34.10.html
+## part-10-frontiers/module-35-emerging-architectures/section-35.10.html
 
 - **[404]** `https://doi.org/10.1038/s41592-023-02106-w`
   - was: _Trains transformer models on 3,200 diverse genomes, achievin_
@@ -48,13 +48,13 @@ and HTTP 200/301/302/202 (working).
   - was: _Combines language models with formal proof verification to s_
   - error: HTTP Error 404: Not Found
 
-## part-10-frontiers/module-34-emerging-architectures/section-34.4.html
+## part-10-frontiers/module-35-emerging-architectures/section-35.4.html
 
 - **[403]** `https://research.nvidia.com/labs/dir/cosmos/`
   - was: _An open platform providing pre-trained world foundation mode_
   - error: GET-retry: HTTP Error 403: Forbidden
 
-## part-10-frontiers/module-34-emerging-architectures/section-34.8.html
+## part-10-frontiers/module-35-emerging-architectures/section-35.8.html
 
 - **[404]** `https://selfawarepatterns.com/2008/01/22/the-basic-ai-drives/`
   - was: _Argues that sufficiently advanced AI systems will develop co_
@@ -80,19 +80,19 @@ and HTTP 200/301/302/202 (working).
   - was: _The foundational reference for A/B testing methodology, adap_
   - error: HTTP Error 500: Internal Server Error
 
-## part-3-working-with-llms/module-10-llm-apis/section-10.1.html
+## part-3-working-with-llms/module-11-llm-apis/section-11.1.html
 
 - **[404]** `https://platform.openai.com/docs/api-reference/chat`
   - was: _The definitive reference for the most widely adopted LLM API_
   - error: HTTP Error 404: Not Found
 
-## part-6-agentic-ai/module-22-ai-agents/section-22.5.html
+## part-6-agentic-ai/module-23-ai-agents/section-23.5.html
 
 - **[404]** `https://nelhage.com/post/transformers-for-software-engineers/`
   - was: _Practical engineering perspective on building reliable syste_
   - error: HTTP Error 404: Not Found
 
-## part-6-agentic-ai/module-23-tool-use-protocols/section-23.3.html
+## part-6-agentic-ai/module-24-tool-use-protocols/section-24.3.html
 
 - **[404]** `https://google.github.io/A2A/`
   - was: _The official A2A specification defining how AI agents discov_
@@ -101,19 +101,19 @@ and HTTP 200/301/302/202 (working).
   - was: _The classic agent communication language specification that _
   - error: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] sslv3 alert handshake failure (_ssl.c:1081)
 
-## part-6-agentic-ai/module-25-specialized-agents/section-25.2.html
+## part-6-agentic-ai/module-26-specialized-agents/section-26.2.html
 
 - **[404]** `https://github.com/AstraZeneca/browser-use`
   - was: _Open-source library for connecting AI agents to web browsers_
   - error: HTTP Error 404: Not Found
 
-## part-6-agentic-ai/module-26-agent-safety-production/section-26.7.html
+## part-6-agentic-ai/module-27-agent-safety-production/section-27.7.html
 
 - **[404]** `https://docs.sigstore.dev/cosign/overview/`
   - was: _Keyless signing and verification for container images and ot_
   - error: HTTP Error 404: Not Found
 
-## part-7-multimodal-applications/module-27-multimodal/section-27.6.html
+## part-7-multimodal-applications/module-28-multimodal/section-28.6.html
 
 - **[404]** `https://doi.org/10.1145/3700000`
   - was: _Comprehensive survey covering LLM-based multi-agent coordina_
@@ -121,38 +121,38 @@ and HTTP 200/301/302/202 (working).
 - **[404]** `https://doi.org/10.1145/3700001`
   - error: HTTP Error 404: Not Found
 
-## part-7-multimodal-applications/module-28-llm-applications/section-28.6.html
+## part-7-multimodal-applications/module-29-llm-applications/section-29.6.html
 
 - **[403]** `https://www.sciencedirect.com/science/article/pii/S1041608023000195`
   - error: GET-retry: HTTP Error 403: Forbidden
 - **[403]** `https://papers.ssrn.com/sol3/papers.cfm?abstract_id=4335905`
   - error: GET-retry: HTTP Error 403: Forbidden
 
-## part-7-multimodal-applications/module-28-llm-applications/section-28.7.html
+## part-7-multimodal-applications/module-29-llm-applications/section-29.7.html
 
 - **[404]** `https://developer.nvidia.com/groot`
   - error: HTTP Error 404: Not Found
 
-## part-8-evaluation-production/module-29-evaluation-observability/section-29.2.html
+## part-8-evaluation-production/module-30-evaluation-observability/section-30.2.html
 
 - **[503]** `https://doi.org/10.1201/9780429246593`
   - error: HTTP Error 503: Service Unavailable
 - **[503]** `https://doi.org/10.4324/9780203771587`
   - error: HTTP Error 503: Service Unavailable
 
-## part-8-evaluation-production/module-31-production-engineering/section-31.4.html
+## part-8-evaluation-production/module-10-production-engineering/section-10.4.html
 
 - **[404]** `https://docs.wandb.ai/guides/prompts`
   - was: _Guide to W&amp;B's prompt management features including vers_
   - error: HTTP Error 404: Not Found
 
-## part-9-safety-strategy/module-32-safety-ethics-regulation/section-32.11.html
+## part-9-safety-strategy/module-33-safety-ethics-regulation/section-33.11.html
 
 - **[404]** `https://doi.org/10.2139/ssrn.534622`
   - was: _Introduces contextual integrity as a framework for reasoning_
   - error: HTTP Error 404: Not Found
 
-## part-9-safety-strategy/module-32-safety-ethics-regulation/section-32.12.html
+## part-9-safety-strategy/module-33-safety-ethics-regulation/section-33.12.html
 
 - **[404]** `https://www.whitehouse.gov/briefing-room/presidential-actions/2023/10/30/executive-order-on-the-safe-secure-and-trustworthy-development-and-use-of-artificial-intelligence/`
   - was: _Established reporting requirements for frontier model traini_
@@ -161,7 +161,7 @@ and HTTP 200/301/302/202 (working).
   - was: _Argues that compute is the most measurable and controllable _
   - error: HTTP Error 404: Not Found
 
-## part-9-safety-strategy/module-32-safety-ethics-regulation/section-32.4.html
+## part-9-safety-strategy/module-33-safety-ethics-regulation/section-33.4.html
 
 - **[404]** `https://www.whitehouse.gov/briefing-room/presidential-actions/2023/10/30/executive-order-on-the-safe-secure-and-trustworthy-development-and-use-of-artificial-intelligence/`
   - was: _US executive order establishing reporting requirements for f_
@@ -170,13 +170,13 @@ and HTTP 200/301/302/202 (working).
   - was: _Official HHS guidance on applying HIPAA requirements to AI s_
   - error: GET-retry: HTTP Error 403: Forbidden
 
-## part-9-safety-strategy/module-32-safety-ethics-regulation/section-32.5.html
+## part-9-safety-strategy/module-33-safety-ethics-regulation/section-33.5.html
 
 - **[404]** `https://www.federalreserve.gov/supervisionreg/srletters/sr1107.htm`
   - was: _The banking industry's foundational model risk management gu_
   - error: HTTP Error 404: Not Found
 
-## part-9-safety-strategy/module-33-strategy-product-roi/section-33.1.html
+## part-9-safety-strategy/module-34-strategy-product-roi/section-34.1.html
 
 - **[ERR]** `https://www.mckinsey.com/capabilities/mckinsey-digital/our-insights/the-economic-potential-of-generative-ai-the-next-productivity-frontier`
   - was: _Landmark report quantifying generative AI's potential econom_
@@ -185,13 +185,13 @@ and HTTP 200/301/302/202 (working).
   - was: _Andrew Ng's step-by-step guide for enterprise AI adoption, c_
   - error: HTTP Error 404: Not Found
 
-## part-9-safety-strategy/module-33-strategy-product-roi/section-33.2.html
+## part-9-safety-strategy/module-34-strategy-product-roi/section-34.2.html
 
 - **[404]** `https://www.nngroup.com/articles/ai-ux/`
   - was: _Research-backed UX guidelines for AI-powered interfaces, cov_
   - error: HTTP Error 404: Not Found
 
-## part-9-safety-strategy/module-33-strategy-product-roi/section-33.3.html
+## part-9-safety-strategy/module-34-strategy-product-roi/section-34.3.html
 
 - **[ERR]** `https://www.mckinsey.com/capabilities/quantumblack/our-insights/the-state-of-ai-in-2023-generative-ais-breakout-year`
   - was: _Annual survey of enterprise AI adoption covering investment _
@@ -200,7 +200,7 @@ and HTTP 200/301/302/202 (working).
   - was: _Experimental study showing consultants using GPT-4 improved _
   - error: GET-retry: HTTP Error 403: Forbidden
 
-## part-9-safety-strategy/module-33-strategy-product-roi/section-33.4.html
+## part-9-safety-strategy/module-34-strategy-product-roi/section-34.4.html
 
 - **[403]** `https://www.hbs.edu/faculty/Pages/item.aspx?num=46`
   - was: _Classic strategy text explaining how disruptive technologies_
