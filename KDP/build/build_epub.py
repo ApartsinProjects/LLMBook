@@ -1449,8 +1449,9 @@ def build(max_side: int, jpeg_quality: int) -> int:
     # Also archive a per-edition copy so editions don't overwrite each other.
     # The current edition is read from KDP/metadata/metadata.yaml -> book.edition_number.
     # Falls back silently if metadata is missing or unreadable.
+    # NOTE: do NOT re-import yaml here -- it would shadow the module-level
+    # import inside this function and break the earlier metadata load.
     try:
-        import yaml
         with open(METADATA_FILE, encoding="utf-8") as fh:
             meta = yaml.safe_load(fh) or {}
         book_meta = meta.get("book", {}) or {}
