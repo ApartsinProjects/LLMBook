@@ -1817,8 +1817,27 @@ def main(argv: list[str] | None = None) -> int:
                    help="Maximum dimension (px) for any bundled image (default 1280)")
     p.add_argument("--jpeg-quality", type=int, default=78,
                    help="JPEG quality for re-encoded images (default 78)")
+    p.add_argument("--no-sample-pdf", action="store_true",
+                   help="Skip regenerating the landing-page sample PDF")
     args = p.parse_args(argv)
-    return build(max_side=args.max_image_side, jpeg_quality=args.jpeg_quality)
+    rc = build(max_side=args.max_image_side, jpeg_quality=args.jpeg_quality)
+    if rc == 0 and not args.no_sample_pdf:
+        import subprocess
+        import sys as _sys
+        sample_script = Path(__file__).resolve().parent / "build_sample_pdf.py"
+        if sample_script.exists():
+            print("\nRegenerating landing-page sample PDF from fresh EPUB...")
+            try:
+                subprocess.run(
+                    [_sys.executable, str(sample_script)],
+                    check=True,
+                    cwd=str(Path(__file__).resolve().parents[2]),
+                )
+            except subprocess.CalledProcessError as e:
+                print(f"  [WARN] sample-PDF regen returned code {e.returncode}; EPUB build still OK")
+            except Exception as e:
+                print(f"  [WARN] sample-PDF regen skipped ({e}); EPUB build still OK")
+    return rc
 
 
 if __name__ == "__main__":
