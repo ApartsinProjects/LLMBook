@@ -51,6 +51,16 @@
 <figcaption><strong>Figure 16.1.2</strong>: QLoRA: take your already-compact quantized model and add custom decals. You get personalization without needing a bigger garage.</figcaption>
 </figure>
 <h2>16.1.1 The Full Fine-Tuning Problem</h2>
+<div class="callout tip"><!-- v737-bp -->
+<div class="callout-title">Tip: Overfit One Batch Before Starting Any Training Run</div>
+<p>Before launching a multi-hour fine-tuning job, run 100 steps on a single batch of 8-16 examples with no regularization (<code>weight_decay=0</code>, no dropout). Loss should reach near zero. If it does not, you have a bug: wrong masking (loss computed on prompt tokens), broken chat template, mismatched tokenizer, or learning rate orders of magnitude too low. This 5-minute check has saved countless wasted GPU-hours. If loss goes to zero, kill the run and launch properly.</p>
+</div>
+
+<div class="callout key-insight"><!-- v731-deep-insight -->
+<div class="callout-title">Mental Model: Why LoRA Targets Attention, Not FFN</div>
+<p>A natural question: why does LoRA target attention matrices rather than FFN layers that contain most of the parameters? The answer connects to the functional distinction. FFN layers store factual knowledge as <em>static</em> key-value pairs baked into weights (see Section 4.1). Adapting FFN rows overwrites stored facts &mdash; expensive, risks erasing useful pre-trained knowledge. Attention projections, by contrast, determine how tokens route information: which positions can speak to which. Adapting Q, K, V, O reshapes routing patterns without touching factual stores. This is why fine-tuning with LoRA applied only to attention achieves strong task performance with minimal catastrophic forgetting: you are teaching new communication patterns while leaving knowledge intact. When a task requires injecting genuinely new factual knowledge (not just new behavior), LoRA on FFN or full fine-tuning becomes necessary.</p>
+</div>
+
 <p>When you fine-tune a model with full parameter updates, every weight in the model gets a gradient, an optimizer state (momentum and variance for Adam), and a copy of the updated weight. For a 7B parameter model in FP16, that means 14 GB just for the weights, plus roughly 42 GB for optimizer states, totaling over 56 GB of GPU memory. Scaling to 13B or 70B models makes this prohibitively expensive.
  </p>
 <p>The key insight behind parameter-efficient methods is that the weight changes during fine-tuning are <em>low-rank</em>. Research (Aghajanyan et al., 2021) has shown that when you compute the difference between a fine-tuned model and its pretrained base (the "task-specific delta"), this delta matrix has a very low intrinsic dimensionality, meaning it can be well-approximated by a matrix of much lower rank. Most of the information in the update can be captured by a much smaller matrix. Think of it like image compression: a JPEG discards high-frequency details that humans barely notice, keeping the image recognizable at a fraction of the file size. Similarly, LoRA discards the high-rank components of the weight update, keeping only the most important directions of change.
@@ -86,6 +96,25 @@
 <p>A common misconception is that increasing the LoRA rank (r) always improves fine-tuning quality. In practice, ranks above 32 rarely improve performance for most tasks and can actually degrade results by increasing <a class="glossary-link" href="../../appendices/appendix-f-glossary/section-f.4.html#gl-overfitting" title="Glossary: Overfitting">overfitting</a> risk on small datasets. The sweet spot for most tasks is r=8 to r=16. Higher ranks (32 to 64) are useful only for complex multi-task fine-tuning or when the task requires substantial behavioral change. Always start with r=8 and increase only if validation metrics plateau. More parameters to train also means more memory, slower training, and larger adapter files.</p>
 </div>
 <h2>16.1.2 LoRA Mathematics</h2>
+<div class="callout algorithm"><!-- v733-tech-depth -->
+<div class="callout-title">Under the Hood: LoRA Backward Pass</div>
+<p>The forward pass W&prime; = W + (&alpha;/r)BA is well-known. The <em>backward</em> pass is where the memory saving actually happens. PyTorch sees W&#x2080; with <code>requires_grad=False</code> and <strong>never allocates a gradient tensor for it</strong>. Only A and B accumulate gradients:</p><div class="code-block-wrapper"><pre><code class="pygments-highlighted lang-python"><span class="k">class</span> <span class="nc">LoRALinear</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">d_in</span><span class="p">,</span> <span class="n">d_out</span><span class="p">,</span> <span class="n">rank</span><span class="p">,</span> <span class="n">alpha</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">W0</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">d_in</span><span class="p">,</span> <span class="n">d_out</span><span class="p">),</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">A</span>  <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">d_in</span><span class="p">,</span> <span class="n">rank</span><span class="p">)</span> <span class="o">*</span> <span class="mf">0.02</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">B</span>  <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">rank</span><span class="p">,</span> <span class="n">d_out</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">scale</span> <span class="o">=</span> <span class="n">alpha</span> <span class="o">/</span> <span class="n">rank</span>
+    <span class="k">def</span> <span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">x</span> <span class="o">@</span> <span class="bp">self</span><span class="o">.</span><span class="n">W0</span> <span class="o">+</span> <span class="p">(</span><span class="n">x</span> <span class="o">@</span> <span class="bp">self</span><span class="o">.</span><span class="n">A</span> <span class="o">@</span> <span class="bp">self</span><span class="o">.</span><span class="n">B</span><span class="p">)</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">scale</span>
+
+<span class="n">layer</span> <span class="o">=</span> <span class="n">LoRALinear</span><span class="p">(</span><span class="mi">512</span><span class="p">,</span> <span class="mi">512</span><span class="p">,</span> <span class="n">rank</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mi">16</span><span class="p">)</span>
+<span class="n">layer</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">4</span><span class="p">,</span> <span class="mi">512</span><span class="p">))</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">layer</span><span class="o">.</span><span class="n">A</span><span class="o">.</span><span class="n">grad</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>   <span class="c1"># (512, 8)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">layer</span><span class="o">.</span><span class="n">W0</span><span class="o">.</span><span class="n">grad</span><span class="p">)</span>          <span class="c1"># None &lt;-- the memory saving</span>
+</code></pre></div><p>The 60-70% optimizer-memory saving in LoRA training is exactly this: no <code>grad_W0</code> tensor allocated.</p>
+</div>
+
 <h3>16.1.2.1 The Core Decomposition</h3>
 <p><a class="glossary-link" href="../../appendices/appendix-f-glossary/section-f.3.html#gl-lora" title="Glossary: LoRA (Low-Rank Adaptation)">LoRA (Low-Rank Adaptation)</a> works by expressing the weight update as a product of two small matrices. For a pretrained weight matrix <strong>W</strong> of dimension <em>d × k</em>, instead of computing a full update ΔW (also <em>d × k</em>), LoRA decomposes it as:
  </p>
@@ -762,7 +791,7 @@ A: 1. Renewable energy sources do not run out...
 <a class="up" href="index.html">Chapter 16: Parameter-Efficient Fine-Tuning (PEFT)</a>
 <a class="next" href="section-16.2.html">Advanced PEFT Methods</a>
 </nav>
-<footer><p>Ninth Edition, 2026 · <a href="../../toc.html">Contents</a></p></footer>
+<footer><p>Tenth Edition, 2026 · <a href="../../toc.html">Contents</a></p></footer>
 </main>
 
 <script>
