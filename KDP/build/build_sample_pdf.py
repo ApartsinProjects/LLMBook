@@ -31,9 +31,10 @@ DOWNLOADS_DIR = PROJECT_ROOT / "downloads"
 
 # Chapter -> module folder mapping. Add more as needed.
 CHAPTERS = {
-    11: ("part-3-working-with-llms", "module-11-prompt-engineering"),
-    22: ("part-6-agentic-ai", "module-22-ai-agents"),
-    20: ("part-5-retrieval-conversation", "module-20-rag"),
+    12: ("part-3-working-with-llms", "module-12-prompt-engineering"),
+    11: ("part-3-working-with-llms", "module-11-llm-apis"),
+    19: ("part-5-retrieval-conversation", "module-19-rag"),
+    21: ("part-6-agentic-ai", "module-21-ai-agents"),
     4:  ("part-1-foundations", "module-04-transformer-architecture"),
 }
 
@@ -544,7 +545,7 @@ def html_to_pdf(html: str, output_pdf: Path, browser: Path, chapter_num: int = 1
 
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[1])
-    p.add_argument("--chapter", type=int, default=11,
+    p.add_argument("--chapter", type=int, default=12,
                    help="Chapter number to convert (default 11 = prompt engineering)")
     p.add_argument("--slug", default="prompt-engineering",
                    help="Filename slug for output PDF (default prompt-engineering)")
