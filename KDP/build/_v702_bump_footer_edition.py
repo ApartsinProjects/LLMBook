@@ -12,7 +12,7 @@ SKIP = ('node_modules', '.git/', 'pagefind/', 'KDP/build/', 'KDP/output/',
         'templates/', '_archive/', 'temp_epub/', 'vendor/', '/agents/')
 
 PAT = re.compile(
-    r'(First|Second|Third|Fourth|Fifth|Sixth|Seventh|Eighth|Ninth|Tenth)\s+Edition')
+    r'(First|Second|Third|Fourth|Fifth|Sixth|Seventh|Eighth|Ninth|Tenth|Eleventh)\s+Edition')
 
 
 def main() -> int:
@@ -24,7 +24,7 @@ def main() -> int:
         if any(s in sp for s in SKIP):
             continue
         text = p.read_text(encoding='utf-8', errors='replace')
-        new, n = PAT.subn('Eleventh Edition', text)
+        new, n = PAT.subn('Twelfth Edition', text)
         if n:
             n_files += 1
             n_subs += n

@@ -19,7 +19,7 @@ This file maps each field on the KDP "Create a new Kindle eBook" web form to the
 Leave blank, or fill if you plan a series of related books.
 
 ### Edition Number (optional)
-> **11**
+> **12**
 
 ### Author
 - Primary author: **Alexander Apartsin**
