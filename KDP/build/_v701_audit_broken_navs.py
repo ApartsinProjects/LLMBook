@@ -14,6 +14,9 @@ SKIP = ('node_modules', '.git/', 'pagefind/', 'KDP/build/', 'KDP/output/',
 
 NAV_RE = re.compile(r'<nav\s+class="chapter-nav"[^>]*>(.*?)</nav>', re.DOTALL)
 A_TAG = re.compile(r'<a\s[^>]*>.*?</a>', re.DOTALL)
+# Empty placeholder spans for "no next page" / "no prev page" are legit.
+EMPTY_SPAN = re.compile(
+    r'<span\s+class="(?:prev|up|next)"\s*>\s*</span>', re.IGNORECASE)
 
 
 def main() -> int:
@@ -25,9 +28,9 @@ def main() -> int:
         text = p.read_text(encoding='utf-8', errors='replace')
         for m in NAV_RE.finditer(text):
             inner = m.group(1)
-            # Strip all <a>...</a> blocks; what remains should be only
-            # whitespace.
-            residue = A_TAG.sub('', inner).strip()
+            # Strip all <a>...</a> blocks and empty <span class="prev|up|next">
+            # placeholders; what remains should be only whitespace.
+            residue = EMPTY_SPAN.sub('', A_TAG.sub('', inner)).strip()
             if residue:
                 n_bad += 1
                 snippet = ' / '.join(line.strip() for line in residue.splitlines()
