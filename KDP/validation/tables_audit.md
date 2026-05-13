@@ -33,7 +33,7 @@ Kindle Paperwhite has a ~600 px reading width in portrait. Tables with **6+ colu
 
 Grouped by file. Each table links to its source location and includes a simplification proposal.
 
-### `part-9-safety-strategy/module-33-strategy-product-roi/section-33.4.html` (2 HIGH tables)
+### `part-9-safety-strategy/module-34-strategy-product-roi/section-34.4.html` (2 HIGH tables)
 
 **Table #1** — 6 cols × 6 rows (~483 chars; avg cell 13 chars)
 
@@ -103,7 +103,7 @@ Grouped by file. Each table links to its source location and includes a simplifi
 - **Problem**: 6-column comparison/matrix table won't fit narrow Kindle (~600 px reading width)
 - **Suggestion**: **Convert to definition list (<dl>)** if rows describe items, OR rotate (transpose rows<->cols), OR split into 2 narrower tables
 
-### `part-9-safety-strategy/module-32-safety-ethics-regulation/section-32.11.html` (1 HIGH tables)
+### `part-9-safety-strategy/module-33-safety-ethics-regulation/section-33.11.html` (1 HIGH tables)
 
 **Table #2** — 6 cols × 7 rows (~373 chars; avg cell 8 chars)
 
@@ -111,7 +111,7 @@ Grouped by file. Each table links to its source location and includes a simplifi
 - **Problem**: 6-column comparison/matrix table won't fit narrow Kindle (~600 px reading width)
 - **Suggestion**: **Convert to definition list (<dl>)** if rows describe items, OR rotate (transpose rows<->cols), OR split into 2 narrower tables
 
-### `part-9-safety-strategy/module-33-strategy-product-roi/section-33.5.html` (1 HIGH tables)
+### `part-9-safety-strategy/module-34-strategy-product-roi/section-34.5.html` (1 HIGH tables)
 
 **Table #1** — 6 cols × 10 rows (~895 chars; avg cell 14 chars)
 
@@ -119,7 +119,7 @@ Grouped by file. Each table links to its source location and includes a simplifi
 - **Problem**: 6-column comparison/matrix table won't fit narrow Kindle (~600 px reading width)
 - **Suggestion**: **Convert to definition list (<dl>)** if rows describe items, OR rotate (transpose rows<->cols), OR split into 2 narrower tables
 
-### `part-7-multimodal-applications/module-27-multimodal/section-27.3.html` (1 HIGH tables)
+### `part-7-multimodal-applications/module-28-multimodal/section-28.3.html` (1 HIGH tables)
 
 **Table #1** — 6 cols × 6 rows (~396 chars; avg cell 11 chars)
 
@@ -127,7 +127,7 @@ Grouped by file. Each table links to its source location and includes a simplifi
 - **Problem**: 6-column comparison/matrix table won't fit narrow Kindle (~600 px reading width)
 - **Suggestion**: **Convert to definition list (<dl>)** if rows describe items, OR rotate (transpose rows<->cols), OR split into 2 narrower tables
 
-### `part-6-agentic-ai/module-25-specialized-agents/section-25.7.html` (1 HIGH tables)
+### `part-6-agentic-ai/module-26-specialized-agents/section-26.7.html` (1 HIGH tables)
 
 **Table #1** — 6 cols × 7 rows (~735 chars; avg cell 17 chars)
 
@@ -135,7 +135,7 @@ Grouped by file. Each table links to its source location and includes a simplifi
 - **Problem**: 6-column comparison/matrix table won't fit narrow Kindle (~600 px reading width)
 - **Suggestion**: **Convert to definition list (<dl>)** if rows describe items, OR rotate (transpose rows<->cols), OR split into 2 narrower tables
 
-### `part-5-retrieval-conversation/module-19-embeddings-vector-db/section-19.2.html` (1 HIGH tables)
+### `part-5-retrieval-conversation/module-20-embeddings-vector-db/section-20.2.html` (1 HIGH tables)
 
 **Table #1** — 6 cols × 7 rows (~362 chars; avg cell 8 chars)
 
@@ -143,7 +143,7 @@ Grouped by file. Each table links to its source location and includes a simplifi
 - **Problem**: 6-column comparison/matrix table won't fit narrow Kindle (~600 px reading width)
 - **Suggestion**: **Convert to definition list (<dl>)** if rows describe items, OR rotate (transpose rows<->cols), OR split into 2 narrower tables
 
-### `part-5-retrieval-conversation/module-19-embeddings-vector-db/section-19.3.html` (1 HIGH tables)
+### `part-5-retrieval-conversation/module-20-embeddings-vector-db/section-20.3.html` (1 HIGH tables)
 
 **Table #1** — 6 cols × 9 rows (~512 chars; avg cell 9 chars)
 
@@ -151,7 +151,7 @@ Grouped by file. Each table links to its source location and includes a simplifi
 - **Problem**: 6-column comparison/matrix table won't fit narrow Kindle (~600 px reading width)
 - **Suggestion**: **Convert to definition list (<dl>)** if rows describe items, OR rotate (transpose rows<->cols), OR split into 2 narrower tables
 
-### `part-4-training-adapting/module-15-peft/section-15.3.html` (1 HIGH tables)
+### `part-4-training-adapting/module-16-peft/section-16.3.html` (1 HIGH tables)
 
 **Table #1** — 6 cols × 8 rows (~463 chars; avg cell 9 chars)
 
@@ -159,7 +159,7 @@ Grouped by file. Each table links to its source location and includes a simplifi
 - **Problem**: 6-column comparison/matrix table won't fit narrow Kindle (~600 px reading width)
 - **Suggestion**: **Convert to definition list (<dl>)** if rows describe items, OR rotate (transpose rows<->cols), OR split into 2 narrower tables
 
-### `part-4-training-adapting/module-15-peft/section-15.4.html` (1 HIGH tables)
+### `part-4-training-adapting/module-16-peft/section-16.4.html` (1 HIGH tables)
 
 **Table #1** — 6 cols × 7 rows (~1688 chars; avg cell 40 chars)
 
@@ -167,7 +167,7 @@ Grouped by file. Each table links to its source location and includes a simplifi
 - **Problem**: 6 wide columns with 40-char avg cell content; will overflow on Kindle
 - **Suggestion**: **Convert to bulleted list per row**, with header items as the bullet label and other cells as nested sub-bullets
 
-### `part-3-working-with-llms/module-12-hybrid-ml-llm/section-12.1.html` (1 HIGH tables)
+### `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.1.html` (1 HIGH tables)
 
 **Table #1** — 6 cols × 6 rows (~290 chars; avg cell 8 chars)
 
@@ -247,15 +247,15 @@ Grouped by file. Each table links to its source location and includes a simplifi
 | `front-matter/section-fm.8.html` | 8 | 4×7 | 35 | Consider definition list or 2-column transposed layout |
 | `front-matter/section-fm.8.html` | 9 | 4×6 | 35 | Consider definition list or 2-column transposed layout |
 | `front-matter/section-fm.8.html` | 11 | 4×8 | 34 | Consider definition list or 2-column transposed layout |
-| `part-9-safety-strategy/module-32-safety-ethics-regulation/section-32.1.html` | 4 | 4×8 | 34 | Consider definition list or 2-column transposed layout |
-| `part-9-safety-strategy/module-32-safety-ethics-regulation/section-32.4.html` | 1 | 4×5 | 51 | Consider definition list or 2-column transposed layout |
-| `part-9-safety-strategy/module-33-strategy-product-roi/section-33.1.html` | 1 | 4×5 | 36 | Consider definition list or 2-column transposed layout |
-| `part-9-safety-strategy/module-33-strategy-product-roi/section-33.3.html` | 1 | 4×4 | 31 | Consider definition list or 2-column transposed layout |
-| `part-5-retrieval-conversation/module-21-conversational-ai/section-21.3.html` | 2 | 4×4 | 64 | Consider definition list or 2-column transposed layout |
-| `part-4-training-adapting/module-14-fine-tuning-fundamentals/section-14.4.html` | 2 | 4×4 | 48 | Consider definition list or 2-column transposed layout |
-| `part-4-training-adapting/module-17-alignment-rlhf-dpo/section-17.1.html` | 1 | 4×8 | 32 | Consider definition list or 2-column transposed layout |
+| `part-9-safety-strategy/module-33-safety-ethics-regulation/section-33.1.html` | 4 | 4×8 | 34 | Consider definition list or 2-column transposed layout |
+| `part-9-safety-strategy/module-33-safety-ethics-regulation/section-33.4.html` | 1 | 4×5 | 51 | Consider definition list or 2-column transposed layout |
+| `part-9-safety-strategy/module-34-strategy-product-roi/section-34.1.html` | 1 | 4×5 | 36 | Consider definition list or 2-column transposed layout |
+| `part-9-safety-strategy/module-34-strategy-product-roi/section-34.3.html` | 1 | 4×4 | 31 | Consider definition list or 2-column transposed layout |
+| `part-5-retrieval-conversation/module-22-conversational-ai/section-22.3.html` | 2 | 4×4 | 64 | Consider definition list or 2-column transposed layout |
+| `part-4-training-adapting/module-15-fine-tuning-fundamentals/section-15.4.html` | 2 | 4×4 | 48 | Consider definition list or 2-column transposed layout |
+| `part-4-training-adapting/module-18-alignment-rlhf-dpo/section-18.1.html` | 1 | 4×8 | 32 | Consider definition list or 2-column transposed layout |
 | `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.1.html` | 2 | 4×6 | 47 | Consider definition list or 2-column transposed layout |
-| `part-2-understanding-llms/module-18-interpretability/section-18.4.html` | 2 | 4×6 | 49 | Consider definition list or 2-column transposed layout |
+| `part-2-understanding-llms/module-19-interpretability/section-19.4.html` | 2 | 4×6 | 49 | Consider definition list or 2-column transposed layout |
 | `part-11-idea-to-product/module-37-building-steering/section-37.2.html` | 1 | 4×6 | 34 | Consider definition list or 2-column transposed layout |
 | `part-11-idea-to-product/module-37-building-steering/section-37.4.html` | 1 | 4×4 | 62 | Consider definition list or 2-column transposed layout |
 | `part-11-idea-to-product/module-37-building-steering/section-37.5.html` | 1 | 4×6 | 33 | Consider definition list or 2-column transposed layout |

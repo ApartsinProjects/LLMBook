@@ -30,7 +30,7 @@ The book is structurally submittable today. Remaining issues are content-quality
 
 **Script:** `scripts/fix/fix_zero_padded_sections.py`
 **Files modified:** 95 (all under `part-*/module-*/section-*.html`)
-**Effect:** Replaced `section-0N.M.html` (e.g. `section-08.1.html`) with `section-N.M.html`. The targets exist without padding; padding was an artifact of an earlier batch script. After this fix the audit framework reports a single remaining `BROKEN_XREF` (a stale module slug, see Section 4 below). Raw before/after data is in `KDP/validation/_raw/audit_full.json` and `audit_after_fix.json`.
+**Effect:** Replaced `section-0N.M.html` (e.g. `section-8.1.html`) with `section-N.M.html`. The targets exist without padding; padding was an artifact of an earlier batch script. After this fix the audit framework reports a single remaining `BROKEN_XREF` (a stale module slug, see Section 4 below). Raw before/after data is in `KDP/validation/_raw/audit_full.json` and `audit_after_fix.json`.
 
 ### 2.2 No other mechanical fixes were applied
 
@@ -77,8 +77,8 @@ No author intervention required for `templates/README.md` rule 71 ("No em dashes
 | Section files missing Key Insight callout        |     2 | MAJOR |
 | Chapter index files missing Big Picture          |     7 | MAJOR |
 | Bibliography position issues (after `<nav>` etc.)|    16 | MAJOR |
-| Old `<ul class="bibliography">` format           |     1 | MAJOR (`part-6-agentic-ai/module-26-agent-safety-production/section-26.6.html`) |
-| Old `<div class="bibliography">` format          |     1 | MAJOR (`part-8-evaluation-production/module-31-production-engineering/section-31.6.html`) |
+| Old `<ul class="bibliography">` format           |     1 | MAJOR (`part-6-agentic-ai/module-27-agent-safety-production/section-27.6.html`) |
+| Old `<div class="bibliography">` format          |     1 | MAJOR (`part-8-evaluation-production/module-10-production-engineering/section-10.6.html`) |
 | Duplicate bibliography sections                  |     0 | OK |
 | Stray `bibliography-title` outside `<section>`   |     0 | OK |
 | Duplicate callout icons (inline + CSS ::before)  |     0 | OK |
@@ -108,7 +108,7 @@ Only `appendix-a/section-a.5.html` and `appendix-b/section-b.4.html` carry bibli
 | Pages missing `<footer>` tag                            | 1 (`index.html`) | MAJOR |
 | Pages missing "Fifth Edition, 2026" string in footer   | 1 (`toc.html`) | MAJOR |
 
-`SECTION_ORDER` concentrates heavily in part 8 (module-29, 30, 31) and parts 11 (modules 36-38). 19 of the 308 hits are in `part-8/module-30-observability-monitoring/section-30.5.html` alone. These reflect blocks like Self-Check appearing after What's Next, or Big Picture being absent.
+`SECTION_ORDER` concentrates heavily in part 8 (module-29, 30, 31) and parts 11 (modules 36-38). 19 of the 308 hits are in `part-8/module-31-observability-monitoring/section-31.5.html` alone. These reflect blocks like Self-Check appearing after What's Next, or Big Picture being absent.
 
 ### 3.6 Callouts (per `templates/README.md` rule, 11 valid types)
 
@@ -132,10 +132,10 @@ Non-standard breakdown: `pathway` (20 occurrences) is actually styled in `styles
 | `MIXED_CAPTION_STYLE` (P2)       |   326 | MINOR |
 | `MISSING_OUTPUT` (P2)            |   131 | MINOR |
 | `MISSING_IMG_DIMS` (P2)          |   733 | MINOR (but slows page load and EPUB rendering) |
-| `SVG_TITLE_TEXT` (P0)            |     1 | BLOCKER (`section-15.4.html` line 76) |
+| `SVG_TITLE_TEXT` (P0)            |     1 | BLOCKER (`section-16.4.html` line 76) |
 | `STACKED_CAPTIONS` check         |   N/A | check module currently broken (`p1_stacked_captions.py` missing required attrs) |
 
-Worst code-fragment number duplications are in the production-engineering modules (29.x, 31.x) and `part-6/module-22/section-22.7.html` (6 dupes).
+Worst code-fragment number duplications are in the production-engineering modules (29.x, 31.x) and `part-6/module-22/section-23.7.html` (6 dupes).
 
 ### 3.8 HTML well-formedness (source tree, before EPUB build)
 
@@ -145,7 +145,7 @@ Worst code-fragment number duplications are in the production-engineering module
 | Unclosed `<div>` / `<section>`   |     ~5 | 4 |
 | Unclosed `<strong>`              |     4 | 4 |
 | Orphan `</p>`, `</h2>`, `</main>` |     5 | 5 |
-| Other (literal `<j}>`, etc.)     |     1 | 1 (`part-9/module-32/section-32.2.html` line 106) |
+| Other (literal `<j}>`, etc.)     |     1 | 1 (`part-9/module-32/section-33.2.html` line 106) |
 
 Total: ~21 well-formedness issues across 18 files. **The EPUB build cleans these up** (final EPUB has 0 parse errors), but the source HTML should still be fixed before re-export.
 
@@ -188,7 +188,7 @@ Skip-link is a P2 accessibility nicety but applies to every page. Consider one-t
 
 ### 4.1 The single remaining BROKEN_XREF (P0)
 
-`part-4-training-adapting/module-13-synthetic-data/section-13.8.html` line 22 links to `../../part-1-foundations/module-02-language-models-word-embeddings/section-2.2.html`. The actual module folder is `module-02-tokenization-subword-models`. This is a **stale slug from a chapter rename**. Author needs to confirm intended target (likely `module-02-tokenization-subword-models/section-2.2.html`).
+`part-4-training-adapting/module-14-synthetic-data/section-14.8.html` line 22 links to `../../part-1-foundations/module-02-language-models-word-embeddings/section-2.2.html`. The actual module folder is `module-02-tokenization-subword-models`. This is a **stale slug from a chapter rename**. Author needs to confirm intended target (likely `module-02-tokenization-subword-models/section-2.2.html`).
 
 ### 4.2 Top files by total issue count
 
@@ -196,14 +196,14 @@ Skip-link is a P2 accessibility nicety but applies to every page. Consider one-t
 |--------------------------------------------------------------------------------------------|------:|
 | `front-matter/section-fm.7.html`                                                          | ~46 (mostly missing img dims) |
 | `front-matter/wisdom-council.html`                                                        | ~46 (inline styles + img dims) |
-| `part-8/module-30-observability-monitoring/section-30.5.html`                            | 19 (SECTION_ORDER) |
+| `part-8/module-31-observability-monitoring/section-31.5.html`                            | 19 (SECTION_ORDER) |
 | `part-1/module-02-tokenization-subword-models/section-2.3.html`                           | 9 (FIGURE_SEQUENCE) |
-| `part-2/module-18-interpretability/section-18.1.html`                                     | 6+ |
-| `part-2/module-18-interpretability/section-18.2.html`                                     | 6 (incl. unclosed div) |
+| `part-2/module-19-interpretability/section-19.1.html`                                     | 6+ |
+| `part-2/module-19-interpretability/section-19.2.html`                                     | 6 (incl. unclosed div) |
 | `appendices/appendix-j-datasets-benchmarks/section-j.3.html`                              | 14 (10 TABLE_NO_THEAD + 4 CONSECUTIVE_HEADINGS) |
-| `part-7/module-27-multimodal/section-27.7.html`                                           | 9 CONSECUTIVE_HEADINGS |
-| `part-6/module-22-ai-agents/section-22.7.html`                                            | 6 DUP_FIGURE_NUM |
-| `part-8/module-31-production-engineering/section-31.8.html`                               | 5 DUP_FIGURE_NUM + 5 SECTION_ORDER |
+| `part-7/module-28-multimodal/section-28.7.html`                                           | 9 CONSECUTIVE_HEADINGS |
+| `part-6/module-23-ai-agents/section-23.7.html`                                            | 6 DUP_FIGURE_NUM |
+| `part-8/module-10-production-engineering/section-10.8.html`                               | 5 DUP_FIGURE_NUM + 5 SECTION_ORDER |
 
 ### 4.3 Concentration by part
 
@@ -219,16 +219,16 @@ These items were **not** auto-fixed because they require judgement, content auth
 
 1. **Add bibliography to 31 chapter index pages** (`part-9/module-32/index.html`, etc.) and **29 section files**. Templates expect a bibliography in every section/chapter. Sources must be researched per topic.
 2. **Add bibliography to 106 appendix sections.** May be intentional for glossary/setup appendices; the author should decide on a per-appendix policy and document it in `templates/README.md`.
-3. **Fix the stale slug in `section-13.8.html`** (the one remaining BROKEN_XREF, see 4.1).
+3. **Fix the stale slug in `section-14.8.html`** (the one remaining BROKEN_XREF, see 4.1).
 4. **Add 7 missing Big Picture callouts** in chapter index pages of part-1 and part-2.
-5. **Add 3 missing What's Next + 2 missing Key Insight blocks** in `part-8/module-29-evaluation-observability` sections 29.5, 29.7, 29.11.
+5. **Add 3 missing What's Next + 2 missing Key Insight blocks** in `part-8/module-30-evaluation-observability` sections 29.5, 29.7, 29.11.
 
 ### 5.2 Structural fixes that need a careful regex pass
 
 6. **41 duplicate code-fragment numbers (P0).** Cannot be safely auto-renumbered: the figure-references inside prose need to be updated in lockstep. `scripts/fix_caption_numbering.py` can do this but its hardcoded `BOOK_ROOT = E:/Projects/LLMCourse` would need to be patched, then run with `--dry-run` to review every change. Recommend: patch script root to use `Path(__file__).resolve().parent.parent`, dry-run, hand-review, then apply.
 7. **308 SECTION_ORDER (P1) violations** in part-8 and part-11. The audit's `p1_section_ordering` check knows the expected order; a focused dry-run of `scripts/fix/fix_section_ordering.py` against just those modules is the right next step. Confirm canonical order in `templates/README.md` first.
 8. **Reposition 16 misplaced bibliographies** (after `<nav>` or before What's Next). Each needs to be moved manually because content above/below may need re-ordering.
-9. **Convert 1 old `<ul class="bibliography">` and 1 old `<div class="bibliography">`** to the new `<section class="bibliography">` + `<div class="bib-entry-card">` format (`part-6/module-26/section-26.6.html`, `part-8/module-31/section-31.6.html`).
+9. **Convert 1 old `<ul class="bibliography">` and 1 old `<div class="bibliography">`** to the new `<section class="bibliography">` + `<div class="bib-entry-card">` format (`part-6/module-26/section-27.6.html`, `part-8/module-31/section-10.6.html`).
 10. **Patch 18 well-formedness issues** in source HTML (orphan/unclosed tags). All localized; see Section 3.8 for the file list.
 
 ### 5.3 Polish items (MAJOR/MINOR; nice to have)

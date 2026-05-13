@@ -21,7 +21,7 @@
 | F16 | section-11.3 | "basic and Section 8.1 prompting" | "basic and chain-of-thought prompting" |
 | F18 | section-12.2 | "Section 4.1 library" (for embeddings) | "sentence-transformers library" |
 | F20 | section-12.5 | "Section 4.1 models" (spaCy) | "transformer-based models (en_core_web_trf)" |
-| F21 | section-12.5 | "Section 32.2 risk" (table label) | "Hallucination risk" |
+| F21 | section-12.5 | "Section 33.2 risk" (table label) | "Hallucination risk" |
 
 **Action:** book-wide grep for `Section \d+\.\d+` outside `<a>` tags and outside explicit "see Section X.Y" constructs. Replace each with intended concept name + hyperlink to canonical section.
 

@@ -9,18 +9,18 @@
 
 ## MODULE 13: Synthetic Data
 
-### GOOD: section-13.1.html
+### GOOD: section-14.1.html
 Multiple callout types (key-insight, warning, practical-example), concrete `QualityMetrics` dataclass, model collapse failure modes, legal/licensing table, full lifecycle diagram.
 
-### GOOD: section-13.3.html
+### GOOD: section-14.3.html
 `QualityScore` dataclass, exact dedup via SHA-256, MinHash with `datasketch`, semantic dedup, paraphrase pipeline with goldilocks similarity band (0.85-0.97), composable `FilterPipeline`.
 
-### GOOD: section-13.6.html
+### GOOD: section-14.6.html
 Verification-first framing, rejection sampling with n=64 justified, domain-specific verification strategy table, R1-style distillation pipeline.
 
 ---
 
-**Finding 1** | section-13.2 | Code Fragment 13.2.3 caption says "Implement Evol-Instruct" but the function is persona-driven generation
+**Finding 1** | section-13.2 | Code Fragment 14.2.3 caption says "Implement Evol-Instruct" but the function is persona-driven generation
 Classification: **MISSING-EXAMPLE** (label/content mismatch)
 Action: **NEW-WORKED-EXAMPLE** or fix caption — show one seed instruction passed through 2 depth + 1 breadth mutations.
 
@@ -40,7 +40,7 @@ Action: **NEW-WORKED-EXAMPLE** — `augment_conversation` function + before/afte
 
 ## MODULE 14: Fine-Tuning Fundamentals
 
-### GOOD: section-14.3.html
+### GOOD: section-15.3.html
 Response masking diagram, full `SFTConfig`, scheduler visualization, "desirable difficulty" analogy.
 
 ---
@@ -139,7 +139,7 @@ Action: **ADD-CALLOUT-BOX: algorithm** — show $L_{RM} = -\log \sigma(r(x, y_w)
 
 **Strongest:** Modules 15 (PEFT) and 16 (Alignment) — sections 15.1, 15.5, 15.6, 16.1, 16.2, 16.3 hit publication-grade depth.
 
-**Most concentrated issues:** Module 14 (machine unlearning shopping-list, Phi claim, thin Vertex AI, three "or alternatively" without selection guidance).
+**Most concentrated issues:** Module 15 (machine unlearning shopping-list, Phi claim, thin Vertex AI, three "or alternatively" without selection guidance).
 
 **Priority order for remediation:**
 1. Finding 1 (Evol-Instruct caption mismatch) — actively misleads

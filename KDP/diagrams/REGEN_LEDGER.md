@@ -122,9 +122,9 @@ for src_name, dst_rel in BATCH_ITEMS:
 ## Done (52 figures)
 
 ### Prior sessions (23)
-- fig-15.1.3-lora-decomposition, fig-17.1.2a-rlhf-ppo-step, fig-17.1.2b-rlhf-three-stage
-- fig-18.4.2-explainability-2d, fig-2.2-bpe-overview, fig-20.1.3-rag-pipeline
-- fig-20.3.4-graphrag-pipeline, fig-27.1.3-ddpm-process, fig-4.2.2-decoder-only_v1
+- fig-16.1.3-lora-decomposition, fig-17.1.2a-rlhf-ppo-step, fig-17.1.2b-rlhf-three-stage
+- fig-19.4.2-explainability-2d, fig-2.2-bpe-overview, fig-21.1.3-rag-pipeline
+- fig-21.3.4-graphrag-pipeline, fig-28.1.3-ddpm-process, fig-4.2.2-decoder-only_v1
 - fig-4.5.2-complexity, fig-6.1.2-encoder-timeline, fig-6.1.4-param-growth
 - fig-8.1.2-perf-vs-compute, fig-8.1.3-four-reasoning-architectures
 - fig-8.5.1-compute-optimal-frontier, section-10.3-fallback-staircase
@@ -152,10 +152,10 @@ for src_name, dst_rel in BATCH_ITEMS:
 - fig-4.1.8-causal-mask, fig-4.4.3-flash-attention, fig-5.1.3-beam-search, fig-5.2.3-top-p-sampling, fig-5.3.3-speculative
 
 ### Batch 9 (5)
-- fig-9.2.3-continuous-batching, fig-10.2.4-function-calling-loop, fig-10.1.5-api-request-response, fig-9.4.3-prefill-decode, fig-10.2.2-structured-output-levels
+- fig-9.2.3-continuous-batching, fig-11.2.4-function-calling-loop, fig-11.1.5-api-request-response, fig-9.4.3-prefill-decode, fig-11.2.2-structured-output-levels
 
 ### Batch 10 (5)
-- fig-20.2-advanced-rag-paradigms, fig-20.8.1-rag-ingestion-pipeline, fig-22.4.1-tiered-reasoning, memory-taxonomy-five-layers, agent-execution-loop
+- fig-20.2-advanced-rag-paradigms, fig-21.8.1-rag-ingestion-pipeline, fig-23.4.1-tiered-reasoning, memory-taxonomy-five-layers, agent-execution-loop
 
 ---
 
@@ -191,11 +191,11 @@ Pick 5 from this ordered list per batch. Cross out as completed.
 - [ ] fig-9.2.4-mha-mqa-gqa, fig-9.2.5-radixattention, fig-9.3.2-speculative
 - [ ] fig-9.3.3-tree-verification, fig-9.4.2-serving-stack, fig-9.5.1-2-4-sparsity
 
-### Module 10-11 (APIs, prompting) — remaining
-- [ ] fig-10.1.2-llm-api-ecosystem, fig-11.6.1-dspy-optimization-loop
+### Module 11-11 (APIs, prompting) — remaining
+- [ ] fig-11.1.2-llm-api-ecosystem, fig-12.6.1-dspy-optimization-loop
 - [ ] section-11.1-svg1, svg2; section-11.2-svg1, svg2, svg3; section-11.3-svg1, svg2, svg3
 
-### Module 12-19 — many remaining
+### Module 13-19 — many remaining
 See `KDP/build/_remaining_diagrams.txt` for the full list grouped by part.
 
 ### Tier D (appendices) — leave Mermaid OR bulk-normalize

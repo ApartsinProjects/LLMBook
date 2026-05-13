@@ -19,8 +19,8 @@ Examples:
 
 > "Temperature scales the logits before **Section 4.1**." → should be "the softmax operation"
 > "the standard is **Section 4.1** Loss" → "Cross-Entropy Loss"
-> "Pluralistic alignment extends the **Section 16.1** to represent diverse value systems" → "preference modeling"
-> "Strategy without execution is a **Section 29.2**" → "hallucination"
+> "Pluralistic alignment extends the **Section 17.1** to represent diverse value systems" → "preference modeling"
+> "Strategy without execution is a **Section 30.2**" → "hallucination"
 
 **Cross-cuts EVERY PART** (50+ instances in Part I alone, 9 each in Parts IX-X-XI).
 **Fixed in v6.41 and v6.45**: 263 substitutions applied; 0 remain.
@@ -79,7 +79,7 @@ factory closures).
 **Modules 15 and 16 are exemplary.** LoRA (§15.1), distillation (§15.5), merging (§15.6), RLHF (§16.1), DPO (§16.2), Constitutional AI (§16.3) all pass the four-question test.
 
 **Real gaps:**
-- **§13.2** — Code Fragment 13.2.3 titled "Implement Evol-Instruct" actually implements persona-driven generation. Caption/content mismatch.
+- **§13.2** — Code Fragment 14.2.3 titled "Implement Evol-Instruct" actually implements persona-driven generation. Caption/content mismatch.
 - **§14.2** — "Phi on 6B textbook-quality tokens matches 1T tokens" stated without mechanism or Gunasekar et al. citation.
 - **§14.7** — YaRN named as "recommended default beyond 4× training length" but no formula, no code, no temperature-correction explanation. Linear and NTK get full treatment; YaRN doesn't.
 - **§15.2** — IA3 method described but the actual operation `Attention(Q, K⊙l_k, V⊙l_v)` is never stated.
@@ -132,7 +132,7 @@ factory closures).
 - **§33.3** — Risk-feasibility matrix doesn't acknowledge the most dangerous misclassification: "low-risk-looking but high-consequence with delayed detection" (e.g. email summarizer in legal context).
 - **§34.4** — A/B testing for AI features misses the **novelty effect** failure mode (week-1 enthusiasm reverses by week-4).
 
-**Wrong-prefix sub-headings (~9 cases)** in Parts IX-XI: e.g. `<h3>32.9.1.1</h3>` inside section-29.9.html. Fixed in v6.43 (389 prefix corrections book-wide).
+**Wrong-prefix sub-headings (~9 cases)** in Parts IX-XI: e.g. `<h3>33.9.1.1</h3>` inside section-30.9.html. Fixed in v6.43 (389 prefix corrections book-wide).
 
 **4 missing figure images** in sections 33.4-33.7 (now 30.4-30.7) — captions present but no `<img>` tag. Fixed in v6.43 (empty figures stripped).
 

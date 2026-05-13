@@ -84,7 +84,7 @@ Last updated: **2026-05-10**
 - [x] PDF generation: sample chapter built via `KDP/build/build_sample_pdf.py` using Edge headless; output at `downloads/sample-chapter-prompt-engineering.pdf` (16.4 MB, 64 pages, chapter 11 index + sections 11.1 and 11.2); wired into `publish.py` (use `--no-sample-pdf` to skip)
   - **Bug fixed 2026-05-10**: Edge silently emitted a 60 KB "ERR_FILE_NOT_FOUND" 1-page PDF for ~30 minutes of debugging. Three issues compounded:
     1. Legacy `--headless` flag silently fails on `file://` URLs - must use `--headless=new`
-    2. Unescaped `&` in `<title>Chapter 11: Prompt Engineering & Advanced Techniques</title>` triggers Edge's strict entity parser and aborts page load — escape with `html.escape()` before insertion
+    2. Unescaped `&` in `<title>Chapter 12: Prompt Engineering & Advanced Techniques</title>` triggers Edge's strict entity parser and aborts page load — escape with `html.escape()` before insertion
     3. Inlining 742 KB of book.css produces a 511 KB temp HTML that Edge struggles with — replaced with `<link rel="stylesheet" href="../../styles/book.css">` (relative resolves correctly since temp file is inside chapter dir)
   - Also: don't `unlink()` the temp file in `finally:` — Edge's helper processes may still be reading it. Added to `.gitignore` instead.
 - [x] PDF generation decision: see "Full-book PDF decision" below
@@ -500,7 +500,7 @@ These were called out in audits or session asks but await direction or more work
   - `module-08-reasoning` (2 HIGH 8-col tables)
   - `appendix-j-datasets-benchmarks` (multiple)
   - `front-matter/section-fm.8` (1 HIGH 9-col)
-  - `part-9-safety-strategy/module-33-strategy-product-roi/section-33.4` (2 HIGH)
+  - `part-9-safety-strategy/module-34-strategy-product-roi/section-33.4` (2 HIGH)
 - 27 MEDIUM-severity tables — verify in Kindle Previewer
 
 ### Figures
@@ -515,7 +515,7 @@ These were called out in audits or session asks but await direction or more work
     - `fig-4.3.6-pre-post-ln2.png`
   - Worst aspect outliers (won't render at all):
     - `fig-34.10-domain-tokenization.png` (6.58 aspect)
-    - `fig-30.5.1-otel-llm-trace.png` (0.34 aspect)
+    - `fig-31.5.1-otel-llm-trace.png` (0.34 aspect)
 - Mermaid source files in `scripts/mermaid/` may exist — re-render via Mermaid is faster than Gemini for any figure where source is available
 
 ### Quality audit residuals (from book_quality_report.md)

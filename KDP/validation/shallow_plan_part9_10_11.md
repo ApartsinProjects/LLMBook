@@ -6,12 +6,12 @@
 
 | File | Bare text | Intended |
 |---|---|---|
-| 29.2 prereq | "the Section 27.1 are essential" | "the evaluation metrics from Section 27.1 are essential" |
-| 29.4 prereq | "the Section 27.6 that support compliance monitoring" | "the audit tooling in Section 27.6" |
-| 29.5 prereq | "Section 27.1" (bare) | "the evaluation framework from Section 27.1" |
-| 30.1 epigraph | "Strategy without execution is a Section 29.2" | "...is a hallucination" |
-| 30.2 prereq + Big Picture | "Section 27.1...", "Section 29.2 risk" | concept names + links |
-| 30.3 prereq | "Section 27.1...", "Section 9.1..." | concept names |
+| 29.2 prereq | "the Section 28.1 are essential" | "the evaluation metrics from Section 28.1 are essential" |
+| 29.4 prereq | "the Section 28.6 that support compliance monitoring" | "the audit tooling in Section 28.6" |
+| 29.5 prereq | "Section 28.1" (bare) | "the evaluation framework from Section 28.1" |
+| 30.1 epigraph | "Strategy without execution is a Section 30.2" | "...is a hallucination" |
+| 30.2 prereq + Big Picture | "Section 28.1...", "Section 30.2 risk" | concept names + links |
+| 30.3 prereq | "Section 28.1...", "Section 9.1..." | concept names |
 | 30.5 prereq | "the Section 9.1 that reduce hardware requirements" | "the inference optimization techniques from Section 9.1" |
 
 **Same systemic bug as Parts I, II+III, V+VI.** Book-wide grep needed.
@@ -36,10 +36,10 @@ Captions present but no `<img>` tag. Renders as blank space + floating caption. 
 ## OTHER STRUCTURAL BUGS
 
 - 29.10: Code Fragment label "29.11.1" (off by one)
-- 29.11: HTML `<title>` says "Section 29.10"
+- 29.11: HTML `<title>` says "Section 30.10"
 - 29.12: part-label says "Part X: Frontiers" (should be Part IX)
 - 31.3: Misplaced SentenceTransformer code unrelated to section topic
-- 31.4: Code Fragment 31.4.1 caption describes "tokenization pipeline" but code implements attention rollout
+- 31.4: Code Fragment 10.4.1 caption describes "tokenization pipeline" but code implements attention rollout
 - 32.10: Malformed `2&gt;1. The Universal Recipe` instead of `<h2>` heading
 - 30.2 table: "Productsas of 2026)" missing space
 

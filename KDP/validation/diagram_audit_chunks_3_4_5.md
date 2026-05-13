@@ -20,8 +20,8 @@ had visual review.
 
 | # | Figure | Issue | Action |
 |---|---|---|---|
-| 1 | **fig-13.1.2-annotation-cost.png** | figcaption talks about seed data / gardening but the chart shows annotation cost economics; alt text is correct | FIX caption text |
-| 2 | **figure-14.1.4.png** | filename says 14.1.4 but HTML caption says Figure 14.1.3 | RENAME or fix HTML refs |
+| 1 | **fig-14.1.2-annotation-cost.png** | figcaption talks about seed data / gardening but the chart shows annotation cost economics; alt text is correct | FIX caption text |
+| 2 | **figure-14.1.4.png** | filename says 14.1.4 but HTML caption says Figure 15.1.3 | RENAME or fix HTML refs |
 | 3 | **rlvr-auto-graded-exam.png** | high-quality cartoon orphan, referenced by no HTML | adopt as section-16.4 opener OR delete |
 
 ### Structural type mismatches (REWORK-AS-X)
@@ -54,8 +54,8 @@ had visual review.
 
 | # | Figure | Issue | Action |
 |---|---|---|---|
-| 1 | **24.1.5 fig-24.1.3-prompt-injection-defense-layers.png** | HTML labels Figure 24.1.5 but file is fig-24.1.3 | Update HTML caption to 24.1.3 OR rename file |
-| 2 | **26.1.4 fig-26.1.2-fim-prefix-suffix.png** | Same issue: HTML says 26.1.4, file is 26.1.2 | Update HTML caption to 26.1.2 OR rename file |
+| 1 | **24.1.5 fig-25.1.3-prompt-injection-defense-layers.png** | HTML labels Figure 25.1.5 but file is fig-24.1.3 | Update HTML caption to 24.1.3 OR rename file |
+| 2 | **26.1.4 fig-27.1.2-fim-prefix-suffix.png** | Same issue: HTML says 26.1.4, file is 26.1.2 | Update HTML caption to 26.1.2 OR rename file |
 
 ### Style/quality DEFECTs
 
@@ -66,7 +66,7 @@ had visual review.
 | 3 | **24.4.1 ch26-error-recovery-safety-net.png** | Performer drawn falling UP through nets, contradicts caption's top-catches-first claim |
 | 4 | **25.0.1 chapter-opener.png** | Generic placeholder alt text "Multimodal Generation chapter illustration"; in-figure text not in alt |
 | 5 | **26.0.1 chapter-opener.png** | CREATIVE WRITING and FINANCE labels each appear twice; placeholder alt text |
-| 6 | **26.1.4 fig-26.1.2-fim** | Mangled alt text: truncated filename instead of description |
+| 6 | **26.1.4 fig-27.1.2-fim** | Mangled alt text: truncated filename instead of description |
 
 ### REWORK / DROP
 
@@ -84,7 +84,7 @@ had visual review.
 **Highest impact first:**
 
 1. **Fix 2 caption mismatches** (chunk 3 fig-13.1.2, chunk 5 figs 24.1.5 + 26.1.4) — actively misleads readers
-2. **Resolve 1 file-id mismatch** (chunk 3 figure-14.1.4 vs Figure 14.1.3 caption)
+2. **Resolve 1 file-id mismatch** (chunk 3 figure-14.1.4 vs Figure 15.1.3 caption)
 3. **Resolve 1 orphan image** (chunk 3 rlvr-auto-graded-exam.png — adopt or delete)
 4. **Fix 6 alt-text / caption-mismatch defects** (chunk 5)
 5. **Rework 1 external-style external image** (chunk 5 25.1.7 DDPM screenshot — copyright + style risk)
@@ -122,7 +122,7 @@ All three should be replaced (rebuilt as Mermaid OR re-generated via Gemini with
 - **19.1.2 contrastive-learning-magnets.png** — focal point unclear; magnets buried in scientific clutter
 - **19.3.1 vector-db-librarian.png** — neon palette risks losing contrast on e-ink
 - **20.1 rag-pipeline-nvidia.png** — third-party image with text below 12 px; license statement only as URL in caption
-- **20.7 fig-18.7.1-graphrag-pipeline.png** — wide image with sub-description text illegible at Paperwhite width
+- **20.7 fig-19.7.1-graphrag-pipeline.png** — wide image with sub-description text illegible at Paperwhite width
 - **22.1.2 agent-loop-detective.png** — saturated neon palette; muddy on e-ink
 - **23.1.1 ch23-opener-tool-belt.png** — rendered at low resolution (~400×400 px); thought-bubble schema text illegible
 - **23.5.1 ch23-agentic-rag-librarian.png** — narrow vertical strip; key map-with-checkmarks detail too small

@@ -192,7 +192,7 @@ For the ~30 painterly chapter-opener illustrations where the visual is the point
 python KDP/build/generate_chapter_opener.py \
   --chapter 11 \
   --concept "the art of prompting visualized as a craftsman shaping clay" \
-  --label-overlay "Chapter 11: Prompt Engineering"
+  --label-overlay "Chapter 12: Prompt Engineering"
 ```
 
 Generate artwork via Imagen (no text request), then overlay the chapter title with PIL.

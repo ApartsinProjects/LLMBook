@@ -65,21 +65,21 @@ Audit produced 26 issues across 14 files: 18 image/caption number mismatches, 7 
 | part-1-foundations/module-03-sequence-models-attention/section-3.1.html           |  98 | filename says 3.1.3 (vanishing-grad), caption "Figure 3.1.2: RNN unrolled". Borderline: alt and caption are about different visual artifacts but both explain RNN dynamics. |
 | part-1-foundations/module-03-sequence-models-attention/section-3.2.html           | 125 | filename says 3.2.4 (gradient-attention), caption "Figure 3.2.2: Bahdanau additive". Borderline: both attention-related. |
 | part-1-foundations/module-04-transformer-architecture/section-4.1.html            | 347 | filename says 4.1.4 (pos-encoding), caption "Figure 4.1.3: encoder-decoder". The IMG content is positional-encoding (wrong), but the *caption* is in the right slot. See section 1 above. |
-| part-10-frontiers/module-34-emerging-architectures/section-34.10.html             |  62 | filename `fig-34.10-domain-tokenization.png` (no third digit), caption "Figure 34.10.1". |
-| part-5-retrieval-conversation/module-20-rag/section-20.3.html                     | 311 | filename `fig-20.3-graphrag-pipeline.png` (no third digit), caption "Figure 20.3.4". |
-| part-8-evaluation-production/module-31-production-engineering/section-31.6.html   | 438 | filename says 31.6.4, caption "Figure 31.6.3" (Retry strategy). Topic matches both; image filename is swapped with the next entry. |
-| part-8-evaluation-production/module-31-production-engineering/section-31.6.html   | 531 | filename says 31.6.3, caption "Figure 31.6.4" (Saga). Image filename is swapped with the previous entry. |
+| part-10-frontiers/module-35-emerging-architectures/section-35.10.html             |  62 | filename `fig-34.10-domain-tokenization.png` (no third digit), caption "Figure 35.10.1". |
+| part-5-retrieval-conversation/module-21-rag/section-21.3.html                     | 311 | filename `fig-20.3-graphrag-pipeline.png` (no third digit), caption "Figure 21.3.4". |
+| part-8-evaluation-production/module-10-production-engineering/section-10.6.html   | 438 | filename says 31.6.4, caption "Figure 10.6.3" (Retry strategy). Topic matches both; image filename is swapped with the next entry. |
+| part-8-evaluation-production/module-10-production-engineering/section-10.6.html   | 531 | filename says 31.6.3, caption "Figure 10.6.4" (Saga). Image filename is swapped with the previous entry. |
 
 ### 2C. Caption out of source-order (7 cases)
-Captions monotonically increase in most files, but a few sections renumber backwards mid-document. Cross-references (e.g. "as shown in Figure 16.1.5") rely on the existing numbers, so blind renumbering would break them.
+Captions monotonically increase in most files, but a few sections renumber backwards mid-document. Cross-references (e.g. "as shown in Figure 17.1.5") rely on the existing numbers, so blind renumbering would break them.
 
 | file | situation |
 |------|-----------|
 | part-2-understanding-llms/module-09-inference-optimization/section-9.2.html | sequence is 9.2.2, 9.2.4, 9.2.5, 9.2.3 (the 9.2.3 caption appears AFTER 9.2.5). |
-| part-4-training-adapting/module-16-distillation-merging/section-16.1.html   | sequence is 16.1.1, 16.1.2, 16.1.5, 16.1.6, 16.1.3, 16.1.4. Two prose cross-references depend on the existing numbering ("As Figure 16.1.5 illustrates" L105, "Figure 16.1.6 contrasts" L213). |
-| part-4-training-adapting/module-16-distillation-merging/section-16.2.html   | caption "16.2.4" appears AFTER caption "16.2.5". |
-| part-4-training-adapting/module-16-distillation-merging/section-16.3.html   | sequence is 16.3.3, 16.3.1, ..., 16.3.5, 16.3.2 (two backwards jumps). |
-| part-5-retrieval-conversation/module-19-embeddings-vector-db/section-19.2.html | "19.2.2" appears AFTER "19.2.3". |
+| part-4-training-adapting/module-17-distillation-merging/section-17.1.html   | sequence is 16.1.1, 16.1.2, 16.1.5, 16.1.6, 16.1.3, 16.1.4. Two prose cross-references depend on the existing numbering ("As Figure 17.1.5 illustrates" L105, "Figure 17.1.6 contrasts" L213). |
+| part-4-training-adapting/module-17-distillation-merging/section-17.2.html   | caption "16.2.4" appears AFTER caption "16.2.5". |
+| part-4-training-adapting/module-17-distillation-merging/section-17.3.html   | sequence is 16.3.3, 16.3.1, ..., 16.3.5, 16.3.2 (two backwards jumps). |
+| part-5-retrieval-conversation/module-20-embeddings-vector-db/section-20.2.html | "19.2.2" appears AFTER "19.2.3". |
 
 ### 2D. Image without nearby caption (1 case)
 | file | img line | filename |
@@ -94,13 +94,13 @@ Captions monotonically increase in most files, but a few sections renumber backw
 
 2. **Missing source images cause downstream displacement.** In Section 4.1, the AI-illustration step *also* introduced a new caption (`Figure 4.1.3` for the encoder-decoder description) without producing a corresponding image. Because the existing `<div class="diagram-container">` blocks were not reordered, every subsequent IMG block now sits one slot earlier than its intended caption. Same shape of bug in sections 1.3, 2.2, 3.1, 4.1, 5.2, 31.6 (each contains 1-2 displaced diagrams).
 
-3. **Hand-edits broke caption order in the distillation chapter (Module 16).** Sections 16.1, 16.2, 16.3 each have figures captioned in a non-monotonic order. This is the only chapter where this concentration of out-of-order captions occurs and looks like a manual edit (likely cut/paste of section blocks during a content reorganisation). Cross-references in prose still point at the existing numbers, so a renumbering pass needs to also update prose references.
+3. **Hand-edits broke caption order in the distillation chapter (Module 17).** Sections 16.1, 16.2, 16.3 each have figures captioned in a non-monotonic order. This is the only chapter where this concentration of out-of-order captions occurs and looks like a manual edit (likely cut/paste of section blocks during a content reorganisation). Cross-references in prose still point at the existing numbers, so a renumbering pass needs to also update prose references.
 
 4. **Two-digit short filenames.** A handful of "section-summary" style images use only `fig-N.M-name.png` (no third digit), e.g. `fig-1.4-evolution.png`, `fig-20.3-graphrag-pipeline.png`, `fig-34.10-domain-tokenization.png`. These trip the auto-validator because the caption uses the full three-digit `N.M.K` form. Reader-visible behavior is correct.
 
 **Worst chapters by misalignment count**
 1. `part-1-foundations/module-04-transformer-architecture/section-4.1.html` — 3 displaced diagrams (the user-reported one), missing source image, filename collision.
-2. `part-4-training-adapting/module-16-distillation-merging/` — 5 caption-out-of-order issues spread across sections 16.1, 16.2, 16.3, with prose cross-references that complicate renumbering.
+2. `part-4-training-adapting/module-17-distillation-merging/` — 5 caption-out-of-order issues spread across sections 16.1, 16.2, 16.3, with prose cross-references that complicate renumbering.
 3. `part-1-foundations/module-01-foundations-nlp-text-representation/` (sections 1.1, 1.3, 1.4) — 5 issues, two of them content-level (section 1.3).
 
 ---
@@ -132,7 +132,7 @@ The following items need a human to make the call. Listed in priority order (rea
 6. Sections 1.1, 1.4, 3.1 (line 98), 3.2, 20.3, 31.6, 34.10 — decide on a single source of truth: either rename images to match captions (preferred, requires asset rename) or accept the divergence permanently and silence the auditor.
 
 ### Lower priority (out-of-order captions)
-7. Section 16.1, 16.2, 16.3 (Module 16 distillation) — renumber captions in source-order AND update the in-prose references ("Figure 16.1.5 illustrates...", "Figure 16.1.6 contrasts...") to the new numbers.
+7. Section 17.1, 16.2, 16.3 (Module 17 distillation) — renumber captions in source-order AND update the in-prose references ("Figure 17.1.5 illustrates...", "Figure 17.1.6 contrasts...") to the new numbers.
 8. Section 9.2, 19.2 — single backwards jumps that can be renumbered if no prose references depend on them (verify per-file).
 
 ### Notes

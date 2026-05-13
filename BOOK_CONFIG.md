@@ -42,47 +42,47 @@ Part 2: Understanding LLMs (part-2-understanding-llms/)
   07: Modern LLM Landscape             module-07-modern-llm-landscape
   08: Reasoning & Test-Time Compute    module-08-reasoning-test-time-compute
   09: Inference Optimization           module-09-inference-optimization
-  18: Interpretability                 module-18-interpretability
+  18: Interpretability                 module-20-interpretability
 
 Part 3: Working with LLMs (part-3-working-with-llms/)
-  10: LLM APIs                         module-10-llm-apis
-  11: Prompt Engineering               module-11-prompt-engineering
-  12: Hybrid ML + LLM                  module-12-hybrid-ml-llm
+  10: LLM APIs                         module-12-llm-apis
+  11: Prompt Engineering               module-13-prompt-engineering
+  12: Hybrid ML + LLM                  module-14-hybrid-ml-llm
 
 Part 4: Training & Adapting (part-4-training-adapting/)
-  13: Synthetic Data                   module-13-synthetic-data
-  14: Fine-Tuning Fundamentals         module-14-fine-tuning-fundamentals
-  15: PEFT                             module-15-peft
-  16: Distillation & Merging           module-16-distillation-merging
-  17: Alignment, RLHF & DPO           module-17-alignment-rlhf-dpo
+  13: Synthetic Data                   module-15-synthetic-data
+  14: Fine-Tuning Fundamentals         module-16-fine-tuning-fundamentals
+  15: PEFT                             module-17-peft
+  16: Distillation & Merging           module-18-distillation-merging
+  17: Alignment, RLHF & DPO           module-19-alignment-rlhf-dpo
 
 Part 5: Retrieval & Conversation (part-5-retrieval-conversation/)
-  19: Embeddings & Vector DBs          module-19-embeddings-vector-db
-  20: RAG                              module-20-rag
-  21: Conversational AI                module-21-conversational-ai
+  19: Embeddings & Vector DBs          module-21-embeddings-vector-db
+  20: RAG                              module-22-rag
+  21: Conversational AI                module-23-conversational-ai
 
 Part 6: Agentic AI (part-6-agentic-ai/)
-  22: AI Agents                        module-22-ai-agents
-  23: Tool Use & Protocols             module-23-tool-use-protocols
-  24: Multi-Agent Systems              module-24-multi-agent-systems
-  25: Specialized Agents               module-25-specialized-agents
-  26: Agent Safety & Production        module-26-agent-safety-production
+  22: AI Agents                        module-24-ai-agents
+  23: Tool Use & Protocols             module-25-tool-use-protocols
+  24: Multi-Agent Systems              module-26-multi-agent-systems
+  25: Specialized Agents               module-27-specialized-agents
+  26: Agent Safety & Production        module-28-agent-safety-production
 
 Part 7: Multimodal & Applications (part-7-multimodal-applications/)
-  27: Multimodal                       module-27-multimodal
-  28: LLM Applications                 module-28-llm-applications
+  27: Multimodal                       module-29-multimodal
+  28: LLM Applications                 module-30-llm-applications
 
 Part 8: Evaluation & Production (part-8-evaluation-production/)
-  29: Evaluation & Observability       module-29-evaluation-observability
-  30: Observability & Monitoring       module-30-observability-monitoring
-  31: Production Engineering           module-31-production-engineering
+  29: Evaluation & Observability       module-31-evaluation-observability
+  30: Observability & Monitoring       module-10-observability-monitoring
+  31: Production Engineering           module-11-production-engineering
 
 Part 9: Safety & Strategy (part-9-safety-strategy/)
-  32: Safety, Ethics & Regulation      module-32-safety-ethics-regulation
-  33: Strategy, Product & ROI          module-33-strategy-product-roi
+  32: Safety, Ethics & Regulation      module-34-safety-ethics-regulation
+  33: Strategy, Product & ROI          module-35-strategy-product-roi
 
 Part 10: Frontiers (part-10-frontiers/)
-  34: Emerging Architectures           module-34-emerging-architectures
+  34: Emerging Architectures           module-35-emerging-architectures
   35: AI & Society                     module-35-ai-society
 
 Part 11: From Idea to AI Product (part-11-idea-to-product/)
@@ -93,8 +93,8 @@ Part 11: From Idea to AI Product (part-11-idea-to-product/)
 
 **Note:** Part 2 contains module-18 (Interpretability) and Part 6 contains module-23
 (tool-use-protocols) alongside the legacy module-23 (multi-agent-systems). The canonical
-module-23 is `module-23-tool-use-protocols`; the legacy `module-23-multi-agent-systems`
-directory should be removed or merged into `module-24-multi-agent-systems` when convenient.
+module-23 is `module-25-tool-use-protocols`; the legacy `module-25-multi-agent-systems`
+directory should be removed or merged into `module-26-multi-agent-systems` when convenient.
 
 ## Proposed Structure (Pending, v3)
 

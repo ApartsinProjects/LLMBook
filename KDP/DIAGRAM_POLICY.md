@@ -71,15 +71,15 @@ The remaining 19 linear-step Mermaid diagrams all hit at least one of the
 
 - Quantitative: `section-10.5-svg1` (sparsity-quantize-distill GB sizes),
   `section-11.2-svg2` (ToT scores), `fig-7.3.4-mcts`,
-  `fig-31.1.3-logit-lens`, `fig-5.1.3-beam-search` (log-prob examples).
+  `fig-10.1.3-logit-lens`, `fig-5.1.3-beam-search` (log-prob examples).
 - Named-architecture stacks: `fig-9.4.2-serving-stack`,
-  `fig-3.3.2-scaled-dot-product`, `fig-10.1.2-llm-api-ecosystem`,
-  `fig-24.1.3-prompt-injection-defense`, `fig-25.5.1-vla-pipeline`,
+  `fig-3.3.2-scaled-dot-product`, `fig-11.1.2-llm-api-ecosystem`,
+  `fig-25.1.3-prompt-injection-defense`, `fig-26.5.1-vla-pipeline`,
   `fig-0.3.3-comp-graph`, `fig-1.4.3-elmo`.
-- Worked-example demonstrations: `fig-26.1.2-fim` (actual code shown),
+- Worked-example demonstrations: `fig-27.1.2-fim` (actual code shown),
   `section-11.2-svg1` (CoT vs direct prompting numeric example),
   `section-11.3-svg3` (prompt optimization with scores),
   `section-11.3-svg1` (generate-critique-revise loop),
   `section-11.1-svg2` (5-part prompt anatomy),
   `section-10.3-svg1` (fallback levels with UX implications),
-  `fig-34.1.1-token-to-dollar` (cost-attribution flow with formulas).
+  `fig-35.1.1-token-to-dollar` (cost-attribution flow with formulas).

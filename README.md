@@ -40,39 +40,39 @@ LLMBook/
 │   ├── module-07-modern-llm-landscape/
 │   ├── module-08-reasoning-test-time-compute/
 │   ├── module-09-inference-optimization/
-│   └── module-18-interpretability/
+│   └── module-19-interpretability/
 ├── part-3-working-with-llms/
-│   ├── module-10-llm-apis/
-│   ├── module-11-prompt-engineering/
-│   └── module-12-hybrid-ml-llm/
+│   ├── module-11-llm-apis/
+│   ├── module-12-prompt-engineering/
+│   └── module-13-hybrid-ml-llm/
 ├── part-4-training-adapting/
-│   ├── module-13-synthetic-data/
-│   ├── module-14-fine-tuning-fundamentals/
-│   ├── module-15-peft/
-│   ├── module-16-distillation-merging/
-│   └── module-17-alignment-rlhf-dpo/
+│   ├── module-14-synthetic-data/
+│   ├── module-15-fine-tuning-fundamentals/
+│   ├── module-16-peft/
+│   ├── module-17-distillation-merging/
+│   └── module-18-alignment-rlhf-dpo/
 ├── part-5-retrieval-conversation/
-│   ├── module-19-embeddings-vector-db/
-│   ├── module-20-rag/
-│   └── module-21-conversational-ai/
+│   ├── module-20-embeddings-vector-db/
+│   ├── module-21-rag/
+│   └── module-22-conversational-ai/
 ├── part-6-agentic-ai/
-│   ├── module-22-ai-agents/
-│   ├── module-23-tool-use-protocols/
-│   ├── module-24-multi-agent-systems/
-│   ├── module-25-specialized-agents/
-│   └── module-26-agent-safety-production/
+│   ├── module-23-ai-agents/
+│   ├── module-24-tool-use-protocols/
+│   ├── module-25-multi-agent-systems/
+│   ├── module-26-specialized-agents/
+│   └── module-27-agent-safety-production/
 ├── part-7-multimodal-applications/
-│   ├── module-27-multimodal/
-│   └── module-28-llm-applications/
+│   ├── module-28-multimodal/
+│   └── module-29-llm-applications/
 ├── part-8-evaluation-production/
-│   ├── module-29-evaluation-observability/
-│   ├── module-30-observability-monitoring/
-│   └── module-31-production-engineering/
+│   ├── module-30-evaluation-observability/
+│   ├── module-31-observability-monitoring/
+│   └── module-10-production-engineering/
 ├── part-9-safety-strategy/
-│   ├── module-32-safety-ethics-regulation/
-│   └── module-33-strategy-product-roi/
+│   ├── module-33-safety-ethics-regulation/
+│   └── module-34-strategy-product-roi/
 ├── part-10-frontiers/
-│   ├── module-34-emerging-architectures/
+│   ├── module-35-emerging-architectures/
 │   └── module-35-ai-society/
 ├── capstone/
 └── appendices/
