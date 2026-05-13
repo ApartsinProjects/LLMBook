@@ -52,6 +52,7 @@ DETECTORS: list[tuple[str, str, str]] = [
     ('_v703_audit_main_close_placement.py', '</main> placement (page-stretch bug)',          'fatal'),
     ('_v715_audit_unclosed_lab.py',         'unclosed <div class="lab"> containers',         'fatal'),
     ('_v716_audit_chapter_opener_in_header.py', 'chapter-opener <figure> inside <header>',   'fatal'),
+    ('_v746_audit_callout_in_header.py',    'callout <aside> inside <header>',               'fatal'),
     ('_v717_audit_page_layout.py',          'page layout (nav/footer placement, etc.)',      'fatal'),
     ('_v718_audit_prereqs.py',              'prerequisite boxes (P1/P2/P3/P4)',              'warn'),
     ('_v728_audit_self_referencing_navs.py', 'self-referencing chapter-nav links',           'fatal'),
