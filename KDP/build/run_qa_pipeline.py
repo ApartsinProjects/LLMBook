@@ -53,6 +53,7 @@ DETECTORS: list[tuple[str, str, str]] = [
     ('_v715_audit_unclosed_lab.py',         'unclosed <div class="lab"> containers',         'fatal'),
     ('_v716_audit_chapter_opener_in_header.py', 'chapter-opener <figure> inside <header>',   'fatal'),
     ('_v717_audit_page_layout.py',          'page layout (nav/footer placement, etc.)',      'fatal'),
+    ('_v718_audit_prereqs.py',              'prerequisite boxes (P1/P2/P3/P4)',              'warn'),
     ('run_epubcheck.py',                    'EPUBCheck 5.2.1 (EPUB 3.3 conformance)',        'fatal'),
 ]
 
