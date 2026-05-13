@@ -1446,6 +1446,33 @@ def build(max_side: int, jpeg_quality: int) -> int:
     print(f"  Chapters: {len(chapter_items)}")
     print(f"  Images bundled: {len(images.bundled_bytes)}")
 
+    # Also archive a per-edition copy so editions don't overwrite each other.
+    # The current edition is read from KDP/metadata/metadata.yaml -> book.edition_number.
+    # Falls back silently if metadata is missing or unreadable.
+    try:
+        import yaml
+        with open(METADATA_FILE, encoding="utf-8") as fh:
+            meta = yaml.safe_load(fh) or {}
+        book_meta = meta.get("book", {}) or {}
+        edition_n = book_meta.get("edition_number")
+        if edition_n:
+            edition_label = f"{edition_n}th-edition"
+            # Use proper ordinal suffixes for 1, 2, 3
+            if edition_n == 1:
+                edition_label = "1st-edition"
+            elif edition_n == 2:
+                edition_label = "2nd-edition"
+            elif edition_n == 3:
+                edition_label = "3rd-edition"
+            edition_dir = OUTPUT_DIR / "editions" / edition_label
+            edition_dir.mkdir(parents=True, exist_ok=True)
+            edition_copy = edition_dir / f"building-conversational-ai-llms-agents-{edition_label}.epub"
+            import shutil
+            shutil.copy2(OUTPUT_EPUB, edition_copy)
+            print(f"  Edition archive: {edition_copy.relative_to(PROJECT_ROOT)}")
+    except Exception as e:
+        print(f"  (skipped edition archive: {e})")
+
     # KDP delivery-fee implication
     mb = out_size / 1024 / 1024
     fee = mb * 0.15
