@@ -28,73 +28,73 @@ All agents that need to reference other chapters (Cross-Reference, Bibliography,
 Narrative Continuity, etc.) use this canonical chapter map. This is the ACTIVE structure
 on disk. All agents should use this until migration to the proposed structure is complete.
 
+Chapter numbers and module directories below match the on-disk
+structure as of the Twelfth Edition (35 chapters, 11 parts, plus
+Appendices A through AK).
+
 ```
 Part 1: Foundations (part-1-foundations/)
-  00: ML & PyTorch Foundations         module-00-ml-pytorch-foundations
-  01: NLP & Text Representation        module-01-foundations-nlp-text-representation
-  02: Tokenization & Subword Models    module-02-tokenization-subword-models
-  03: Sequence Models & Attention      module-03-sequence-models-attention
-  04: Transformer Architecture         module-04-transformer-architecture
-  05: Decoding & Text Generation       module-05-decoding-text-generation
+  Ch 0: ML and PyTorch Foundations                module-00-ml-pytorch-foundations
+  Ch 1: Foundations of NLP & Text Representation  module-01-foundations-nlp-text-representation
+  Ch 2: Tokenization and Subword Models           module-02-tokenization-subword-models
+  Ch 3: Sequence Models & the Attention Mechanism module-03-sequence-models-attention
+  Ch 4: The Transformer Architecture              module-04-transformer-architecture
+  Ch 5: Decoding Strategies & Text Generation     module-05-decoding-text-generation
 
 Part 2: Understanding LLMs (part-2-understanding-llms/)
-  06: Pretraining & Scaling Laws       module-06-pretraining-scaling-laws
-  07: Modern LLM Landscape             module-07-modern-llm-landscape
-  08: Reasoning & Test-Time Compute    module-08-reasoning-test-time-compute
-  09: Inference Optimization           module-09-inference-optimization
-  18: Interpretability                 module-20-interpretability
+  Ch 6:  Pre-training, Scaling Laws & Data Curation module-06-pretraining-scaling-laws
+  Ch 7:  Modern LLM Landscape & Model Internals     module-07-modern-llm-landscape
+  Ch 8:  Reasoning Models & Test-Time Compute       module-08-reasoning-test-time-compute
+  Ch 9:  Inference Optimization & Efficient Serving module-09-inference-optimization
+  Ch 10: Interpretability & Mechanistic Understanding module-10-interpretability
 
 Part 3: Working with LLMs (part-3-working-with-llms/)
-  10: LLM APIs                         module-12-llm-apis
-  11: Prompt Engineering               module-13-prompt-engineering
-  12: Hybrid ML + LLM                  module-14-hybrid-ml-llm
+  Ch 11: Working with LLM APIs                          module-11-llm-apis
+  Ch 12: Prompt Engineering & Advanced Techniques       module-12-prompt-engineering
+  Ch 13: Hybrid ML+LLM Architectures & Decision Frameworks module-13-hybrid-ml-llm
 
 Part 4: Training & Adapting (part-4-training-adapting/)
-  13: Synthetic Data                   module-15-synthetic-data
-  14: Fine-Tuning Fundamentals         module-16-fine-tuning-fundamentals
-  15: PEFT                             module-17-peft
-  16: Distillation & Merging           module-18-distillation-merging
-  17: Alignment, RLHF & DPO           module-19-alignment-rlhf-dpo
+  Ch 14: Synthetic Data Generation & LLM Simulation   module-14-synthetic-data
+  Ch 15: Fine-Tuning Fundamentals                     module-15-fine-tuning-fundamentals
+  Ch 16: Parameter-Efficient Fine-Tuning (PEFT)       module-16-peft
+  Ch 17: Alignment: RLHF, DPO & Preference Tuning     module-17-alignment-rlhf-dpo
 
 Part 5: Retrieval & Conversation (part-5-retrieval-conversation/)
-  19: Embeddings & Vector DBs          module-21-embeddings-vector-db
-  20: RAG                              module-22-rag
-  21: Conversational AI                module-23-conversational-ai
+  Ch 18: Embeddings, Vector Databases & Semantic Search module-18-embeddings-vector-db
+  Ch 19: Retrieval-Augmented Generation (RAG)           module-19-rag
+  Ch 20: Building Conversational AI Systems             module-20-conversational-ai
 
 Part 6: Agentic AI (part-6-agentic-ai/)
-  22: AI Agents                        module-24-ai-agents
-  23: Tool Use & Protocols             module-25-tool-use-protocols
-  24: Multi-Agent Systems              module-26-multi-agent-systems
-  25: Specialized Agents               module-27-specialized-agents
-  26: Agent Safety & Production        module-28-agent-safety-production
+  Ch 21: AI Agent Foundations                       module-21-ai-agents
+  Ch 22: Tool Use, Function Calling & Protocols     module-22-tool-use-protocols
+  Ch 23: Multi-Agent Systems                        module-23-multi-agent-systems
+  Ch 24: Specialized Agents                         module-24-specialized-agents
+  Ch 25: Agent Safety, Production & Operations      module-25-agent-safety-production
 
 Part 7: Multimodal & Applications (part-7-multimodal-applications/)
-  27: Multimodal                       module-29-multimodal
-  28: LLM Applications                 module-30-llm-applications
+  Ch 26: Multimodal Generation                      module-26-multimodal
+  Ch 27: LLM Applications Across Industries         module-27-llm-applications
 
 Part 8: Evaluation & Production (part-8-evaluation-production/)
-  29: Evaluation & Observability       module-31-evaluation-observability
-  30: Observability & Monitoring       module-10-observability-monitoring
-  31: Production Engineering           module-11-production-engineering
+  Ch 28: LLM Evaluation & Quality Metrics           module-28-evaluation-observability
+  Ch 29: LLMOps & Deployment Engineering            module-29-production-engineering
 
 Part 9: Safety & Strategy (part-9-safety-strategy/)
-  32: Safety, Ethics & Regulation      module-34-safety-ethics-regulation
-  33: Strategy, Product & ROI          module-35-strategy-product-roi
+  Ch 30: Safety, Ethics & Regulation                module-30-safety-ethics-regulation
+  Ch 31: LLM Strategy, Product Management & ROI     module-31-strategy-product-roi
 
 Part 10: Frontiers (part-10-frontiers/)
-  34: Emerging Architectures           module-35-emerging-architectures
-  35: AI & Society                     module-35-ai-society
+  Ch 33: Emerging Architectures & Scaling Frontiers module-33-emerging-architectures
 
 Part 11: From Idea to AI Product (part-11-idea-to-product/)
-  36: From Idea to Product Hypothesis  module-36-idea-to-product
-  37: Building and Steering AI Products module-37-building-steering
-  38: Shipping and Scaling AI Products  module-38-shipping-scaling
+  Ch 34: From Idea to Product Hypothesis            module-34-idea-to-product
+  Ch 35: Shipping and Scaling AI Products           module-35-shipping-scaling
 ```
 
-**Note:** Part 2 contains module-18 (Interpretability) and Part 6 contains module-23
-(tool-use-protocols) alongside the legacy module-23 (multi-agent-systems). The canonical
-module-23 is `module-25-tool-use-protocols`; the legacy `module-25-multi-agent-systems`
-directory should be removed or merged into `module-26-multi-agent-systems` when convenient.
+**Note:** the chapter index is 0..35 with no chapter 32 (the safety
+chapters are 30 and 31 in Part 9; Part 10 jumps to chapter 33). This
+preserves the historical numbering used by external citations to the
+earlier editions while keeping the on-disk layout linear.
 
 ## Proposed Structure (Pending, v3)
 
