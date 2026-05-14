@@ -1,18 +1,43 @@
 #!/usr/bin/env python3
-"""Fix footer and bibliography formatting across all HTML files in LLMCourse.
+"""Fix footer and bibliography formatting across all HTML files in the book.
 
 Issue 1: Standardize footers to:
-  <footer><p>Fifth Edition, 2026 &middot; <a href="RELATIVE/toc.html">Contents</a></p></footer>
+  <footer><p>{EDITION}, {YEAR} &middot; <a href="RELATIVE/toc.html">Contents</a></p></footer>
 
 Issue 2: Convert old <ol class="bib-list"> bibliography format to new
   <div class="bib-entry-card"> format.
+
+NOTE (2026-05-14): The edition label and project base path are now
+derived from KDP/metadata/metadata.yaml so this script never reverts
+the book to a stale edition. Previously it hard-coded "Fifth Edition"
+and the obsolete LLMCourse project path.
 """
 
 import os
 import re
+import sys
 from pathlib import Path
 
-BASE = Path(r"E:\Projects\LLMCourse")
+# Derive base path: this script lives at agents/book-skills/scripts/fix/
+# so the project root is four levels up.
+BASE = Path(__file__).resolve().parents[4]
+if not (BASE / "KDP" / "metadata" / "metadata.yaml").exists():
+    print(f"ERROR: cannot find KDP/metadata/metadata.yaml under {BASE}",
+          file=sys.stderr)
+    sys.exit(1)
+
+# Edition string from metadata
+try:
+    import yaml
+    _meta = yaml.safe_load(
+        (BASE / "KDP" / "metadata" / "metadata.yaml").read_text(encoding="utf-8")
+    ) or {}
+    _book = _meta.get("book", {}) or {}
+    EDITION_LABEL = _book.get("edition", "Twelfth Edition")
+    PUBLICATION_YEAR = _book.get("publication_year", 2026)
+except Exception:
+    EDITION_LABEL = "Twelfth Edition"
+    PUBLICATION_YEAR = 2026
 
 # Directories to process
 INCLUDE_DIRS = [
@@ -35,7 +60,10 @@ INCLUDE_DIRS = [
 
 EXCLUDE_DIRS = {"_scripts_archive", "node_modules", ".claude", "agents", "images"}
 
-STANDARD_FOOTER_TEMPLATE = '<footer><p>Fifth Edition, 2026 &middot; <a href="{rel}toc.html">Contents</a></p></footer>'
+STANDARD_FOOTER_TEMPLATE = (
+    f'<footer><p>{EDITION_LABEL}, {PUBLICATION_YEAR} &middot; '
+    '<a href="{rel}toc.html">Contents</a></p></footer>'
+)
 
 
 def get_relative_prefix(filepath: Path) -> str:

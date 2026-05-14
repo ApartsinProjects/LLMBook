@@ -105,7 +105,10 @@ RE_TOC_LINK = re.compile(r'class\s*=\s*"toc-link"', re.IGNORECASE)
 RE_MAIN_CONTENT = re.compile(r'<main\s+class\s*=\s*"content"', re.IGNORECASE)
 RE_DIV_CONTAINER = re.compile(r'<div\s+class\s*=\s*"container"', re.IGNORECASE)
 RE_FOOTER_STANDARD = re.compile(
-    r'<footer>\s*<p>\s*Fifth Edition,\s*2026\s*&middot;\s*<a\s+href="[^"]*toc\.html"\s*>Contents</a>\s*</p>\s*</footer>',
+    # Match any "<Word> Edition" so this validator stays correct as the
+    # book ages. Previously this hard-coded "Fifth Edition" and would
+    # falsely flag every footer in current editions.
+    r'<footer>\s*<p>\s*[A-Z][a-z]+\s+Edition,\s*\d{4}\s*&middot;\s*<a\s+href="[^"]*toc\.html"\s*>Contents</a>\s*</p>\s*</footer>',
     re.IGNORECASE | re.DOTALL,
 )
 RE_FOOTER_TAG = re.compile(r"<footer>", re.IGNORECASE)
@@ -198,7 +201,7 @@ def check_all_pages(text: str, lines: list[str]) -> list[Issue]:
             issues.append(Issue(
                 _find_line(text, m.start()),
                 "FOOTER_NONSTANDARD",
-                "Footer does not match standard template (Fifth Edition, 2026 with toc.html link)",
+                "Footer does not match standard template (<Edition Word> Edition, YYYY with toc.html link)",
             ))
         else:
             issues.append(Issue(1, "FOOTER_MISSING", "No <footer> element found"))

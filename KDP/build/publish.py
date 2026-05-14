@@ -99,11 +99,13 @@ def check_prerequisites() -> int:
         print(f"    {PYTHON} -m pip install -r KDP/build/requirements.txt")
         return 3
 
-    # Required source files
+    # Required source files. The canonical builder is the html2pub
+    # package driven by html2pub.toml; build_epub.py is legacy and no
+    # longer invoked by this pipeline (kept for reference only).
     required = [
         KDP_DIR / "metadata" / "metadata.yaml",
         KDP_DIR / "cover" / "cover_kdp.jpg",
-        BUILD_DIR / "build_epub.py",
+        PROJECT_ROOT / "html2pub.toml",
         BUILD_DIR / "epub_overrides.css",
         PROJECT_ROOT / "styles" / "book.css",
     ]
@@ -114,6 +116,66 @@ def check_prerequisites() -> int:
             fail(f"missing: {p.relative_to(PROJECT_ROOT)}")
             return 3
 
+    # Cross-check that html2pub.toml is in sync with metadata.yaml so the
+    # OPF identifier, publication_date, and edition surface correctly.
+    rc = check_metadata_sync()
+    if rc != 0:
+        return rc
+
+    return 0
+
+
+def check_metadata_sync() -> int:
+    """Verify html2pub.toml mirrors metadata.yaml on the fields that
+    feed the EPUB OPF. Mismatches lead to KDP detecting the wrong edition
+    or a stale publication date in the bundled metadata."""
+    try:
+        import yaml
+        try:
+            import tomllib  # py 3.11+
+        except ImportError:
+            import tomli as tomllib  # type: ignore
+    except ImportError:
+        warn("yaml/tomllib not available; skipping metadata-sync check")
+        return 0
+    meta_path = KDP_DIR / "metadata" / "metadata.yaml"
+    toml_path = PROJECT_ROOT / "html2pub.toml"
+    try:
+        meta = yaml.safe_load(meta_path.read_text(encoding="utf-8")) or {}
+        with toml_path.open("rb") as fh:
+            toml = tomllib.load(fh)
+    except Exception as e:
+        warn(f"metadata-sync check skipped: {e}")
+        return 0
+
+    book_meta = meta.get("book", {}) or {}
+    book_toml = toml.get("book", {}) or {}
+    ids = meta.get("identifiers", {}) or {}
+
+    pairs = [
+        ("publication_date",
+         book_meta.get("publication_date"),
+         book_toml.get("publication_date")),
+        ("identifier",
+         ids.get("uuid"),
+         book_toml.get("identifier")),
+        ("edition",
+         book_meta.get("edition"),
+         book_toml.get("edition")),
+        ("rights",
+         book_meta.get("rights"),
+         book_toml.get("rights")),
+    ]
+    drift = []
+    for name, ymv, tmv in pairs:
+        if ymv and tmv and str(ymv) != str(tmv):
+            drift.append((name, ymv, tmv))
+    if drift:
+        for name, ymv, tmv in drift:
+            fail(f"metadata drift: {name}: yaml={ymv!r} toml={tmv!r}")
+        print("  Sync html2pub.toml [book] with KDP/metadata/metadata.yaml.")
+        return 3
+    ok("metadata.yaml <-> html2pub.toml in sync")
     return 0
 
 
@@ -620,6 +682,14 @@ def main(argv: list[str] | None = None) -> int:
                     warn("Optimized EPUB failed epubcheck; raw EPUB preserved at output/*.raw.epub")
                     final_rc = rc
 
+    # Archive a per-edition snapshot of the optimized EPUB so old
+    # editions remain available for diffs / rollback. Reads the edition
+    # number from KDP/metadata/metadata.yaml. Cheap (single file copy).
+    if not args.validate_only:
+        rc = step_archive_edition()
+        if rc != 0:
+            final_rc = rc
+
     # Regenerate sample chapter PDF for landing page (cheap; ~5s)
     if not args.no_sample_pdf:
         step("Sample chapter PDF (landing page download)")
@@ -638,6 +708,42 @@ def main(argv: list[str] | None = None) -> int:
     return final_rc
 
 
+
+
+def step_archive_edition() -> int:
+    """Copy the optimized EPUB to KDP/output/editions/{N}th-edition/.
+
+    Each edition number gets its own subfolder so historical builds are
+    preserved. The edition number is read from KDP/metadata/metadata.yaml
+    book.edition_number. If metadata is unreadable, this step warns and
+    is skipped (the main artifact is still in KDP/output/)."""
+    step("Archive per-edition snapshot")
+    try:
+        import yaml
+        meta = yaml.safe_load(
+            (KDP_DIR / "metadata" / "metadata.yaml").read_text(encoding="utf-8")
+        ) or {}
+    except Exception as e:
+        warn(f"could not read metadata.yaml ({e}); skipping archive")
+        return 0
+    n = (meta.get("book") or {}).get("edition_number")
+    if not n:
+        warn("metadata.yaml has no book.edition_number; skipping archive")
+        return 0
+    suffix_map = {1: "1st", 2: "2nd", 3: "3rd"}
+    label = f"{suffix_map.get(n, f'{n}th')}-edition"
+    src = OUTPUT_DIR / "building-conversational-ai-llms-agents.epub"
+    if not src.exists():
+        warn(f"{src.name} not found; nothing to archive")
+        return 0
+    dest_dir = OUTPUT_DIR / "editions" / label
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / f"building-conversational-ai-llms-agents-{label}.epub"
+    import shutil
+    shutil.copy2(src, dest)
+    sz = dest.stat().st_size
+    ok(f"{dest.relative_to(PROJECT_ROOT)} ({sz / 1024 / 1024:.2f} MB)")
+    return 0
 
 
 def step_pagefind() -> int:
