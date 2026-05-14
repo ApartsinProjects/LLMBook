@@ -165,22 +165,22 @@ def wrap_wide_tables(soup: BeautifulSoup, min_cols: int = 6) -> int:
 
 
 # ----------------------------------------------------------------------
-# Slim chapter index "Sections" list (redundant with nav)
+# Chapter-index "Sections" heading: KEEP everything (no-op).
+#
+# The previous behavior removed both the <h2>Sections</h2> heading AND
+# its sibling <ul class="sections-list"> on /index.html pages, with the
+# rationale "redundant with EPUB nav." That assumption was wrong: the
+# chapter-overview cards give readers a visual map of the chapter as
+# they're reading the chapter intro -- the global EPUB nav is in a side
+# panel and is not a substitute. Removing the cards left chapter-index
+# pages looking sparse.
+#
+# The companion content.py:slim_index_lists has already been changed
+# to FLATTEN <ul class="sections-list"> into <div class="section-grid">
+# (preserving cards). This hook is now a no-op so the heading stays too.
 # ----------------------------------------------------------------------
 def slim_chapter_index_sections_list(soup: BeautifulSoup, src_rel: str) -> int:
-    if not src_rel.endswith("/index.html"):
-        return 0
-    n = 0
-    for h in soup.find_all(["h2", "h3"]):
-        text = (h.get_text() or "").strip().lower()
-        if text in ("sections", "in this chapter", "in this module"):
-            ul = h.find_next_sibling(["ul", "ol"])
-            if ul:
-                ul.decompose()
-                h.decompose()
-                n += 1
-                break
-    return n
+    return 0  # disabled v789-followup: keep heading + cards intact
 
 
 # ----------------------------------------------------------------------
