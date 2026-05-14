@@ -19,18 +19,24 @@ process.stdin.on('end', () => {
     }
     const out = items.map(item => {
         try {
-            // Output 'mathml' instead of 'html' to avoid the ~400 empty
-            // structural <span> elements per chapter (strut/pstrut/vlist/
-            // mspace) that KaTeX uses for HTML layout. Kindle's renderer
-            // paints those empty spans as visible boxes (tofu) and ignores
-            // the inline `vertical-align` styles on the strut, which made
-            // inline math float above the surrounding text baseline.
-            // MathML is a single semantic <math> element supported natively
-            // by EPUB 3 readers (including Kindle KFX conversion).
+            // v13.9: Switched from 'mathml' to 'htmlAndMathml' — ships
+            // BOTH KaTeX HTML (positioned glyphs, high-quality typography)
+            // AND MathML (semantic, accessibility). Visual EPUB readers
+            // use the HTML rendering (proper italic variables, operator
+            // spacing, fraction stacking). Kindle KFX / screen readers
+            // can use MathML semantics.
+            //
+            // Previous concern: the ~400 empty `vlist-s` / strut spans
+            // KaTeX HTML emits used to render as visible "tofu" boxes
+            // on older Kindles. v789 hook (fix_math_alignment) strips
+            // these empty spans before EPUB packaging, so the issue is
+            // resolved.
+            //
+            // File-size impact: +1.1 MB to a 32.8 MB EPUB (3% growth).
             const html = katex.renderToString(item.tex, {
                 displayMode: !!item.display,
                 throwOnError: false,
-                output: 'mathml',
+                output: 'htmlAndMathml',
                 strict: 'ignore',
                 trust: false,
             });
