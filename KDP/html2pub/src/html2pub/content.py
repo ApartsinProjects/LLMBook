@@ -258,12 +258,19 @@ def set_explicit_avatar_dimensions(soup: BeautifulSoup, sizes: dict[str, list[in
 
 
 def slim_index_lists(soup: BeautifulSoup) -> None:
-    """Strip 'Sections' lists from chapter index pages (redundant with EPUB nav)."""
+    """Convert <ul class="sections-list"> to <div class="section-grid"> so each
+    chapter-index page shows ALL its section cards in the EPUB (not just the
+    last container). The previous behavior was to DECOMPOSE the entire list,
+    leaving readers with no chapter overview cards. We now KEEP the cards but
+    flatten <ul><li><a>...</a></li></ul> into <div><a>...</a></div> so the
+    layout matches the section-grid sibling container that some pages use."""
     for ul in soup.find_all("ul", class_="sections-list"):
-        prev = ul.find_previous_sibling()
-        if prev and prev.name == "h2" and prev.get_text(strip=True).lower() == "sections":
-            prev.decompose()
-        ul.decompose()
+        wrapper = soup.new_tag("div", attrs={"class": "section-grid"})
+        for li in ul.find_all("li", recursive=False):
+            for child in list(li.children):
+                # move each child into the wrapper directly (mostly <a class="section-card">)
+                wrapper.append(child.extract() if hasattr(child, "extract") else child)
+        ul.replace_with(wrapper)
 
 
 def wrap_wide_tables(soup: BeautifulSoup, min_cols: int) -> None:
