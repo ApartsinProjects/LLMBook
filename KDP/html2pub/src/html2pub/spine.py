@@ -103,8 +103,18 @@ def _autodiscover(cfg: Config) -> list[dict]:
         idx = fm_dir / "index.html"
         if idx.exists():
             add(f"{cfg.content.front_matter_dir}/index.html", "front-matter")
+        # Explicit FM order from config (cfg.content.fm_order). Falls back to
+        # alphabetical sort if not set. Alphabetical order put FM.6 (about-
+        # authors) right after the FM index, breaking reading flow.
+        explicit = list(getattr(cfg.content, "fm_order", []) or [])
+        seen: set[str] = set()
+        for fname in explicit:
+            full = fm_dir / fname
+            if full.exists() and full.is_file():
+                add(f"{cfg.content.front_matter_dir}/{fname}", "front-matter")
+                seen.add(fname)
         for h in sorted(fm_dir.glob("*.html")):
-            if h.name == "index.html":
+            if h.name == "index.html" or h.name in seen:
                 continue
             add(f"{cfg.content.front_matter_dir}/{h.name}", "front-matter")
 
