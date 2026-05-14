@@ -280,6 +280,20 @@ def build(cfg: Config) -> Path:
     for kw in cfg.book.keywords:
         book.add_metadata("DC", "subject", kw)
 
+    # Explicitly declare reflowable rendition. Without this, KDP's
+    # ingestion sometimes mis-classifies our EPUB as a fixed-format
+    # book and refuses to update an existing reflowable listing
+    # ("This content is a fixed format eBook. Updating a reflowable
+    # eBook with a fixed format eBook is not supported.").
+    # The triple ((name, content), {}, None) is ebooklib's add_metadata
+    # form for non-DC <meta property="..."> declarations.
+    book.add_metadata(None, "meta", "reflowable",
+                      {"property": "rendition:layout"})
+    book.add_metadata(None, "meta", "auto",
+                      {"property": "rendition:orientation"})
+    book.add_metadata(None, "meta", "auto",
+                      {"property": "rendition:spread"})
+
     # Cover
     if cfg.cover.path:
         cover_path = (cfg.project_root / cfg.cover.path).resolve()
