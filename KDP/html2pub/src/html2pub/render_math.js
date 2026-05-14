@@ -19,24 +19,22 @@ process.stdin.on('end', () => {
     }
     const out = items.map(item => {
         try {
-            // v13.9: Switched from 'mathml' to 'htmlAndMathml' — ships
-            // BOTH KaTeX HTML (positioned glyphs, high-quality typography)
-            // AND MathML (semantic, accessibility). Visual EPUB readers
-            // use the HTML rendering (proper italic variables, operator
-            // spacing, fraction stacking). Kindle KFX / screen readers
-            // can use MathML semantics.
+            // v13.11: Reverted to 'mathml' (from htmlAndMathml in v13.9).
+            // The htmlAndMathml output grew XHTML payload from ~14 MB
+            // to ~21 MB, which triggered an opaque "Kindle conversion
+            // has encountered an internal error" during MOBI generation
+            // in KPV3 -convert. Math typography improvement deferred
+            // until either (a) Amazon fixes KFX MOBI builder for large
+            // HTML payloads, or (b) we pre-render math to inline SVG.
             //
-            // Previous concern: the ~400 empty `vlist-s` / strut spans
-            // KaTeX HTML emits used to render as visible "tofu" boxes
-            // on older Kindles. v789 hook (fix_math_alignment) strips
-            // these empty spans before EPUB packaging, so the issue is
-            // resolved.
-            //
-            // File-size impact: +1.1 MB to a 32.8 MB EPUB (3% growth).
+            // v802 source-side selective conversion (in fix_math_alignment
+            // -> simplify_inline_mathml) still converts ~700 simple
+            // inline math expressions to plain HTML <sub>/<sup>, which
+            // preserves inline flow without MathML rendering quirks.
             const html = katex.renderToString(item.tex, {
                 displayMode: !!item.display,
                 throwOnError: false,
-                output: 'htmlAndMathml',
+                output: 'mathml',
                 strict: 'ignore',
                 trust: false,
             });
