@@ -33,10 +33,10 @@ try:
         (BASE / "KDP" / "metadata" / "metadata.yaml").read_text(encoding="utf-8")
     ) or {}
     _book = _meta.get("book", {}) or {}
-    EDITION_LABEL = _book.get("edition", "Twelfth Edition")
+    EDITION_LABEL = _book.get("edition", "Thirteenth Edition")
     PUBLICATION_YEAR = _book.get("publication_year", 2026)
 except Exception:
-    EDITION_LABEL = "Twelfth Edition"
+    EDITION_LABEL = "Thirteenth Edition"
     PUBLICATION_YEAR = 2026
 
 # Directories to process

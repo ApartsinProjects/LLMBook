@@ -20,7 +20,7 @@ A. SPACING (large white-space gaps in landscape view)
 B. EPUB CHROME (book-only, EPUB should not have website nav)
    6. Drop the search-box pagefind UI (renders as empty rectangle on
       Kindle).
-   7. Drop the "Twelfth Edition, 2026 Contents" footer from EPUB
+   7. Drop the "Thirteenth Edition, 2026 Contents" footer from EPUB
       (it's a website breadcrumb, not book content).
 
 C. CODE BLOCKS (low contrast, hard to read)
@@ -76,7 +76,7 @@ form[role="search"] {
     display: none !important;
 }
 
-/* The page footer is a website breadcrumb ("Twelfth Edition, 2026 ·
+/* The page footer is a website breadcrumb ("Thirteenth Edition, 2026 ·
  * Contents") that has no place in an EPUB. Hide it but keep <footer>
  * around for any chapter-end notes. */
 body > footer,

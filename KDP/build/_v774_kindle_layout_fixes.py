@@ -240,7 +240,7 @@ about.write_text(s, encoding='utf-8')
 # 4. Rotate OPF identifier so KDP treats as fresh submission
 # ============================================================
 new_uuid = str(uuid.uuid5(uuid.NAMESPACE_OID,
-                          f'llmbook-twelfth-edition-2026-rev{uuid.uuid4().hex[:6]}'))
+                          f'llmbook-thirteenth-edition-2026-rev{uuid.uuid4().hex[:6]}'))
 new_uuid_full = f'urn:uuid:{new_uuid}'
 print(f'  [new identifier] {new_uuid_full}')
 

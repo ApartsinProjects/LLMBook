@@ -14,8 +14,8 @@ for p in ROOT.rglob('*.html'):
     except UnicodeDecodeError:
         continue
     new = src
-    new, c1 = re.subn(r'\bEleventh Edition\b', 'Twelfth Edition', new)
-    new, c2 = re.subn(r'\b11th Edition\b', '12th Edition', new)
+    new, c1 = re.subn(r'\bEleventh Edition\b', 'Thirteenth Edition', new)
+    new, c2 = re.subn(r'\b11th Edition\b', '13th Edition', new)
     if new != src:
         p.write_text(new, encoding='utf-8')
         n_files += 1

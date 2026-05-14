@@ -24,7 +24,7 @@ def main() -> int:
         if any(s in sp for s in SKIP):
             continue
         text = p.read_text(encoding='utf-8', errors='replace')
-        new, n = PAT.subn('Twelfth Edition', text)
+        new, n = PAT.subn('Thirteenth Edition', text)
         if n:
             n_files += 1
             n_subs += n

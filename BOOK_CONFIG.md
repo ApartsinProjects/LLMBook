@@ -29,7 +29,7 @@ Narrative Continuity, etc.) use this canonical chapter map. This is the ACTIVE s
 on disk. All agents should use this until migration to the proposed structure is complete.
 
 Chapter numbers and module directories below match the on-disk
-structure as of the Twelfth Edition (35 chapters, 11 parts, plus
+structure as of the Thirteenth Edition (35 chapters, 11 parts, plus
 Appendices A through AK).
 
 ```
