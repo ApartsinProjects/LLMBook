@@ -321,6 +321,38 @@ def set_explicit_avatar_dimensions(soup: BeautifulSoup) -> int:
 
 
 # ----------------------------------------------------------------------
+# ----------------------------------------------------------------------
+# v797 KPV E21018 FIX + img style strip + alt entity decode
+# ----------------------------------------------------------------------
+def fix_img_for_kindle(soup: BeautifulSoup) -> int:
+    """1. Strip inline `style` from <img> (Mobi parser rejects
+       `height:auto` etc., causing E21018).
+    2. Decode common HTML entities inside `alt` attribute values:
+       `&gt;` -> Unicode arrow, `&lt;` -> ASCII <, `&amp;` -> &.
+       Kindle Previewer's enhanced-Mobi parser fails on
+       entity-encoded characters inside attribute values; the
+       Unicode form is parsed correctly.
+       Section 6.4's "curation funnel" is the only image with
+       this pattern in the book (4 `-&gt;` arrows in alt text)."""
+    n = 0
+    for img in soup.find_all("img"):
+        # Strip style attribute
+        if img.has_attr("style"):
+            del img["style"]
+            n += 1
+        # Replace entity-encoded characters in alt attribute
+        alt = img.get("alt")
+        if alt:
+            # Replace `->` with Unicode arrow (it gets entity-encoded
+            # back to `-&gt;` when soup writes XHTML, which trips KPV).
+            # Use Unicode → which doesn't need escaping.
+            new_alt = alt.replace("->", "→")
+            if new_alt != alt:
+                img["alt"] = new_alt
+                n += 1
+    return n
+
+
 # Master entrypoint called from html2pub builder
 # ----------------------------------------------------------------------
 def fix_svg_viewbox(soup: BeautifulSoup) -> int:
@@ -351,3 +383,4 @@ def post_process(soup: BeautifulSoup, src_rel: str, cfg) -> None:
     fix_math_alignment(soup)
     fix_svg_viewbox(soup)
     set_explicit_avatar_dimensions(soup)
+    fix_img_for_kindle(soup)
