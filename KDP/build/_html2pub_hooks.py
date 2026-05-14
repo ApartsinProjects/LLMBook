@@ -96,13 +96,21 @@ def syntax_highlight(soup: BeautifulSoup) -> int:
         for c in classes:
             if c in _LANG_ALIASES:
                 lang = _LANG_ALIASES[c]; break
-            if c.startswith("language-"):
-                trial = c[len("language-"):]
-                try:
-                    get_lexer_by_name(trial)
-                    lang = trial; break
-                except ClassNotFound:
-                    continue
+            # v13.10: support both `language-X` (Prism convention) and
+            # `lang-X` (project convention). Previously only language-
+            # was checked, silently skipping all lang-* code blocks
+            # (e.g. section 0.3.7.1 stayed unhighlighted).
+            for prefix in ("language-", "lang-"):
+                if c.startswith(prefix):
+                    trial = c[len(prefix):]
+                    try:
+                        get_lexer_by_name(trial)
+                        lang = trial
+                        break
+                    except ClassNotFound:
+                        continue
+            if lang:
+                break
         if not lang:
             continue
         if code.find("span", class_=re.compile(r"^[a-z]{1,4}$")):
@@ -227,12 +235,26 @@ def simplify_inline_mathml(soup: BeautifulSoup) -> int:
     n = 0
 
     def render_token(tok):
-        """Return text content of <mi>, <mn>, <mo>, etc. as str."""
+        """Return text content of <mi>, <mn>, <mo>, etc. as str.
+        Also handles <mrow> with simple content (e.g., '-z' for negative
+        exponent superscripts like e^-z)."""
         if tok is None:
             return None
         name = getattr(tok, "name", None)
         if name in ("mi", "mn", "mo", "ms", "mtext"):
             return tok.get_text()
+        if name == "mrow":
+            # Allow simple mrow: only mi/mn/mo children
+            inner = [x for x in tok.children if getattr(x, "name", None)]
+            if not inner:
+                return None
+            parts = []
+            for c in inner:
+                if c.name in ("mi", "mn", "mo", "ms", "mtext"):
+                    parts.append(c.get_text())
+                else:
+                    return None  # complex inner, give up
+            return "".join(parts)
         return None
 
     def convert_mrow(mrow):
@@ -291,8 +313,32 @@ def simplify_inline_mathml(soup: BeautifulSoup) -> int:
                 sup_tag = soup.new_tag("sup")
                 sup_tag.string = sup_text
                 pieces.append(sup_tag)
+            elif name == "mfrac":
+                # Fraction: <mfrac>num den</mfrac> → num/den (inline)
+                ch = [x for x in c.children if getattr(x, "name", None)]
+                if len(ch) != 2:
+                    return None
+                num_text = render_token(ch[0])
+                den_text = render_token(ch[1])
+                if num_text is None or den_text is None:
+                    return None
+                # If either side has multiple terms, wrap in parens
+                num = f"({num_text})" if len(num_text) > 2 else num_text
+                den = f"({den_text})" if len(den_text) > 2 else den_text
+                pieces.append(NavigableString(f"{num}/{den}"))
+            elif name == "msqrt":
+                # Square root: <msqrt>x</msqrt> → √x
+                ch = [x for x in c.children if getattr(x, "name", None)]
+                inner_parts = []
+                for x in ch:
+                    txt = render_token(x)
+                    if txt is None:
+                        return None
+                    inner_parts.append(txt)
+                inner = "".join(inner_parts)
+                pieces.append(NavigableString("√" + inner))
             else:
-                # Unknown / complex element (mfrac, msqrt, mover, mtable...)
+                # Unknown / complex element (mover, mtable, mfenced...)
                 return None
         return pieces
 
