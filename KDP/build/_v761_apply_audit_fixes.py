@@ -6,7 +6,7 @@ Fixes:
   C2. module-33 next-chapter links pointing to root index.html -> proper
       part-9 chapter-30 path.
   C4. appendix-ai-freshness-2026 meta description "seventh edition"
-      -> "twelfth edition".
+      -> "thirteenth edition".
   H3. "Code Fragment X.Y.N: TODO: ..." caption with TODO leaking ->
       drop the "TODO:" prefix in the caption only (code stays).
   C3. fm-who-should-read meta description "FM.2: Who Should Read"
@@ -50,10 +50,10 @@ FIXES = [
      'Chapter 28',
      'Module 28 (Observability sections) -> Chapter 28'),
 
-    # C4. seventh edition -> twelfth edition (in meta description)
+    # C4. seventh edition -> thirteenth edition (in meta description)
     (re.compile(r'\bseventh edition\b', re.IGNORECASE),
-     'twelfth edition',
-     'seventh edition -> twelfth edition'),
+     'thirteenth edition',
+     'seventh edition -> thirteenth edition'),
 
     # C5. FM.2: Who Should Read -> FM.4 Who Should Read (description meta)
     # We avoid touching real prose by anchoring to the description tag
