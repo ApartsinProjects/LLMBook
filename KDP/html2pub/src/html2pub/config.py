@@ -39,6 +39,11 @@ class ContentSpec:
     appendices_dir: str = "appendices"
     section_glob: str = "section-*.html"
     module_glob: str = "module-*"
+    # Explicit FM ordering (filenames inside front_matter_dir, no path prefix).
+    # Files not listed here are appended in alphabetical order after the
+    # explicit ones. Without this, the FM spine defaults to alphabetical,
+    # which puts about-authors right after the FM index.
+    fm_order: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -144,6 +149,7 @@ def load(project_dir: Path | str) -> Config:
         appendices_dir=cdata.get("appendices_dir", "appendices"),
         section_glob=cdata.get("section_glob", "section-*.html"),
         module_glob=cdata.get("module_glob", "module-*"),
+        fm_order=list(cdata.get("fm_order", [])),
     )
 
     sdata = data.get("styling", {})
