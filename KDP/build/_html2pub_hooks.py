@@ -165,6 +165,23 @@ def wrap_wide_tables(soup: BeautifulSoup, min_cols: int = 6) -> int:
 
 
 # ----------------------------------------------------------------------
+# v13.6: Strip the "Wide Table (N columns) - On narrow screens..."
+# prose note that html2pub's content.py:276 wrap_wide_tables() injects
+# before every wide table. User reports this text leaks into book as
+# visible content. The note adds zero information for the reader
+# (the table is right there); the .complex-table CSS class remains
+# on the table itself for any styling needs.
+# ----------------------------------------------------------------------
+def strip_wide_table_notes(soup: BeautifulSoup) -> int:
+    """Remove .complex-table-note divs injected by html2pub library."""
+    n = 0
+    for note in soup.find_all("div", class_="complex-table-note"):
+        note.decompose()
+        n += 1
+    return n
+
+
+# ----------------------------------------------------------------------
 # Chapter-index "Sections" heading: KEEP everything (no-op).
 #
 # The previous behavior removed both the <h2>Sections</h2> heading AND
@@ -514,6 +531,7 @@ def post_process(soup: BeautifulSoup, src_rel: str, cfg) -> None:
     syntax_highlight(soup)
     normalize_code_block_content(soup)
     wrap_wide_tables(soup, min_cols=4)  # lowered from 6: 5-col tables also overflow Kindle
+    strip_wide_table_notes(soup)  # v13.6: strip prose note html2pub injects
     slim_chapter_index_sections_list(soup, src_rel)
     fix_math_alignment(soup)
     fix_svg_viewbox(soup)
