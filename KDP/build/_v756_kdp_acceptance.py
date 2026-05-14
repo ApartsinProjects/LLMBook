@@ -289,7 +289,31 @@ def run_checks() -> list[Check]:
         else:
             checks.append(c.ok('no audio/video media items'))
 
-        # 15. XHTML content sanity
+        # 15. No KDP-incompatible interactive form elements
+        # Kindle's MOBI/KFX converter rejects <input>, <form>, <button>,
+        # <select>, <textarea>, <iframe>, <embed>, <object>. EPUBCheck
+        # accepts them as valid XHTML, so KDP is the first place this fails.
+        c = Check('No KDP-incompatible interactive elements')
+        offenders = []
+        BAD_TAGS = ('input', 'form', 'button', 'select', 'textarea',
+                    'iframe', 'embed', 'object')
+        bad_re = re.compile(
+            r'<(' + '|'.join(BAD_TAGS) + r')\b', re.IGNORECASE)
+        for n in names:
+            if n.endswith(('.xhtml', '.html')):
+                txt = z.read(n).decode('utf-8', errors='replace')
+                hits = set(m.group(1).lower() for m in bad_re.finditer(txt))
+                if hits:
+                    offenders.append(f'{n}: {sorted(hits)}')
+        if offenders:
+            checks.append(c.fail(
+                f'{len(offenders)} files with form/iframe tags: '
+                f'{offenders[:3]}'))
+        else:
+            checks.append(c.ok(
+                f'no <input>/<form>/<iframe>/<embed>/... in any spine doc'))
+
+        # 16. XHTML content sanity
         c = Check('Every spine doc has <body> and <title>')
         bad_docs = []
         for itemref in opf.findall('.//{http://www.idpf.org/2007/opf}itemref'):
