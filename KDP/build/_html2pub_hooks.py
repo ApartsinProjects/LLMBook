@@ -201,6 +201,15 @@ def fix_math_alignment(soup: BeautifulSoup) -> int:
     # text, these would display the raw TeX source like "(x_1, x_2, T)".
     for ann in soup.find_all("annotation"):
         ann.decompose()
+    # v13.4: UNWRAP <semantics> from inline MathML. The <semantics> element
+    # is just an alternative-representation wrapper (used to hold both the
+    # MathML and the TeX <annotation>). Once we've stripped the annotation
+    # above, <semantics> contains only one <mrow> child. Some EPUB readers
+    # (Calibre, KFX converter) render <semantics> as a block element,
+    # forcing inline math like `p_i` onto its own line.
+    # We unwrap it: move its children up into the <math> directly.
+    for sem in soup.find_all("semantics"):
+        sem.unwrap()
     # KaTeX bug: when an operator with limits (\max, \min, \sup, \inf) is used
     # as a subscript (e.g., D_{\max}), KaTeX emits a trailing
     # <mo>&#x2061;</mo> (function application, invisible) INSIDE the <msub>,
