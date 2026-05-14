@@ -186,6 +186,125 @@ def slim_chapter_index_sections_list(soup: BeautifulSoup, src_rel: str) -> int:
 # ----------------------------------------------------------------------
 # Inline math: ensure $...$ and <span class="math"> become inline-aligned
 # ----------------------------------------------------------------------
+
+
+
+def simplify_inline_mathml(soup: BeautifulSoup) -> int:
+    """Replace simple inline <math> wrappers with plain HTML sub/sup.
+    Returns count of replacements made.
+
+    Patterns handled (inline only -- display math is left alone):
+      <math><mrow><mi>K</mi></mrow></math>                → K
+      <math><mrow><mi>K</mi><mi>i</mi></mrow></math>      → Ki (rare)
+      <math><mrow><msub>...</msub></mrow></math>          → x<sub>i</sub>
+      <math><mrow><msup>...</msup></mrow></math>          → x<sup>2</sup>
+      <math><mrow><msubsup>...</msubsup></mrow></math>    → x<sub>i</sub><sup>2</sup>
+
+    The replacement is a plain <span class="inline-math"> wrapping
+    HTML <sub>/<sup>. The original wrapper class (katex-rendered)
+    is removed so the EPUB reader treats it as normal inline text
+    with proper line flow.
+    """
+    from bs4 import NavigableString
+
+    n = 0
+
+    def render_token(tok):
+        """Return text content of <mi>, <mn>, <mo>, etc. as str."""
+        if tok is None:
+            return None
+        name = getattr(tok, "name", None)
+        if name in ("mi", "mn", "mo", "ms", "mtext"):
+            return tok.get_text()
+        return None
+
+    def convert_mrow(mrow):
+        """If mrow content is simple enough, return a list of
+        NavigableString / Tag pieces. Otherwise return None."""
+        children = [c for c in mrow.children if getattr(c, "name", None)]
+        if not children:
+            return None
+        pieces = []
+        for c in children:
+            name = c.name
+            if name in ("mi", "mn", "mo", "ms", "mtext"):
+                t = c.get_text()
+                if t:
+                    pieces.append(NavigableString(t))
+            elif name == "msub":
+                ch = [x for x in c.children if getattr(x, "name", None)]
+                if len(ch) != 2:
+                    return None
+                base_text = render_token(ch[0])
+                sub_text = render_token(ch[1])
+                if base_text is None or sub_text is None:
+                    return None
+                if base_text:
+                    pieces.append(NavigableString(base_text))
+                sub_tag = soup.new_tag("sub")
+                sub_tag.string = sub_text
+                pieces.append(sub_tag)
+            elif name == "msup":
+                ch = [x for x in c.children if getattr(x, "name", None)]
+                if len(ch) != 2:
+                    return None
+                base_text = render_token(ch[0])
+                sup_text = render_token(ch[1])
+                if base_text is None or sup_text is None:
+                    return None
+                if base_text:
+                    pieces.append(NavigableString(base_text))
+                sup_tag = soup.new_tag("sup")
+                sup_tag.string = sup_text
+                pieces.append(sup_tag)
+            elif name == "msubsup":
+                ch = [x for x in c.children if getattr(x, "name", None)]
+                if len(ch) != 3:
+                    return None
+                base_text = render_token(ch[0])
+                sub_text = render_token(ch[1])
+                sup_text = render_token(ch[2])
+                if any(t is None for t in (base_text, sub_text, sup_text)):
+                    return None
+                if base_text:
+                    pieces.append(NavigableString(base_text))
+                sub_tag = soup.new_tag("sub")
+                sub_tag.string = sub_text
+                pieces.append(sub_tag)
+                sup_tag = soup.new_tag("sup")
+                sup_tag.string = sup_text
+                pieces.append(sup_tag)
+            else:
+                # Unknown / complex element (mfrac, msqrt, mover, mtable...)
+                return None
+        return pieces
+
+    for math in list(soup.find_all("math")):
+        # Skip display math
+        if math.get("display") == "block":
+            continue
+        # Walk inside mrow
+        mrow = math.find("mrow")
+        if mrow is None:
+            mrow = math
+        pieces = convert_mrow(mrow)
+        if pieces is None:
+            continue   # too complex, keep MathML
+        # Find the enclosing wrapper span (.katex.katex-rendered)
+        wrapper = math.parent
+        if wrapper is None or wrapper.name != "span":
+            wrapper = math
+        # Replace wrapper with a plain span containing the pieces
+        new_span = soup.new_tag("span")
+        new_span["class"] = ["inline-math"]
+        for p in pieces:
+            new_span.append(p)
+        wrapper.replace_with(new_span)
+        n += 1
+
+    return n
+
+
 def fix_math_alignment(soup: BeautifulSoup) -> int:
     """Post-process MathML output: strip TeX annotation (would leak as
     fallback text on non-MathML readers), add katex-rendered class, and
@@ -210,6 +329,13 @@ def fix_math_alignment(soup: BeautifulSoup) -> int:
     # We unwrap it: move its children up into the <math> directly.
     for sem in soup.find_all("semantics"):
         sem.unwrap()
+    # v13.5: Convert simple inline MathML to plain HTML sub/sup.
+    # Inline <math> elements with single-letter or letter+sub/sup
+    # patterns get replaced with <span><sub>i</sub></span>-style
+    # markup. Eliminates line-break-around-math bug in EPUB readers
+    # that treat <math> as block-level.
+    n_simplified = simplify_inline_mathml(soup)
+
     # KaTeX bug: when an operator with limits (\max, \min, \sup, \inf) is used
     # as a subscript (e.g., D_{\max}), KaTeX emits a trailing
     # <mo>&#x2061;</mo> (function application, invisible) INSIDE the <msub>,
