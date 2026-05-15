@@ -1438,26 +1438,65 @@ def build(max_side: int, jpeg_quality: int) -> int:
         for a in (md.get("authors") or [])
         if a.get("name")
     )
+    # Cover styling via inline `style=` attributes AND a <style> block inside
+    # <body> (HTML5-valid, parses on every reader). We cannot put <style>
+    # in <head> here because ebooklib's EpubHtml.get_content() rebuilds
+    # <head> from scratch and copies only <body> children from the
+    # template, silently dropping any <head> CSS.
+    #
+    # The image uses object-fit:contain + max-height:95vh so the cover
+    # scales by TRUE containment, not just width. Width-only behavior
+    # (max-width:100%; height:auto) lets the image overflow the viewport
+    # vertically on landscape or short Kindle pages, which (a) looks bad
+    # and (b) is one of the things KDP's heuristic treats as a fixed-
+    # layout signal (image larger than the viewport in either axis).
+    _img_style = (
+        "display:block;"
+        "margin:0 auto;"
+        "max-width:100%;"
+        "max-height:95vh;"
+        "width:auto;"
+        "height:auto;"
+        "object-fit:contain;"
+    )
+    _section_style = (
+        "display:block;"
+        "max-width:100%;"
+        "text-align:center;"
+        "padding:0;"
+        "margin:0;"
+    )
+    _title_style = (
+        "font-size:1.4em;"
+        "font-weight:bold;"
+        "margin:0.6em 0 0.2em 0;"
+        "text-align:center;"
+    )
+    _authors_style = (
+        "font-size:1em;"
+        "margin:0.2em 0 0.8em 0;"
+        "text-align:center;"
+    )
+    # EPUB 3 XHTML strict mode does not allow <style> as a direct child of
+    # <body> (only in <head>). And ebooklib's EpubHtml.get_content() rebuilds
+    # <head> from scratch and drops template-head content. So we put ALL
+    # styles inline via style= attributes; this survives every transform AND
+    # validates strictly.
     _cover_template = (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<!DOCTYPE html>\n'
         '<html xmlns="http://www.w3.org/1999/xhtml" '
         'xmlns:epub="http://www.idpf.org/2007/ops" lang="en" xml:lang="en">\n'
         '<head>\n'
-        '<style>\n'
-        '  body { margin: 0; padding: 0; text-align: center; }\n'
-        '  .cover-image { max-width: 100%; height: auto; display: block; '
-        'margin: 0 auto; }\n'
-        '  .cover-title { font-size: 1.4em; font-weight: bold; '
-        'margin: 1em 0 0.3em 0; }\n'
-        '  .cover-authors { font-size: 1em; margin: 0.3em 0 1em 0; }\n'
-        '</style>\n'
         '</head>\n'
-        '<body>\n'
-        '<section epub:type="cover" aria-label="Cover">\n'
-        '<img class="cover-image" src="" alt="" />\n'
-        f'<p class="cover-title">{escape_xml(_cover_book_title)}</p>\n'
-        f'<p class="cover-authors">{escape_xml(_cover_authors)}</p>\n'
+        '<body style="margin:0;padding:0;text-align:center;">\n'
+        f'<section epub:type="cover" aria-label="Cover" '
+        f'style="{_section_style}">\n'
+        f'<img class="cover-image" src="" alt="" style="{_img_style}" />\n'
+        f'<p class="cover-title" style="{_title_style}">'
+        f'{escape_xml(_cover_book_title)}</p>\n'
+        f'<p class="cover-authors" style="{_authors_style}">'
+        f'{escape_xml(_cover_authors)}</p>\n'
         '</section>\n'
         '</body>\n'
         '</html>\n'
@@ -1467,26 +1506,33 @@ def build(max_side: int, jpeg_quality: int) -> int:
 
     # KaTeX CSS for server-side-rendered math (loaded before book.css
     # so the project's overrides can refine math styles).
-    # Strip woff and ttf src() entries from each @font-face block so we
-    # only need to bundle woff2 fonts (smallest, modern reader support).
+    #
+    # FONT FORMAT POLICY: Kindle officially supports only TTF and OTF
+    # (KDP help GH4DRT75GWWAGBTU: "These fonts can be either Open Type
+    # (OTF) or True Type (TTF). Kindle does not recommend the use of
+    # Type 1 (Postscript) fonts."). WOFF and WOFF2 are not endorsed.
+    # We bundle TTF only, and strip woff/woff2 src() entries from each
+    # @font-face block so the CSS references only the TTF files we ship.
     katex_css = Path("E:/Tools/katex/node_modules/katex/dist/katex.min.css")
     if katex_css.exists():
         import re as _re
         css_text = katex_css.read_text(encoding="utf-8")
-        # Each @font-face block has src:url(fonts/X.woff2) format("woff2"),
-        # url(fonts/X.woff) format("woff"),url(fonts/X.ttf) format("truetype");
-        # Drop the woff and ttf entries (keep only woff2).
+        # Each @font-face block in upstream katex.min.css has
+        #   src: url(fonts/X.woff2) format("woff2"),
+        #        url(fonts/X.woff)  format("woff"),
+        #        url(fonts/X.ttf)   format("truetype");
+        # Drop the woff2 and woff entries so only the TTF entry remains.
         css_text = _re.sub(
-            r',url\(fonts/[^)]+\.woff\) format\("woff"\)',
+            r'url\(fonts/[^)]+\.woff2\) format\("woff2"\),\s*',
             "",
             css_text,
         )
         css_text = _re.sub(
-            r',url\(fonts/[^)]+\.ttf\) format\("truetype"\)',
+            r'url\(fonts/[^)]+\.woff\) format\("woff"\),\s*',
             "",
             css_text,
         )
-        # Rewrite remaining woff2 paths from styles/-relative to fonts/ at root
+        # Rewrite remaining TTF paths from styles/-relative to fonts/ at root
         css_text = css_text.replace("url(fonts/", "url(../fonts/")
         book.add_item(epub.EpubItem(
             uid="css_katex",
@@ -1494,22 +1540,23 @@ def build(max_side: int, jpeg_quality: int) -> int:
             media_type="text/css",
             content=css_text.encode("utf-8"),
         ))
-        # Bundle KaTeX fonts. CSS @font-face references all 3 formats
-        # (woff2, woff, ttf) - epubcheck flags missing as RSC-007.
+        # Bundle ONLY .ttf files from the KaTeX install. The upstream dir
+        # has .woff2/.woff/.ttf for each face; skipping the first two keeps
+        # the EPUB smaller AND inside Kindle's supported-format whitelist.
         katex_fonts_dir = katex_css.parent / "fonts"
         n_katex_fonts = 0
         if katex_fonts_dir.exists():
-            font_media_types = {".woff2": "font/woff2", ".woff": "font/woff", ".ttf": "font/ttf"}
             for font in katex_fonts_dir.iterdir():
-                if font.suffix.lower() in font_media_types:
-                    book.add_item(epub.EpubItem(
-                        uid=f"katex_font_{slugify(font.stem)}_{font.suffix[1:]}",
-                        file_name=f"fonts/{font.name}",
-                        media_type=font_media_types[font.suffix.lower()],
-                        content=font.read_bytes(),
-                    ))
-                    n_katex_fonts += 1
-        print(f"  Bundled katex.min.css + {n_katex_fonts} KaTeX font files")
+                if font.suffix.lower() != ".ttf":
+                    continue
+                book.add_item(epub.EpubItem(
+                    uid=f"katex_font_{slugify(font.stem)}_ttf",
+                    file_name=f"fonts/{font.name}",
+                    media_type="font/ttf",
+                    content=font.read_bytes(),
+                ))
+                n_katex_fonts += 1
+        print(f"  Bundled katex.min.css + {n_katex_fonts} TTF KaTeX font files (Kindle-supported)")
 
     # CSS items - Blitz first (typography baseline), then book.css (project
     # design), then epub_overrides.css (EPUB-specific tweaks, fonts, callouts).
@@ -1544,19 +1591,21 @@ def build(max_side: int, jpeg_quality: int) -> int:
         content=OVERRIDES_CSS.read_bytes(),
     ))
 
-    # Bundle subsetted woff2 fonts. CSS @font-face rules in epub_overrides.css
-    # reference these as ../fonts/<name>.woff2 from each chapter file.
+    # Bundle subsetted TTF fonts. CSS @font-face rules in epub_overrides.css
+    # reference these as ../fonts/<name>.ttf from each chapter file.
+    # Kindle officially supports only TTF and OTF (KDP help GH4DRT75GWWAGBTU);
+    # WOFF/WOFF2 are not endorsed.
     n_fonts = 0
     if FONTS_DIR.exists():
-        for font in sorted(FONTS_DIR.glob("*.woff2")):
+        for font in sorted(FONTS_DIR.glob("*.ttf")):
             book.add_item(epub.EpubItem(
                 uid=f"font_{slugify(font.stem)}",
                 file_name=f"fonts/{font.name}",
-                media_type="font/woff2",
+                media_type="font/ttf",
                 content=font.read_bytes(),
             ))
             n_fonts += 1
-    print(f"  Bundled {n_fonts} font files from KDP/build/fonts/")
+    print(f"  Bundled {n_fonts} TTF font files from KDP/build/fonts/")
 
     # Bundle the styles/icons/ folder so book.css's url(...) references
     # resolve inside the EPUB. Without this, epubcheck reports RSC-007.
@@ -1825,14 +1874,25 @@ def _build_toc_ol(spine_entries, chapter_map, items_by_id) -> str:
 
     if front_matter:
         L.append("<li>")
-        # Use the first front-matter item as the link target for the parent label
-        L.append(f'<a href="{escape_xml(front_matter[0]["file"])}">Front Matter</a>')
-        L.append("<ol>")
-        for info in front_matter:
-            L.append(f'<li><a href="{escape_xml(info["file"])}">{escape_xml(info["title"])}</a></li>')
-        L.append("</ol>")
+        # Use the first front-matter item as the parent link; skip it from
+        # the children list so we don't have two nav entries pointing to
+        # the same XHTML file (which violates "no duplicate nav targets").
+        parent_fm = front_matter[0]
+        children_fm = front_matter[1:]
+        L.append(f'<a href="{escape_xml(parent_fm["file"])}">Front Matter</a>')
+        if children_fm:
+            L.append("<ol>")
+            for info in children_fm:
+                L.append(f'<li><a href="{escape_xml(info["file"])}">{escape_xml(info["title"])}</a></li>')
+            L.append("</ol>")
         L.append("</li>")
 
+    # Kindle's Navigation Guidelines specify "Kindle devices and applications
+    # support two levels of nesting" (KDP help GY3AD8C6C6GAG42N). Deeper
+    # nesting is silently flattened (or worse, hides entries) on some Kindle
+    # generations. We render Part → Chapter and Appendices → Appendix only;
+    # section-level navigation is provided by the chapter-index pages
+    # themselves (each chapter lists its sections as a card-grid in body).
     for part_data in parts.values():
         part_info = part_data["info"]
         L.append("<li>")
@@ -1841,14 +1901,9 @@ def _build_toc_ol(spine_entries, chapter_map, items_by_id) -> str:
             L.append("<ol>")
             for mod in part_data["modules"]:
                 mod_info = mod["info"]
-                L.append("<li>")
-                L.append(f'<a href="{escape_xml(mod_info["file"])}">{escape_xml(mod_info["title"])}</a>')
-                if mod["sections"]:
-                    L.append("<ol>")
-                    for sec in mod["sections"]:
-                        L.append(f'<li><a href="{escape_xml(sec["file"])}">{escape_xml(sec["title"])}</a></li>')
-                    L.append("</ol>")
-                L.append("</li>")
+                # Leaf entry only -- do NOT emit the section-level ol so the
+                # TOC stays within Kindle's 2-level nesting limit.
+                L.append(f'<li><a href="{escape_xml(mod_info["file"])}">{escape_xml(mod_info["title"])}</a></li>')
             L.append("</ol>")
         L.append("</li>")
 
@@ -1870,14 +1925,9 @@ def _build_toc_ol(spine_entries, chapter_map, items_by_id) -> str:
             L.append("<ol>")
             for apx in appendices:
                 apx_info = apx["info"]
-                L.append("<li>")
-                L.append(f'<a href="{escape_xml(apx_info["file"])}">{escape_xml(apx_info["title"])}</a>')
-                if apx["sections"]:
-                    L.append("<ol>")
-                    for sec in apx["sections"]:
-                        L.append(f'<li><a href="{escape_xml(sec["file"])}">{escape_xml(sec["title"])}</a></li>')
-                    L.append("</ol>")
-                L.append("</li>")
+                # 2-level limit: appendix sections live inside the appendix
+                # index page (not nested here).
+                L.append(f'<li><a href="{escape_xml(apx_info["file"])}">{escape_xml(apx_info["title"])}</a></li>')
             L.append("</ol>")
         L.append("</li>")
 
