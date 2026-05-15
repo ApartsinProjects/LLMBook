@@ -27,6 +27,16 @@ process.stdin.on('end', () => {
             const html = katex.renderToString(item.tex, {
                 displayMode: !!item.display,
                 throwOnError: false,
+                /* v15.13 (final): output: 'mathml' is the documented
+                 * Kindle path. Per KDP "Enhanced Typesetting" support page
+                 * (https://kdp.amazon.com/en_US/help/topic/G202087570) and
+                 * the Kindle Publishing Guidelines, Kindle's KFX converter
+                 * applies its OWN typesetter to MathML elements. Custom
+                 * CSS on MathML is largely ignored.
+                 *
+                 * `htmlAndMathml` causes Kindle's converter to consume the
+                 * MathML AND keep the KaTeX HTML, leading to duplicated
+                 * visual rendering (math appears twice). Use `mathml` only. */
                 output: 'mathml',
                 strict: 'ignore',
                 trust: false,
