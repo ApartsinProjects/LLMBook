@@ -2157,7 +2157,7 @@ def _build_landmarks(spine_entries, chapter_map, items_by_id) -> str:
     #    epub:type="glossary" is the spec-defined value for the
     #    glossary section.
     gloss = next((chapter_map.get(e["path"]) for e in spine_entries
-                  if "appendix-f-glossary" in e["path"]
+                  if "glossary" in e["path"]
                   and e["kind"] == "appendix" and e["path"] in chapter_map), None)
     if gloss:
         lines.append(f'<li><a epub:type="glossary" href="{escape_xml(gloss["file"])}">Glossary</a></li>')
