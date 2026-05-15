@@ -1020,22 +1020,28 @@ def syntax_highlight(soup: BeautifulSoup) -> int:
 
     n = 0
     for code in soup.find_all("code"):
-        # Look for language hint
+        # Look for language hint. Source HTML uses two Prism-style prefixes:
+        #   - "language-python"  (Prism v2 convention)
+        #   - "lang-python"      (Prism v1 convention; 1,292 instances in this book)
+        # Both are recognized.
         classes = code.get("class") or []
         lang = None
         for c in classes:
             if c in _LANG_ALIASES:
                 lang = _LANG_ALIASES[c]
                 break
-            elif c.startswith("language-"):
-                # Try the trimmed name directly
-                trial = c[len("language-"):]
-                try:
-                    get_lexer_by_name(trial)
-                    lang = trial
-                    break
-                except ClassNotFound:
-                    continue
+            # Try both `language-` and `lang-` prefixes
+            for prefix in ("language-", "lang-"):
+                if c.startswith(prefix):
+                    trial = c[len(prefix):]
+                    try:
+                        get_lexer_by_name(trial)
+                        lang = trial
+                        break
+                    except ClassNotFound:
+                        continue
+            if lang:
+                break
         if not lang:
             continue
         # Skip if already highlighted (has token spans)
