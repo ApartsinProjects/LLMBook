@@ -728,10 +728,52 @@ def fix_svg_viewbox(soup: BeautifulSoup) -> int:
     return n
 
 
+def templatize_metadata(soup: BeautifulSoup, cfg) -> int:
+    """v14.2: substitute {{book.edition}}, {{book.publication_year}} etc.
+    placeholders in HTML text with the canonical values from metadata.
+
+    Source HTML uses placeholders so the next edition bump touches only
+    metadata.yaml + html2pub.toml — no flag-day across 392 source files.
+    """
+    # Resolve values from cfg (html2pub passes the parsed [book] table)
+    book_meta = {}
+    if hasattr(cfg, 'get'):
+        book_meta = cfg.get('book') or {}
+    elif isinstance(cfg, dict):
+        book_meta = cfg.get('book', {})
+    # Fall back to environment if cfg empty
+    edition = book_meta.get('edition') or 'Fourteenth Edition'
+    pub_date = book_meta.get('publication_date') or '2026-05-15'
+    pub_year = str(pub_date)[:4] if pub_date else '2026'
+    title = book_meta.get('title') or 'Building Conversational AI with LLMs and Agents'
+
+    placeholders = {
+        '{{book.edition}}': edition,
+        '{{book.publication_year}}': pub_year,
+        '{{book.title}}': title,
+        '{{book.publication_date}}': pub_date,
+    }
+
+    from bs4 import NavigableString
+    n = 0
+    for el in soup.find_all(string=True):
+        text = str(el)
+        new_text = text
+        for ph, val in placeholders.items():
+            if ph in new_text:
+                new_text = new_text.replace(ph, val)
+        if new_text != text:
+            el.replace_with(NavigableString(new_text))
+            n += 1
+    return n
+
+
 def post_process(soup: BeautifulSoup, src_rel: str, cfg) -> None:
     """Apply all project transforms to the parsed chapter HTML."""
     if "wisdom-council" in src_rel:
         slim_wisdom_council(soup)
+    # v14.2: template substitution first (so downstream hooks see resolved text)
+    templatize_metadata(soup, cfg)
     syntax_highlight(soup)
     normalize_code_block_content(soup)
     # v13.15: strip leading/trailing blank lines from code blocks (was

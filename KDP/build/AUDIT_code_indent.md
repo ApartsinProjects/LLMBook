@@ -6,15 +6,14 @@ Scope: `<pre><code>` blocks under `part-*`, `appendices/`, `front-matter/`, `cap
 
 - Files scanned: **366**
 - Code blocks scanned: **1523**
-- Code blocks with at least one issue: **858**
-- Individual issue rows: **1191**
+- Code blocks with at least one issue: **776**
+- Individual issue rows: **953**
 
 ### Counts by category
 
 | Category | Count |
 |---|---|
 | `WIDE_LINE` | 614 |
-| `LEADING_BLANK` | 238 |
 | `PYTHON_NO_BODY_INDENT` | 216 |
 | `INCONSISTENT_INDENT` | 123 |
 
@@ -22,26 +21,26 @@ Scope: `<pre><code>` blocks under `part-*`, `appendices/`, `front-matter/`, `cap
 
 | File | Issues |
 |---|---|
-| `part-1-foundations/module-00-ml-pytorch-foundations/section-0.3.html` | 11 |
-| `part-1-foundations/module-04-transformer-architecture/section-4.2.html` | 11 |
 | `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.6.html` | 11 |
 | `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.1.html` | 11 |
 | `appendices/appendix-t-distributed-ml/section-t.1.html` | 10 |
-| `part-5-retrieval-conversation/module-20-conversational-ai/section-20.3.html` | 10 |
-| `part-1-foundations/module-04-transformer-architecture/section-4.1.html` | 9 |
+| `part-1-foundations/module-00-ml-pytorch-foundations/section-0.3.html` | 9 |
 | `part-2-understanding-llms/module-10-interpretability/section-10.4.html` | 9 |
-| `part-8-evaluation-production/module-28-evaluation-observability/section-28.10.html` | 9 |
-| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.6.html` | 9 |
-| `part-1-foundations/module-03-sequence-models-attention/section-3.3.html` | 8 |
+| `part-5-retrieval-conversation/module-20-conversational-ai/section-20.3.html` | 9 |
 | `part-1-foundations/module-05-decoding-text-generation/section-5.3.html` | 8 |
 | `part-2-understanding-llms/module-10-interpretability/section-10.1.html` | 8 |
 | `part-3-working-with-llms/module-11-llm-apis/section-11.1.html` | 8 |
 | `part-3-working-with-llms/module-11-llm-apis/section-11.2.html` | 8 |
-| `part-4-training-adapting/module-16-peft/section-16.5.html` | 8 |
 | `part-6-agentic-ai/module-25-agent-safety-production/section-25.4.html` | 8 |
-| `part-8-evaluation-production/module-28-evaluation-observability/section-28.12.html` | 8 |
-| `part-8-evaluation-production/module-29-production-engineering/section-29.8.html` | 8 |
-| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.3.html` | 8 |
+| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.7.html` | 8 |
+| `appendices/appendix-t-distributed-ml/section-t.4.html` | 7 |
+| `part-1-foundations/module-03-sequence-models-attention/section-3.3.html` | 7 |
+| `part-1-foundations/module-04-transformer-architecture/section-4.2.html` | 7 |
+| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.5.html` | 7 |
+| `part-4-training-adapting/module-14-synthetic-data/section-14.7.html` | 7 |
+| `part-5-retrieval-conversation/module-19-rag/section-19.1.html` | 7 |
+| `part-8-evaluation-production/module-28-evaluation-observability/section-28.10.html` | 7 |
+| `part-8-evaluation-production/module-29-production-engineering/section-29.8.html` | 7 |
 
 ## Sample issues per category
 
@@ -79,41 +78,6 @@ Scope: `<pre><code>` blocks under `part-*`, `appendices/`, `front-matter/`, `cap
 | `appendices/appendix-l-langchain/section-l.3.html` | 171 | `python` | 1 line(s) > 80 chars (max 84) | `from langchain_openai import OpenAIEmbeddings` |
 | `appendices/appendix-l-langchain/section-l.4.html` | 94 | `python` | 1 line(s) > 80 chars (max 86) | `from pydantic import BaseModel, Field` |
 | `appendices/appendix-l-langchain/section-l.4.html` | 188 | `python` | 1 line(s) > 80 chars (max 124) | `from langchain.output_parsers import OutputFixingParser` |
-
-### LEADING_BLANK  (238 total)
-
-| File | Approx line | Lang | Detail | First non-blank line |
-|---|---|---|---|---|
-| `part-1-foundations/module-00-ml-pytorch-foundations/section-0.3.html` | 277 | `python` | 1 blank line(s) at top | `# Two-layer nn.Module: declare layers in __init__, wire them in forward.` |
-| `part-1-foundations/module-00-ml-pytorch-foundations/section-0.3.html` | 348 | `python` | 1 blank line(s) at top | `# Define MyDataset; implement __len__, __getitem__` |
-| `part-1-foundations/module-00-ml-pytorch-foundations/section-0.3.html` | 564 | `python` | 1 blank line(s) at top | `#!/usr/bin/env python3` |
-| `part-1-foundations/module-00-ml-pytorch-foundations/section-0.4.html` | 191 | `python` | 1 blank line(s) at top | `# REINFORCE algorithm: a policy network outputs action probabilities,` |
-| `part-1-foundations/module-00-ml-pytorch-foundations/section-0.4.html` | 253 | `python` | 1 blank line(s) at top | `# PPO sketch: collect trajectories, compute advantage estimates,` |
-| `part-1-foundations/module-00-ml-pytorch-foundations/section-0.4.html` | 529 | `python` | 1 blank line(s) at top | `import numpy as np` |
-| `part-1-foundations/module-03-sequence-models-attention/section-3.1.html` | 111 | `python` | 1 blank line(s) at top | `# Vanilla RNN cell from scratch: h_t = tanh(W_hh @ h + W_xh @ x + b).` |
-| `part-1-foundations/module-03-sequence-models-attention/section-3.1.html` | 514 | `python` | 1 blank line(s) at top | `# Seq2seq architecture: an LSTM encoder compresses input into a context` |
-| `part-1-foundations/module-03-sequence-models-attention/section-3.2.html` | 239 | `python` | 1 blank line(s) at top | `# Bahdanau (additive) attention: project decoder state and encoder outputs` |
-| `part-1-foundations/module-03-sequence-models-attention/section-3.2.html` | 407 | `python` | 1 blank line(s) at top | `# Full attention decoder: at each step, attend over encoder outputs,` |
-| `part-1-foundations/module-03-sequence-models-attention/section-3.3.html` | 369 | `python` | 1 blank line(s) at top | `# Multi-head self-attention: project input into h separate (Q, K, V) triples,` |
-| `part-1-foundations/module-03-sequence-models-attention/section-3.3.html` | 794 | `python` | 1 blank line(s) at top | `import numpy as np` |
-| `part-1-foundations/module-04-transformer-architecture/section-4.1.html` | 140 | `python` | 1 blank line(s) at top | `# Token embedding with scaling` |
-| `part-1-foundations/module-04-transformer-architecture/section-4.1.html` | 178 | `python` | 1 blank line(s) at top | `# Sinusoidal positional encoding: alternate sin/cos at different frequencies` |
-| `part-1-foundations/module-04-transformer-architecture/section-4.1.html` | 256 | `python` | 1 blank line(s) at top | `# Multi-head attention: split d_model into n_heads parallel subspaces,` |
-| `part-1-foundations/module-04-transformer-architecture/section-4.1.html` | 286 | `python` | 1 blank line(s) at top | `# MultiHeadAttention from scratch using PyTorch` |
-| `part-1-foundations/module-04-transformer-architecture/section-4.1.html` | 391 | `python` | 1 blank line(s) at top | `# Position-wise feed-forward network: expand to d_ff, apply ReLU,` |
-| `part-1-foundations/module-04-transformer-architecture/section-4.1.html` | 567 | `python` | 1 blank line(s) at top | `# RMSNorm: normalize by root-mean-square instead of mean+variance.` |
-| `part-1-foundations/module-04-transformer-architecture/section-4.2.html` | 139 | `python` | 1 blank line(s) at top | `# Causal self-attention with a triangular mask: each token can only` |
-| `part-1-foundations/module-04-transformer-architecture/section-4.2.html` | 260 | `python` | 1 blank line(s) at top | `# Position-wise FFN: expand to 4*d_model with ReLU, then project back.` |
-| `part-1-foundations/module-04-transformer-architecture/section-4.2.html` | 281 | `python` | 1 blank line(s) at top | `# SwiGLU FFN variant (LLaMA, PaLM): replace ReLU with a gated SiLU` |
-| `part-1-foundations/module-04-transformer-architecture/section-4.2.html` | 302 | `python` | 1 blank line(s) at top | `# Single transformer block: Pre-LN ordering with residual connections.` |
-| `part-1-foundations/module-04-transformer-architecture/section-4.2.html` | 547 | `python` | 1 blank line(s) at top | `# Define CharDataset; implement __len__, __getitem__, decode` |
-| `part-1-foundations/module-04-transformer-architecture/section-4.3.html` | 395 | `python` | 1 blank line(s) at top | `# Grouped-Query Attention (GQA): multiple query heads share fewer KV heads.` |
-| `part-1-foundations/module-04-transformer-architecture/section-4.3.html` | 731 | `python` | 1 blank line(s) at top | `# Mixture-of-Experts FFN: a learned router selects top-k experts per token.` |
-| `part-1-foundations/module-04-transformer-architecture/section-4.4.html` | 328 | `python` | 1 blank line(s) at top | `# implement add_kernel, triton_add` |
-| `part-1-foundations/module-04-transformer-architecture/section-4.5.html` | 459 | `python` | 1 blank line(s) at top | `def softmax(x, axis=-1):` |
-| `part-1-foundations/module-05-decoding-text-generation/section-5.3.html` | 533 | `python` | 1 blank line(s) at top | `# Text watermarking: hash the previous token to split the vocabulary into` |
-| `part-10-frontiers/module-33-emerging-architectures/section-33.3.html` | 187 | `python` | 1 blank line(s) at top | `# Mamba selective scan (conceptual)` |
-| `part-10-frontiers/module-33-emerging-architectures/section-33.3.html` | 402 | `python` | 1 blank line(s) at top | `# Jamba-style hybrid architecture (conceptual)` |
 
 ### PYTHON_NO_BODY_INDENT  (216 total)
 
@@ -159,26 +123,26 @@ Scope: `<pre><code>` blocks under `part-*`, `appendices/`, `front-matter/`, `cap
 | `appendices/appendix-l-langchain/section-l.5.html` | 106 | `python` | structural indent widths suspect: [4, 15] | `from langchain_openai import ChatOpenAI` |
 | `appendices/appendix-r-experiment-tracking/section-r.3.html` | 65 | `python` | structural indent widths suspect: [4, 5] | `import mlflow` |
 | `part-1-foundations/module-00-ml-pytorch-foundations/section-0.2.html` | 97 | `python` | structural indent widths suspect: [1] | `# ReLU and softmax from scratch: ReLU zeros out negatives,` |
-| `part-1-foundations/module-00-ml-pytorch-foundations/section-0.3.html` | 317 | `python` | structural indent widths suspect: [1] | `# Load FashionMNIST with torchvision, apply normalization,` |
-| `part-1-foundations/module-00-ml-pytorch-foundations/section-0.3.html` | 431 | `python` | structural indent widths suspect: [1] | `# Save model weights` |
-| `part-1-foundations/module-00-ml-pytorch-foundations/section-0.3.html` | 462 | `python` | structural indent widths suspect: [1] | `# Check gradients after a backward pass` |
-| `part-1-foundations/module-00-ml-pytorch-foundations/section-0.3.html` | 474 | `python` | structural indent widths suspect: [1] | `# Register a forward hook that prints the output shape` |
-| `part-1-foundations/module-00-ml-pytorch-foundations/section-0.3.html` | 793 | `python` | structural indent widths suspect: [1] | `# Strict mode: fails if any graph break is detected` |
-| `part-1-foundations/module-00-ml-pytorch-foundations/section-0.3.html` | 955 | `python` | structural indent widths suspect: [1] | `# Distributed Data Parallel: initialize a process group, wrap the model,` |
+| `part-1-foundations/module-00-ml-pytorch-foundations/section-0.3.html` | 316 | `python` | structural indent widths suspect: [1] | `# Load FashionMNIST with torchvision, apply normalization,` |
+| `part-1-foundations/module-00-ml-pytorch-foundations/section-0.3.html` | 429 | `python` | structural indent widths suspect: [1] | `# Save model weights` |
+| `part-1-foundations/module-00-ml-pytorch-foundations/section-0.3.html` | 460 | `python` | structural indent widths suspect: [1] | `# Check gradients after a backward pass` |
+| `part-1-foundations/module-00-ml-pytorch-foundations/section-0.3.html` | 472 | `python` | structural indent widths suspect: [1] | `# Register a forward hook that prints the output shape` |
+| `part-1-foundations/module-00-ml-pytorch-foundations/section-0.3.html` | 790 | `python` | structural indent widths suspect: [1] | `# Strict mode: fails if any graph break is detected` |
+| `part-1-foundations/module-00-ml-pytorch-foundations/section-0.3.html` | 952 | `python` | structural indent widths suspect: [1] | `# Distributed Data Parallel: initialize a process group, wrap the model,` |
 | `part-1-foundations/module-01-foundations-nlp-text-representation/section-1.2.html` | 105 | `python` | structural indent widths suspect: [1] | `# Complete text preprocessing pipeline` |
 | `part-1-foundations/module-02-tokenization-subword-models/section-2.1.html` | 407 | `python` | structural indent widths suspect: [1] | `# How code gets tokenized (using tiktoken)` |
-| `part-1-foundations/module-03-sequence-models-attention/section-3.2.html` | 289 | `python` | structural indent widths suspect: [1] | `# Luong (dot-product) attention: score = decoder_state @ encoder_outputs^T.` |
-| `part-1-foundations/module-04-transformer-architecture/section-4.1.html` | 659 | `python` | structural indent widths suspect: [1] | `# Build a causal (lower-triangular) boolean mask that blocks each token` |
+| `part-1-foundations/module-03-sequence-models-attention/section-3.2.html` | 288 | `python` | structural indent widths suspect: [1] | `# Luong (dot-product) attention: score = decoder_state @ encoder_outputs^T.` |
+| `part-1-foundations/module-04-transformer-architecture/section-4.1.html` | 653 | `python` | structural indent widths suspect: [1] | `# Build a causal (lower-triangular) boolean mask that blocks each token` |
 | `part-1-foundations/module-04-transformer-architecture/section-4.2.html` | 111 | `python` | structural indent widths suspect: [1] | `"""` |
-| `part-1-foundations/module-04-transformer-architecture/section-4.2.html` | 458 | `python` | structural indent widths suspect: [4, 8, 12, 13] | `# Weight initialization + autoregressive text generation for our mini-Transforme` |
+| `part-1-foundations/module-04-transformer-architecture/section-4.2.html` | 454 | `python` | structural indent widths suspect: [4, 8, 12, 13] | `# Weight initialization + autoregressive text generation for our mini-Transforme` |
 | `part-1-foundations/module-04-transformer-architecture/section-4.3.html` | 204 | `python` | structural indent widths suspect: [1] | `# Rotary Position Embedding (RoPE): rotate pairs of dimensions by` |
-| `part-1-foundations/module-04-transformer-architecture/section-4.3.html` | 458 | `python` | structural indent widths suspect: [1] | `# Simplified Differential Attention (conceptual)` |
+| `part-1-foundations/module-04-transformer-architecture/section-4.3.html` | 457 | `python` | structural indent widths suspect: [1] | `# Simplified Differential Attention (conceptual)` |
 | `part-1-foundations/module-04-transformer-architecture/section-4.4.html` | 267 | `python` | structural indent widths suspect: [1] | `# Triton fused softmax kernel: compute softmax in a single GPU pass` |
 | `part-1-foundations/module-04-transformer-architecture/section-4.5.html` | 437 | `python` | structural indent widths suspect: [1] | `import numpy as np` |
-| `part-1-foundations/module-04-transformer-architecture/section-4.5.html` | 519 | `python` | structural indent widths suspect: [1] | `import matplotlib.pyplot as plt` |
+| `part-1-foundations/module-04-transformer-architecture/section-4.5.html` | 518 | `python` | structural indent widths suspect: [1] | `import matplotlib.pyplot as plt` |
 | `part-1-foundations/module-05-decoding-text-generation/section-5.3.html` | 171 | `python` | structural indent widths suspect: [1] | `# Using the Outlines library for structured generation` |
 | `part-1-foundations/module-05-decoding-text-generation/section-5.3.html` | 309 | `python` | structural indent widths suspect: [1] | `# LMQL: declarative constraints on LLM output` |
-| `part-1-foundations/module-05-decoding-text-generation/section-5.3.html` | 700 | `python` | structural indent widths suspect: [1] | `# Structured output with Instructor + Pydantic: force the LLM to return` |
+| `part-1-foundations/module-05-decoding-text-generation/section-5.3.html` | 699 | `python` | structural indent widths suspect: [1] | `# Structured output with Instructor + Pydantic: force the LLM to return` |
 | `part-11-idea-to-product/module-35-shipping-scaling/section-35.1.html` | 358 | `python` | structural indent widths suspect: [1] | `# Launch readiness checklist generator` |
 | `part-11-idea-to-product/module-35-shipping-scaling/section-35.2.html` | 106 | `python` | structural indent widths suspect: [1] | `# Stress-test a product hypothesis using an LLM as devil's advocate` |
 | `part-11-idea-to-product/module-35-shipping-scaling/section-35.2.html` | 149 | `python` | structural indent widths suspect: [1] | `# Generate acceptance criteria from a feature description` |
@@ -347,27 +311,21 @@ Scope: `<pre><code>` blocks under `part-*`, `appendices/`, `front-matter/`, `cap
 | `part-1-foundations/module-00-ml-pytorch-foundations/section-0.2.html` | 97 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def softmax(z):' drops to opener indent at line 12 | `# ReLU and softmax from scratch: ReLU zeros out negatives,` |
 | `part-1-foundations/module-00-ml-pytorch-foundations/section-0.2.html` | 226 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 94) | `# RobustMLP: a production-style feedforward network with BatchNorm,` |
 | `part-1-foundations/module-00-ml-pytorch-foundations/section-0.2.html` | 306 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 120) | `# Complete training loop with cosine LR scheduling, gradient clipping,` |
-| `part-1-foundations/module-00-ml-pytorch-foundations/section-0.3.html` | 277 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Two-layer nn.Module: declare layers in __init__, wire them in forward.` |
-| `part-1-foundations/module-00-ml-pytorch-foundations/section-0.3.html` | 317 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Load FashionMNIST with torchvision, apply normalization,` |
-| `part-1-foundations/module-00-ml-pytorch-foundations/section-0.3.html` | 348 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Define MyDataset; implement __len__, __getitem__` |
-| `part-1-foundations/module-00-ml-pytorch-foundations/section-0.3.html` | 431 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Save model weights` |
-| `part-1-foundations/module-00-ml-pytorch-foundations/section-0.3.html` | 462 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Check gradients after a backward pass` |
-| `part-1-foundations/module-00-ml-pytorch-foundations/section-0.3.html` | 462 | `python` | PYTHON_NO_BODY_INDENT | line opens block but next line not indented (1 -> 1); opener: 'if param.grad is not None:' | `# Check gradients after a backward pass` |
-| `part-1-foundations/module-00-ml-pytorch-foundations/section-0.3.html` | 474 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Register a forward hook that prints the output shape` |
-| `part-1-foundations/module-00-ml-pytorch-foundations/section-0.3.html` | 474 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def print_shape_hook(module, input, outp' drops to opener indent at line 5 | `# Register a forward hook that prints the output shape` |
-| `part-1-foundations/module-00-ml-pytorch-foundations/section-0.3.html` | 496 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 83) | `# Profile a few training batches with torch.profiler to identify` |
-| `part-1-foundations/module-00-ml-pytorch-foundations/section-0.3.html` | 564 | `python` | LEADING_BLANK | 1 blank line(s) at top | `#!/usr/bin/env python3` |
-| `part-1-foundations/module-00-ml-pytorch-foundations/section-0.3.html` | 564 | `python` | WIDE_LINE | 9 line(s) > 80 chars (max 118) | `#!/usr/bin/env python3` |
-| `part-1-foundations/module-00-ml-pytorch-foundations/section-0.3.html` | 793 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Strict mode: fails if any graph break is detected` |
-| `part-1-foundations/module-00-ml-pytorch-foundations/section-0.3.html` | 955 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Distributed Data Parallel: initialize a process group, wrap the model,` |
-| `part-1-foundations/module-00-ml-pytorch-foundations/section-0.3.html` | 955 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'for batch_x, batch_y in train_loader:' drops to opener indent at line 24 | `# Distributed Data Parallel: initialize a process group, wrap the model,` |
-| `part-1-foundations/module-00-ml-pytorch-foundations/section-0.3.html` | 1012 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 81) | `# Complete DDP training setup with DistributedSampler` |
-| `part-1-foundations/module-00-ml-pytorch-foundations/section-0.4.html` | 191 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# REINFORCE algorithm: a policy network outputs action probabilities,` |
+| `part-1-foundations/module-00-ml-pytorch-foundations/section-0.3.html` | 316 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Load FashionMNIST with torchvision, apply normalization,` |
+| `part-1-foundations/module-00-ml-pytorch-foundations/section-0.3.html` | 429 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Save model weights` |
+| `part-1-foundations/module-00-ml-pytorch-foundations/section-0.3.html` | 460 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Check gradients after a backward pass` |
+| `part-1-foundations/module-00-ml-pytorch-foundations/section-0.3.html` | 460 | `python` | PYTHON_NO_BODY_INDENT | line opens block but next line not indented (1 -> 1); opener: 'if param.grad is not None:' | `# Check gradients after a backward pass` |
+| `part-1-foundations/module-00-ml-pytorch-foundations/section-0.3.html` | 472 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Register a forward hook that prints the output shape` |
+| `part-1-foundations/module-00-ml-pytorch-foundations/section-0.3.html` | 472 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def print_shape_hook(module, input, outp' drops to opener indent at line 5 | `# Register a forward hook that prints the output shape` |
+| `part-1-foundations/module-00-ml-pytorch-foundations/section-0.3.html` | 494 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 83) | `# Profile a few training batches with torch.profiler to identify` |
+| `part-1-foundations/module-00-ml-pytorch-foundations/section-0.3.html` | 562 | `python` | WIDE_LINE | 9 line(s) > 80 chars (max 118) | `#!/usr/bin/env python3` |
+| `part-1-foundations/module-00-ml-pytorch-foundations/section-0.3.html` | 790 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Strict mode: fails if any graph break is detected` |
+| `part-1-foundations/module-00-ml-pytorch-foundations/section-0.3.html` | 952 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Distributed Data Parallel: initialize a process group, wrap the model,` |
+| `part-1-foundations/module-00-ml-pytorch-foundations/section-0.3.html` | 952 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'for batch_x, batch_y in train_loader:' drops to opener indent at line 24 | `# Distributed Data Parallel: initialize a process group, wrap the model,` |
+| `part-1-foundations/module-00-ml-pytorch-foundations/section-0.3.html` | 1009 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 81) | `# Complete DDP training setup with DistributedSampler` |
 | `part-1-foundations/module-00-ml-pytorch-foundations/section-0.4.html` | 191 | `python` | WIDE_LINE | 4 line(s) > 80 chars (max 91) | `# REINFORCE algorithm: a policy network outputs action probabilities,` |
-| `part-1-foundations/module-00-ml-pytorch-foundations/section-0.4.html` | 253 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# PPO sketch: collect trajectories, compute advantage estimates,` |
-| `part-1-foundations/module-00-ml-pytorch-foundations/section-0.4.html` | 253 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 103) | `# PPO sketch: collect trajectories, compute advantage estimates,` |
-| `part-1-foundations/module-00-ml-pytorch-foundations/section-0.4.html` | 529 | `python` | LEADING_BLANK | 1 blank line(s) at top | `import numpy as np` |
-| `part-1-foundations/module-00-ml-pytorch-foundations/section-0.4.html` | 529 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 81) | `import numpy as np` |
+| `part-1-foundations/module-00-ml-pytorch-foundations/section-0.4.html` | 252 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 103) | `# PPO sketch: collect trajectories, compute advantage estimates,` |
+| `part-1-foundations/module-00-ml-pytorch-foundations/section-0.4.html` | 527 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 81) | `import numpy as np` |
 | `part-1-foundations/module-01-foundations-nlp-text-representation/section-1.2.html` | 105 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Complete text preprocessing pipeline` |
 | `part-1-foundations/module-01-foundations-nlp-text-representation/section-1.2.html` | 105 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def preprocess(text: str) -> list[str]:' drops to opener indent at line 11 | `# Complete text preprocessing pipeline` |
 | `part-1-foundations/module-01-foundations-nlp-text-representation/section-1.2.html` | 105 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 82) | `# Complete text preprocessing pipeline` |
@@ -391,71 +349,50 @@ Scope: `<pre><code>` blocks under `part-*`, `appendices/`, `front-matter/`, `cap
 | `part-1-foundations/module-02-tokenization-subword-models/section-2.3.html` | 709 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 104) | `def llama3_chat(messages):` |
 | `part-1-foundations/module-02-tokenization-subword-models/section-2.3.html` | 759 | `python` | WIDE_LINE | 8 line(s) > 80 chars (max 105) | `from collections import Counter` |
 | `part-1-foundations/module-02-tokenization-subword-models/section-2.3.html` | 881 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 104) | `import matplotlib.pyplot as plt` |
-| `part-1-foundations/module-03-sequence-models-attention/section-3.1.html` | 111 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Vanilla RNN cell from scratch: h_t = tanh(W_hh @ h + W_xh @ x + b).` |
 | `part-1-foundations/module-03-sequence-models-attention/section-3.1.html` | 111 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 83) | `# Vanilla RNN cell from scratch: h_t = tanh(W_hh @ h + W_xh @ x + b).` |
-| `part-1-foundations/module-03-sequence-models-attention/section-3.1.html` | 514 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Seq2seq architecture: an LSTM encoder compresses input into a context` |
-| `part-1-foundations/module-03-sequence-models-attention/section-3.1.html` | 514 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 100) | `# Seq2seq architecture: an LSTM encoder compresses input into a context` |
-| `part-1-foundations/module-03-sequence-models-attention/section-3.2.html` | 239 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Bahdanau (additive) attention: project decoder state and encoder outputs` |
-| `part-1-foundations/module-03-sequence-models-attention/section-3.2.html` | 289 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Luong (dot-product) attention: score = decoder_state @ encoder_outputs^T.` |
-| `part-1-foundations/module-03-sequence-models-attention/section-3.2.html` | 289 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'class LuongDotAttention(nn.Module):' drops to opener indent at line 5 | `# Luong (dot-product) attention: score = decoder_state @ encoder_outputs^T.` |
-| `part-1-foundations/module-03-sequence-models-attention/section-3.2.html` | 363 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 81) | `# Compare Bahdanau vs Luong attention: identical encoder outputs,` |
-| `part-1-foundations/module-03-sequence-models-attention/section-3.2.html` | 407 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Full attention decoder: at each step, attend over encoder outputs,` |
-| `part-1-foundations/module-03-sequence-models-attention/section-3.2.html` | 407 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 88) | `# Full attention decoder: at each step, attend over encoder outputs,` |
+| `part-1-foundations/module-03-sequence-models-attention/section-3.1.html` | 513 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 100) | `# Seq2seq architecture: an LSTM encoder compresses input into a context` |
+| `part-1-foundations/module-03-sequence-models-attention/section-3.2.html` | 288 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Luong (dot-product) attention: score = decoder_state @ encoder_outputs^T.` |
+| `part-1-foundations/module-03-sequence-models-attention/section-3.2.html` | 288 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'class LuongDotAttention(nn.Module):' drops to opener indent at line 5 | `# Luong (dot-product) attention: score = decoder_state @ encoder_outputs^T.` |
+| `part-1-foundations/module-03-sequence-models-attention/section-3.2.html` | 362 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 81) | `# Compare Bahdanau vs Luong attention: identical encoder outputs,` |
+| `part-1-foundations/module-03-sequence-models-attention/section-3.2.html` | 406 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 88) | `# Full attention decoder: at each step, attend over encoder outputs,` |
 | `part-1-foundations/module-03-sequence-models-attention/section-3.3.html` | 290 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 84) | `# Causal (autoregressive) masking: build an upper-triangular boolean mask` |
-| `part-1-foundations/module-03-sequence-models-attention/section-3.3.html` | 369 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Multi-head self-attention: project input into h separate (Q, K, V) triples,` |
 | `part-1-foundations/module-03-sequence-models-attention/section-3.3.html` | 369 | `python` | WIDE_LINE | 4 line(s) > 80 chars (max 98) | `# Multi-head self-attention: project input into h separate (Q, K, V) triples,` |
-| `part-1-foundations/module-03-sequence-models-attention/section-3.3.html` | 514 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 85) | `# Benchmark attention wall-clock time as sequence length doubles.` |
-| `part-1-foundations/module-03-sequence-models-attention/section-3.3.html` | 608 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 81) | `# End-to-end demo: embed a 5-word sentence, run multi-head attention,` |
-| `part-1-foundations/module-03-sequence-models-attention/section-3.3.html` | 794 | `python` | LEADING_BLANK | 1 blank line(s) at top | `import numpy as np` |
-| `part-1-foundations/module-03-sequence-models-attention/section-3.3.html` | 829 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 89) | `import matplotlib.pyplot as plt` |
-| `part-1-foundations/module-03-sequence-models-attention/section-3.3.html` | 869 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 92) | `def multi_head_attention(X, n_heads, d_model, W_q, W_k, W_v, W_o, mask=None):` |
-| `part-1-foundations/module-03-sequence-models-attention/section-3.3.html` | 913 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 83) | `import torch` |
-| `part-1-foundations/module-04-transformer-architecture/section-4.1.html` | 140 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Token embedding with scaling` |
-| `part-1-foundations/module-04-transformer-architecture/section-4.1.html` | 178 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Sinusoidal positional encoding: alternate sin/cos at different frequencies` |
-| `part-1-foundations/module-04-transformer-architecture/section-4.1.html` | 256 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Multi-head attention: split d_model into n_heads parallel subspaces,` |
-| `part-1-foundations/module-04-transformer-architecture/section-4.1.html` | 286 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# MultiHeadAttention from scratch using PyTorch` |
-| `part-1-foundations/module-04-transformer-architecture/section-4.1.html` | 286 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'if mask is not None:' drops to opener indent at line 37 | `# MultiHeadAttention from scratch using PyTorch` |
-| `part-1-foundations/module-04-transformer-architecture/section-4.1.html` | 286 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 89) | `# MultiHeadAttention from scratch using PyTorch` |
-| `part-1-foundations/module-04-transformer-architecture/section-4.1.html` | 391 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Position-wise feed-forward network: expand to d_ff, apply ReLU,` |
-| `part-1-foundations/module-04-transformer-architecture/section-4.1.html` | 567 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# RMSNorm: normalize by root-mean-square instead of mean+variance.` |
-| `part-1-foundations/module-04-transformer-architecture/section-4.1.html` | 598 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 88) | `# Built-in RMSNorm (PyTorch 2.4+), fused for GPU efficiency` |
-| `part-1-foundations/module-04-transformer-architecture/section-4.1.html` | 635 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 90) | `# GPT-2 style weight initialization: N(0, 0.02) for most layers,` |
-| `part-1-foundations/module-04-transformer-architecture/section-4.1.html` | 659 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Build a causal (lower-triangular) boolean mask that blocks each token` |
-| `part-1-foundations/module-04-transformer-architecture/section-4.1.html` | 659 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def causal_mask(seq_len, device):' drops to opener indent at line 5 | `# Build a causal (lower-triangular) boolean mask that blocks each token` |
+| `part-1-foundations/module-03-sequence-models-attention/section-3.3.html` | 513 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 85) | `# Benchmark attention wall-clock time as sequence length doubles.` |
+| `part-1-foundations/module-03-sequence-models-attention/section-3.3.html` | 607 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 81) | `# End-to-end demo: embed a 5-word sentence, run multi-head attention,` |
+| `part-1-foundations/module-03-sequence-models-attention/section-3.3.html` | 827 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 89) | `import matplotlib.pyplot as plt` |
+| `part-1-foundations/module-03-sequence-models-attention/section-3.3.html` | 867 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 92) | `def multi_head_attention(X, n_heads, d_model, W_q, W_k, W_v, W_o, mask=None):` |
+| `part-1-foundations/module-03-sequence-models-attention/section-3.3.html` | 911 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 83) | `import torch` |
+| `part-1-foundations/module-04-transformer-architecture/section-4.1.html` | 283 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'if mask is not None:' drops to opener indent at line 36 | `# MultiHeadAttention from scratch using PyTorch` |
+| `part-1-foundations/module-04-transformer-architecture/section-4.1.html` | 283 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 89) | `# MultiHeadAttention from scratch using PyTorch` |
+| `part-1-foundations/module-04-transformer-architecture/section-4.1.html` | 592 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 88) | `# Built-in RMSNorm (PyTorch 2.4+), fused for GPU efficiency` |
+| `part-1-foundations/module-04-transformer-architecture/section-4.1.html` | 629 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 90) | `# GPT-2 style weight initialization: N(0, 0.02) for most layers,` |
+| `part-1-foundations/module-04-transformer-architecture/section-4.1.html` | 653 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Build a causal (lower-triangular) boolean mask that blocks each token` |
+| `part-1-foundations/module-04-transformer-architecture/section-4.1.html` | 653 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def causal_mask(seq_len, device):' drops to opener indent at line 5 | `# Build a causal (lower-triangular) boolean mask that blocks each token` |
 | `part-1-foundations/module-04-transformer-architecture/section-4.2.html` | 111 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `"""` |
 | `part-1-foundations/module-04-transformer-architecture/section-4.2.html` | 111 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'class TransformerConfig:' drops to opener indent at line 14 | `"""` |
-| `part-1-foundations/module-04-transformer-architecture/section-4.2.html` | 139 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Causal self-attention with a triangular mask: each token can only` |
 | `part-1-foundations/module-04-transformer-architecture/section-4.2.html` | 139 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 91) | `# Causal self-attention with a triangular mask: each token can only` |
-| `part-1-foundations/module-04-transformer-architecture/section-4.2.html` | 260 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Position-wise FFN: expand to 4*d_model with ReLU, then project back.` |
-| `part-1-foundations/module-04-transformer-architecture/section-4.2.html` | 281 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# SwiGLU FFN variant (LLaMA, PaLM): replace ReLU with a gated SiLU` |
-| `part-1-foundations/module-04-transformer-architecture/section-4.2.html` | 302 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Single transformer block: Pre-LN ordering with residual connections.` |
-| `part-1-foundations/module-04-transformer-architecture/section-4.2.html` | 353 | `bash` | WIDE_LINE | 1 line(s) > 80 chars (max 84) | `# Full decoder-only transformer: stack N blocks, add token + position` |
-| `part-1-foundations/module-04-transformer-architecture/section-4.2.html` | 458 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [4, 8, 12, 13] | `# Weight initialization + autoregressive text generation for our mini-Transforme` |
-| `part-1-foundations/module-04-transformer-architecture/section-4.2.html` | 458 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def _init_weights(self, module: nn.Modul' drops to opener indent at line 20 | `# Weight initialization + autoregressive text generation for our mini-Transforme` |
-| `part-1-foundations/module-04-transformer-architecture/section-4.2.html` | 458 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 82) | `# Weight initialization + autoregressive text generation for our mini-Transforme` |
-| `part-1-foundations/module-04-transformer-architecture/section-4.2.html` | 547 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Define CharDataset; implement __len__, __getitem__, decode` |
-| `part-1-foundations/module-04-transformer-architecture/section-4.2.html` | 591 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def lr_at(step: int) -> float:' drops to opener indent at line 33 | `# --- Complete training loop with warmup, gradient clipping, and periodic eval -` |
-| `part-1-foundations/module-04-transformer-architecture/section-4.2.html` | 591 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 89) | `# --- Complete training loop with warmup, gradient clipping, and periodic eval -` |
-| `part-1-foundations/module-04-transformer-architecture/section-4.2.html` | 727 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 97) | `# Download the tiny Shakespeare dataset` |
-| `part-1-foundations/module-04-transformer-architecture/section-4.2.html` | 745 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 86) | `from transformers import AutoModelForCausalLM, AutoTokenizer` |
+| `part-1-foundations/module-04-transformer-architecture/section-4.2.html` | 349 | `bash` | WIDE_LINE | 1 line(s) > 80 chars (max 84) | `# Full decoder-only transformer: stack N blocks, add token + position` |
+| `part-1-foundations/module-04-transformer-architecture/section-4.2.html` | 454 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [4, 8, 12, 13] | `# Weight initialization + autoregressive text generation for our mini-Transforme` |
+| `part-1-foundations/module-04-transformer-architecture/section-4.2.html` | 454 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def _init_weights(self, module: nn.Modul' drops to opener indent at line 20 | `# Weight initialization + autoregressive text generation for our mini-Transforme` |
+| `part-1-foundations/module-04-transformer-architecture/section-4.2.html` | 454 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 82) | `# Weight initialization + autoregressive text generation for our mini-Transforme` |
+| `part-1-foundations/module-04-transformer-architecture/section-4.2.html` | 586 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def lr_at(step: int) -> float:' drops to opener indent at line 33 | `# --- Complete training loop with warmup, gradient clipping, and periodic eval -` |
+| `part-1-foundations/module-04-transformer-architecture/section-4.2.html` | 586 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 89) | `# --- Complete training loop with warmup, gradient clipping, and periodic eval -` |
+| `part-1-foundations/module-04-transformer-architecture/section-4.2.html` | 722 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 97) | `# Download the tiny Shakespeare dataset` |
+| `part-1-foundations/module-04-transformer-architecture/section-4.2.html` | 740 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 86) | `from transformers import AutoModelForCausalLM, AutoTokenizer` |
 | `part-1-foundations/module-04-transformer-architecture/section-4.3.html` | 204 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Rotary Position Embedding (RoPE): rotate pairs of dimensions by` |
 | `part-1-foundations/module-04-transformer-architecture/section-4.3.html` | 204 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def apply_rope(x, freqs_cos, freqs_sin):' drops to opener indent at line 8 | `# Rotary Position Embedding (RoPE): rotate pairs of dimensions by` |
-| `part-1-foundations/module-04-transformer-architecture/section-4.3.html` | 395 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Grouped-Query Attention (GQA): multiple query heads share fewer KV heads.` |
-| `part-1-foundations/module-04-transformer-architecture/section-4.3.html` | 458 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Simplified Differential Attention (conceptual)` |
-| `part-1-foundations/module-04-transformer-architecture/section-4.3.html` | 458 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def diff_attention(Q1, K1, Q2, K2, V):' drops to opener indent at line 4 | `# Simplified Differential Attention (conceptual)` |
-| `part-1-foundations/module-04-transformer-architecture/section-4.3.html` | 731 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Mixture-of-Experts FFN: a learned router selects top-k experts per token.` |
+| `part-1-foundations/module-04-transformer-architecture/section-4.3.html` | 457 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Simplified Differential Attention (conceptual)` |
+| `part-1-foundations/module-04-transformer-architecture/section-4.3.html` | 457 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def diff_attention(Q1, K1, Q2, K2, V):' drops to opener indent at line 4 | `# Simplified Differential Attention (conceptual)` |
 | `part-1-foundations/module-04-transformer-architecture/section-4.4.html` | 221 | `text` | WIDE_LINE | 1 line(s) > 80 chars (max 95) | `# Pseudocode: Online softmax for FlashAttention` |
 | `part-1-foundations/module-04-transformer-architecture/section-4.4.html` | 267 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Triton fused softmax kernel: compute softmax in a single GPU pass` |
 | `part-1-foundations/module-04-transformer-architecture/section-4.4.html` | 267 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def fused_softmax(x):' drops to opener indent at line 32 | `# Triton fused softmax kernel: compute softmax in a single GPU pass` |
-| `part-1-foundations/module-04-transformer-architecture/section-4.4.html` | 328 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# implement add_kernel, triton_add` |
 | `part-1-foundations/module-04-transformer-architecture/section-4.5.html` | 437 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `import numpy as np` |
 | `part-1-foundations/module-04-transformer-architecture/section-4.5.html` | 437 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def layer_norm(x, eps=1e-5):' drops to opener indent at line 4 | `import numpy as np` |
 | `part-1-foundations/module-04-transformer-architecture/section-4.5.html` | 437 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 88) | `import numpy as np` |
-| `part-1-foundations/module-04-transformer-architecture/section-4.5.html` | 459 | `python` | LEADING_BLANK | 1 blank line(s) at top | `def softmax(x, axis=-1):` |
 | `part-1-foundations/module-04-transformer-architecture/section-4.5.html` | 459 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 81) | `def softmax(x, axis=-1):` |
-| `part-1-foundations/module-04-transformer-architecture/section-4.5.html` | 519 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `import matplotlib.pyplot as plt` |
-| `part-1-foundations/module-04-transformer-architecture/section-4.5.html` | 519 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def sinusoidal_encoding(seq_len, d_model' drops to opener indent at line 4 | `import matplotlib.pyplot as plt` |
-| `part-1-foundations/module-04-transformer-architecture/section-4.5.html` | 548 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 83) | `import torch` |
+| `part-1-foundations/module-04-transformer-architecture/section-4.5.html` | 518 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `import matplotlib.pyplot as plt` |
+| `part-1-foundations/module-04-transformer-architecture/section-4.5.html` | 518 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def sinusoidal_encoding(seq_len, d_model' drops to opener indent at line 4 | `import matplotlib.pyplot as plt` |
+| `part-1-foundations/module-04-transformer-architecture/section-4.5.html` | 547 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 83) | `import torch` |
 | `part-1-foundations/module-05-decoding-text-generation/section-5.1.html` | 92 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def greedy_decode(model, input_ids, max_' drops to opener indent at line 22 | `# Greedy decoding: at each step pick the single highest-probability token.` |
 | `part-1-foundations/module-05-decoding-text-generation/section-5.1.html` | 174 | `python` | WIDE_LINE | 6 line(s) > 80 chars (max 101) | `# Beam search: maintain beam_width candidate sequences in parallel,` |
 | `part-1-foundations/module-05-decoding-text-generation/section-5.1.html` | 248 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 85) | `# Production equivalent using model.generate()` |
@@ -477,12 +414,11 @@ Scope: `<pre><code>` blocks under `part-*`, `appendices/`, `front-matter/`, `cap
 | `part-1-foundations/module-05-decoding-text-generation/section-5.3.html` | 309 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'async def analyze_product(review: str):' drops to opener indent at line 20 | `# LMQL: declarative constraints on LLM output` |
 | `part-1-foundations/module-05-decoding-text-generation/section-5.3.html` | 309 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 91) | `# LMQL: declarative constraints on LLM output` |
 | `part-1-foundations/module-05-decoding-text-generation/section-5.3.html` | 357 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 94) | `# SGLang: structured generation with prefix caching` |
-| `part-1-foundations/module-05-decoding-text-generation/section-5.3.html` | 533 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Text watermarking: hash the previous token to split the vocabulary into` |
 | `part-1-foundations/module-05-decoding-text-generation/section-5.3.html` | 533 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 88) | `# Text watermarking: hash the previous token to split the vocabulary into` |
-| `part-1-foundations/module-05-decoding-text-generation/section-5.3.html` | 598 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def mbr_decode(candidates, utility_fn):' drops to opener indent at line 16 | `# Minimum Bayes Risk decoding: generate N candidates, score each by` |
-| `part-1-foundations/module-05-decoding-text-generation/section-5.3.html` | 700 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Structured output with Instructor + Pydantic: force the LLM to return` |
-| `part-1-foundations/module-05-decoding-text-generation/section-5.3.html` | 700 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'class SentimentResult(BaseModel):' drops to opener indent at line 13 | `# Structured output with Instructor + Pydantic: force the LLM to return` |
-| `part-1-foundations/module-05-decoding-text-generation/section-5.3.html` | 700 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 82) | `# Structured output with Instructor + Pydantic: force the LLM to return` |
+| `part-1-foundations/module-05-decoding-text-generation/section-5.3.html` | 597 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def mbr_decode(candidates, utility_fn):' drops to opener indent at line 16 | `# Minimum Bayes Risk decoding: generate N candidates, score each by` |
+| `part-1-foundations/module-05-decoding-text-generation/section-5.3.html` | 699 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Structured output with Instructor + Pydantic: force the LLM to return` |
+| `part-1-foundations/module-05-decoding-text-generation/section-5.3.html` | 699 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'class SentimentResult(BaseModel):' drops to opener indent at line 13 | `# Structured output with Instructor + Pydantic: force the LLM to return` |
+| `part-1-foundations/module-05-decoding-text-generation/section-5.3.html` | 699 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 82) | `# Structured output with Instructor + Pydantic: force the LLM to return` |
 | `part-1-foundations/module-05-decoding-text-generation/section-5.4.html` | 132 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 94) | `# Conceptual comparison of generation steps` |
 | `part-1-foundations/module-05-decoding-text-generation/section-5.4.html` | 152 | `python` | WIDE_LINE | 4 line(s) > 80 chars (max 126) | `# Simplified discrete diffusion process (conceptual)` |
 | `part-1-foundations/module-05-decoding-text-generation/section-5.4.html` | 195 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def forward_diffusion(tokens: torch.Tens' drops to opener indent at line 16 | `# Simplified discrete diffusion for text (conceptual).` |
@@ -491,25 +427,18 @@ Scope: `<pre><code>` blocks under `part-*`, `appendices/`, `front-matter/`, `cap
 | `part-1-foundations/module-05-decoding-text-generation/section-5.4.html` | 473 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 83) | `def sample_with_strategy(prompt, max_tokens=30, temperature=1.0,` |
 | `part-10-frontiers/module-33-emerging-architectures/section-33.10.html` | 169 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'else:' drops to opener indent at line 8 | `import numpy as np` |
 | `part-10-frontiers/module-33-emerging-architectures/section-33.10.html` | 269 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 90) | `# Chronos-style time series tokenization` |
-| `part-10-frontiers/module-33-emerging-architectures/section-33.3.html` | 187 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Mamba selective scan (conceptual)` |
-| `part-10-frontiers/module-33-emerging-architectures/section-33.3.html` | 402 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Jamba-style hybrid architecture (conceptual)` |
-| `part-10-frontiers/module-33-emerging-architectures/section-33.3.html` | 556 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 84) | `# pip install einops` |
-| `part-10-frontiers/module-33-emerging-architectures/section-33.3.html` | 574 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 91) | `# pip install jax flax optax` |
-| `part-10-frontiers/module-33-emerging-architectures/section-33.4.html` | 467 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# world_model_lab.py` |
+| `part-10-frontiers/module-33-emerging-architectures/section-33.3.html` | 554 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 84) | `# pip install einops` |
+| `part-10-frontiers/module-33-emerging-architectures/section-33.3.html` | 572 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 91) | `# pip install jax flax optax` |
 | `part-10-frontiers/module-33-emerging-architectures/section-33.4.html` | 467 | `python` | WIDE_LINE | 8 line(s) > 80 chars (max 95) | `# world_model_lab.py` |
-| `part-10-frontiers/module-33-emerging-architectures/section-33.4.html` | 641 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Training loop (simplified)` |
-| `part-10-frontiers/module-33-emerging-architectures/section-33.4.html` | 641 | `python` | WIDE_LINE | 7 line(s) > 80 chars (max 104) | `# Training loop (simplified)` |
+| `part-10-frontiers/module-33-emerging-architectures/section-33.4.html` | 640 | `python` | WIDE_LINE | 7 line(s) > 80 chars (max 104) | `# Training loop (simplified)` |
 | `part-10-frontiers/module-33-emerging-architectures/section-33.6.html` | 82 | `text` | WIDE_LINE | 1 line(s) > 80 chars (max 84) | `# MemGPT-style hierarchical memory: core, working, conversation, and archival ti` |
-| `part-10-frontiers/module-33-emerging-architectures/section-33.7.html` | 87 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Train a sparse autoencoder (SAE) on transformer hidden states to discover` |
 | `part-10-frontiers/module-33-emerging-architectures/section-33.7.html` | 87 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 86) | `# Train a sparse autoencoder (SAE) on transformer hidden states to discover` |
 | `part-10-frontiers/module-33-emerging-architectures/section-33.8.html` | 100 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 81) | `# Compare four agency levels (completion, tool-augmented, task agent, persistent` |
-| `part-10-frontiers/module-33-emerging-architectures/section-33.9.html` | 89 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Dynamic tool router: selects relevant tools per query using keyword overlap,` |
 | `part-10-frontiers/module-33-emerging-architectures/section-33.9.html` | 89 | `python` | WIDE_LINE | 7 line(s) > 80 chars (max 110) | `# Dynamic tool router: selects relevant tools per query using keyword overlap,` |
-| `part-10-frontiers/module-33-emerging-architectures/section-33.9.html` | 186 | `python` | WIDE_LINE | 13 line(s) > 80 chars (max 130) | `# Tool result caching with exact-match and semantic similarity layers.` |
-| `part-10-frontiers/module-33-emerging-architectures/section-33.9.html` | 398 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 88) | `## Step 2 : Extract and visualize attention patterns` |
-| `part-10-frontiers/module-33-emerging-architectures/section-33.9.html` | 444 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 88) | `## Step 3 : Activation patching for circuit discovery` |
-| `part-10-frontiers/module-33-emerging-architectures/section-33.9.html` | 518 | `python` | LEADING_BLANK | 1 blank line(s) at top | `## Step 4 : DSPy structured reasoning pipeline` |
-| `part-10-frontiers/module-33-emerging-architectures/section-33.9.html` | 518 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 86) | `## Step 4 : DSPy structured reasoning pipeline` |
+| `part-10-frontiers/module-33-emerging-architectures/section-33.9.html` | 185 | `python` | WIDE_LINE | 13 line(s) > 80 chars (max 130) | `# Tool result caching with exact-match and semantic similarity layers.` |
+| `part-10-frontiers/module-33-emerging-architectures/section-33.9.html` | 397 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 88) | `## Step 2 : Extract and visualize attention patterns` |
+| `part-10-frontiers/module-33-emerging-architectures/section-33.9.html` | 443 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 88) | `## Step 3 : Activation patching for circuit discovery` |
+| `part-10-frontiers/module-33-emerging-architectures/section-33.9.html` | 517 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 86) | `## Step 4 : DSPy structured reasoning pipeline` |
 | `part-11-idea-to-product/module-34-idea-to-product/section-34.1.html` | 282 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 84) | `# Retry-with-fallback pattern for agent tool calls` |
 | `part-11-idea-to-product/module-34-idea-to-product/section-34.2.html` | 262 | `python` | WIDE_LINE | 22 line(s) > 80 chars (max 134) | `# AI Role Canvas: from structured definition to automated engineering decisions` |
 | `part-11-idea-to-product/module-34-idea-to-product/section-34.2.html` | 420 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 122) | `role: drafter` |
@@ -534,11 +463,9 @@ Scope: `<pre><code>` blocks under `part-*`, `appendices/`, `front-matter/`, `cap
 | `part-11-idea-to-product/module-35-shipping-scaling/section-35.2.html` | 249 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Summarize evaluation failures and suggest next experiments` |
 | `part-11-idea-to-product/module-35-shipping-scaling/section-35.2.html` | 249 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def summarize_eval_failures(failures: li' drops to opener indent at line 7 | `# Summarize evaluation failures and suggest next experiments` |
 | `part-11-idea-to-product/module-35-shipping-scaling/section-35.3.html` | 277 | `python` | WIDE_LINE | 76 line(s) > 80 chars (max 157) | `"""Provider abstraction layer for LLM-powered applications.` |
-| `part-11-idea-to-product/module-35-shipping-scaling/section-35.3.html` | 443 | `python` | LEADING_BLANK | 1 blank line(s) at top | `"""Prompt loader with provider-specific variant support."""` |
 | `part-11-idea-to-product/module-35-shipping-scaling/section-35.3.html` | 443 | `python` | WIDE_LINE | 4 line(s) > 80 chars (max 93) | `"""Prompt loader with provider-specific variant support."""` |
-| `part-11-idea-to-product/module-35-shipping-scaling/section-35.3.html` | 505 | `python` | LEADING_BLANK | 1 blank line(s) at top | `"""Model router with rule-based routing and automatic fallback."""` |
-| `part-11-idea-to-product/module-35-shipping-scaling/section-35.3.html` | 505 | `python` | WIDE_LINE | 15 line(s) > 80 chars (max 113) | `"""Model router with rule-based routing and automatic fallback."""` |
-| `part-11-idea-to-product/module-35-shipping-scaling/section-35.3.html` | 811 | `python` | WIDE_LINE | 4 line(s) > 80 chars (max 103) | `class LLMClient:` |
+| `part-11-idea-to-product/module-35-shipping-scaling/section-35.3.html` | 504 | `python` | WIDE_LINE | 15 line(s) > 80 chars (max 113) | `"""Model router with rule-based routing and automatic fallback."""` |
+| `part-11-idea-to-product/module-35-shipping-scaling/section-35.3.html` | 809 | `python` | WIDE_LINE | 4 line(s) > 80 chars (max 103) | `class LLMClient:` |
 | `part-11-idea-to-product/module-35-shipping-scaling/section-35.4.html` | 514 | `python` | WIDE_LINE | 4 line(s) > 80 chars (max 106) | `import hashlib, json` |
 | `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.1.html` | 73 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 89) | `# Loading and using BERT for masked language modeling` |
 | `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.1.html` | 180 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 82) | `# T5: Text-to-Text approach for multiple tasks` |
@@ -547,40 +474,28 @@ Scope: `<pre><code>` blocks under `part-*`, `appendices/`, `front-matter/`, `cap
 | `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.2.html` | 210 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [4, 7, 8] | `# Causal language modeling loss from scratch.` |
 | `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.2.html` | 210 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def causal_lm_loss(logits: torch.Tensor,' drops to opener indent at line 22 | `# Causal language modeling loss from scratch.` |
 | `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.2.html` | 210 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 82) | `# Causal language modeling loss from scratch.` |
-| `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.2.html` | 250 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Multi-token prediction: conceptual implementation` |
 | `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.2.html` | 250 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 87) | `# Multi-token prediction: conceptual implementation` |
-| `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.2.html` | 336 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 90) | `# Simulating T5 span corruption` |
-| `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.2.html` | 393 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'if random.random() > fim_rate:' drops to opener indent at line 7 | `# Fill-in-the-Middle (FIM) transformation` |
-| `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.2.html` | 447 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Multi-token prediction (Meta, "Better & Faster LLMs via Multi-Token Prediction` |
-| `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.2.html` | 447 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'for i, logits in enumerate(logits_list, ' drops to opener indent at line 31 | `# Multi-token prediction (Meta, "Better & Faster LLMs via Multi-Token Prediction` |
-| `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.2.html` | 447 | `python` | WIDE_LINE | 8 line(s) > 80 chars (max 89) | `# Multi-token prediction (Meta, "Better & Faster LLMs via Multi-Token Prediction` |
+| `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.2.html` | 335 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 90) | `# Simulating T5 span corruption` |
+| `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.2.html` | 392 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'if random.random() > fim_rate:' drops to opener indent at line 7 | `# Fill-in-the-Middle (FIM) transformation` |
+| `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.2.html` | 446 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'for i, logits in enumerate(logits_list, ' drops to opener indent at line 30 | `# Multi-token prediction (Meta, "Better & Faster LLMs via Multi-Token Prediction` |
+| `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.2.html` | 446 | `python` | WIDE_LINE | 8 line(s) > 80 chars (max 89) | `# Multi-token prediction (Meta, "Better & Faster LLMs via Multi-Token Prediction` |
 | `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.3.html` | 243 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 86) | `# Load Mixtral 8x7B with 4-bit quantization (~25 GB vs ~94 GB at FP16).` |
 | `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.3.html` | 406 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 81) | `# Fit a power-law scaling curve L(N) = a * N^b + c to empirical loss` |
-| `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.4.html` | 136 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# MinHash + LSH deduplication: hash character n-grams into signatures,` |
 | `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.4.html` | 136 | `python` | WIDE_LINE | 6 line(s) > 80 chars (max 98) | `# MinHash + LSH deduplication: hash character n-grams into signatures,` |
-| `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.4.html` | 209 | `python` | WIDE_LINE | 4 line(s) > 80 chars (max 134) | `# Minimal quality filtering pipeline` |
+| `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.4.html` | 208 | `python` | WIDE_LINE | 4 line(s) > 80 chars (max 134) | `# Minimal quality filtering pipeline` |
 | `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.5.html` | 210 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 89) | `# Warmup + cosine decay LR schedule: ramp linearly for warmup_steps,` |
 | `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.5.html` | 251 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 84) | `# Warmup-Stable-Decay (WSD) schedule: warmup, hold at peak_lr for a` |
-| `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.6.html` | 101 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# DDP training with PyTorch` |
-| `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.6.html` | 161 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'for batch in train_loader:' drops to opener indent at line 47 | `# FSDP (Fully Sharded Data Parallel) training with PyTorch.` |
-| `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.6.html` | 161 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 94) | `# FSDP (Fully Sharded Data Parallel) training with PyTorch.` |
-| `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.6.html` | 286 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Gradient checkpointing in PyTorch` |
-| `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.6.html` | 286 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 89) | `# Gradient checkpointing in PyTorch` |
-| `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.7.html` | 68 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Conceptual demonstration of task vector extraction` |
-| `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.7.html` | 141 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Linear attention as one gradient descent step: show that a single` |
-| `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.7.html` | 212 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def apply_task_vector(model, task_vector' drops to opener indent at line 24 | `# Task vector extraction: the DIFFERENCE between a fine-tuned model and its base` |
-| `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.7.html` | 212 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 87) | `# Task vector extraction: the DIFFERENCE between a fine-tuned model and its base` |
-| `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.8.html` | 92 | `python` | LEADING_BLANK | 1 blank line(s) at top | `import megatron.core as mcore` |
-| `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.8.html` | 250 | `bash` | LEADING_BLANK | 1 blank line(s) at top | `# --nproc_per_node: GPUs per node` |
-| `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.8.html` | 307 | `python` | LEADING_BLANK | 1 blank line(s) at top | `import torch.distributed.checkpoint as dcp` |
-| `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.8.html` | 307 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `import torch.distributed.checkpoint as dcp` |
-| `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.8.html` | 307 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def save_checkpoint(model, optimizer, st' drops to opener indent at line 13 | `import torch.distributed.checkpoint as dcp` |
-| `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.8.html` | 390 | `python` | LEADING_BLANK | 1 blank line(s) at top | `from streaming import StreamingDataset, StreamingDataLoader` |
-| `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.9.html` | 79 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Define a tiny GPT model (~10M params) for training experiments.` |
+| `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.6.html` | 160 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'for batch in train_loader:' drops to opener indent at line 47 | `# FSDP (Fully Sharded Data Parallel) training with PyTorch.` |
+| `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.6.html` | 160 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 94) | `# FSDP (Fully Sharded Data Parallel) training with PyTorch.` |
+| `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.6.html` | 285 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 89) | `# Gradient checkpointing in PyTorch` |
+| `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.7.html` | 210 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def apply_task_vector(model, task_vector' drops to opener indent at line 24 | `# Task vector extraction: the DIFFERENCE between a fine-tuned model and its base` |
+| `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.7.html` | 210 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 87) | `# Task vector extraction: the DIFFERENCE between a fine-tuned model and its base` |
+| `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.8.html` | 305 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `import torch.distributed.checkpoint as dcp` |
+| `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.8.html` | 305 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def save_checkpoint(model, optimizer, st' drops to opener indent at line 12 | `import torch.distributed.checkpoint as dcp` |
 | `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.9.html` | 79 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 89) | `# Define a tiny GPT model (~10M params) for training experiments.` |
-| `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.9.html` | 144 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 85) | `# Load WikiText-2, tokenize into fixed-length chunks, and train` |
-| `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.9.html` | 190 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 88) | `# Generate text from the trained model using temperature sampling.` |
-| `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.9.html` | 232 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 87) | `# Library shortcut: replace the entire manual training loop with` |
+| `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.9.html` | 143 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 85) | `# Load WikiText-2, tokenize into fixed-length chunks, and train` |
+| `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.9.html` | 189 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 88) | `# Generate text from the trained model using temperature sampling.` |
+| `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.9.html` | 231 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 87) | `# Library shortcut: replace the entire manual training loop with` |
 | `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.1.html` | 339 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 91) | `# Example: Making an API call to compare providers` |
 | `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.1.html` | 361 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [4, 5, 8] | `# Compare LLM providers via the OpenAI-compatible chat completion format.` |
 | `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.1.html` | 361 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'if not p["api_key"]:' drops to opener indent at line 22 | `# Compare LLM providers via the OpenAI-compatible chat completion format.` |
@@ -588,35 +503,29 @@ Scope: `<pre><code>` blocks under `part-*`, `appendices/`, `front-matter/`, `cap
 | `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.1.html` | 548 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 139) | `def chat(prompt):` |
 | `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.2.html` | 128 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Conceptual illustration of fine-grained FP8 quantization` |
 | `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.2.html` | 128 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def quantize_fp8_fine_grained(tensor, bl' drops to opener indent at line 8 | `# Conceptual illustration of fine-grained FP8 quantization` |
-| `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.2.html` | 193 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Auxiliary-loss-free MoE load balancing concept` |
-| `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.2.html` | 372 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 85) | `# Loading and using BioBERT for biomedical named entity recognition` |
-| `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.2.html` | 527 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'for text in examples:' drops to opener indent at line 23 | `# Compare a general-purpose sentiment model vs a finance-tuned one on financial ` |
-| `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.2.html` | 527 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 93) | `# Compare a general-purpose sentiment model vs a finance-tuned one on financial ` |
+| `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.2.html` | 371 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 85) | `# Loading and using BioBERT for biomedical named entity recognition` |
+| `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.2.html` | 526 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'for text in examples:' drops to opener indent at line 23 | `# Compare a general-purpose sentiment model vs a finance-tuned one on financial ` |
+| `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.2.html` | 526 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 93) | `# Compare a general-purpose sentiment model vs a finance-tuned one on financial ` |
 | `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.3.html` | 197 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 82) | `# Conceptual: Monte Carlo estimation for PRM training data` |
 | `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.3.html` | 414 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def answer(prompt: str) -> str:' drops to opener indent at line 43 | `# Compute-optimal inference: spend more tokens on harder problems.` |
 | `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.3.html` | 414 | `python` | WIDE_LINE | 4 line(s) > 80 chars (max 121) | `# Compute-optimal inference: spend more tokens on harder problems.` |
 | `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.3.html` | 462 | `python` | WIDE_LINE | 7 line(s) > 80 chars (max 92) | `# Lab: Measure accuracy vs. N on GSM8K math problems` |
 | `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.3.html` | 606 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'for _ in range(n):' drops to opener indent at line 8 | `from collections import Counter` |
 | `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.4.html` | 514 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 87) | `import torch` |
-| `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.4.html` | 550 | `python` | LEADING_BLANK | 1 blank line(s) at top | `import torch.nn as nn` |
 | `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.4.html` | 550 | `python` | WIDE_LINE | 4 line(s) > 80 chars (max 89) | `import torch.nn as nn` |
-| `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.4.html` | 594 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 85) | `# The library way: 3 lines` |
-| `part-2-understanding-llms/module-08-reasoning-test-time-compute/section-8.1.html` | 211 | `python` | LEADING_BLANK | 1 blank line(s) at top | `import anthropic` |
-| `part-2-understanding-llms/module-08-reasoning-test-time-compute/section-8.1.html` | 211 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'for _ in range(n):' drops to opener indent at line 25 | `import anthropic` |
+| `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.4.html` | 593 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 85) | `# The library way: 3 lines` |
+| `part-2-understanding-llms/module-08-reasoning-test-time-compute/section-8.1.html` | 211 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'for _ in range(n):' drops to opener indent at line 24 | `import anthropic` |
 | `part-2-understanding-llms/module-08-reasoning-test-time-compute/section-8.1.html` | 211 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 85) | `import anthropic` |
-| `part-2-understanding-llms/module-08-reasoning-test-time-compute/section-8.1.html` | 432 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 86) | `import anthropic` |
+| `part-2-understanding-llms/module-08-reasoning-test-time-compute/section-8.1.html` | 431 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 86) | `import anthropic` |
 | `part-2-understanding-llms/module-08-reasoning-test-time-compute/section-8.3.html` | 100 | `text` | WIDE_LINE | 1 line(s) > 80 chars (max 82) | `Input: problem p, policy pi, reference policy pi_ref, group size G, KL weight be` |
 | `part-2-understanding-llms/module-08-reasoning-test-time-compute/section-8.6.html` | 69 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Conceptual illustration of LeanDojo data extraction` |
 | `part-2-understanding-llms/module-08-reasoning-test-time-compute/section-8.6.html` | 69 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'class ProofState:' drops to opener indent at line 9 | `# Conceptual illustration of LeanDojo data extraction` |
 | `part-2-understanding-llms/module-08-reasoning-test-time-compute/section-8.6.html` | 69 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 88) | `# Conceptual illustration of LeanDojo data extraction` |
-| `part-2-understanding-llms/module-08-reasoning-test-time-compute/section-8.6.html` | 101 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# ReProver-style retrieval-augmented proving pipeline` |
 | `part-2-understanding-llms/module-08-reasoning-test-time-compute/section-8.6.html` | 101 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 87) | `# ReProver-style retrieval-augmented proving pipeline` |
-| `part-2-understanding-llms/module-08-reasoning-test-time-compute/section-8.6.html` | 165 | `python` | WIDE_LINE | 6 line(s) > 80 chars (max 114) | `# Evaluation framework for formal proving benchmarks` |
-| `part-2-understanding-llms/module-08-reasoning-test-time-compute/section-8.6.html` | 251 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# AlphaProof-style self-play training loop (conceptual)` |
-| `part-2-understanding-llms/module-08-reasoning-test-time-compute/section-8.6.html` | 251 | `python` | WIDE_LINE | 8 line(s) > 80 chars (max 115) | `# AlphaProof-style self-play training loop (conceptual)` |
-| `part-2-understanding-llms/module-08-reasoning-test-time-compute/section-8.6.html` | 401 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Expert iteration for formal theorem proving` |
-| `part-2-understanding-llms/module-08-reasoning-test-time-compute/section-8.6.html` | 401 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 83) | `# Expert iteration for formal theorem proving` |
-| `part-2-understanding-llms/module-08-reasoning-test-time-compute/section-8.6.html` | 621 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 104) | `import torch.nn.functional as F` |
+| `part-2-understanding-llms/module-08-reasoning-test-time-compute/section-8.6.html` | 164 | `python` | WIDE_LINE | 6 line(s) > 80 chars (max 114) | `# Evaluation framework for formal proving benchmarks` |
+| `part-2-understanding-llms/module-08-reasoning-test-time-compute/section-8.6.html` | 250 | `python` | WIDE_LINE | 8 line(s) > 80 chars (max 115) | `# AlphaProof-style self-play training loop (conceptual)` |
+| `part-2-understanding-llms/module-08-reasoning-test-time-compute/section-8.6.html` | 399 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 83) | `# Expert iteration for formal theorem proving` |
+| `part-2-understanding-llms/module-08-reasoning-test-time-compute/section-8.6.html` | 618 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 104) | `import torch.nn.functional as F` |
 | `part-2-understanding-llms/module-09-inference-optimization/section-9.1.html` | 170 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 87) | `# Library shortcut: PyTorch built-in symmetric quantization` |
 | `part-2-understanding-llms/module-09-inference-optimization/section-9.1.html` | 284 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 90) | `# Example 1: Loading a model in 4-bit NF4 with bitsandbytes` |
 | `part-2-understanding-llms/module-09-inference-optimization/section-9.1.html` | 349 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 99) | `# Example 4: Benchmarking quantization quality` |
@@ -627,58 +536,50 @@ Scope: `<pre><code>` blocks under `part-*`, `appendices/`, `front-matter/`, `cap
 | `part-2-understanding-llms/module-09-inference-optimization/section-9.2.html` | 206 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'class PhysicalBlock:' drops to opener indent at line 7 | `@dataclass` |
 | `part-2-understanding-llms/module-09-inference-optimization/section-9.3.html` | 362 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 81) | `# Example 3: Speculative decoding with Hugging Face Transformers` |
 | `part-2-understanding-llms/module-09-inference-optimization/section-9.4.html` | 105 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 89) | `# Example 1: Launch vLLM server and benchmark throughput` |
-| `part-2-understanding-llms/module-09-inference-optimization/section-9.4.html` | 168 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Example 4: Comprehensive benchmarking script` |
 | `part-2-understanding-llms/module-09-inference-optimization/section-9.4.html` | 168 | `python` | WIDE_LINE | 17 line(s) > 80 chars (max 96) | `# Example 4: Comprehensive benchmarking script` |
-| `part-2-understanding-llms/module-09-inference-optimization/section-9.4.html` | 378 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 87) | `# Example 3: Local inference with Ollama` |
-| `part-2-understanding-llms/module-09-inference-optimization/section-9.4.html` | 581 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'if first_token_t is None:' drops to opener indent at line 24 | `# Comprehensive serving benchmark: measure TTFT, throughput, and TBT under load.` |
-| `part-2-understanding-llms/module-09-inference-optimization/section-9.4.html` | 581 | `python` | WIDE_LINE | 4 line(s) > 80 chars (max 100) | `# Comprehensive serving benchmark: measure TTFT, throughput, and TBT under load.` |
+| `part-2-understanding-llms/module-09-inference-optimization/section-9.4.html` | 377 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 87) | `# Example 3: Local inference with Ollama` |
+| `part-2-understanding-llms/module-09-inference-optimization/section-9.4.html` | 580 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'if first_token_t is None:' drops to opener indent at line 24 | `# Comprehensive serving benchmark: measure TTFT, throughput, and TBT under load.` |
+| `part-2-understanding-llms/module-09-inference-optimization/section-9.4.html` | 580 | `python` | WIDE_LINE | 4 line(s) > 80 chars (max 100) | `# Comprehensive serving benchmark: measure TTFT, throughput, and TBT under load.` |
 | `part-2-understanding-llms/module-09-inference-optimization/section-9.5.html` | 97 | `python` | WIDE_LINE | 5 line(s) > 80 chars (max 112) | `# Activation-aware pruning: register a forward hook to measure per-neuron` |
 | `part-2-understanding-llms/module-09-inference-optimization/section-9.7.html` | 112 | `python` | WIDE_LINE | 6 line(s) > 80 chars (max 90) | `# FlashAttention conceptual implementation in Triton (simplified)` |
-| `part-2-understanding-llms/module-09-inference-optimization/section-9.7.html` | 179 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Triton vector addition kernel` |
-| `part-2-understanding-llms/module-09-inference-optimization/section-9.7.html` | 227 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Fused softmax in Triton: three passes fused into one kernel launch` |
-| `part-2-understanding-llms/module-09-inference-optimization/section-9.7.html` | 227 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 86) | `# Fused softmax in Triton: three passes fused into one kernel launch` |
-| `part-2-understanding-llms/module-09-inference-optimization/section-9.7.html` | 288 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'for start_n in range(0, N, BLOCK_N):' drops to opener indent at line 62 | `# --- FlashAttention forward pass in Triton (simplified, single-head) ---` |
-| `part-2-understanding-llms/module-09-inference-optimization/section-9.7.html` | 288 | `python` | WIDE_LINE | 5 line(s) > 80 chars (max 85) | `# --- FlashAttention forward pass in Triton (simplified, single-head) ---` |
+| `part-2-understanding-llms/module-09-inference-optimization/section-9.7.html` | 226 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 86) | `# Fused softmax in Triton: three passes fused into one kernel launch` |
+| `part-2-understanding-llms/module-09-inference-optimization/section-9.7.html` | 286 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'for start_n in range(0, N, BLOCK_N):' drops to opener indent at line 62 | `# --- FlashAttention forward pass in Triton (simplified, single-head) ---` |
+| `part-2-understanding-llms/module-09-inference-optimization/section-9.7.html` | 286 | `python` | WIDE_LINE | 5 line(s) > 80 chars (max 85) | `# --- FlashAttention forward pass in Triton (simplified, single-head) ---` |
 | `part-2-understanding-llms/module-10-interpretability/section-10.1.html` | 105 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 86) | `from bertviz import head_view` |
 | `part-2-understanding-llms/module-10-interpretability/section-10.1.html` | 171 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Attention + ablation validation workflow` |
 | `part-2-understanding-llms/module-10-interpretability/section-10.1.html` | 171 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def ablate_head(activation, hook):' drops to opener indent at line 13 | `# Attention + ablation validation workflow` |
-| `part-2-understanding-llms/module-10-interpretability/section-10.1.html` | 226 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Probing classifier for linguistic properties` |
 | `part-2-understanding-llms/module-10-interpretability/section-10.1.html` | 226 | `python` | WIDE_LINE | 17 line(s) > 80 chars (max 116) | `# Probing classifier for linguistic properties` |
-| `part-2-understanding-llms/module-10-interpretability/section-10.1.html` | 324 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Control task for validating probe results` |
-| `part-2-understanding-llms/module-10-interpretability/section-10.1.html` | 478 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'with torch.no_grad():' drops to opener indent at line 19 | `# Tokenization pipeline: text -> token IDs -> embeddings.` |
-| `part-2-understanding-llms/module-10-interpretability/section-10.1.html` | 478 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 81) | `# Tokenization pipeline: text -> token IDs -> embeddings.` |
-| `part-2-understanding-llms/module-10-interpretability/section-10.1.html` | 591 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def plot_attention_head(attn_matrix, tok' drops to opener indent at line 10 | `import matplotlib.pyplot as plt` |
-| `part-2-understanding-llms/module-10-interpretability/section-10.1.html` | 644 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def extract_hidden(model, tokenizer, tex' drops to opener indent at line 19 | `from sklearn.linear_model import LogisticRegression` |
-| `part-2-understanding-llms/module-10-interpretability/section-10.1.html` | 709 | `python` | WIDE_LINE | 7 line(s) > 80 chars (max 109) | `import torch, numpy as np, matplotlib.pyplot as plt, seaborn as sns` |
-| `part-2-understanding-llms/module-10-interpretability/section-10.2.html` | 137 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Sparse Autoencoder for Mechanistic Interpretability` |
+| `part-2-understanding-llms/module-10-interpretability/section-10.1.html` | 323 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Control task for validating probe results` |
+| `part-2-understanding-llms/module-10-interpretability/section-10.1.html` | 477 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'with torch.no_grad():' drops to opener indent at line 19 | `# Tokenization pipeline: text -> token IDs -> embeddings.` |
+| `part-2-understanding-llms/module-10-interpretability/section-10.1.html` | 477 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 81) | `# Tokenization pipeline: text -> token IDs -> embeddings.` |
+| `part-2-understanding-llms/module-10-interpretability/section-10.1.html` | 590 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def plot_attention_head(attn_matrix, tok' drops to opener indent at line 10 | `import matplotlib.pyplot as plt` |
+| `part-2-understanding-llms/module-10-interpretability/section-10.1.html` | 643 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def extract_hidden(model, tokenizer, tex' drops to opener indent at line 19 | `from sklearn.linear_model import LogisticRegression` |
+| `part-2-understanding-llms/module-10-interpretability/section-10.1.html` | 708 | `python` | WIDE_LINE | 7 line(s) > 80 chars (max 109) | `import torch, numpy as np, matplotlib.pyplot as plt, seaborn as sns` |
 | `part-2-understanding-llms/module-10-interpretability/section-10.2.html` | 137 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 87) | `# Sparse Autoencoder for Mechanistic Interpretability` |
-| `part-2-understanding-llms/module-10-interpretability/section-10.2.html` | 282 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'class SparseAutoencoder(nn.Module):' drops to opener indent at line 31 | `# Sparse Autoencoder (SAE) for mechanistic interpretability.` |
-| `part-2-understanding-llms/module-10-interpretability/section-10.2.html` | 282 | `python` | WIDE_LINE | 6 line(s) > 80 chars (max 87) | `# Sparse Autoencoder (SAE) for mechanistic interpretability.` |
-| `part-2-understanding-llms/module-10-interpretability/section-10.2.html` | 608 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 81) | `# Loading a pre-trained Sparse Autoencoder from Gemma Scope using SAELens.` |
-| `part-2-understanding-llms/module-10-interpretability/section-10.2.html` | 666 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 88) | `# Training an SAE with EleutherAI's sparsify (conceptual)` |
+| `part-2-understanding-llms/module-10-interpretability/section-10.2.html` | 281 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'class SparseAutoencoder(nn.Module):' drops to opener indent at line 31 | `# Sparse Autoencoder (SAE) for mechanistic interpretability.` |
+| `part-2-understanding-llms/module-10-interpretability/section-10.2.html` | 281 | `python` | WIDE_LINE | 6 line(s) > 80 chars (max 87) | `# Sparse Autoencoder (SAE) for mechanistic interpretability.` |
+| `part-2-understanding-llms/module-10-interpretability/section-10.2.html` | 607 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 81) | `# Loading a pre-trained Sparse Autoencoder from Gemma Scope using SAELens.` |
+| `part-2-understanding-llms/module-10-interpretability/section-10.2.html` | 665 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 88) | `# Training an SAE with EleutherAI's sparsify (conceptual)` |
 | `part-2-understanding-llms/module-10-interpretability/section-10.3.html` | 134 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def sim(i, j):' drops to opener indent at line 21 | `# Embedding generation: turn text into dense vectors so we can compare meanings.` |
 | `part-2-understanding-llms/module-10-interpretability/section-10.3.html` | 134 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 82) | `# Embedding generation: turn text into dense vectors so we can compare meanings.` |
 | `part-2-understanding-llms/module-10-interpretability/section-10.3.html` | 211 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 83) | `# SHAP-based attribution for language models` |
-| `part-2-understanding-llms/module-10-interpretability/section-10.3.html` | 259 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Representation Engineering: Control Vectors` |
 | `part-2-understanding-llms/module-10-interpretability/section-10.3.html` | 259 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 92) | `# Representation Engineering: Control Vectors` |
-| `part-2-understanding-llms/module-10-interpretability/section-10.3.html` | 396 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 84) | `# Testing CoT faithfulness via truncation experiments` |
-| `part-2-understanding-llms/module-10-interpretability/section-10.3.html` | 499 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Concept Erasure with LEACE` |
-| `part-2-understanding-llms/module-10-interpretability/section-10.3.html` | 499 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 87) | `# Concept Erasure with LEACE` |
-| `part-2-understanding-llms/module-10-interpretability/section-10.3.html` | 561 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'for n in range(1, len(steps) + 1):' drops to opener indent at line 35 | `# CoT faithfulness probe: truncate the chain-of-thought at different points` |
-| `part-2-understanding-llms/module-10-interpretability/section-10.3.html` | 561 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 90) | `# CoT faithfulness probe: truncate the chain-of-thought at different points` |
+| `part-2-understanding-llms/module-10-interpretability/section-10.3.html` | 395 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 84) | `# Testing CoT faithfulness via truncation experiments` |
+| `part-2-understanding-llms/module-10-interpretability/section-10.3.html` | 498 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Concept Erasure with LEACE` |
+| `part-2-understanding-llms/module-10-interpretability/section-10.3.html` | 498 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 87) | `# Concept Erasure with LEACE` |
+| `part-2-understanding-llms/module-10-interpretability/section-10.3.html` | 560 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'for n in range(1, len(steps) + 1):' drops to opener indent at line 35 | `# CoT faithfulness probe: truncate the chain-of-thought at different points` |
+| `part-2-understanding-llms/module-10-interpretability/section-10.3.html` | 560 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 90) | `# CoT faithfulness probe: truncate the chain-of-thought at different points` |
 | `part-2-understanding-llms/module-10-interpretability/section-10.4.html` | 153 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [4, 7, 8, 12] | `# Attention rollout: combine attention maps across all layers into a single` |
 | `part-2-understanding-llms/module-10-interpretability/section-10.4.html` | 153 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'for attn in attentions:' drops to opener indent at line 28 | `# Attention rollout: combine attention maps across all layers into a single` |
 | `part-2-understanding-llms/module-10-interpretability/section-10.4.html` | 153 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 98) | `# Attention rollout: combine attention maps across all layers into a single` |
 | `part-2-understanding-llms/module-10-interpretability/section-10.4.html` | 191 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 86) | `# Production equivalent using BertViz` |
-| `part-2-understanding-llms/module-10-interpretability/section-10.4.html` | 230 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Gradient-Weighted Attention` |
 | `part-2-understanding-llms/module-10-interpretability/section-10.4.html` | 230 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 82) | `# Gradient-Weighted Attention` |
-| `part-2-understanding-llms/module-10-interpretability/section-10.4.html` | 320 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Layer-wise Relevance Propagation for Transformers (simplified)` |
-| `part-2-understanding-llms/module-10-interpretability/section-10.4.html` | 320 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 91) | `# Layer-wise Relevance Propagation for Transformers (simplified)` |
-| `part-2-understanding-llms/module-10-interpretability/section-10.4.html` | 385 | `python` | WIDE_LINE | 9 line(s) > 80 chars (max 95) | `# Perturbation-based attribution methods` |
-| `part-2-understanding-llms/module-10-interpretability/section-10.4.html` | 479 | `python` | WIDE_LINE | 6 line(s) > 80 chars (max 101) | `# Unified comparison framework for explanation methods` |
-| `part-2-understanding-llms/module-10-interpretability/section-10.4.html` | 613 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def hook(module, inputs, output):' drops to opener indent at line 12 | `# Same task in three frameworks: extract activations from layer 5 of GPT-2.` |
-| `part-2-understanding-llms/module-10-interpretability/section-10.4.html` | 738 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 94) | `# LIME explanation for a text classifier (model-agnostic)` |
-| `part-2-understanding-llms/module-10-interpretability/section-10.4.html` | 917 | `python` | WIDE_LINE | 5 line(s) > 80 chars (max 98) | `# Faithfulness evaluation for attribution methods` |
+| `part-2-understanding-llms/module-10-interpretability/section-10.4.html` | 319 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 91) | `# Layer-wise Relevance Propagation for Transformers (simplified)` |
+| `part-2-understanding-llms/module-10-interpretability/section-10.4.html` | 383 | `python` | WIDE_LINE | 9 line(s) > 80 chars (max 95) | `# Perturbation-based attribution methods` |
+| `part-2-understanding-llms/module-10-interpretability/section-10.4.html` | 477 | `python` | WIDE_LINE | 6 line(s) > 80 chars (max 101) | `# Unified comparison framework for explanation methods` |
+| `part-2-understanding-llms/module-10-interpretability/section-10.4.html` | 611 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def hook(module, inputs, output):' drops to opener indent at line 12 | `# Same task in three frameworks: extract activations from layer 5 of GPT-2.` |
+| `part-2-understanding-llms/module-10-interpretability/section-10.4.html` | 736 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 94) | `# LIME explanation for a text classifier (model-agnostic)` |
+| `part-2-understanding-llms/module-10-interpretability/section-10.4.html` | 915 | `python` | WIDE_LINE | 5 line(s) > 80 chars (max 98) | `# Faithfulness evaluation for attribution methods` |
 | `part-3-working-with-llms/module-11-llm-apis/section-11.1.html` | 98 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 83) | `# Send a chat completion request with system and user messages` |
 | `part-3-working-with-llms/module-11-llm-apis/section-11.1.html` | 173 | `python` | WIDE_LINE | 4 line(s) > 80 chars (max 103) | `# Set up the OpenAI client and send a chat completion request` |
 | `part-3-working-with-llms/module-11-llm-apis/section-11.1.html` | 221 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 83) | `# Call Claude using the Anthropic Messages API` |
@@ -699,13 +600,10 @@ Scope: `<pre><code>` blocks under `part-*`, `appendices/`, `front-matter/`, `cap
 | `part-3-working-with-llms/module-11-llm-apis/section-11.2.html` | 404 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 82) | `# Run multiple LLM calls concurrently using asyncio` |
 | `part-3-working-with-llms/module-11-llm-apis/section-11.3.html` | 106 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 92) | `# LiteLLM Router with built-in failure isolation` |
 | `part-3-working-with-llms/module-11-llm-apis/section-11.3.html` | 138 | `python` | WIDE_LINE | 12 line(s) > 80 chars (max 108) | `# Implement a circuit breaker pattern for resilient LLM calls` |
-| `part-3-working-with-llms/module-11-llm-apis/section-11.3.html` | 210 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Build a semantic cache that hashes prompts to avoid redundant API calls` |
 | `part-3-working-with-llms/module-11-llm-apis/section-11.3.html` | 210 | `python` | WIDE_LINE | 4 line(s) > 80 chars (max 90) | `# Build a semantic cache that hashes prompts to avoid redundant API calls` |
-| `part-3-working-with-llms/module-11-llm-apis/section-11.3.html` | 272 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Build a semantic cache that hashes prompts to avoid redundant API calls` |
-| `part-3-working-with-llms/module-11-llm-apis/section-11.3.html` | 272 | `python` | WIDE_LINE | 5 line(s) > 80 chars (max 114) | `# Build a semantic cache that hashes prompts to avoid redundant API calls` |
-| `part-3-working-with-llms/module-11-llm-apis/section-11.3.html` | 434 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Enforce per-user token budgets to prevent runaway API costs` |
-| `part-3-working-with-llms/module-11-llm-apis/section-11.3.html` | 434 | `python` | WIDE_LINE | 7 line(s) > 80 chars (max 113) | `# Enforce per-user token budgets to prevent runaway API costs` |
-| `part-3-working-with-llms/module-11-llm-apis/section-11.3.html` | 557 | `python` | WIDE_LINE | 4 line(s) > 80 chars (max 116) | `# Build a semantic cache that hashes prompts to avoid redundant API calls` |
+| `part-3-working-with-llms/module-11-llm-apis/section-11.3.html` | 271 | `python` | WIDE_LINE | 5 line(s) > 80 chars (max 114) | `# Build a semantic cache that hashes prompts to avoid redundant API calls` |
+| `part-3-working-with-llms/module-11-llm-apis/section-11.3.html` | 432 | `python` | WIDE_LINE | 7 line(s) > 80 chars (max 113) | `# Enforce per-user token budgets to prevent runaway API costs` |
+| `part-3-working-with-llms/module-11-llm-apis/section-11.3.html` | 554 | `python` | WIDE_LINE | 4 line(s) > 80 chars (max 116) | `# Build a semantic cache that hashes prompts to avoid redundant API calls` |
 | `part-3-working-with-llms/module-11-llm-apis/section-11.4.html` | 66 | `text` | WIDE_LINE | 1 line(s) > 80 chars (max 83) | `# Call OpenAI's o3 reasoning model via the Responses API` |
 | `part-3-working-with-llms/module-11-llm-apis/section-11.4.html` | 166 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 81) | `# Google Gemini thinking mode with token budget control` |
 | `part-3-working-with-llms/module-11-llm-apis/section-11.4.html` | 372 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 101) | `# Stream a reasoning response from Anthropic with extended thinking` |
@@ -719,16 +617,14 @@ Scope: `<pre><code>` blocks under `part-*`, `appendices/`, `front-matter/`, `cap
 | `part-3-working-with-llms/module-12-prompt-engineering/section-12.2.html` | 71 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def solve_with_cot(problem: str) -> str:' drops to opener indent at line 8 | `# Zero-shot Chain-of-Thought: append "step by step" to trigger reasoning.` |
 | `part-3-working-with-llms/module-12-prompt-engineering/section-12.2.html` | 124 | `text` | WIDE_LINE | 4 line(s) > 80 chars (max 126) | `# Few-shot Chain-of-Thought: exemplar reasoning chains teach the model` |
 | `part-3-working-with-llms/module-12-prompt-engineering/section-12.2.html` | 239 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 92) | `# Self-consistency: sample multiple CoT paths, then majority-vote` |
-| `part-3-working-with-llms/module-12-prompt-engineering/section-12.2.html` | 367 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Tree-of-Thought: generate candidate steps, evaluate each, prune weak branches` |
-| `part-3-working-with-llms/module-12-prompt-engineering/section-12.2.html` | 424 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Step-back prompting: abstract the principle first, then solve` |
-| `part-3-working-with-llms/module-12-prompt-engineering/section-12.2.html` | 424 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def step_back_solve(question: str) -> st' drops to opener indent at line 8 | `# Step-back prompting: abstract the principle first, then solve` |
-| `part-3-working-with-llms/module-12-prompt-engineering/section-12.2.html` | 424 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 191) | `# Step-back prompting: abstract the principle first, then solve` |
+| `part-3-working-with-llms/module-12-prompt-engineering/section-12.2.html` | 423 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Step-back prompting: abstract the principle first, then solve` |
+| `part-3-working-with-llms/module-12-prompt-engineering/section-12.2.html` | 423 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def step_back_solve(question: str) -> st' drops to opener indent at line 8 | `# Step-back prompting: abstract the principle first, then solve` |
+| `part-3-working-with-llms/module-12-prompt-engineering/section-12.2.html` | 423 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 191) | `# Step-back prompting: abstract the principle first, then solve` |
 | `part-3-working-with-llms/module-12-prompt-engineering/section-12.3.html` | 176 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 84) | `# Reflexion: solve coding tasks with persistent lesson memory` |
 | `part-3-working-with-llms/module-12-prompt-engineering/section-12.3.html` | 272 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Meta-prompting: use one LLM call to generate a system prompt for another` |
 | `part-3-working-with-llms/module-12-prompt-engineering/section-12.3.html` | 272 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def generate_expert_prompt(task_descript' drops to opener indent at line 8 | `# Meta-prompting: use one LLM call to generate a system prompt for another` |
 | `part-3-working-with-llms/module-12-prompt-engineering/section-12.3.html` | 428 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# DSPy: declarative prompting with typed signatures and automatic optimization` |
 | `part-3-working-with-llms/module-12-prompt-engineering/section-12.3.html` | 428 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'class FactCheck(dspy.Signature):' drops to opener indent at line 10 | `# DSPy: declarative prompting with typed signatures and automatic optimization` |
-| `part-3-working-with-llms/module-12-prompt-engineering/section-12.3.html` | 464 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# DSPy multi-hop QA with automatic prompt optimization via MIPROv2` |
 | `part-3-working-with-llms/module-12-prompt-engineering/section-12.4.html` | 135 | `python` | WIDE_LINE | 7 line(s) > 80 chars (max 87) | `# Prompt compression with LLMLingua-2: reduce token count while preserving seman` |
 | `part-3-working-with-llms/module-12-prompt-engineering/section-12.5.html` | 74 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# DSPy: Declarative prompt optimization` |
 | `part-3-working-with-llms/module-12-prompt-engineering/section-12.5.html` | 74 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'class AnswerQuestion(dspy.Signature):' drops to opener indent at line 9 | `# DSPy: Declarative prompt optimization` |
@@ -741,46 +637,32 @@ Scope: `<pre><code>` blocks under `part-*`, `appendices/`, `front-matter/`, `cap
 | `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.2.html` | 118 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def get_embeddings(texts: list[str], mod' drops to opener indent at line 12 | `# Generate text embeddings via OpenAI's API for downstream ML tasks.` |
 | `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.2.html` | 118 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 90) | `# Generate text embeddings via OpenAI's API for downstream ML tasks.` |
 | `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.2.html` | 208 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 84) | `# Feature ablation: compare structured-only, embeddings-only, and combined featu` |
-| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.2.html` | 276 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Semantic cache: avoid redundant LLM calls by matching new queries` |
-| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.3.html` | 119 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Use a small LLM to classify request difficulty and select a model tier` |
 | `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.3.html` | 119 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 92) | `# Use a small LLM to classify request difficulty and select a model tier` |
-| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.3.html` | 228 | `text` | WIDE_LINE | 1 line(s) > 80 chars (max 88) | `# Implement a cascade router that tries cheap models first` |
-| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.3.html` | 317 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def route_request(text: str) -> dict:' drops to opener indent at line 31 | `# Use a small LLM to classify request difficulty and select a model tier` |
-| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.4.html` | 67 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Estimate token usage and API cost for different model configurations` |
-| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.4.html` | 174 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Find the Pareto frontier of model configurations by cost and accuracy` |
-| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.4.html` | 174 | `python` | WIDE_LINE | 5 line(s) > 80 chars (max 93) | `# Find the Pareto frontier of model configurations by cost and accuracy` |
-| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.4.html` | 254 | `text` | WIDE_LINE | 3 line(s) > 80 chars (max 85) | `# Estimate token usage and API cost for different model configurations` |
-| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.4.html` | 311 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 106) | `# Cost impact analysis for semantic caching` |
+| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.3.html` | 227 | `text` | WIDE_LINE | 1 line(s) > 80 chars (max 88) | `# Implement a cascade router that tries cheap models first` |
+| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.3.html` | 316 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def route_request(text: str) -> dict:' drops to opener indent at line 31 | `# Use a small LLM to classify request difficulty and select a model tier` |
+| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.4.html` | 173 | `python` | WIDE_LINE | 5 line(s) > 80 chars (max 93) | `# Find the Pareto frontier of model configurations by cost and accuracy` |
+| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.4.html` | 252 | `text` | WIDE_LINE | 3 line(s) > 80 chars (max 85) | `# Estimate token usage and API cost for different model configurations` |
+| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.4.html` | 309 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 106) | `# Cost impact analysis for semantic caching` |
 | `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.5.html` | 153 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 83) | `# Use spaCy for classical named entity recognition` |
-| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.5.html` | 267 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# LLM-based Open Information Extraction with structured output` |
 | `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.5.html` | 267 | `python` | WIDE_LINE | 6 line(s) > 80 chars (max 94) | `# LLM-based Open Information Extraction with structured output` |
-| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.5.html` | 358 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# LLM-based event extraction with timeline construction` |
-| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.5.html` | 358 | `python` | WIDE_LINE | 7 line(s) > 80 chars (max 88) | `# LLM-based event extraction with timeline construction` |
-| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.5.html` | 617 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Combine spaCy NER with LLM extraction in a two-layer pipeline` |
-| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.5.html` | 617 | `python` | WIDE_LINE | 12 line(s) > 80 chars (max 104) | `# Combine spaCy NER with LLM extraction in a two-layer pipeline` |
-| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.5.html` | 840 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# LLM-based coreference resolution with structured output` |
-| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.5.html` | 840 | `python` | WIDE_LINE | 7 line(s) > 80 chars (max 107) | `# LLM-based coreference resolution with structured output` |
-| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.5.html` | 1056 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# LLM-based keyword extraction with thematic grouping` |
-| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.5.html` | 1056 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def extract_keywords_llm(text: str, max_' drops to opener indent at line 7 | `# LLM-based keyword extraction with thematic grouping` |
-| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.5.html` | 1099 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 81) | `# LLM-based feature engineering for tabular ML` |
-| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.6.html` | 60 | `python` | LEADING_BLANK | 1 blank line(s) at top | `import json` |
-| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.6.html` | 60 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'class ConversationTurn:' drops to opener indent at line 46 | `import json` |
+| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.5.html` | 357 | `python` | WIDE_LINE | 7 line(s) > 80 chars (max 88) | `# LLM-based event extraction with timeline construction` |
+| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.5.html` | 615 | `python` | WIDE_LINE | 12 line(s) > 80 chars (max 104) | `# Combine spaCy NER with LLM extraction in a two-layer pipeline` |
+| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.5.html` | 837 | `python` | WIDE_LINE | 7 line(s) > 80 chars (max 107) | `# LLM-based coreference resolution with structured output` |
+| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.5.html` | 1052 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# LLM-based keyword extraction with thematic grouping` |
+| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.5.html` | 1052 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def extract_keywords_llm(text: str, max_' drops to opener indent at line 7 | `# LLM-based keyword extraction with thematic grouping` |
+| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.5.html` | 1095 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 81) | `# LLM-based feature engineering for tabular ML` |
+| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.6.html` | 60 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'class ConversationTurn:' drops to opener indent at line 45 | `import json` |
 | `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.6.html` | 60 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 84) | `import json` |
-| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.6.html` | 119 | `python` | LEADING_BLANK | 1 blank line(s) at top | `import re` |
-| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.6.html` | 119 | `python` | WIDE_LINE | 9 line(s) > 80 chars (max 125) | `import re` |
-| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.6.html` | 195 | `python` | LEADING_BLANK | 1 blank line(s) at top | `from dataclasses import dataclass` |
-| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.6.html` | 195 | `python` | WIDE_LINE | 8 line(s) > 80 chars (max 92) | `from dataclasses import dataclass` |
-| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.6.html` | 272 | `python` | WIDE_LINE | 4 line(s) > 80 chars (max 97) | `def extract_tool_use_examples(` |
-| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.6.html` | 342 | `python` | WIDE_LINE | 13 line(s) > 80 chars (max 124) | `from pydantic import BaseModel, Field, field_validator` |
-| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.6.html` | 400 | `python` | LEADING_BLANK | 1 blank line(s) at top | `import hashlib` |
-| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.6.html` | 400 | `python` | WIDE_LINE | 28 line(s) > 80 chars (max 127) | `import hashlib` |
-| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.6.html` | 501 | `text` | LEADING_BLANK | 1 blank line(s) at top | `from pathlib import Path` |
-| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.6.html` | 501 | `text` | WIDE_LINE | 4 line(s) > 80 chars (max 98) | `from pathlib import Path` |
-| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.6.html` | 631 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# LoRA from scratch: add trainable low-rank matrices A and B` |
-| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.6.html` | 631 | `python` | WIDE_LINE | 6 line(s) > 80 chars (max 107) | `# LoRA from scratch: add trainable low-rank matrices A and B` |
-| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.6.html` | 689 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 105) | `# Test forward pass` |
-| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.6.html` | 722 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 88) | `# Library shortcut: same LoRA injection in 5 lines with HuggingFace PEFT.` |
-| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.6.html` | 757 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 88) | `# Benchmark training cost: measure memory and step time for` |
+| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.6.html` | 118 | `python` | WIDE_LINE | 9 line(s) > 80 chars (max 125) | `import re` |
+| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.6.html` | 193 | `python` | WIDE_LINE | 8 line(s) > 80 chars (max 92) | `from dataclasses import dataclass` |
+| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.6.html` | 269 | `python` | WIDE_LINE | 4 line(s) > 80 chars (max 97) | `def extract_tool_use_examples(` |
+| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.6.html` | 339 | `python` | WIDE_LINE | 13 line(s) > 80 chars (max 124) | `from pydantic import BaseModel, Field, field_validator` |
+| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.6.html` | 397 | `python` | WIDE_LINE | 28 line(s) > 80 chars (max 127) | `import hashlib` |
+| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.6.html` | 497 | `text` | WIDE_LINE | 4 line(s) > 80 chars (max 98) | `from pathlib import Path` |
+| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.6.html` | 626 | `python` | WIDE_LINE | 6 line(s) > 80 chars (max 107) | `# LoRA from scratch: add trainable low-rank matrices A and B` |
+| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.6.html` | 683 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 105) | `# Test forward pass` |
+| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.6.html` | 716 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 88) | `# Library shortcut: same LoRA injection in 5 lines with HuggingFace PEFT.` |
+| `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.6.html` | 751 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 88) | `# Benchmark training cost: measure memory and step time for` |
 | `part-4-training-adapting/module-14-synthetic-data/section-14.1.html` | 153 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Define the generate_preference_pair function` |
 | `part-4-training-adapting/module-14-synthetic-data/section-14.1.html` | 153 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def generate_preference_pair(instruction' drops to opener indent at line 5 | `# Define the generate_preference_pair function` |
 | `part-4-training-adapting/module-14-synthetic-data/section-14.1.html` | 198 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Define data structures for synthetic data generation configuration` |
@@ -795,13 +677,10 @@ Scope: `<pre><code>` blocks under `part-*`, `appendices/`, `front-matter/`, `cap
 | `part-4-training-adapting/module-14-synthetic-data/section-14.3.html` | 174 | `python` | WIDE_LINE | 19 line(s) > 80 chars (max 121) | `# Check for train/test contamination using n-gram overlap detection` |
 | `part-4-training-adapting/module-14-synthetic-data/section-14.3.html` | 353 | `python` | WIDE_LINE | 46 line(s) > 80 chars (max 141) | `# Build a composable filter pipeline for synthetic data quality control` |
 | `part-4-training-adapting/module-14-synthetic-data/section-14.4.html` | 186 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Calculate annotation quality metrics using numpy` |
-| `part-4-training-adapting/module-14-synthetic-data/section-14.4.html` | 289 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Label Studio: Setting up a pre-labeling backend with LLM` |
 | `part-4-training-adapting/module-14-synthetic-data/section-14.4.html` | 289 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 83) | `# Label Studio: Setting up a pre-labeling backend with LLM` |
-| `part-4-training-adapting/module-14-synthetic-data/section-14.5.html` | 130 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Apply privacy and governance checks to the synthetic dataset` |
 | `part-4-training-adapting/module-14-synthetic-data/section-14.5.html` | 130 | `python` | WIDE_LINE | 29 line(s) > 80 chars (max 123) | `# Apply privacy and governance checks to the synthetic dataset` |
-| `part-4-training-adapting/module-14-synthetic-data/section-14.5.html` | 241 | `python` | WIDE_LINE | 37 line(s) > 80 chars (max 135) | `# Measure dataset diversity using embedding-based metrics` |
-| `part-4-training-adapting/module-14-synthetic-data/section-14.5.html` | 357 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Define a data governance record for tracking synthetic data provenance` |
-| `part-4-training-adapting/module-14-synthetic-data/section-14.5.html` | 357 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 83) | `# Define a data governance record for tracking synthetic data provenance` |
+| `part-4-training-adapting/module-14-synthetic-data/section-14.5.html` | 240 | `python` | WIDE_LINE | 37 line(s) > 80 chars (max 135) | `# Measure dataset diversity using embedding-based metrics` |
+| `part-4-training-adapting/module-14-synthetic-data/section-14.5.html` | 356 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 83) | `# Define a data governance record for tracking synthetic data provenance` |
 | `part-4-training-adapting/module-14-synthetic-data/section-14.6.html` | 159 | `python` | WIDE_LINE | 6 line(s) > 80 chars (max 106) | `# Generate reasoning traces with rejection sampling` |
 | `part-4-training-adapting/module-14-synthetic-data/section-14.7.html` | 70 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def synonym_replace(sentence, n=2):' drops to opener indent at line 24 | `# Easy Data Augmentation (EDA): four simple text transformations.` |
 | `part-4-training-adapting/module-14-synthetic-data/section-14.7.html` | 102 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Back-translation augmentation: English -> pivot language -> English.` |
@@ -816,28 +695,23 @@ Scope: `<pre><code>` blocks under `part-*`, `appendices/`, `front-matter/`, `cap
 | `part-4-training-adapting/module-14-synthetic-data/section-14.7.html` | 394 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'for v in variants:' drops to opener indent at line 11 | `def augment(prompt, label, n=5):` |
 | `part-4-training-adapting/module-14-synthetic-data/section-14.7.html` | 394 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 85) | `def augment(prompt, label, n=5):` |
 | `part-4-training-adapting/module-15-fine-tuning-fundamentals/section-15.1.html` | 125 | `python` | WIDE_LINE | 8 line(s) > 80 chars (max 105) | `# Decision framework: choose the lightest adaptation that meets requirements` |
-| `part-4-training-adapting/module-15-fine-tuning-fundamentals/section-15.1.html` | 220 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Strategies for mitigating catastrophic forgetting` |
 | `part-4-training-adapting/module-15-fine-tuning-fundamentals/section-15.1.html` | 220 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 91) | `# Strategies for mitigating catastrophic forgetting` |
 | `part-4-training-adapting/module-15-fine-tuning-fundamentals/section-15.2.html` | 60 | `python` | WIDE_LINE | 5 line(s) > 80 chars (max 86) | `# Alpaca format: instruction, input (optional), output` |
 | `part-4-training-adapting/module-15-fine-tuning-fundamentals/section-15.2.html` | 103 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 82) | `# ChatML / Messages format (OpenAI-compatible)` |
 | `part-4-training-adapting/module-15-fine-tuning-fundamentals/section-15.2.html` | 196 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 91) | `# Load and preprocess a dataset from Hugging Face Hub` |
-| `part-4-training-adapting/module-15-fine-tuning-fundamentals/section-15.2.html` | 250 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# pip install datasets transformers` |
-| `part-4-training-adapting/module-15-fine-tuning-fundamentals/section-15.2.html` | 284 | `python` | WIDE_LINE | 11 line(s) > 80 chars (max 110) | `# Define typed configuration for the fine-tuning data pipeline` |
-| `part-4-training-adapting/module-15-fine-tuning-fundamentals/section-15.2.html` | 392 | `python` | WIDE_LINE | 6 line(s) > 80 chars (max 130) | `# Define the data_quality_audit function` |
+| `part-4-training-adapting/module-15-fine-tuning-fundamentals/section-15.2.html` | 283 | `python` | WIDE_LINE | 11 line(s) > 80 chars (max 110) | `# Define typed configuration for the fine-tuning data pipeline` |
+| `part-4-training-adapting/module-15-fine-tuning-fundamentals/section-15.2.html` | 391 | `python` | WIDE_LINE | 6 line(s) > 80 chars (max 130) | `# Define the data_quality_audit function` |
 | `part-4-training-adapting/module-15-fine-tuning-fundamentals/section-15.3.html` | 191 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 85) | `# Calculating effective batch size` |
 | `part-4-training-adapting/module-15-fine-tuning-fundamentals/section-15.3.html` | 279 | `python` | WIDE_LINE | 5 line(s) > 80 chars (max 102) | `# Sanity check: verify training is working correctly` |
 | `part-4-training-adapting/module-15-fine-tuning-fundamentals/section-15.3.html` | 623 | `python` | WIDE_LINE | 18 line(s) > 80 chars (max 123) | `# Complete SFT lab solution: load model, prepare data, train,` |
 | `part-4-training-adapting/module-15-fine-tuning-fundamentals/section-15.4.html` | 56 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 93) | `# Format training data as JSONL for the OpenAI fine-tuning API` |
 | `part-4-training-adapting/module-15-fine-tuning-fundamentals/section-15.4.html` | 379 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 96) | `# Fine-tune a Claude model via the Anthropic API` |
-| `part-4-training-adapting/module-15-fine-tuning-fundamentals/section-15.5.html` | 140 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Preparing contrastive training data` |
-| `part-4-training-adapting/module-15-fine-tuning-fundamentals/section-15.5.html` | 198 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 84) | `# Fine-tune a sentence-transformer to your domain.` |
-| `part-4-training-adapting/module-15-fine-tuning-fundamentals/section-15.5.html` | 259 | `python` | WIDE_LINE | 4 line(s) > 80 chars (max 84) | `# Practical: deciding whether to fine-tune embeddings` |
-| `part-4-training-adapting/module-15-fine-tuning-fundamentals/section-15.6.html` | 94 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Configure Hugging Face Trainer with training arguments` |
-| `part-4-training-adapting/module-15-fine-tuning-fundamentals/section-15.6.html` | 169 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 92) | `# Load a pre-trained model for sequence classification fine-tuning` |
-| `part-4-training-adapting/module-15-fine-tuning-fundamentals/section-15.6.html` | 235 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Sequence pair classification (NLI example)` |
-| `part-4-training-adapting/module-15-fine-tuning-fundamentals/section-15.6.html` | 235 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def tokenize_nli(examples):' drops to opener indent at line 13 | `# Sequence pair classification (NLI example)` |
-| `part-4-training-adapting/module-15-fine-tuning-fundamentals/section-15.6.html` | 281 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Implement class-weighted loss for imbalanced dataset fine-tuning` |
-| `part-4-training-adapting/module-15-fine-tuning-fundamentals/section-15.6.html` | 281 | `python` | WIDE_LINE | 6 line(s) > 80 chars (max 98) | `# Implement class-weighted loss for imbalanced dataset fine-tuning` |
+| `part-4-training-adapting/module-15-fine-tuning-fundamentals/section-15.5.html` | 197 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 84) | `# Fine-tune a sentence-transformer to your domain.` |
+| `part-4-training-adapting/module-15-fine-tuning-fundamentals/section-15.5.html` | 258 | `python` | WIDE_LINE | 4 line(s) > 80 chars (max 84) | `# Practical: deciding whether to fine-tune embeddings` |
+| `part-4-training-adapting/module-15-fine-tuning-fundamentals/section-15.6.html` | 168 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 92) | `# Load a pre-trained model for sequence classification fine-tuning` |
+| `part-4-training-adapting/module-15-fine-tuning-fundamentals/section-15.6.html` | 234 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Sequence pair classification (NLI example)` |
+| `part-4-training-adapting/module-15-fine-tuning-fundamentals/section-15.6.html` | 234 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def tokenize_nli(examples):' drops to opener indent at line 13 | `# Sequence pair classification (NLI example)` |
+| `part-4-training-adapting/module-15-fine-tuning-fundamentals/section-15.6.html` | 280 | `python` | WIDE_LINE | 6 line(s) > 80 chars (max 98) | `# Implement class-weighted loss for imbalanced dataset fine-tuning` |
 | `part-4-training-adapting/module-15-fine-tuning-fundamentals/section-15.7.html` | 125 | `python` | WIDE_LINE | 12 line(s) > 80 chars (max 112) | `# Two chunking strategies: fixed-window with overlap and semantic splitting` |
 | `part-4-training-adapting/module-15-fine-tuning-fundamentals/section-15.7.html` | 210 | `text` | WIDE_LINE | 1 line(s) > 80 chars (max 81) | `# Practical strategies for mitigating lost-in-the-middle` |
 | `part-4-training-adapting/module-16-peft/section-16.1.html` | 111 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'class LoRALinear(nn.Module):' drops to opener indent at line 11 | `class LoRALinear(nn.Module):` |
@@ -849,60 +723,43 @@ Scope: `<pre><code>` blocks under `part-*`, `appendices/`, `front-matter/`, `cap
 | `part-4-training-adapting/module-16-peft/section-16.2.html` | 141 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Prefix Tuning: prepend learnable key-value vectors to each attention layer` |
 | `part-4-training-adapting/module-16-peft/section-16.2.html` | 161 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Adapter layers: insert small bottleneck modules between transformer layers` |
 | `part-4-training-adapting/module-16-peft/section-16.2.html` | 185 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# IA3 configuration: learns only rescaling vectors` |
-| `part-4-training-adapting/module-16-peft/section-16.2.html` | 367 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# GaLore conceptual implementation` |
 | `part-4-training-adapting/module-16-peft/section-16.2.html` | 367 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 82) | `# GaLore conceptual implementation` |
-| `part-4-training-adapting/module-16-peft/section-16.2.html` | 418 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def lora_forward(x, A, B, alpha, rank, u' drops to opener indent at line 15 | `# rsLoRA vs standard LoRA scaling comparison` |
+| `part-4-training-adapting/module-16-peft/section-16.2.html` | 417 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def lora_forward(x, A, B, alpha, rank, u' drops to opener indent at line 15 | `# rsLoRA vs standard LoRA scaling comparison` |
 | `part-4-training-adapting/module-16-peft/section-16.3.html` | 81 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Load a model with Unsloth for 2x faster LoRA fine-tuning` |
 | `part-4-training-adapting/module-16-peft/section-16.3.html` | 231 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Install LLaMA-Factory` |
 | `part-4-training-adapting/module-16-peft/section-16.3.html` | 231 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'with open("train_config.json", "w") as f' drops to opener indent at line 32 | `# Install LLaMA-Factory` |
 | `part-4-training-adapting/module-16-peft/section-16.3.html` | 273 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# torchtune uses YAML configs and CLI recipes` |
 | `part-4-training-adapting/module-16-peft/section-16.3.html` | 320 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Fine-tune with TRL's SFTTrainer for supervised instruction tuning` |
-| `part-4-training-adapting/module-16-peft/section-16.4.html` | 133 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Adds learnable tokens only at the input embedding layer` |
-| `part-4-training-adapting/module-16-peft/section-16.4.html` | 200 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Injects learned KV pairs at every attention layer` |
-| `part-4-training-adapting/module-16-peft/section-16.4.html` | 200 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 82) | `# Injects learned KV pairs at every attention layer` |
-| `part-4-training-adapting/module-16-peft/section-16.4.html` | 242 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Note: HuggingFace PEFT implements P-Tuning v1 as PromptEncoderConfig` |
-| `part-4-training-adapting/module-16-peft/section-16.4.html` | 242 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 99) | `# Note: HuggingFace PEFT implements P-Tuning v1 as PromptEncoderConfig` |
-| `part-4-training-adapting/module-16-peft/section-16.4.html` | 289 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Uses deep prefix tuning (all layers) with a classification head` |
-| `part-4-training-adapting/module-16-peft/section-16.4.html` | 289 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 94) | `# Uses deep prefix tuning (all layers) with a classification head` |
-| `part-4-training-adapting/module-16-peft/section-16.4.html` | 437 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 85) | `# One base model, many task-specific soft prompts loaded on demand` |
-| `part-4-training-adapting/module-16-peft/section-16.4.html` | 537 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 106) | `class PromptedLlama(nn.Module):` |
-| `part-4-training-adapting/module-16-peft/section-16.5.html` | 126 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Compute the KL-divergence distillation loss between teacher and student` |
-| `part-4-training-adapting/module-16-peft/section-16.5.html` | 228 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 90) | `# Compute the KL-divergence distillation loss between teacher and student` |
-| `part-4-training-adapting/module-16-peft/section-16.5.html` | 332 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Generate teacher labels asynchronously for large-scale distillation` |
-| `part-4-training-adapting/module-16-peft/section-16.5.html` | 496 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Load and prepare the distillation dataset with teacher-generated labels` |
-| `part-4-training-adapting/module-16-peft/section-16.5.html` | 827 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Distillation loss: KL divergence on temperature-scaled soft targets` |
-| `part-4-training-adapting/module-16-peft/section-16.5.html` | 859 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 82) | `# Training loop: forward both teacher and student on each batch,` |
-| `part-4-training-adapting/module-16-peft/section-16.5.html` | 908 | `python` | WIDE_LINE | 5 line(s) > 80 chars (max 91) | `# Evaluate perplexity: compare original student, distilled student,` |
-| `part-4-training-adapting/module-16-peft/section-16.5.html` | 965 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Complete distillation lab: load teacher/student, train with KL` |
-| `part-4-training-adapting/module-16-peft/section-16.5.html` | 965 | `python` | WIDE_LINE | 7 line(s) > 80 chars (max 96) | `# Complete distillation lab: load teacher/student, train with KL` |
+| `part-4-training-adapting/module-16-peft/section-16.4.html` | 199 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 82) | `# Injects learned KV pairs at every attention layer` |
+| `part-4-training-adapting/module-16-peft/section-16.4.html` | 240 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 99) | `# Note: HuggingFace PEFT implements P-Tuning v1 as PromptEncoderConfig` |
+| `part-4-training-adapting/module-16-peft/section-16.4.html` | 286 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 94) | `# Uses deep prefix tuning (all layers) with a classification head` |
+| `part-4-training-adapting/module-16-peft/section-16.4.html` | 433 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 85) | `# One base model, many task-specific soft prompts loaded on demand` |
+| `part-4-training-adapting/module-16-peft/section-16.4.html` | 533 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 106) | `class PromptedLlama(nn.Module):` |
+| `part-4-training-adapting/module-16-peft/section-16.5.html` | 227 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 90) | `# Compute the KL-divergence distillation loss between teacher and student` |
+| `part-4-training-adapting/module-16-peft/section-16.5.html` | 494 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Load and prepare the distillation dataset with teacher-generated labels` |
+| `part-4-training-adapting/module-16-peft/section-16.5.html` | 825 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Distillation loss: KL divergence on temperature-scaled soft targets` |
+| `part-4-training-adapting/module-16-peft/section-16.5.html` | 857 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 82) | `# Training loop: forward both teacher and student on each batch,` |
+| `part-4-training-adapting/module-16-peft/section-16.5.html` | 906 | `python` | WIDE_LINE | 5 line(s) > 80 chars (max 91) | `# Evaluate perplexity: compare original student, distilled student,` |
+| `part-4-training-adapting/module-16-peft/section-16.5.html` | 963 | `python` | WIDE_LINE | 7 line(s) > 80 chars (max 96) | `# Complete distillation lab: load teacher/student, train with KL` |
 | `part-4-training-adapting/module-16-peft/section-16.6.html` | 114 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 94) | `# Linear merge of a single weight with different alpha values` |
 | `part-4-training-adapting/module-16-peft/section-16.6.html` | 242 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 87) | `# Implement model merging by interpolating weight tensors` |
 | `part-4-training-adapting/module-16-peft/section-16.6.html` | 307 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 104) | `# pip install mergekit` |
-| `part-4-training-adapting/module-16-peft/section-16.7.html` | 78 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Load evaluation datasets for comparing distilled vs. base models` |
 | `part-4-training-adapting/module-16-peft/section-16.7.html` | 78 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 90) | `# Load evaluation datasets for comparing distilled vs. base models` |
-| `part-4-training-adapting/module-16-peft/section-16.7.html` | 131 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Load both the teacher and student models for side-by-side evaluation` |
-| `part-4-training-adapting/module-16-peft/section-16.7.html` | 183 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Replay dataset: mix domain data with general replay samples` |
-| `part-4-training-adapting/module-16-peft/section-16.7.html` | 183 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 82) | `# Replay dataset: mix domain data with general replay samples` |
-| `part-4-training-adapting/module-16-peft/section-16.7.html` | 264 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Evaluate the distilled model on downstream tasks using PyTorch` |
-| `part-4-training-adapting/module-16-peft/section-16.7.html` | 264 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 101) | `# Evaluate the distilled model on downstream tasks using PyTorch` |
-| `part-4-training-adapting/module-17-alignment-rlhf-dpo/section-17.1.html` | 240 | `text` | LEADING_BLANK | 1 blank line(s) at top | `Input: SFT model pi_sft, reward model R, reference policy pi_ref = pi_sft, KL we` |
+| `part-4-training-adapting/module-16-peft/section-16.7.html` | 130 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Load both the teacher and student models for side-by-side evaluation` |
+| `part-4-training-adapting/module-16-peft/section-16.7.html` | 182 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 82) | `# Replay dataset: mix domain data with general replay samples` |
+| `part-4-training-adapting/module-16-peft/section-16.7.html` | 262 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 101) | `# Evaluate the distilled model on downstream tasks using PyTorch` |
 | `part-4-training-adapting/module-17-alignment-rlhf-dpo/section-17.1.html` | 240 | `text` | WIDE_LINE | 1 line(s) > 80 chars (max 89) | `Input: SFT model pi_sft, reward model R, reference policy pi_ref = pi_sft, KL we` |
-| `part-4-training-adapting/module-17-alignment-rlhf-dpo/section-17.1.html` | 263 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 97) | `# Stage 3: PPO Training with TRL` |
-| `part-4-training-adapting/module-17-alignment-rlhf-dpo/section-17.1.html` | 433 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 81) | `# Library shortcut: PPO alignment with TRL (pip install trl)` |
-| `part-4-training-adapting/module-17-alignment-rlhf-dpo/section-17.1.html` | 492 | `python` | WIDE_LINE | 4 line(s) > 80 chars (max 90) | `# GRPO: Group Relative Policy Optimization (simplified)` |
+| `part-4-training-adapting/module-17-alignment-rlhf-dpo/section-17.1.html` | 262 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 97) | `# Stage 3: PPO Training with TRL` |
+| `part-4-training-adapting/module-17-alignment-rlhf-dpo/section-17.1.html` | 432 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 81) | `# Library shortcut: PPO alignment with TRL (pip install trl)` |
+| `part-4-training-adapting/module-17-alignment-rlhf-dpo/section-17.1.html` | 491 | `python` | WIDE_LINE | 4 line(s) > 80 chars (max 90) | `# GRPO: Group Relative Policy Optimization (simplified)` |
 | `part-4-training-adapting/module-17-alignment-rlhf-dpo/section-17.2.html` | 105 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 85) | `# Numeric walkthrough of a single DPO loss evaluation` |
 | `part-4-training-adapting/module-17-alignment-rlhf-dpo/section-17.2.html` | 193 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 84) | `# DPO Training with TRL` |
-| `part-4-training-adapting/module-17-alignment-rlhf-dpo/section-17.2.html` | 395 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Synthetic preference generation with LLM-as-judge` |
 | `part-4-training-adapting/module-17-alignment-rlhf-dpo/section-17.2.html` | 395 | `python` | WIDE_LINE | 4 line(s) > 80 chars (max 90) | `# Synthetic preference generation with LLM-as-judge` |
-| `part-4-training-adapting/module-17-alignment-rlhf-dpo/section-17.2.html` | 475 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Hyperparameter sweep for DPO` |
-| `part-4-training-adapting/module-17-alignment-rlhf-dpo/section-17.2.html` | 747 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 101) | `# Evaluate alignment: check how often the DPO-trained model assigns` |
-| `part-4-training-adapting/module-17-alignment-rlhf-dpo/section-17.2.html` | 794 | `python` | WIDE_LINE | 10 line(s) > 80 chars (max 132) | `# Complete DPO lab: load preferences, implement loss from scratch,` |
-| `part-4-training-adapting/module-17-alignment-rlhf-dpo/section-17.3.html` | 150 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Constitutional AI: Phase 1 - Self-Critique and Revision` |
+| `part-4-training-adapting/module-17-alignment-rlhf-dpo/section-17.2.html` | 745 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 101) | `# Evaluate alignment: check how often the DPO-trained model assigns` |
+| `part-4-training-adapting/module-17-alignment-rlhf-dpo/section-17.2.html` | 792 | `python` | WIDE_LINE | 10 line(s) > 80 chars (max 132) | `# Complete DPO lab: load preferences, implement loss from scratch,` |
 | `part-4-training-adapting/module-17-alignment-rlhf-dpo/section-17.3.html` | 150 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 81) | `# Constitutional AI: Phase 1 - Self-Critique and Revision` |
-| `part-4-training-adapting/module-17-alignment-rlhf-dpo/section-17.3.html` | 329 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Measuring alignment tax across capability dimensions` |
-| `part-4-training-adapting/module-17-alignment-rlhf-dpo/section-17.3.html` | 329 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 82) | `# Measuring alignment tax across capability dimensions` |
+| `part-4-training-adapting/module-17-alignment-rlhf-dpo/section-17.3.html` | 328 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 82) | `# Measuring alignment tax across capability dimensions` |
 | `part-4-training-adapting/module-17-alignment-rlhf-dpo/section-17.4.html` | 218 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 96) | `# GRPO with Verifiable Rewards for Math Reasoning` |
-| `part-4-training-adapting/module-17-alignment-rlhf-dpo/section-17.4.html` | 291 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Simplified DeepSeek-R1 style training pipeline` |
 | `part-4-training-adapting/module-17-alignment-rlhf-dpo/section-17.4.html` | 291 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 90) | `# Simplified DeepSeek-R1 style training pipeline` |
 | `part-4-training-adapting/module-17-alignment-rlhf-dpo/section-17.5.html` | 85 | `text` | WIDE_LINE | 1 line(s) > 80 chars (max 86) | `Input: question Q, debater models DA and DB, human judge J, max rounds R` |
 | `part-5-retrieval-conversation/module-18-embeddings-vector-db/section-18.1.html` | 209 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Simplified InfoNCE / Multiple Negatives Ranking Loss` |
@@ -918,127 +775,91 @@ Scope: `<pre><code>` blocks under `part-*`, `appendices/`, `front-matter/`, `cap
 | `part-5-retrieval-conversation/module-18-embeddings-vector-db/section-18.4.html` | 487 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 103) | `# Parent-child chunking strategy` |
 | `part-5-retrieval-conversation/module-18-embeddings-vector-db/section-18.4.html` | 1047 | `python` | WIDE_LINE | 15 line(s) > 80 chars (max 124) | `import numpy as np` |
 | `part-5-retrieval-conversation/module-18-embeddings-vector-db/section-18.4.html` | 1154 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 81) | `queries_expected = [` |
-| `part-5-retrieval-conversation/module-18-embeddings-vector-db/section-18.4.html` | 1231 | `python` | LEADING_BLANK | 1 blank line(s) at top | `import numpy as np` |
 | `part-5-retrieval-conversation/module-18-embeddings-vector-db/section-18.4.html` | 1231 | `python` | WIDE_LINE | 11 line(s) > 80 chars (max 126) | `import numpy as np` |
-| `part-5-retrieval-conversation/module-19-rag/section-19.1.html` | 197 | `text` | LEADING_BLANK | 1 blank line(s) at top | `Input: user query q, knowledge base KB, embedding model E, LLM G, top-k paramete` |
 | `part-5-retrieval-conversation/module-19-rag/section-19.1.html` | 197 | `text` | WIDE_LINE | 3 line(s) > 80 chars (max 84) | `Input: user query q, knowledge base KB, embedding model E, LLM G, top-k paramete` |
-| `part-5-retrieval-conversation/module-19-rag/section-19.1.html` | 293 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# implement ingest_chunks` |
-| `part-5-retrieval-conversation/module-19-rag/section-19.1.html` | 293 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def ingest_chunks(chunks, source_doc):' drops to opener indent at line 12 | `# implement ingest_chunks` |
-| `part-5-retrieval-conversation/module-19-rag/section-19.1.html` | 327 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 90) | `# Library shortcut: local embeddings + FAISS (pip install sentence-transformers ` |
-| `part-5-retrieval-conversation/module-19-rag/section-19.1.html` | 396 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# implement naive_rag` |
-| `part-5-retrieval-conversation/module-19-rag/section-19.1.html` | 396 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def naive_rag(query, k=5):' drops to opener indent at line 4 | `# implement naive_rag` |
-| `part-5-retrieval-conversation/module-19-rag/section-19.1.html` | 440 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 96) | `# Library shortcut: RAG with LangChain (pip install langchain langchain-openai l` |
-| `part-5-retrieval-conversation/module-19-rag/section-19.1.html` | 796 | `python` | WIDE_LINE | 5 line(s) > 80 chars (max 254) | `knowledge_base = [` |
-| `part-5-retrieval-conversation/module-19-rag/section-19.1.html` | 989 | `python` | LEADING_BLANK | 1 blank line(s) at top | `from sentence_transformers import SentenceTransformer` |
-| `part-5-retrieval-conversation/module-19-rag/section-19.1.html` | 989 | `python` | WIDE_LINE | 8 line(s) > 80 chars (max 170) | `from sentence_transformers import SentenceTransformer` |
+| `part-5-retrieval-conversation/module-19-rag/section-19.1.html` | 292 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# implement ingest_chunks` |
+| `part-5-retrieval-conversation/module-19-rag/section-19.1.html` | 292 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def ingest_chunks(chunks, source_doc):' drops to opener indent at line 12 | `# implement ingest_chunks` |
+| `part-5-retrieval-conversation/module-19-rag/section-19.1.html` | 326 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 90) | `# Library shortcut: local embeddings + FAISS (pip install sentence-transformers ` |
+| `part-5-retrieval-conversation/module-19-rag/section-19.1.html` | 395 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# implement naive_rag` |
+| `part-5-retrieval-conversation/module-19-rag/section-19.1.html` | 395 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def naive_rag(query, k=5):' drops to opener indent at line 4 | `# implement naive_rag` |
+| `part-5-retrieval-conversation/module-19-rag/section-19.1.html` | 439 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 96) | `# Library shortcut: RAG with LangChain (pip install langchain langchain-openai l` |
+| `part-5-retrieval-conversation/module-19-rag/section-19.1.html` | 795 | `python` | WIDE_LINE | 5 line(s) > 80 chars (max 254) | `knowledge_base = [` |
+| `part-5-retrieval-conversation/module-19-rag/section-19.1.html` | 988 | `python` | WIDE_LINE | 8 line(s) > 80 chars (max 170) | `from sentence_transformers import SentenceTransformer` |
 | `part-5-retrieval-conversation/module-19-rag/section-19.2.html` | 242 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# implement hyde_retrieve` |
 | `part-5-retrieval-conversation/module-19-rag/section-19.2.html` | 242 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def hyde_retrieve(query, collection, k=5' drops to opener indent at line 6 | `# implement hyde_retrieve` |
 | `part-5-retrieval-conversation/module-19-rag/section-19.2.html` | 638 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 87) | `from sentence_transformers import SentenceTransformer, CrossEncoder` |
-| `part-5-retrieval-conversation/module-19-rag/section-19.2.html` | 679 | `python` | LEADING_BLANK | 1 blank line(s) at top | `def expand_query(query, n=3):` |
-| `part-5-retrieval-conversation/module-19-rag/section-19.2.html` | 846 | `python` | LEADING_BLANK | 1 blank line(s) at top | `from sentence_transformers import SentenceTransformer, CrossEncoder` |
-| `part-5-retrieval-conversation/module-19-rag/section-19.2.html` | 846 | `python` | WIDE_LINE | 6 line(s) > 80 chars (max 112) | `from sentence_transformers import SentenceTransformer, CrossEncoder` |
-| `part-5-retrieval-conversation/module-19-rag/section-19.3.html` | 216 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Define KnowledgeGraphStore; implement __init__, add_triples, find_neighbors` |
+| `part-5-retrieval-conversation/module-19-rag/section-19.2.html` | 845 | `python` | WIDE_LINE | 6 line(s) > 80 chars (max 112) | `from sentence_transformers import SentenceTransformer, CrossEncoder` |
 | `part-5-retrieval-conversation/module-19-rag/section-19.3.html` | 216 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 89) | `# Define KnowledgeGraphStore; implement __init__, add_triples, find_neighbors` |
-| `part-5-retrieval-conversation/module-19-rag/section-19.3.html` | 282 | `python` | LEADING_BLANK | 1 blank line(s) at top | `import torch` |
 | `part-5-retrieval-conversation/module-19-rag/section-19.4.html` | 74 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# implement decompose_query` |
 | `part-5-retrieval-conversation/module-19-rag/section-19.4.html` | 74 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def decompose_query(query):' drops to opener indent at line 8 | `# implement decompose_query` |
-| `part-5-retrieval-conversation/module-19-rag/section-19.4.html` | 177 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Implementation example` |
-| `part-5-retrieval-conversation/module-19-rag/section-19.4.html` | 335 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# implement synthesize_research` |
-| `part-5-retrieval-conversation/module-19-rag/section-19.4.html` | 335 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def synthesize_research(original_query, ' drops to opener indent at line 4 | `# implement synthesize_research` |
-| `part-5-retrieval-conversation/module-19-rag/section-19.4.html` | 540 | `python` | WIDE_LINE | 5 line(s) > 80 chars (max 113) | `# Agentic RAG with LlamaIndex: a router agent picks WHICH index to query.` |
+| `part-5-retrieval-conversation/module-19-rag/section-19.4.html` | 334 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# implement synthesize_research` |
+| `part-5-retrieval-conversation/module-19-rag/section-19.4.html` | 334 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def synthesize_research(original_query, ' drops to opener indent at line 4 | `# implement synthesize_research` |
+| `part-5-retrieval-conversation/module-19-rag/section-19.4.html` | 539 | `python` | WIDE_LINE | 5 line(s) > 80 chars (max 113) | `# Agentic RAG with LlamaIndex: a router agent picks WHICH index to query.` |
 | `part-5-retrieval-conversation/module-19-rag/section-19.5.html` | 55 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# implement ask_about_table` |
 | `part-5-retrieval-conversation/module-19-rag/section-19.5.html` | 55 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def ask_about_table(df: pd.DataFrame, qu' drops to opener indent at line 7 | `# implement ask_about_table` |
 | `part-5-retrieval-conversation/module-19-rag/section-19.5.html` | 332 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def csv_to_queryable(csv_path, table_nam' drops to opener indent at line 18 | `# implement csv_to_queryable` |
 | `part-5-retrieval-conversation/module-19-rag/section-19.6.html` | 320 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Implementation example` |
 | `part-5-retrieval-conversation/module-19-rag/section-19.6.html` | 567 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# implement embed, retrieve, generate` |
 | `part-5-retrieval-conversation/module-19-rag/section-19.6.html` | 567 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def embed(text: str) -> list[float]:' drops to opener indent at line 13 | `# implement embed, retrieve, generate` |
-| `part-5-retrieval-conversation/module-19-rag/section-19.6.html` | 686 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# implement build_langchain_rag, build_llamaindex_rag` |
-| `part-5-retrieval-conversation/module-19-rag/section-19.7.html` | 99 | `python` | LEADING_BLANK | 1 blank line(s) at top | `import graphrag` |
-| `part-5-retrieval-conversation/module-19-rag/section-19.7.html` | 144 | `python` | LEADING_BLANK | 1 blank line(s) at top | `from graphrag.query import LocalSearch, GlobalSearch` |
-| `part-5-retrieval-conversation/module-19-rag/section-19.7.html` | 258 | `text` | LEADING_BLANK | 1 blank line(s) at top | `from neo4j_graphrag.retrievers import CypherRetriever` |
-| `part-5-retrieval-conversation/module-19-rag/section-19.7.html` | 422 | `python` | LEADING_BLANK | 1 blank line(s) at top | `from openai import OpenAI` |
-| `part-5-retrieval-conversation/module-19-rag/section-19.7.html` | 422 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `from openai import OpenAI` |
-| `part-5-retrieval-conversation/module-19-rag/section-19.7.html` | 422 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def evaluate_comprehensiveness(query, an' drops to opener indent at line 6 | `from openai import OpenAI` |
-| `part-5-retrieval-conversation/module-19-rag/section-19.7.html` | 536 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'for e in entities:' drops to opener indent at line 7 | `def hybrid_retrieve(query, k=10):` |
+| `part-5-retrieval-conversation/module-19-rag/section-19.7.html` | 419 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `from openai import OpenAI` |
+| `part-5-retrieval-conversation/module-19-rag/section-19.7.html` | 419 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def evaluate_comprehensiveness(query, an' drops to opener indent at line 5 | `from openai import OpenAI` |
+| `part-5-retrieval-conversation/module-19-rag/section-19.7.html` | 532 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'for e in entities:' drops to opener indent at line 7 | `def hybrid_retrieve(query, k=10):` |
 | `part-5-retrieval-conversation/module-19-rag/section-19.8.html` | 199 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 98) | `from langchain.text_splitter import RecursiveCharacterTextSplitter` |
-| `part-5-retrieval-conversation/module-19-rag/section-19.8.html` | 282 | `python` | LEADING_BLANK | 1 blank line(s) at top | `import hashlib` |
 | `part-5-retrieval-conversation/module-19-rag/section-19.8.html` | 282 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 86) | `import hashlib` |
-| `part-5-retrieval-conversation/module-19-rag/section-19.8.html` | 346 | `python` | WIDE_LINE | 8 line(s) > 80 chars (max 107) | `from prefect import flow, task` |
+| `part-5-retrieval-conversation/module-19-rag/section-19.8.html` | 345 | `python` | WIDE_LINE | 8 line(s) > 80 chars (max 107) | `from prefect import flow, task` |
 | `part-5-retrieval-conversation/module-19-rag/section-19.9.html` | 60 | `text` | WIDE_LINE | 2 line(s) > 80 chars (max 103) | `def build_attributed_prompt(query, retrieved_chunks):` |
-| `part-5-retrieval-conversation/module-19-rag/section-19.9.html` | 100 | `python` | LEADING_BLANK | 1 blank line(s) at top | `from pydantic import BaseModel` |
 | `part-5-retrieval-conversation/module-19-rag/section-19.9.html` | 100 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 84) | `from pydantic import BaseModel` |
-| `part-5-retrieval-conversation/module-19-rag/section-19.9.html` | 144 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 81) | `from transformers import pipeline` |
-| `part-5-retrieval-conversation/module-19-rag/section-19.9.html` | 325 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'for claim, doc_id in citations:' drops to opener indent at line 10 | `from transformers import pipeline` |
-| `part-5-retrieval-conversation/module-19-rag/section-19.9.html` | 325 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 96) | `from transformers import pipeline` |
+| `part-5-retrieval-conversation/module-19-rag/section-19.9.html` | 143 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 81) | `from transformers import pipeline` |
+| `part-5-retrieval-conversation/module-19-rag/section-19.9.html` | 324 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'for claim, doc_id in citations:' drops to opener indent at line 10 | `from transformers import pipeline` |
+| `part-5-retrieval-conversation/module-19-rag/section-19.9.html` | 324 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 96) | `from transformers import pipeline` |
 | `part-5-retrieval-conversation/module-20-conversational-ai/section-20.1.html` | 152 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# implement update_dialogue_state, get_missing_slots` |
 | `part-5-retrieval-conversation/module-20-conversational-ai/section-20.1.html` | 152 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def get_missing_slots(state: dict) -> li' drops to opener indent at line 46 | `# implement update_dialogue_state, get_missing_slots` |
 | `part-5-retrieval-conversation/module-20-conversational-ai/section-20.1.html` | 152 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 84) | `# implement update_dialogue_state, get_missing_slots` |
 | `part-5-retrieval-conversation/module-20-conversational-ai/section-20.1.html` | 310 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 86) | `# Implementation example` |
-| `part-5-retrieval-conversation/module-20-conversational-ai/section-20.1.html` | 422 | `python` | LEADING_BLANK | 1 blank line(s) at top | `from dataclasses import dataclass, field` |
 | `part-5-retrieval-conversation/module-20-conversational-ai/section-20.1.html` | 422 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 87) | `from dataclasses import dataclass, field` |
-| `part-5-retrieval-conversation/module-20-conversational-ai/section-20.1.html` | 623 | `text` | WIDE_LINE | 2 line(s) > 80 chars (max 91) | `from enum import Enum` |
+| `part-5-retrieval-conversation/module-20-conversational-ai/section-20.1.html` | 622 | `text` | WIDE_LINE | 2 line(s) > 80 chars (max 91) | `from enum import Enum` |
 | `part-5-retrieval-conversation/module-20-conversational-ai/section-20.2.html` | 96 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `from dataclasses import dataclass, field` |
 | `part-5-retrieval-conversation/module-20-conversational-ai/section-20.2.html` | 96 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'class PersonaSpec:' drops to opener indent at line 5 | `from dataclasses import dataclass, field` |
 | `part-5-retrieval-conversation/module-20-conversational-ai/section-20.2.html` | 96 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 105) | `from dataclasses import dataclass, field` |
-| `part-5-retrieval-conversation/module-20-conversational-ai/section-20.2.html` | 220 | `python` | LEADING_BLANK | 1 blank line(s) at top | `class CharacterConsistencyManager:` |
 | `part-5-retrieval-conversation/module-20-conversational-ai/section-20.2.html` | 220 | `python` | WIDE_LINE | 11 line(s) > 80 chars (max 122) | `class CharacterConsistencyManager:` |
-| `part-5-retrieval-conversation/module-20-conversational-ai/section-20.2.html` | 299 | `text` | WIDE_LINE | 1 line(s) > 80 chars (max 83) | `from openai import OpenAI` |
-| `part-5-retrieval-conversation/module-20-conversational-ai/section-20.2.html` | 489 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# implement check_response_consistency` |
-| `part-5-retrieval-conversation/module-20-conversational-ai/section-20.3.html` | 136 | `python` | LEADING_BLANK | 1 blank line(s) at top | `import tiktoken` |
+| `part-5-retrieval-conversation/module-20-conversational-ai/section-20.2.html` | 298 | `text` | WIDE_LINE | 1 line(s) > 80 chars (max 83) | `from openai import OpenAI` |
+| `part-5-retrieval-conversation/module-20-conversational-ai/section-20.2.html` | 488 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# implement check_response_consistency` |
 | `part-5-retrieval-conversation/module-20-conversational-ai/section-20.3.html` | 136 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 108) | `import tiktoken` |
-| `part-5-retrieval-conversation/module-20-conversational-ai/section-20.3.html` | 216 | `python` | LEADING_BLANK | 1 blank line(s) at top | `from openai import OpenAI` |
-| `part-5-retrieval-conversation/module-20-conversational-ai/section-20.3.html` | 216 | `python` | WIDE_LINE | 8 line(s) > 80 chars (max 91) | `from openai import OpenAI` |
-| `part-5-retrieval-conversation/module-20-conversational-ai/section-20.3.html` | 346 | `python` | WIDE_LINE | 12 line(s) > 80 chars (max 115) | `# Define MemoryEntry, VectorMemoryStore; implement __init__, store, retrieve` |
-| `part-5-retrieval-conversation/module-20-conversational-ai/section-20.3.html` | 708 | `text` | WIDE_LINE | 2 line(s) > 80 chars (max 93) | `# Mem0: Drop-in memory for any LLM application` |
-| `part-5-retrieval-conversation/module-20-conversational-ai/section-20.3.html` | 767 | `python` | WIDE_LINE | 5 line(s) > 80 chars (max 88) | `# Memory consolidation pipeline` |
-| `part-5-retrieval-conversation/module-20-conversational-ai/section-20.3.html` | 946 | `python` | LEADING_BLANK | 1 blank line(s) at top | `class ShortTermMemory:` |
-| `part-5-retrieval-conversation/module-20-conversational-ai/section-20.3.html` | 987 | `python` | LEADING_BLANK | 1 blank line(s) at top | `from openai import OpenAI` |
-| `part-5-retrieval-conversation/module-20-conversational-ai/section-20.3.html` | 987 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 82) | `from openai import OpenAI` |
-| `part-5-retrieval-conversation/module-20-conversational-ai/section-20.3.html` | 1037 | `python` | LEADING_BLANK | 1 blank line(s) at top | `from sentence_transformers import SentenceTransformer` |
-| `part-5-retrieval-conversation/module-20-conversational-ai/section-20.3.html` | 1037 | `python` | WIDE_LINE | 5 line(s) > 80 chars (max 88) | `from sentence_transformers import SentenceTransformer` |
-| `part-5-retrieval-conversation/module-20-conversational-ai/section-20.3.html` | 1098 | `python` | LEADING_BLANK | 1 blank line(s) at top | `class MemoryChat:` |
-| `part-5-retrieval-conversation/module-20-conversational-ai/section-20.3.html` | 1098 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 86) | `class MemoryChat:` |
-| `part-5-retrieval-conversation/module-20-conversational-ai/section-20.3.html` | 1199 | `python` | LEADING_BLANK | 1 blank line(s) at top | `from openai import OpenAI` |
-| `part-5-retrieval-conversation/module-20-conversational-ai/section-20.3.html` | 1199 | `python` | WIDE_LINE | 12 line(s) > 80 chars (max 153) | `from openai import OpenAI` |
+| `part-5-retrieval-conversation/module-20-conversational-ai/section-20.3.html` | 215 | `python` | WIDE_LINE | 8 line(s) > 80 chars (max 91) | `from openai import OpenAI` |
+| `part-5-retrieval-conversation/module-20-conversational-ai/section-20.3.html` | 344 | `python` | WIDE_LINE | 12 line(s) > 80 chars (max 115) | `# Define MemoryEntry, VectorMemoryStore; implement __init__, store, retrieve` |
+| `part-5-retrieval-conversation/module-20-conversational-ai/section-20.3.html` | 706 | `text` | WIDE_LINE | 2 line(s) > 80 chars (max 93) | `# Mem0: Drop-in memory for any LLM application` |
+| `part-5-retrieval-conversation/module-20-conversational-ai/section-20.3.html` | 765 | `python` | WIDE_LINE | 5 line(s) > 80 chars (max 88) | `# Memory consolidation pipeline` |
+| `part-5-retrieval-conversation/module-20-conversational-ai/section-20.3.html` | 984 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 82) | `from openai import OpenAI` |
+| `part-5-retrieval-conversation/module-20-conversational-ai/section-20.3.html` | 1033 | `python` | WIDE_LINE | 5 line(s) > 80 chars (max 88) | `from sentence_transformers import SentenceTransformer` |
+| `part-5-retrieval-conversation/module-20-conversational-ai/section-20.3.html` | 1093 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 86) | `class MemoryChat:` |
+| `part-5-retrieval-conversation/module-20-conversational-ai/section-20.3.html` | 1193 | `python` | WIDE_LINE | 12 line(s) > 80 chars (max 153) | `from openai import OpenAI` |
 | `part-5-retrieval-conversation/module-20-conversational-ai/section-20.4.html` | 261 | `bash` | WIDE_LINE | 1 line(s) > 80 chars (max 87) | `from dataclasses import dataclass, field` |
-| `part-5-retrieval-conversation/module-20-conversational-ai/section-20.4.html` | 338 | `python` | LEADING_BLANK | 1 blank line(s) at top | `from dataclasses import dataclass, field` |
 | `part-5-retrieval-conversation/module-20-conversational-ai/section-20.4.html` | 338 | `python` | WIDE_LINE | 18 line(s) > 80 chars (max 148) | `from dataclasses import dataclass, field` |
-| `part-5-retrieval-conversation/module-20-conversational-ai/section-20.4.html` | 550 | `python` | WIDE_LINE | 17 line(s) > 80 chars (max 109) | `# Define ContextPriority, ContextBlock, ContextBudgetManager; implement __init__` |
-| `part-5-retrieval-conversation/module-20-conversational-ai/section-20.5.html` | 266 | `python` | LEADING_BLANK | 1 blank line(s) at top | `import asyncio` |
+| `part-5-retrieval-conversation/module-20-conversational-ai/section-20.4.html` | 549 | `python` | WIDE_LINE | 17 line(s) > 80 chars (max 109) | `# Define ContextPriority, ContextBlock, ContextBudgetManager; implement __init__` |
 | `part-5-retrieval-conversation/module-20-conversational-ai/section-20.5.html` | 266 | `python` | WIDE_LINE | 6 line(s) > 80 chars (max 112) | `import asyncio` |
-| `part-5-retrieval-conversation/module-20-conversational-ai/section-20.5.html` | 465 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 101) | `from dataclasses import dataclass` |
-| `part-5-retrieval-conversation/module-20-conversational-ai/section-20.5.html` | 838 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# implement text_to_speech_openai` |
-| `part-5-retrieval-conversation/module-20-conversational-ai/section-20.5.html` | 975 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Implementation example` |
-| `part-5-retrieval-conversation/module-20-conversational-ai/section-20.5.html` | 975 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'async def create_voice_bot():' drops to opener indent at line 12 | `# Implementation example` |
-| `part-5-retrieval-conversation/module-20-conversational-ai/section-20.5.html` | 1059 | `python` | LEADING_BLANK | 1 blank line(s) at top | `class InterruptionHandler:` |
-| `part-5-retrieval-conversation/module-20-conversational-ai/section-20.5.html` | 1109 | `python` | LEADING_BLANK | 1 blank line(s) at top | `import base64` |
-| `part-5-retrieval-conversation/module-20-conversational-ai/section-20.5.html` | 1109 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 81) | `import base64` |
-| `part-6-agentic-ai/module-22-tool-use-protocols/section-22.1.html` | 83 | `text` | LEADING_BLANK | 1 blank line(s) at top | `Input: user message M, tool schemas {T1, ..., Tn}, LLM model, max iterations K` |
-| `part-6-agentic-ai/module-22-tool-use-protocols/section-22.1.html` | 148 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `from pydantic_ai import Agent` |
-| `part-6-agentic-ai/module-22-tool-use-protocols/section-22.1.html` | 148 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def get_weather(location: str, unit: str' drops to opener indent at line 6 | `from pydantic_ai import Agent` |
-| `part-6-agentic-ai/module-22-tool-use-protocols/section-22.1.html` | 204 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `from pydantic_ai import Agent` |
-| `part-6-agentic-ai/module-22-tool-use-protocols/section-22.1.html` | 204 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def get_weather(location: str, unit: str' drops to opener indent at line 7 | `from pydantic_ai import Agent` |
+| `part-5-retrieval-conversation/module-20-conversational-ai/section-20.5.html` | 464 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 101) | `from dataclasses import dataclass` |
+| `part-5-retrieval-conversation/module-20-conversational-ai/section-20.5.html` | 973 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Implementation example` |
+| `part-5-retrieval-conversation/module-20-conversational-ai/section-20.5.html` | 973 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'async def create_voice_bot():' drops to opener indent at line 12 | `# Implementation example` |
+| `part-5-retrieval-conversation/module-20-conversational-ai/section-20.5.html` | 1106 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 81) | `import base64` |
+| `part-6-agentic-ai/module-22-tool-use-protocols/section-22.1.html` | 147 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `from pydantic_ai import Agent` |
+| `part-6-agentic-ai/module-22-tool-use-protocols/section-22.1.html` | 147 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def get_weather(location: str, unit: str' drops to opener indent at line 6 | `from pydantic_ai import Agent` |
+| `part-6-agentic-ai/module-22-tool-use-protocols/section-22.1.html` | 203 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `from pydantic_ai import Agent` |
+| `part-6-agentic-ai/module-22-tool-use-protocols/section-22.1.html` | 203 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def get_weather(location: str, unit: str' drops to opener indent at line 7 | `from pydantic_ai import Agent` |
 | `part-6-agentic-ai/module-22-tool-use-protocols/section-22.2.html` | 94 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 89) | `# Building a simple MCP server with the Python SDK` |
 | `part-6-agentic-ai/module-22-tool-use-protocols/section-22.2.html` | 143 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `from langchain_core.tools import tool` |
 | `part-6-agentic-ai/module-22-tool-use-protocols/section-22.2.html` | 143 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def get_weather(city: str) -> str:' drops to opener indent at line 5 | `from langchain_core.tools import tool` |
 | `part-6-agentic-ai/module-22-tool-use-protocols/section-22.3.html` | 61 | `json` | WIDE_LINE | 3 line(s) > 80 chars (max 147) | `{` |
 | `part-6-agentic-ai/module-22-tool-use-protocols/section-22.4.html` | 61 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 93) | `from pydantic import BaseModel, Field, validator` |
-| `part-6-agentic-ai/module-22-tool-use-protocols/section-22.5.html` | 61 | `python` | LEADING_BLANK | 1 blank line(s) at top | `from langgraph.graph import StateGraph, END` |
 | `part-6-agentic-ai/module-22-tool-use-protocols/section-22.5.html` | 61 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 82) | `from langgraph.graph import StateGraph, END` |
-| `part-6-agentic-ai/module-23-multi-agent-systems/section-23.1.html` | 80 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# LangGraph: Research Agent` |
-| `part-6-agentic-ai/module-23-multi-agent-systems/section-23.1.html` | 138 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 84) | `# OpenAI Agents SDK: Research Agent` |
-| `part-6-agentic-ai/module-23-multi-agent-systems/section-23.1.html` | 182 | `bash` | WIDE_LINE | 1 line(s) > 80 chars (max 81) | `# Install dependencies for the multi-agent framework selection lab` |
-| `part-6-agentic-ai/module-23-multi-agent-systems/section-23.1.html` | 187 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 81) | `# Lab starter: framework selection skeleton. Students fill in the TODOs.` |
-| `part-6-agentic-ai/module-23-multi-agent-systems/section-23.1.html` | 217 | `python` | WIDE_LINE | 8 line(s) > 80 chars (max 135) | `# Full solution for the framework-selection lab.` |
+| `part-6-agentic-ai/module-23-multi-agent-systems/section-23.1.html` | 137 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 84) | `# OpenAI Agents SDK: Research Agent` |
+| `part-6-agentic-ai/module-23-multi-agent-systems/section-23.1.html` | 181 | `bash` | WIDE_LINE | 1 line(s) > 80 chars (max 81) | `# Install dependencies for the multi-agent framework selection lab` |
+| `part-6-agentic-ai/module-23-multi-agent-systems/section-23.1.html` | 186 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 81) | `# Lab starter: framework selection skeleton. Students fill in the TODOs.` |
+| `part-6-agentic-ai/module-23-multi-agent-systems/section-23.1.html` | 216 | `python` | WIDE_LINE | 8 line(s) > 80 chars (max 135) | `# Full solution for the framework-selection lab.` |
 | `part-6-agentic-ai/module-23-multi-agent-systems/section-23.2.html` | 82 | `text` | WIDE_LINE | 1 line(s) > 80 chars (max 85) | `Input: task T, specialist agents {A1, ..., An} with descriptions, LLM M, max rou` |
-| `part-6-agentic-ai/module-23-multi-agent-systems/section-23.2.html` | 100 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Supervisor pattern with LangGraph` |
-| `part-6-agentic-ai/module-23-multi-agent-systems/section-23.3.html` | 61 | `python` | LEADING_BLANK | 1 blank line(s) at top | `from langgraph.graph import StateGraph, END` |
 | `part-6-agentic-ai/module-23-multi-agent-systems/section-23.3.html` | 61 | `python` | WIDE_LINE | 6 line(s) > 80 chars (max 111) | `from langgraph.graph import StateGraph, END` |
-| `part-6-agentic-ai/module-25-agent-safety-production/section-25.1.html` | 89 | `python` | LEADING_BLANK | 1 blank line(s) at top | `class SecureAgentExecutor:` |
 | `part-6-agentic-ai/module-25-agent-safety-production/section-25.1.html` | 89 | `python` | WIDE_LINE | 4 line(s) > 80 chars (max 95) | `class SecureAgentExecutor:` |
-| `part-6-agentic-ai/module-25-agent-safety-production/section-25.1.html` | 135 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `from nemoguardrails import RailsConfig, LLMRails` |
+| `part-6-agentic-ai/module-25-agent-safety-production/section-25.1.html` | 134 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `from nemoguardrails import RailsConfig, LLMRails` |
 | `part-6-agentic-ai/module-25-agent-safety-production/section-25.3.html` | 77 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 82) | `from langfuse import Langfuse` |
-| `part-6-agentic-ai/module-25-agent-safety-production/section-25.3.html` | 113 | `python` | LEADING_BLANK | 1 blank line(s) at top | `class BudgetEnforcer:` |
 | `part-6-agentic-ai/module-25-agent-safety-production/section-25.3.html` | 113 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 86) | `class BudgetEnforcer:` |
 | `part-6-agentic-ai/module-25-agent-safety-production/section-25.4.html` | 65 | `text` | WIDE_LINE | 2 line(s) > 80 chars (max 82) | `import asyncio` |
 | `part-6-agentic-ai/module-25-agent-safety-production/section-25.4.html` | 141 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'for attempt in range(self.max_retries):' drops to opener indent at line 37 | `import asyncio` |
@@ -1051,20 +872,15 @@ Scope: `<pre><code>` blocks under `part-*`, `appendices/`, `front-matter/`, `cap
 | `part-6-agentic-ai/module-25-agent-safety-production/section-25.5.html` | 59 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `from pydantic import BaseModel` |
 | `part-6-agentic-ai/module-25-agent-safety-production/section-25.5.html` | 59 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'class ResearchOutput(BaseModel):' drops to opener indent at line 6 | `from pydantic import BaseModel` |
 | `part-6-agentic-ai/module-25-agent-safety-production/section-25.5.html` | 59 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 92) | `from pydantic import BaseModel` |
-| `part-6-agentic-ai/module-25-agent-safety-production/section-25.5.html` | 100 | `python` | LEADING_BLANK | 1 blank line(s) at top | `import random` |
 | `part-6-agentic-ai/module-25-agent-safety-production/section-25.5.html` | 100 | `python` | WIDE_LINE | 5 line(s) > 80 chars (max 109) | `import random` |
-| `part-6-agentic-ai/module-25-agent-safety-production/section-25.5.html` | 166 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 81) | `# Lab starter: agent contract validation. Students fill in the TODOs.` |
-| `part-6-agentic-ai/module-25-agent-safety-production/section-25.5.html` | 192 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'class WeatherQuery(BaseModel):' drops to opener indent at line 16 | `# Full solution for the agent contract validation lab.` |
-| `part-6-agentic-ai/module-25-agent-safety-production/section-25.5.html` | 192 | `python` | WIDE_LINE | 4 line(s) > 80 chars (max 93) | `# Full solution for the agent contract validation lab.` |
+| `part-6-agentic-ai/module-25-agent-safety-production/section-25.5.html` | 165 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 81) | `# Lab starter: agent contract validation. Students fill in the TODOs.` |
+| `part-6-agentic-ai/module-25-agent-safety-production/section-25.5.html` | 191 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'class WeatherQuery(BaseModel):' drops to opener indent at line 16 | `# Full solution for the agent contract validation lab.` |
+| `part-6-agentic-ai/module-25-agent-safety-production/section-25.5.html` | 191 | `python` | WIDE_LINE | 4 line(s) > 80 chars (max 93) | `# Full solution for the agent contract validation lab.` |
 | `part-6-agentic-ai/module-25-agent-safety-production/section-25.6.html` | 53 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 81) | `from dataclasses import dataclass` |
 | `part-6-agentic-ai/module-25-agent-safety-production/section-25.6.html` | 126 | `python` | WIDE_LINE | 6 line(s) > 80 chars (max 88) | `from typing import Any, Callable` |
-| `part-6-agentic-ai/module-25-agent-safety-production/section-25.6.html` | 221 | `python` | LEADING_BLANK | 1 blank line(s) at top | `from dataclasses import dataclass` |
-| `part-6-agentic-ai/module-25-agent-safety-production/section-25.6.html` | 305 | `python` | LEADING_BLANK | 1 blank line(s) at top | `import openai` |
-| `part-6-agentic-ai/module-25-agent-safety-production/section-25.6.html` | 305 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `import openai` |
-| `part-6-agentic-ai/module-25-agent-safety-production/section-25.6.html` | 367 | `python` | LEADING_BLANK | 1 blank line(s) at top | `from functools import wraps` |
-| `part-6-agentic-ai/module-25-agent-safety-production/section-25.6.html` | 367 | `python` | WIDE_LINE | 9 line(s) > 80 chars (max 101) | `from functools import wraps` |
-| `part-6-agentic-ai/module-25-agent-safety-production/section-25.6.html` | 445 | `python` | LEADING_BLANK | 1 blank line(s) at top | `import json` |
-| `part-6-agentic-ai/module-25-agent-safety-production/section-25.6.html` | 445 | `python` | WIDE_LINE | 18 line(s) > 80 chars (max 125) | `import json` |
+| `part-6-agentic-ai/module-25-agent-safety-production/section-25.6.html` | 304 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `import openai` |
+| `part-6-agentic-ai/module-25-agent-safety-production/section-25.6.html` | 365 | `python` | WIDE_LINE | 9 line(s) > 80 chars (max 101) | `from functools import wraps` |
+| `part-6-agentic-ai/module-25-agent-safety-production/section-25.6.html` | 442 | `python` | WIDE_LINE | 18 line(s) > 80 chars (max 125) | `import json` |
 | `part-6-agentic-ai/module-25-agent-safety-production/section-25.7.html` | 61 | `bash` | WIDE_LINE | 1 line(s) > 80 chars (max 102) | `#!/usr/bin/env bash` |
 | `part-6-agentic-ai/module-25-agent-safety-production/section-25.7.html` | 129 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 101) | `import subprocess` |
 | `part-6-agentic-ai/module-25-agent-safety-production/section-25.7.html` | 181 | `bash` | WIDE_LINE | 2 line(s) > 80 chars (max 111) | `#!/usr/bin/env bash` |
@@ -1080,16 +896,12 @@ Scope: `<pre><code>` blocks under `part-*`, `appendices/`, `front-matter/`, `cap
 | `part-7-multimodal-applications/module-26-multimodal/section-26.4.html` | 324 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 81) | `# Gemini 2.5: native multimodal with early fusion` |
 | `part-7-multimodal-applications/module-26-multimodal/section-26.4.html` | 362 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 88) | `# Any-to-any generation: analyze an image, then generate a new one based on the ` |
 | `part-7-multimodal-applications/module-26-multimodal/section-26.4.html` | 409 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 83) | `from transformers import pipeline` |
-| `part-7-multimodal-applications/module-26-multimodal/section-26.5.html` | 70 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# RT-2 style action tokenization` |
 | `part-7-multimodal-applications/module-26-multimodal/section-26.5.html` | 70 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 100) | `# RT-2 style action tokenization` |
-| `part-7-multimodal-applications/module-26-multimodal/section-26.5.html` | 179 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 82) | `# Fine-tuning OpenVLA with LoRA for a new robot platform` |
-| `part-7-multimodal-applications/module-26-multimodal/section-26.5.html` | 258 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Setting up a robot simulation environment with Habitat` |
-| `part-7-multimodal-applications/module-26-multimodal/section-26.5.html` | 258 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 114) | `# Setting up a robot simulation environment with Habitat` |
-| `part-7-multimodal-applications/module-26-multimodal/section-26.5.html` | 329 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Domain randomization for sim-to-real transfer` |
-| `part-7-multimodal-applications/module-26-multimodal/section-26.5.html` | 329 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 98) | `# Domain randomization for sim-to-real transfer` |
-| `part-7-multimodal-applications/module-26-multimodal/section-26.5.html` | 421 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# VLA model evaluation framework` |
-| `part-7-multimodal-applications/module-26-multimodal/section-26.5.html` | 421 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'class EvaluationResult:' drops to opener indent at line 67 | `# VLA model evaluation framework` |
-| `part-7-multimodal-applications/module-26-multimodal/section-26.5.html` | 421 | `python` | WIDE_LINE | 5 line(s) > 80 chars (max 95) | `# VLA model evaluation framework` |
+| `part-7-multimodal-applications/module-26-multimodal/section-26.5.html` | 178 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 82) | `# Fine-tuning OpenVLA with LoRA for a new robot platform` |
+| `part-7-multimodal-applications/module-26-multimodal/section-26.5.html` | 257 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 114) | `# Setting up a robot simulation environment with Habitat` |
+| `part-7-multimodal-applications/module-26-multimodal/section-26.5.html` | 327 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 98) | `# Domain randomization for sim-to-real transfer` |
+| `part-7-multimodal-applications/module-26-multimodal/section-26.5.html` | 418 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'class EvaluationResult:' drops to opener indent at line 66 | `# VLA model evaluation framework` |
+| `part-7-multimodal-applications/module-26-multimodal/section-26.5.html` | 418 | `python` | WIDE_LINE | 5 line(s) > 80 chars (max 95) | `# VLA model evaluation framework` |
 | `part-7-multimodal-applications/module-26-multimodal/section-26.6.html` | 59 | `python` | WIDE_LINE | 14 line(s) > 80 chars (max 124) | `# SayCan-style affordance scoring with an LLM planner` |
 | `part-7-multimodal-applications/module-26-multimodal/section-26.6.html` | 175 | `python` | WIDE_LINE | 32 line(s) > 80 chars (max 138) | `# VLM-based navigation goal parsing and semantic map building` |
 | `part-7-multimodal-applications/module-26-multimodal/section-26.6.html` | 286 | `python` | WIDE_LINE | 30 line(s) > 80 chars (max 129) | `# Multi-robot task allocation with an LLM coordinator` |
@@ -1113,14 +925,12 @@ Scope: `<pre><code>` blocks under `part-*`, `appendices/`, `front-matter/`, `cap
 | `part-7-multimodal-applications/module-27-llm-applications/section-27.3.html` | 215 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 88) | `# Implementation example` |
 | `part-7-multimodal-applications/module-27-llm-applications/section-27.4.html` | 52 | `text` | WIDE_LINE | 1 line(s) > 80 chars (max 83) | `# implement recommend_items` |
 | `part-7-multimodal-applications/module-27-llm-applications/section-27.4.html` | 177 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 92) | `# Building a simple LLM-powered search with RAG` |
-| `part-7-multimodal-applications/module-27-llm-applications/section-27.4.html` | 202 | `python` | LEADING_BLANK | 1 blank line(s) at top | `from openai import OpenAI` |
 | `part-7-multimodal-applications/module-27-llm-applications/section-27.4.html` | 202 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 83) | `from openai import OpenAI` |
-| `part-7-multimodal-applications/module-27-llm-applications/section-27.4.html` | 347 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `import json` |
-| `part-7-multimodal-applications/module-27-llm-applications/section-27.4.html` | 347 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def nl_to_sql(question: str, schema: str' drops to opener indent at line 11 | `import json` |
-| `part-7-multimodal-applications/module-27-llm-applications/section-27.4.html` | 347 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 93) | `import json` |
-| `part-7-multimodal-applications/module-27-llm-applications/section-27.4.html` | 392 | `text` | WIDE_LINE | 1 line(s) > 80 chars (max 86) | `def generate_chart_spec(question: str, query_results: list[dict]) -> dict:` |
-| `part-7-multimodal-applications/module-27-llm-applications/section-27.4.html` | 550 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Map-reduce text analytics over a corpus` |
-| `part-7-multimodal-applications/module-27-llm-applications/section-27.4.html` | 550 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 81) | `# Map-reduce text analytics over a corpus` |
+| `part-7-multimodal-applications/module-27-llm-applications/section-27.4.html` | 346 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `import json` |
+| `part-7-multimodal-applications/module-27-llm-applications/section-27.4.html` | 346 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def nl_to_sql(question: str, schema: str' drops to opener indent at line 11 | `import json` |
+| `part-7-multimodal-applications/module-27-llm-applications/section-27.4.html` | 346 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 93) | `import json` |
+| `part-7-multimodal-applications/module-27-llm-applications/section-27.4.html` | 391 | `text` | WIDE_LINE | 1 line(s) > 80 chars (max 86) | `def generate_chart_spec(question: str, query_results: list[dict]) -> dict:` |
+| `part-7-multimodal-applications/module-27-llm-applications/section-27.4.html` | 549 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 81) | `# Map-reduce text analytics over a corpus` |
 | `part-7-multimodal-applications/module-27-llm-applications/section-27.5.html` | 165 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def scan_for_vulnerabilities(code: str, ' drops to opener indent at line 16 | `# LLM-powered code vulnerability scanner` |
 | `part-7-multimodal-applications/module-27-llm-applications/section-27.5.html` | 165 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 89) | `# LLM-powered code vulnerability scanner` |
 | `part-7-multimodal-applications/module-27-llm-applications/section-27.6.html` | 52 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 83) | `# implement socratic_tutor` |
@@ -1139,86 +949,54 @@ Scope: `<pre><code>` blocks under `part-*`, `appendices/`, `front-matter/`, `cap
 | `part-8-evaluation-production/module-28-evaluation-observability/section-28.10.html` | 82 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 82) | `from opentelemetry import trace` |
 | `part-8-evaluation-production/module-28-evaluation-observability/section-28.10.html` | 120 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 89) | `import openai` |
 | `part-8-evaluation-production/module-28-evaluation-observability/section-28.10.html` | 191 | `python` | WIDE_LINE | 6 line(s) > 80 chars (max 88) | `from opentelemetry import trace, context` |
-| `part-8-evaluation-production/module-28-evaluation-observability/section-28.10.html` | 256 | `python` | LEADING_BLANK | 2 blank line(s) at top | `from opentelemetry import trace` |
-| `part-8-evaluation-production/module-28-evaluation-observability/section-28.10.html` | 337 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Auto-instrument all supported LLM libraries with one call` |
-| `part-8-evaluation-production/module-28-evaluation-observability/section-28.10.html` | 337 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 81) | `# Auto-instrument all supported LLM libraries with one call` |
-| `part-8-evaluation-production/module-28-evaluation-observability/section-28.10.html` | 388 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 85) | `from opentelemetry import metrics` |
-| `part-8-evaluation-production/module-28-evaluation-observability/section-28.10.html` | 542 | `python` | LEADING_BLANK | 2 blank line(s) at top | `import json` |
-| `part-8-evaluation-production/module-28-evaluation-observability/section-28.10.html` | 655 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `import pandas as pd` |
-| `part-8-evaluation-production/module-28-evaluation-observability/section-28.10.html` | 694 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Register the best model` |
-| `part-8-evaluation-production/module-28-evaluation-observability/section-28.11.html` | 66 | `python` | LEADING_BLANK | 1 blank line(s) at top | `import os` |
-| `part-8-evaluation-production/module-28-evaluation-observability/section-28.11.html` | 189 | `text` | LEADING_BLANK | 1 blank line(s) at top | `import numpy as np` |
-| `part-8-evaluation-production/module-28-evaluation-observability/section-28.11.html` | 270 | `python` | LEADING_BLANK | 1 blank line(s) at top | `import json` |
-| `part-8-evaluation-production/module-28-evaluation-observability/section-28.11.html` | 270 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 92) | `import json` |
-| `part-8-evaluation-production/module-28-evaluation-observability/section-28.11.html` | 370 | `text` | LEADING_BLANK | 1 blank line(s) at top | `import numpy as np` |
-| `part-8-evaluation-production/module-28-evaluation-observability/section-28.11.html` | 370 | `text` | WIDE_LINE | 1 line(s) > 80 chars (max 95) | `import numpy as np` |
-| `part-8-evaluation-production/module-28-evaluation-observability/section-28.11.html` | 500 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Lab: Complete evaluation protocol for a retrieval-augmented QA system` |
-| `part-8-evaluation-production/module-28-evaluation-observability/section-28.11.html` | 500 | `python` | WIDE_LINE | 10 line(s) > 80 chars (max 109) | `# Lab: Complete evaluation protocol for a retrieval-augmented QA system` |
-| `part-8-evaluation-production/module-28-evaluation-observability/section-28.12.html` | 106 | `bash` | LEADING_BLANK | 1 blank line(s) at top | `# This tool sends concurrent requests and measures TTFT, TPOT, throughput` |
-| `part-8-evaluation-production/module-28-evaluation-observability/section-28.12.html` | 135 | `bash` | LEADING_BLANK | 1 blank line(s) at top | `# AIPerf supports multiple backends, realistic traffic patterns,` |
-| `part-8-evaluation-production/module-28-evaluation-observability/section-28.12.html` | 175 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# MaxText uses a YAML config + Python to define the model and training loop` |
-| `part-8-evaluation-production/module-28-evaluation-observability/section-28.12.html` | 225 | `bash` | LEADING_BLANK | 1 blank line(s) at top | `# Pull the ROCm-specific vLLM image` |
-| `part-8-evaluation-production/module-28-evaluation-observability/section-28.12.html` | 316 | `text` | LEADING_BLANK | 1 blank line(s) at top | `# Most serving engines now support this natively` |
-| `part-8-evaluation-production/module-28-evaluation-observability/section-28.12.html` | 441 | `python` | LEADING_BLANK | 1 blank line(s) at top | `from collections import Counter` |
-| `part-8-evaluation-production/module-28-evaluation-observability/section-28.12.html` | 482 | `python` | LEADING_BLANK | 1 blank line(s) at top | `def rouge_1(reference, candidate):` |
-| `part-8-evaluation-production/module-28-evaluation-observability/section-28.12.html` | 482 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 84) | `def rouge_1(reference, candidate):` |
-| `part-8-evaluation-production/module-28-evaluation-observability/section-28.12.html` | 573 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `from transformers import pipeline` |
-| `part-8-evaluation-production/module-28-evaluation-observability/section-28.12.html` | 573 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def llm_judge(question, reference_answer' drops to opener indent at line 10 | `from transformers import pipeline` |
-| `part-8-evaluation-production/module-28-evaluation-observability/section-28.2.html` | 92 | `text` | LEADING_BLANK | 1 blank line(s) at top | `Input: scores S = [s1, ..., sn], metric function f, resamples B, confidence leve` |
+| `part-8-evaluation-production/module-28-evaluation-observability/section-28.10.html` | 335 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Auto-instrument all supported LLM libraries with one call` |
+| `part-8-evaluation-production/module-28-evaluation-observability/section-28.10.html` | 335 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 81) | `# Auto-instrument all supported LLM libraries with one call` |
+| `part-8-evaluation-production/module-28-evaluation-observability/section-28.10.html` | 386 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 85) | `from opentelemetry import metrics` |
+| `part-8-evaluation-production/module-28-evaluation-observability/section-28.10.html` | 651 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `import pandas as pd` |
+| `part-8-evaluation-production/module-28-evaluation-observability/section-28.10.html` | 690 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# Register the best model` |
+| `part-8-evaluation-production/module-28-evaluation-observability/section-28.11.html` | 268 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 92) | `import json` |
+| `part-8-evaluation-production/module-28-evaluation-observability/section-28.11.html` | 367 | `text` | WIDE_LINE | 1 line(s) > 80 chars (max 95) | `import numpy as np` |
+| `part-8-evaluation-production/module-28-evaluation-observability/section-28.11.html` | 496 | `python` | WIDE_LINE | 10 line(s) > 80 chars (max 109) | `# Lab: Complete evaluation protocol for a retrieval-augmented QA system` |
+| `part-8-evaluation-production/module-28-evaluation-observability/section-28.12.html` | 476 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 84) | `def rouge_1(reference, candidate):` |
+| `part-8-evaluation-production/module-28-evaluation-observability/section-28.12.html` | 566 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `from transformers import pipeline` |
+| `part-8-evaluation-production/module-28-evaluation-observability/section-28.12.html` | 566 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def llm_judge(question, reference_answer' drops to opener indent at line 10 | `from transformers import pipeline` |
 | `part-8-evaluation-production/module-28-evaluation-observability/section-28.2.html` | 92 | `text` | WIDE_LINE | 1 line(s) > 80 chars (max 83) | `Input: scores S = [s1, ..., sn], metric function f, resamples B, confidence leve` |
-| `part-8-evaluation-production/module-28-evaluation-observability/section-28.2.html` | 107 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# implement bootstrap_ci` |
-| `part-8-evaluation-production/module-28-evaluation-observability/section-28.2.html` | 238 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 83) | `# implement mcnemar_test` |
-| `part-8-evaluation-production/module-28-evaluation-observability/section-28.2.html` | 452 | `python` | LEADING_BLANK | 1 blank line(s) at top | `import random` |
-| `part-8-evaluation-production/module-28-evaluation-observability/section-28.2.html` | 452 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 81) | `import random` |
-| `part-8-evaluation-production/module-28-evaluation-observability/section-28.2.html` | 558 | `python` | LEADING_BLANK | 1 blank line(s) at top | `from dataclasses import dataclass` |
-| `part-8-evaluation-production/module-28-evaluation-observability/section-28.2.html` | 558 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 84) | `from dataclasses import dataclass` |
-| `part-8-evaluation-production/module-28-evaluation-observability/section-28.3.html` | 93 | `python` | LEADING_BLANK | 1 blank line(s) at top | `import pytest` |
+| `part-8-evaluation-production/module-28-evaluation-observability/section-28.2.html` | 106 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# implement bootstrap_ci` |
+| `part-8-evaluation-production/module-28-evaluation-observability/section-28.2.html` | 237 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 83) | `# implement mcnemar_test` |
+| `part-8-evaluation-production/module-28-evaluation-observability/section-28.2.html` | 451 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 81) | `import random` |
+| `part-8-evaluation-production/module-28-evaluation-observability/section-28.2.html` | 556 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 84) | `from dataclasses import dataclass` |
 | `part-8-evaluation-production/module-28-evaluation-observability/section-28.3.html` | 93 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 112) | `import pytest` |
-| `part-8-evaluation-production/module-28-evaluation-observability/section-28.3.html` | 170 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 98) | `# implement call_llm, test_summarizer_output_length, test_json_output_structure` |
-| `part-8-evaluation-production/module-28-evaluation-observability/section-28.3.html` | 215 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 107) | `# pip install respx httpx` |
-| `part-8-evaluation-production/module-28-evaluation-observability/section-28.3.html` | 238 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# pip install hypothesis` |
-| `part-8-evaluation-production/module-28-evaluation-observability/section-28.3.html` | 238 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def test_sanitizer_never_crashes(user_in' drops to opener indent at line 6 | `# pip install hypothesis` |
-| `part-8-evaluation-production/module-28-evaluation-observability/section-28.3.html` | 299 | `python` | LEADING_BLANK | 1 blank line(s) at top | `import re` |
-| `part-8-evaluation-production/module-28-evaluation-observability/section-28.3.html` | 299 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 83) | `import re` |
+| `part-8-evaluation-production/module-28-evaluation-observability/section-28.3.html` | 169 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 98) | `# implement call_llm, test_summarizer_output_length, test_json_output_structure` |
+| `part-8-evaluation-production/module-28-evaluation-observability/section-28.3.html` | 214 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 107) | `# pip install respx httpx` |
+| `part-8-evaluation-production/module-28-evaluation-observability/section-28.3.html` | 237 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# pip install hypothesis` |
+| `part-8-evaluation-production/module-28-evaluation-observability/section-28.3.html` | 237 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def test_sanitizer_never_crashes(user_in' drops to opener indent at line 6 | `# pip install hypothesis` |
+| `part-8-evaluation-production/module-28-evaluation-observability/section-28.3.html` | 298 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 83) | `import re` |
 | `part-8-evaluation-production/module-28-evaluation-observability/section-28.6.html` | 119 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# implement rag_pipeline, retrieve_documents, generate_answer` |
 | `part-8-evaluation-production/module-28-evaluation-observability/section-28.6.html` | 119 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def rag_pipeline(query: str) -> str:' drops to opener indent at line 8 | `# implement rag_pipeline, retrieve_documents, generate_answer` |
 | `part-8-evaluation-production/module-28-evaluation-observability/section-28.6.html` | 168 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# implement answer_question, search_knowledge_base, call_llm` |
 | `part-8-evaluation-production/module-28-evaluation-observability/section-28.6.html` | 168 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def answer_question(question: str) -> di' drops to opener indent at line 12 | `# implement answer_question, search_knowledge_base, call_llm` |
-| `part-8-evaluation-production/module-28-evaluation-observability/section-28.6.html` | 363 | `python` | LEADING_BLANK | 1 blank line(s) at top | `from dataclasses import dataclass` |
 | `part-8-evaluation-production/module-28-evaluation-observability/section-28.6.html` | 363 | `python` | WIDE_LINE | 4 line(s) > 80 chars (max 96) | `from dataclasses import dataclass` |
-| `part-8-evaluation-production/module-28-evaluation-observability/section-28.7.html` | 143 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# implement run_experiment, evaluate_pipeline, save_results` |
-| `part-8-evaluation-production/module-28-evaluation-observability/section-28.8.html` | 71 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Detecting and quantifying position bias in an LLM judge` |
 | `part-8-evaluation-production/module-28-evaluation-observability/section-28.8.html` | 71 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 99) | `# Detecting and quantifying position bias in an LLM judge` |
-| `part-8-evaluation-production/module-28-evaluation-observability/section-28.8.html` | 241 | `text` | WIDE_LINE | 1 line(s) > 80 chars (max 94) | `# Prometheus 2: rubric-based evaluation with an open-source judge` |
-| `part-8-evaluation-production/module-28-evaluation-observability/section-28.8.html` | 330 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# AlpacaEval length-controlled win rate debiasing` |
-| `part-8-evaluation-production/module-28-evaluation-observability/section-28.8.html` | 388 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 89) | `# Meta-evaluation: measuring LLM judge reliability` |
-| `part-8-evaluation-production/module-28-evaluation-observability/section-28.9.html` | 327 | `python` | LEADING_BLANK | 1 blank line(s) at top | `import torch` |
+| `part-8-evaluation-production/module-28-evaluation-observability/section-28.8.html` | 240 | `text` | WIDE_LINE | 1 line(s) > 80 chars (max 94) | `# Prometheus 2: rubric-based evaluation with an open-source judge` |
+| `part-8-evaluation-production/module-28-evaluation-observability/section-28.8.html` | 329 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# AlpacaEval length-controlled win rate debiasing` |
+| `part-8-evaluation-production/module-28-evaluation-observability/section-28.8.html` | 387 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 89) | `# Meta-evaluation: measuring LLM judge reliability` |
 | `part-8-evaluation-production/module-28-evaluation-observability/section-28.9.html` | 327 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `import torch` |
-| `part-8-evaluation-production/module-28-evaluation-observability/section-28.9.html` | 442 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 83) | `def measure_contamination_baseline(` |
-| `part-8-evaluation-production/module-29-production-engineering/section-29.1.html` | 252 | `python` | LEADING_BLANK | 1 blank line(s) at top | `import litserve as ls` |
+| `part-8-evaluation-production/module-28-evaluation-observability/section-28.9.html` | 441 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 83) | `def measure_contamination_baseline(` |
 | `part-8-evaluation-production/module-29-production-engineering/section-29.1.html` | 252 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 82) | `import litserve as ls` |
-| `part-8-evaluation-production/module-29-production-engineering/section-29.1.html` | 377 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# implement bedrock_chat` |
-| `part-8-evaluation-production/module-29-production-engineering/section-29.1.html` | 377 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def bedrock_chat(prompt: str, model_id: ' drops to opener indent at line 5 | `# implement bedrock_chat` |
-| `part-8-evaluation-production/module-29-production-engineering/section-29.1.html` | 377 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 89) | `# implement bedrock_chat` |
+| `part-8-evaluation-production/module-29-production-engineering/section-29.1.html` | 376 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# implement bedrock_chat` |
+| `part-8-evaluation-production/module-29-production-engineering/section-29.1.html` | 376 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def bedrock_chat(prompt: str, model_id: ' drops to opener indent at line 5 | `# implement bedrock_chat` |
+| `part-8-evaluation-production/module-29-production-engineering/section-29.1.html` | 376 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 89) | `# implement bedrock_chat` |
 | `part-8-evaluation-production/module-29-production-engineering/section-29.2.html` | 185 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 83) | `# implement chat` |
 | `part-8-evaluation-production/module-29-production-engineering/section-29.2.html` | 262 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 100) | `# Streamlit dashboard setup` |
-| `part-8-evaluation-production/module-29-production-engineering/section-29.3.html` | 78 | `text` | LEADING_BLANK | 1 blank line(s) at top | `Input: capacity C, refill rate R (tokens/sec), request cost cost` |
-| `part-8-evaluation-production/module-29-production-engineering/section-29.3.html` | 96 | `python` | LEADING_BLANK | 1 blank line(s) at top | `import time` |
-| `part-8-evaluation-production/module-29-production-engineering/section-29.3.html` | 96 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 82) | `import time` |
-| `part-8-evaluation-production/module-29-production-engineering/section-29.3.html` | 400 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def check_safety(conversation: list[dict' drops to opener indent at line 18 | `# implement check_safety` |
-| `part-8-evaluation-production/module-29-production-engineering/section-29.3.html` | 400 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 85) | `# implement check_safety` |
-| `part-8-evaluation-production/module-29-production-engineering/section-29.4.html` | 166 | `python` | LEADING_BLANK | 1 blank line(s) at top | `import json, hashlib` |
+| `part-8-evaluation-production/module-29-production-engineering/section-29.3.html` | 95 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 82) | `import time` |
+| `part-8-evaluation-production/module-29-production-engineering/section-29.3.html` | 398 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def check_safety(conversation: list[dict' drops to opener indent at line 18 | `# implement check_safety` |
+| `part-8-evaluation-production/module-29-production-engineering/section-29.3.html` | 398 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 85) | `# implement check_safety` |
 | `part-8-evaluation-production/module-29-production-engineering/section-29.4.html` | 166 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 88) | `import json, hashlib` |
-| `part-8-evaluation-production/module-29-production-engineering/section-29.4.html` | 254 | `python` | LEADING_BLANK | 1 blank line(s) at top | `import hashlib, random` |
-| `part-8-evaluation-production/module-29-production-engineering/section-29.4.html` | 292 | `python` | LEADING_BLANK | 1 blank line(s) at top | `from dataclasses import dataclass, field` |
 | `part-8-evaluation-production/module-29-production-engineering/section-29.5.html` | 156 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `import openai` |
-| `part-8-evaluation-production/module-29-production-engineering/section-29.5.html` | 273 | `python` | LEADING_BLANK | 2 blank line(s) at top | `import asyncio` |
 | `part-8-evaluation-production/module-29-production-engineering/section-29.5.html` | 273 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 82) | `import asyncio` |
-| `part-8-evaluation-production/module-29-production-engineering/section-29.5.html` | 337 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# litellm_config.yaml:` |
-| `part-8-evaluation-production/module-29-production-engineering/section-29.5.html` | 371 | `python` | LEADING_BLANK | 2 blank line(s) at top | `import numpy as np` |
-| `part-8-evaluation-production/module-29-production-engineering/section-29.5.html` | 371 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 92) | `import numpy as np` |
-| `part-8-evaluation-production/module-29-production-engineering/section-29.5.html` | 439 | `python` | LEADING_BLANK | 1 blank line(s) at top | `from datetime import datetime, timedelta` |
-| `part-8-evaluation-production/module-29-production-engineering/section-29.5.html` | 439 | `python` | WIDE_LINE | 5 line(s) > 80 chars (max 96) | `from datetime import datetime, timedelta` |
+| `part-8-evaluation-production/module-29-production-engineering/section-29.5.html` | 335 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# litellm_config.yaml:` |
+| `part-8-evaluation-production/module-29-production-engineering/section-29.5.html` | 369 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 92) | `import numpy as np` |
+| `part-8-evaluation-production/module-29-production-engineering/section-29.5.html` | 435 | `python` | WIDE_LINE | 5 line(s) > 80 chars (max 96) | `from datetime import datetime, timedelta` |
 | `part-8-evaluation-production/module-29-production-engineering/section-29.6.html` | 119 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1, 5, 9] | `import asyncio` |
 | `part-8-evaluation-production/module-29-production-engineering/section-29.6.html` | 119 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'class ResearchRequest:' drops to opener indent at line 14 | `import asyncio` |
 | `part-8-evaluation-production/module-29-production-engineering/section-29.6.html` | 225 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1, 5] | `from temporalio import activity, workflow` |
@@ -1238,57 +1016,38 @@ Scope: `<pre><code>` blocks under `part-*`, `appendices/`, `front-matter/`, `cap
 | `part-8-evaluation-production/module-29-production-engineering/section-29.7.html` | -1 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1, 5] | `"""Benchmark two quantization levels on the same prompts."""` |
 | `part-8-evaluation-production/module-29-production-engineering/section-29.7.html` | -1 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def benchmark_model(model_name: str, pro' drops to opener indent at line 53 | `"""Benchmark two quantization levels on the same prompts."""` |
 | `part-8-evaluation-production/module-29-production-engineering/section-29.8.html` | 69 | `python` | WIDE_LINE | 6 line(s) > 80 chars (max 133) | `from enum import Enum` |
-| `part-8-evaluation-production/module-29-production-engineering/section-29.8.html` | 152 | `text` | LEADING_BLANK | 1 blank line(s) at top | `import asyncio` |
 | `part-8-evaluation-production/module-29-production-engineering/section-29.8.html` | 152 | `text` | WIDE_LINE | 2 line(s) > 80 chars (max 87) | `import asyncio` |
-| `part-8-evaluation-production/module-29-production-engineering/section-29.8.html` | 219 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 89) | `# pip install tenacity` |
-| `part-8-evaluation-production/module-29-production-engineering/section-29.8.html` | 233 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'class FallbackChain:' drops to opener indent at line 14 | `from dataclasses import dataclass, field` |
-| `part-8-evaluation-production/module-29-production-engineering/section-29.8.html` | 233 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 96) | `from dataclasses import dataclass, field` |
-| `part-8-evaluation-production/module-29-production-engineering/section-29.8.html` | 301 | `python` | WIDE_LINE | 17 line(s) > 80 chars (max 135) | `import time` |
-| `part-8-evaluation-production/module-29-production-engineering/section-29.8.html` | 388 | `text` | LEADING_BLANK | 1 blank line(s) at top | `import json` |
-| `part-8-evaluation-production/module-29-production-engineering/section-29.8.html` | 388 | `text` | WIDE_LINE | 2 line(s) > 80 chars (max 91) | `import json` |
-| `part-8-evaluation-production/module-29-production-engineering/section-29.8.html` | 494 | `python` | WIDE_LINE | 10 line(s) > 80 chars (max 141) | `from dataclasses import dataclass, field` |
-| `part-8-evaluation-production/module-29-production-engineering/section-29.8.html` | 563 | `text` | LEADING_BLANK | 1 blank line(s) at top | `import asyncio` |
-| `part-8-evaluation-production/module-29-production-engineering/section-29.9.html` | 73 | `yaml` | LEADING_BLANK | 1 blank line(s) at top | `apiVersion: kueue.x-k8s.io/v1beta1` |
-| `part-8-evaluation-production/module-29-production-engineering/section-29.9.html` | 126 | `yaml` | LEADING_BLANK | 1 blank line(s) at top | `apiVersion: batch.volcano.sh/v1alpha1` |
-| `part-8-evaluation-production/module-29-production-engineering/section-29.9.html` | 199 | `yaml` | LEADING_BLANK | 1 blank line(s) at top | `apiVersion: kubeflow.org/v1` |
-| `part-8-evaluation-production/module-29-production-engineering/section-29.9.html` | 307 | `yaml` | LEADING_BLANK | 1 blank line(s) at top | `apiVersion: serving.kserve.io/v1beta1` |
-| `part-8-evaluation-production/module-29-production-engineering/section-29.9.html` | 410 | `yaml` | LEADING_BLANK | 1 blank line(s) at top | `apiVersion: nvidia.com/v1alpha1` |
-| `part-8-evaluation-production/module-29-production-engineering/section-29.9.html` | 473 | `yaml` | LEADING_BLANK | 1 blank line(s) at top | `apiVersion: autoscaling/v2` |
-| `part-8-evaluation-production/module-29-production-engineering/section-29.9.html` | 666 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `import requests` |
-| `part-8-evaluation-production/module-29-production-engineering/section-29.9.html` | 666 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def measure_request(prompt, max_tokens=5' drops to opener indent at line 6 | `import requests` |
-| `part-8-evaluation-production/module-29-production-engineering/section-29.9.html` | 666 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 82) | `import requests` |
+| `part-8-evaluation-production/module-29-production-engineering/section-29.8.html` | 218 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 89) | `# pip install tenacity` |
+| `part-8-evaluation-production/module-29-production-engineering/section-29.8.html` | 232 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'class FallbackChain:' drops to opener indent at line 14 | `from dataclasses import dataclass, field` |
+| `part-8-evaluation-production/module-29-production-engineering/section-29.8.html` | 232 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 96) | `from dataclasses import dataclass, field` |
+| `part-8-evaluation-production/module-29-production-engineering/section-29.8.html` | 300 | `python` | WIDE_LINE | 17 line(s) > 80 chars (max 135) | `import time` |
+| `part-8-evaluation-production/module-29-production-engineering/section-29.8.html` | 387 | `text` | WIDE_LINE | 2 line(s) > 80 chars (max 91) | `import json` |
+| `part-8-evaluation-production/module-29-production-engineering/section-29.8.html` | 492 | `python` | WIDE_LINE | 10 line(s) > 80 chars (max 141) | `from dataclasses import dataclass, field` |
+| `part-8-evaluation-production/module-29-production-engineering/section-29.9.html` | 660 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `import requests` |
+| `part-8-evaluation-production/module-29-production-engineering/section-29.9.html` | 660 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def measure_request(prompt, max_tokens=5' drops to opener indent at line 6 | `import requests` |
+| `part-8-evaluation-production/module-29-production-engineering/section-29.9.html` | 660 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 82) | `import requests` |
 | `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.1.html` | 160 | `python` | WIDE_LINE | 4 line(s) > 80 chars (max 87) | `# implement sanitize_input` |
 | `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.1.html` | 204 | `text` | WIDE_LINE | 3 line(s) > 80 chars (max 107) | `Input: user message M, injection patterns P = {p1, ..., pk}, LLM classifier C, t` |
-| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.1.html` | 231 | `python` | LEADING_BLANK | 1 blank line(s) at top | `import re` |
 | `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.1.html` | 231 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 89) | `import re` |
-| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.1.html` | 260 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 95) | `# pip install presidio-analyzer presidio-anonymizer` |
-| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.1.html` | 475 | `text` | WIDE_LINE | 2 line(s) > 80 chars (max 85) | `# implement llamaguard_safety_check` |
-| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.1.html` | 614 | `text` | WIDE_LINE | 1 line(s) > 80 chars (max 81) | `# WARNING: This demonstrates the vulnerability. Never run untrusted pickle files` |
-| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.1.html` | 838 | `python` | LEADING_BLANK | 1 blank line(s) at top | `import re` |
-| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.1.html` | 838 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 101) | `import re` |
-| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.1.html` | 897 | `python` | LEADING_BLANK | 1 blank line(s) at top | `class PIIRedactor:` |
-| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.1.html` | 897 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 81) | `class PIIRedactor:` |
-| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.1.html` | 944 | `text` | WIDE_LINE | 2 line(s) > 80 chars (max 90) | `class SandwichDefense:` |
-| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.1.html` | 994 | `python` | LEADING_BLANK | 1 blank line(s) at top | `class SafetyPipeline:` |
-| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.1.html` | 994 | `python` | WIDE_LINE | 4 line(s) > 80 chars (max 93) | `class SafetyPipeline:` |
-| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.1.html` | 1086 | `python` | LEADING_BLANK | 1 blank line(s) at top | `import re, json` |
-| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.1.html` | 1086 | `python` | WIDE_LINE | 26 line(s) > 80 chars (max 195) | `import re, json` |
-| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.10.html` | 74 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Estimating training carbon footprint from first principles` |
-| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.10.html` | 141 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 100) | `# pip install codecarbon` |
-| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.10.html` | 319 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Carbon-aware region selection for training jobs` |
-| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.10.html` | 319 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 84) | `# Carbon-aware region selection for training jobs` |
-| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.10.html` | 416 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 81) | `# Tracking training emissions with CodeCarbon` |
-| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.10.html` | 706 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 81) | `from codecarbon import EmissionsTracker` |
-| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.11.html` | 120 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# End-to-end privacy pipeline: scrub, train with DP, filter outputs` |
+| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.1.html` | 259 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 95) | `# pip install presidio-analyzer presidio-anonymizer` |
+| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.1.html` | 474 | `text` | WIDE_LINE | 2 line(s) > 80 chars (max 85) | `# implement llamaguard_safety_check` |
+| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.1.html` | 613 | `text` | WIDE_LINE | 1 line(s) > 80 chars (max 81) | `# WARNING: This demonstrates the vulnerability. Never run untrusted pickle files` |
+| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.1.html` | 837 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 101) | `import re` |
+| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.1.html` | 895 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 81) | `class PIIRedactor:` |
+| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.1.html` | 941 | `text` | WIDE_LINE | 2 line(s) > 80 chars (max 90) | `class SandwichDefense:` |
+| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.1.html` | 991 | `python` | WIDE_LINE | 4 line(s) > 80 chars (max 93) | `class SafetyPipeline:` |
+| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.1.html` | 1082 | `python` | WIDE_LINE | 26 line(s) > 80 chars (max 195) | `import re, json` |
+| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.10.html` | 140 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 100) | `# pip install codecarbon` |
+| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.10.html` | 318 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 84) | `# Carbon-aware region selection for training jobs` |
+| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.10.html` | 414 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 81) | `# Tracking training emissions with CodeCarbon` |
+| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.10.html` | 704 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 81) | `from codecarbon import EmissionsTracker` |
 | `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.11.html` | 120 | `python` | WIDE_LINE | 4 line(s) > 80 chars (max 100) | `# End-to-end privacy pipeline: scrub, train with DP, filter outputs` |
-| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.11.html` | 183 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 84) | `# Membership Inference Attack: loss-threshold method` |
-| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.11.html` | 363 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# PII detection and scrubbing pipeline` |
-| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.11.html` | 363 | `python` | WIDE_LINE | 4 line(s) > 80 chars (max 87) | `# PII detection and scrubbing pipeline` |
-| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.11.html` | 432 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 106) | `# pip install presidio-analyzer presidio-anonymizer` |
-| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.11.html` | 497 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 99) | `# Lab: Memorization measurement and DP mitigation` |
-| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.11.html` | 724 | `python` | WIDE_LINE | 4 line(s) > 80 chars (max 102) | `import copy` |
-| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.11.html` | 825 | `python` | LEADING_BLANK | 1 blank line(s) at top | `import flwr as fl` |
-| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.11.html` | 825 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 90) | `import flwr as fl` |
+| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.11.html` | 182 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 84) | `# Membership Inference Attack: loss-threshold method` |
+| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.11.html` | 362 | `python` | WIDE_LINE | 4 line(s) > 80 chars (max 87) | `# PII detection and scrubbing pipeline` |
+| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.11.html` | 430 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 106) | `# pip install presidio-analyzer presidio-anonymizer` |
+| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.11.html` | 495 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 99) | `# Lab: Memorization measurement and DP mitigation` |
+| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.11.html` | 722 | `python` | WIDE_LINE | 4 line(s) > 80 chars (max 102) | `import copy` |
+| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.11.html` | 823 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 90) | `import flwr as fl` |
 | `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.2.html` | 100 | `text` | WIDE_LINE | 3 line(s) > 80 chars (max 88) | `# implement self_consistency_check` |
 | `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.2.html` | 199 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# implement check_faithfulness` |
 | `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.2.html` | 199 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def check_faithfulness(source: str, clai' drops to opener indent at line 6 | `# implement check_faithfulness` |
@@ -1298,85 +1057,52 @@ Scope: `<pre><code>` blocks under `part-*`, `appendices/`, `front-matter/`, `cap
 | `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.3.html` | 244 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def generate_model_card(model_name: str,' drops to opener indent at line 4 | `# implement generate_model_card` |
 | `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.3.html` | 244 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 81) | `# implement generate_model_card` |
 | `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.3.html` | 577 | `text` | WIDE_LINE | 1 line(s) > 80 chars (max 83) | `# Measuring cultural value bias in LLM responses` |
-| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.3.html` | 752 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Distributional alignment: training a reward model that` |
-| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.4.html` | 152 | `python` | LEADING_BLANK | 1 blank line(s) at top | `from dataclasses import dataclass, field` |
-| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.4.html` | 196 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# implement get_sector_requirements` |
-| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.4.html` | 196 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def get_sector_requirements(sector: str)' drops to opener indent at line 4 | `# implement get_sector_requirements` |
+| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.4.html` | 195 | `python` | INCONSISTENT_INDENT | structural indent widths suspect: [1] | `# implement get_sector_requirements` |
+| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.4.html` | 195 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'def get_sector_requirements(sector: str)' drops to opener indent at line 4 | `# implement get_sector_requirements` |
 | `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.5.html` | 111 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 85) | `# Define RiskTier, ModelInventoryEntry; implement needs_review` |
-| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.5.html` | 158 | `python` | LEADING_BLANK | 1 blank line(s) at top | `import json, hashlib` |
 | `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.5.html` | 158 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 81) | `import json, hashlib` |
 | `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.6.html` | 95 | `python` | WIDE_LINE | 4 line(s) > 80 chars (max 90) | `# implement check_license_compatibility` |
 | `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.6.html` | 140 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 108) | `# implement dp_sgd_step` |
 | `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.7.html` | 116 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 81) | `# implement gradient_ascent_unlearn` |
-| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.7.html` | 160 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# implement compute_task_vector, negate_task_vector` |
-| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.7.html` | 160 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'for key in base_weights:' drops to opener indent at line 18 | `# implement compute_task_vector, negate_task_vector` |
+| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.7.html` | 160 | `python` | PYTHON_NO_BODY_INDENT | body of opener 'for key in base_weights:' drops to opener indent at line 17 | `# implement compute_task_vector, negate_task_vector` |
 | `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.7.html` | 160 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 89) | `# implement compute_task_vector, negate_task_vector` |
-| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.8.html` | 70 | `text` | LEADING_BLANK | 1 blank line(s) at top | `Input: target system S, attack library A = {a1, ..., am}, scorer function score(` |
 | `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.8.html` | 70 | `text` | WIDE_LINE | 1 line(s) > 80 chars (max 113) | `Input: target system S, attack library A = {a1, ..., am}, scorer function score(` |
-| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.8.html` | 222 | `python` | WIDE_LINE | 18 line(s) > 80 chars (max 107) | `# Custom red team framework for tool-use testing` |
-| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.8.html` | 387 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 88) | `# Building a domain-specific adversarial prompt library` |
+| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.8.html` | 221 | `python` | WIDE_LINE | 18 line(s) > 80 chars (max 107) | `# Custom red team framework for tool-use testing` |
+| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.8.html` | 386 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 88) | `# Building a domain-specific adversarial prompt library` |
 | `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.9.html` | 85 | `python` | WIDE_LINE | 5 line(s) > 80 chars (max 87) | `# Risk classification helper for LLM applications` |
-| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.9.html` | 214 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Template for EU AI Act technical documentation` |
-| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.9.html` | 468 | `python` | WIDE_LINE | 16 line(s) > 80 chars (max 99) | `# Automated EU AI Act compliance checker` |
-| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.9.html` | 757 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Example: Compliance-as-code checks in a CI/CD pipeline` |
-| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.1.html` | 99 | `python` | LEADING_BLANK | 1 blank line(s) at top | `from dataclasses import dataclass` |
-| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.1.html` | 150 | `python` | LEADING_BLANK | 1 blank line(s) at top | `from dataclasses import dataclass, field` |
-| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.1.html` | 150 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 105) | `from dataclasses import dataclass, field` |
-| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.1.html` | 375 | `python` | LEADING_BLANK | 1 blank line(s) at top | `from dataclasses import dataclass` |
-| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.1.html` | 375 | `python` | WIDE_LINE | 4 line(s) > 80 chars (max 96) | `from dataclasses import dataclass` |
-| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.1.html` | 422 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 88) | `# Business Case Template (structured as a Python dict for automation)` |
-| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.1.html` | 648 | `text` | WIDE_LINE | 3 line(s) > 80 chars (max 95) | `{` |
+| `part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.9.html` | 467 | `python` | WIDE_LINE | 16 line(s) > 80 chars (max 99) | `# Automated EU AI Act compliance checker` |
+| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.1.html` | 149 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 105) | `from dataclasses import dataclass, field` |
+| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.1.html` | 373 | `python` | WIDE_LINE | 4 line(s) > 80 chars (max 96) | `from dataclasses import dataclass` |
+| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.1.html` | 419 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 88) | `# Business Case Template (structured as a Python dict for automation)` |
+| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.1.html` | 645 | `text` | WIDE_LINE | 3 line(s) > 80 chars (max 95) | `{` |
 | `part-9-safety-strategy/module-31-strategy-product-roi/section-31.2.html` | 64 | `python` | WIDE_LINE | 6 line(s) > 80 chars (max 103) | `# Define RiskLevel, LLMProductSpec; implement model_tier_recommendation` |
-| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.2.html` | 135 | `python` | LEADING_BLANK | 1 blank line(s) at top | `from dataclasses import dataclass` |
 | `part-9-safety-strategy/module-31-strategy-product-roi/section-31.2.html` | 135 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 82) | `from dataclasses import dataclass` |
-| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.2.html` | 392 | `python` | LEADING_BLANK | 1 blank line(s) at top | `from dataclasses import dataclass` |
-| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.2.html` | 392 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 96) | `from dataclasses import dataclass` |
-| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.3.html` | 113 | `python` | LEADING_BLANK | 1 blank line(s) at top | `from dataclasses import dataclass` |
-| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.3.html` | 392 | `python` | LEADING_BLANK | 1 blank line(s) at top | `from dataclasses import dataclass` |
-| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.3.html` | 392 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 86) | `from dataclasses import dataclass` |
-| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.3.html` | 569 | `text` | WIDE_LINE | 4 line(s) > 80 chars (max 152) | `from dataclasses import dataclass, field` |
-| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.3.html` | 628 | `text` | WIDE_LINE | 1 line(s) > 80 chars (max 85) | `class ROICalculator:` |
-| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.3.html` | 709 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 100) | `# implement sensitivity_analysis` |
-| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.3.html` | 774 | `python` | WIDE_LINE | 4 line(s) > 80 chars (max 95) | `# implement multi_year_projection` |
-| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.3.html` | 843 | `text` | WIDE_LINE | 3 line(s) > 80 chars (max 95) | `# implement executive_report` |
-| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.3.html` | 930 | `text` | WIDE_LINE | 8 line(s) > 80 chars (max 115) | `from dataclasses import dataclass, replace` |
-| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.4.html` | 62 | `python` | LEADING_BLANK | 1 blank line(s) at top | `from dataclasses import dataclass, field` |
+| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.2.html` | 391 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 96) | `from dataclasses import dataclass` |
+| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.3.html` | 391 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 86) | `from dataclasses import dataclass` |
+| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.3.html` | 567 | `text` | WIDE_LINE | 4 line(s) > 80 chars (max 152) | `from dataclasses import dataclass, field` |
+| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.3.html` | 626 | `text` | WIDE_LINE | 1 line(s) > 80 chars (max 85) | `class ROICalculator:` |
+| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.3.html` | 707 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 100) | `# implement sensitivity_analysis` |
+| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.3.html` | 772 | `python` | WIDE_LINE | 4 line(s) > 80 chars (max 95) | `# implement multi_year_projection` |
+| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.3.html` | 841 | `text` | WIDE_LINE | 3 line(s) > 80 chars (max 95) | `# implement executive_report` |
+| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.3.html` | 928 | `text` | WIDE_LINE | 8 line(s) > 80 chars (max 115) | `from dataclasses import dataclass, replace` |
 | `part-9-safety-strategy/module-31-strategy-product-roi/section-31.4.html` | 62 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 82) | `from dataclasses import dataclass, field` |
-| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.4.html` | 183 | `python` | LEADING_BLANK | 1 blank line(s) at top | `from dataclasses import dataclass` |
-| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.4.html` | 183 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 87) | `from dataclasses import dataclass` |
-| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.4.html` | 414 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 81) | `# implement tco_comparison` |
-| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.5.html` | 147 | `python` | LEADING_BLANK | 1 blank line(s) at top | `from dataclasses import dataclass` |
+| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.4.html` | 182 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 87) | `from dataclasses import dataclass` |
+| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.4.html` | 412 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 81) | `# implement tco_comparison` |
 | `part-9-safety-strategy/module-31-strategy-product-roi/section-31.5.html` | 147 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 86) | `from dataclasses import dataclass` |
-| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.5.html` | 211 | `python` | LEADING_BLANK | 1 blank line(s) at top | `from dataclasses import dataclass` |
-| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.5.html` | 211 | `python` | WIDE_LINE | 6 line(s) > 80 chars (max 101) | `from dataclasses import dataclass` |
-| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.5.html` | 297 | `python` | LEADING_BLANK | 1 blank line(s) at top | `from dataclasses import dataclass` |
-| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.5.html` | 297 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 90) | `from dataclasses import dataclass` |
-| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.5.html` | 517 | `python` | LEADING_BLANK | 1 blank line(s) at top | `import random` |
-| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.5.html` | 517 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 89) | `import random` |
-| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.6.html` | 57 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Example: FastAPI middleware for OIDC token validation in an LLM service` |
+| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.5.html` | 210 | `python` | WIDE_LINE | 6 line(s) > 80 chars (max 101) | `from dataclasses import dataclass` |
+| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.5.html` | 295 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 90) | `from dataclasses import dataclass` |
+| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.5.html` | 514 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 89) | `import random` |
 | `part-9-safety-strategy/module-31-strategy-product-roi/section-31.6.html` | 57 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 83) | `# Example: FastAPI middleware for OIDC token validation in an LLM service` |
-| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.6.html` | 119 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 91) | `# Example: LLM-specific RBAC policy engine` |
-| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.6.html` | 202 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Example: Tenant-isolated RAG pipeline with namespace separation` |
-| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.6.html` | 202 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 95) | `# Example: Tenant-isolated RAG pipeline with namespace separation` |
-| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.6.html` | 351 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Example: Structured audit logging for LLM interactions` |
-| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.6.html` | 414 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 105) | `# Example: Risk-based approval routing for LLM tool calls` |
-| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.6.html` | 490 | `yaml` | WIDE_LINE | 1 line(s) > 80 chars (max 81) | `# Example: Governance configuration for an enterprise LLM platform` |
-| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.6.html` | 526 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Example: Vault-integrated credential manager for LLM tool calls` |
-| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.6.html` | 573 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Complete key lifecycle manager using HashiCorp Vault` |
-| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.6.html` | 720 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Example: Enterprise chatbot orchestrator combining all integration patterns` |
-| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.6.html` | 720 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 90) | `# Example: Enterprise chatbot orchestrator combining all integration patterns` |
-| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.7.html` | 58 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Example: Three-tier token budget enforcement` |
+| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.6.html` | 118 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 91) | `# Example: LLM-specific RBAC policy engine` |
+| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.6.html` | 201 | `python` | WIDE_LINE | 2 line(s) > 80 chars (max 95) | `# Example: Tenant-isolated RAG pipeline with namespace separation` |
+| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.6.html` | 411 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 105) | `# Example: Risk-based approval routing for LLM tool calls` |
+| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.6.html` | 487 | `yaml` | WIDE_LINE | 1 line(s) > 80 chars (max 81) | `# Example: Governance configuration for an enterprise LLM platform` |
+| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.6.html` | 715 | `python` | WIDE_LINE | 3 line(s) > 80 chars (max 90) | `# Example: Enterprise chatbot orchestrator combining all integration patterns` |
 | `part-9-safety-strategy/module-31-strategy-product-roi/section-31.7.html` | 58 | `python` | WIDE_LINE | 8 line(s) > 80 chars (max 113) | `# Example: Three-tier token budget enforcement` |
-| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.7.html` | 130 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Example: Cost-aware cascade router with confidence-based escalation` |
-| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.7.html` | 130 | `python` | WIDE_LINE | 4 line(s) > 80 chars (max 113) | `# Example: Cost-aware cascade router with confidence-based escalation` |
-| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.7.html` | 192 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 91) | `# pip install litellm` |
-| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.7.html` | 213 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Example: Semantic cache with similarity threshold and TTL` |
-| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.7.html` | 213 | `python` | WIDE_LINE | 7 line(s) > 80 chars (max 101) | `# Example: Semantic cache with similarity threshold and TTL` |
-| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.7.html` | 310 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Example: Prompt cost analyzer and optimizer` |
-| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.7.html` | 310 | `python` | WIDE_LINE | 9 line(s) > 80 chars (max 107) | `# Example: Prompt cost analyzer and optimizer` |
-| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.7.html` | 370 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Example: Evaluation budget manager with stratified sampling` |
-| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.7.html` | 370 | `python` | WIDE_LINE | 5 line(s) > 80 chars (max 121) | `# Example: Evaluation budget manager with stratified sampling` |
-| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.7.html` | 431 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Example: Cost observability with anomaly detection` |
-| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.7.html` | 431 | `python` | WIDE_LINE | 4 line(s) > 80 chars (max 100) | `# Example: Cost observability with anomaly detection` |
-| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.7.html` | 499 | `python` | LEADING_BLANK | 1 blank line(s) at top | `# Lab: Complete cost-aware LLM middleware` |
-| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.7.html` | 499 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 86) | `# Lab: Complete cost-aware LLM middleware` |
+| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.7.html` | 129 | `python` | WIDE_LINE | 4 line(s) > 80 chars (max 113) | `# Example: Cost-aware cascade router with confidence-based escalation` |
+| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.7.html` | 190 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 91) | `# pip install litellm` |
+| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.7.html` | 211 | `python` | WIDE_LINE | 7 line(s) > 80 chars (max 101) | `# Example: Semantic cache with similarity threshold and TTL` |
+| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.7.html` | 307 | `python` | WIDE_LINE | 9 line(s) > 80 chars (max 107) | `# Example: Prompt cost analyzer and optimizer` |
+| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.7.html` | 366 | `python` | WIDE_LINE | 5 line(s) > 80 chars (max 121) | `# Example: Evaluation budget manager with stratified sampling` |
+| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.7.html` | 426 | `python` | WIDE_LINE | 4 line(s) > 80 chars (max 100) | `# Example: Cost observability with anomaly detection` |
+| `part-9-safety-strategy/module-31-strategy-product-roi/section-31.7.html` | 493 | `python` | WIDE_LINE | 1 line(s) > 80 chars (max 86) | `# Lab: Complete cost-aware LLM middleware` |
