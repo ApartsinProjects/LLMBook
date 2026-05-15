@@ -548,10 +548,18 @@ def step_optimize() -> int:
         sys.path.insert(0, str(BUILD_DIR))
         from _recompress_images import recompress_epub, MOZJPEG, OXIPNG
         if MOZJPEG and OXIPNG:
-            print("  [recompress] running MozJPEG + OxiPNG...")
+            print("  [recompress] running MozJPEG + OxiPNG (with cache)...")
             stats = recompress_epub(epub, epub)
             print(f"    MozJPEG: {stats['jpg_files']} files, saved {stats['jpg_saved']/1024:.0f} KB")
             print(f"    OxiPNG:  {stats['png_files']} files, saved {stats['png_saved']/1024:.0f} KB")
+            # v14.1: cache stats
+            jpg_h = stats.get('cache_jpg_hits', 0); jpg_m = stats.get('cache_jpg_miss', 0)
+            png_h = stats.get('cache_png_hits', 0); png_m = stats.get('cache_png_miss', 0)
+            if jpg_h + jpg_m + png_h + png_m > 0:
+                tot_h = jpg_h + png_h; tot_m = jpg_m + png_m
+                tot = tot_h + tot_m
+                hit_pct = 100.0 * tot_h / tot if tot else 0.0
+                print(f"    cache:   {tot_h} hits / {tot_m} miss ({hit_pct:.0f}% hit; jpg={jpg_h}/{jpg_m}, png={png_h}/{png_m})")
         else:
             warn("MozJPEG/OxiPNG not installed; skipping post-optimize recompression")
     except Exception as _e:
