@@ -346,6 +346,13 @@ def clean_chapter_html(soup: BeautifulSoup) -> None:
     # footers and copyright pages.
     templatize_metadata_placeholders(soup)
 
+    # v15.7: convert <details>/<summary> disclosure widgets to plain divs.
+    # Kindle's reflowable rendering treats <details> body as hidden until
+    # the user clicks <summary>, but Kindle has no JS / no click model,
+    # so the answer body never appears. Result: "Show Answer" labels with
+    # no answer visible. Replace with a visible labelled block.
+    unwrap_details_disclosure(soup)
+
     # Apply Pygments syntax highlighting to <pre><code class='language-X'>
     # blocks. Source HTML uses Prism.js (client-side); without highlighting
     # at build time, code shows monochrome in EPUB readers.
@@ -505,6 +512,37 @@ def slim_wisdom_council(soup: BeautifulSoup) -> None:
             intro_p.insert_after(intro)
         else:
             grid.insert_before(intro)
+
+
+def unwrap_details_disclosure(soup: BeautifulSoup) -> int:
+    """Convert <details>/<summary> to a visible div+label pair.
+
+    Kindle reflowable EPUB readers commonly support the <details> tag
+    structurally but DO NOT render the disclosure body until the
+    <summary> is clicked. They have no click model, so the body is
+    permanently hidden. The end-user sees just "Show Answer" with no
+    answer.
+
+    Replace every <details> with a <div class="answer-block">. Replace
+    its <summary> with a <p class="answer-label"> heading. The rest of
+    the children stay in place but now visible.
+    """
+    n = 0
+    for det in list(soup.find_all("details")):
+        new_div = soup.new_tag("div", **{"class": "answer-block"})
+        for child in list(det.children):
+            if getattr(child, "name", None) == "summary":
+                # Convert <summary>X</summary> to <p class="answer-label">X</p>
+                label = soup.new_tag("p", **{"class": "answer-label"})
+                for grandchild in list(child.children):
+                    label.append(grandchild.extract() if hasattr(grandchild, "extract") else grandchild)
+                new_div.append(label)
+            else:
+                # NavigableString or other element: copy in as-is
+                new_div.append(child.extract() if hasattr(child, "extract") else child)
+        det.replace_with(new_div)
+        n += 1
+    return n
 
 
 def templatize_metadata_placeholders(soup: BeautifulSoup) -> int:
@@ -1997,18 +2035,47 @@ def _build_toc_ol(spine_entries, chapter_map, items_by_id) -> str:
             L.append("</ol>")
         L.append("</li>")
 
-    if appendix_root_info or appendices:
+    # v15.7: Promote the Glossary out of Appendices to its own top-level
+    # nav entry. Readers reach for the glossary like a dictionary, not
+    # as an appendix subsection; surfacing it at level 1 mirrors how
+    # printed textbooks list it.
+    #
+    # IMPORTANT: epubcheck NAV-011 requires "toc nav must be in reading
+    # order" matching the spine. The glossary file lives within the
+    # appendices group in the spine (after appendix-index, alongside
+    # other appendices). So its TOC entry must come AFTER the Appendices
+    # group, not before it.
+    glossary_apx = None
+    other_appendices = []
+    for apx in appendices:
+        apx_info = apx["info"]
+        title_l = (apx_info.get("title") or "").lower()
+        if "glossary" in title_l:
+            glossary_apx = apx
+        else:
+            other_appendices.append(apx)
+
+    if appendix_root_info or other_appendices:
         L.append("<li>")
-        link_target = appendix_root_info["file"] if appendix_root_info else appendices[0]["info"]["file"]
+        link_target = appendix_root_info["file"] if appendix_root_info else other_appendices[0]["info"]["file"]
         L.append(f'<a href="{escape_xml(link_target)}">Appendices</a>')
-        if appendices:
+        if other_appendices:
             L.append("<ol>")
-            for apx in appendices:
+            for apx in other_appendices:
                 apx_info = apx["info"]
                 # 2-level limit: appendix sections live inside the appendix
                 # index page (not nested here).
                 L.append(f'<li><a href="{escape_xml(apx_info["file"])}">{escape_xml(apx_info["title"])}</a></li>')
             L.append("</ol>")
+        L.append("</li>")
+
+    if glossary_apx is not None:
+        # Top-level entry, after Appendices, to satisfy NAV-011 reading-
+        # order requirement (Glossary file is in the appendices/ folder
+        # and follows the appendix-index in spine).
+        gloss_info = glossary_apx["info"]
+        L.append("<li>")
+        L.append(f'<a href="{escape_xml(gloss_info["file"])}">Glossary</a>')
         L.append("</li>")
 
     L.append("</ol>")
@@ -2062,7 +2129,16 @@ def _build_landmarks(spine_entries, chapter_map, items_by_id) -> str:
     if cs:
         lines.append(f'<li><a epub:type="afterword" href="{escape_xml(cs["file"])}">Capstone</a></li>')
 
-    # 8. Appendices entry point
+    # 8. Glossary landmark (top-level entry point, per v15.7 promotion).
+    #    epub:type="glossary" is the spec-defined value for the
+    #    glossary section.
+    gloss = next((chapter_map.get(e["path"]) for e in spine_entries
+                  if "appendix-f-glossary" in e["path"]
+                  and e["kind"] == "appendix" and e["path"] in chapter_map), None)
+    if gloss:
+        lines.append(f'<li><a epub:type="glossary" href="{escape_xml(gloss["file"])}">Glossary</a></li>')
+
+    # 9. Appendices entry point
     apx = next((chapter_map.get(e["path"]) for e in spine_entries
                 if e["kind"] == "appendix-index" and e["path"] in chapter_map), None)
     if apx:
