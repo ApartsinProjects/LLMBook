@@ -660,6 +660,68 @@ def render_math_in_soup(soup: BeautifulSoup) -> int:
     # Map id -> original tex (used to inject alttext on <math> for ACC-009)
     tex_by_id = {it["id"]: it["tex"] for it in items}
 
+    def _sanitize_mathml(parsed_soup) -> None:
+        """Fix KaTeX MathML output quirks that epubcheck flags:
+
+        1. <mtable columnspacing="0.16667em 0.27778em">  KaTeX emits a
+           multi-value list separated by spaces. epubcheck rejects this
+           as an invalid attribute value. Drop the attribute.
+
+        2. <msub>/<msup>/<mover>/<munder>/<mfrac>/<mroot> with MORE than
+           the schema-required child count. KaTeX expressions like
+           D_{\\max} render \\max as <mi>max</mi><mo>⁡</mo> giving an
+           msub with 3 children when the schema requires exactly 2.
+           Wrap the extra children (everything past the first) into a
+           single <mrow>.
+
+        3. Bare <mo>/<mi>/<mn> directly under <math> (without <mrow>).
+        """
+        # 1. Strip columnspacing on mtable / mtr / mtd
+        for mt in parsed_soup.find_all("mtable"):
+            for attr in ("columnspacing", "rowspacing", "columnalign", "rowalign"):
+                if mt.has_attr(attr):
+                    del mt.attrs[attr]
+        for tag in parsed_soup.find_all(["mtd", "mtr"]):
+            for attr in ("columnspacing", "rowspacing", "columnalign", "rowalign"):
+                if tag.has_attr(attr) and " " in str(tag[attr]):
+                    del tag.attrs[attr]
+
+        # 2. Fix arity violations on script/limit/fraction/root elements.
+        #    Schema-required child counts (after applying mrow wrapping):
+        #      msub/msup/munder/mover/mfrac/mroot : 2
+        #      msubsup/munderover                  : 3
+        ARITY = {
+            "msub":     2, "msup":     2,
+            "munder":   2, "mover":    2,
+            "mfrac":    2, "mroot":    2,
+            "msubsup":  3, "munderover": 3,
+        }
+        for tag_name, expected in ARITY.items():
+            for el in parsed_soup.find_all(tag_name):
+                kids = [c for c in el.children if getattr(c, "name", None)]
+                if len(kids) <= expected:
+                    continue
+                # Keep the first (expected-1) children as-is, wrap the
+                # remaining (n - (expected-1)) into a single <mrow>.
+                keep = kids[: expected - 1]
+                rest = kids[expected - 1 :]
+                new_mrow = parsed_soup.new_tag("mrow")
+                for c in list(rest):
+                    new_mrow.append(c.extract())
+                el.append(new_mrow)
+
+        # 3. Wrap loose <math> children in <mrow>
+        for math in parsed_soup.find_all("math"):
+            children = [c for c in math.children if getattr(c, "name", None)]
+            if len(children) == 1 and children[0].name in ("mrow", "semantics"):
+                continue
+            non_wrapper = [c for c in children if c.name not in ("mrow", "semantics")]
+            if non_wrapper:
+                new_mrow = parsed_soup.new_tag("mrow")
+                for c in list(children):
+                    new_mrow.append(c.extract())
+                math.append(new_mrow)
+
     def _inject_math_alttext(parsed_soup, tex_source: str) -> None:
         """Set alttext on every <math> element inside parsed_soup.
 
@@ -686,6 +748,7 @@ def render_math_in_soup(soup: BeautifulSoup) -> int:
                 continue
             new_soup = BeautifulSoup(html, "lxml")
             _inject_math_alttext(new_soup, tex_by_id.get(mid, ""))
+            _sanitize_mathml(new_soup)
             wrap = new_soup.find(["span", "div"], class_="katex")
             if wrap is None:
                 wrap = new_soup
@@ -702,6 +765,7 @@ def render_math_in_soup(soup: BeautifulSoup) -> int:
                 continue
             new_soup = BeautifulSoup(html, "lxml")
             _inject_math_alttext(new_soup, tex_by_id.get(mid, ""))
+            _sanitize_mathml(new_soup)
             wrap = new_soup.find(["span", "div"], class_="katex")
             if wrap is None:
                 continue
@@ -1694,9 +1758,19 @@ def build(max_side: int, jpeg_quality: int) -> int:
         ch.add_link(href="../styles/katex.min.css", rel="stylesheet", type="text/css")
         ch.add_link(href="../styles/book.css", rel="stylesheet", type="text/css")
         ch.add_link(href="../styles/epub_overrides.css", rel="stylesheet", type="text/css")
-        if "<svg" in xhtml_content.lower():
-            ch.properties = ["svg"]
+        # OPF 'properties' attribute on the spine itemref must reflect
+        # what the chapter contains: svg / mathml / scripted. KaTeX in
+        # MathML output mode emits <math> elements which require the
+        # 'mathml' property (epubcheck OPF-014 otherwise).
+        props = []
+        lower_xh = xhtml_content.lower()
+        if "<svg" in lower_xh:
+            props.append("svg")
             n_svg_chapters += 1
+        if "<math" in lower_xh:
+            props.append("mathml")
+        if props:
+            ch.properties = props
         book.add_item(ch)
         chapter_items.append(ch)
     print(f"  {n_svg_chapters} chapters tagged with properties='svg'")
