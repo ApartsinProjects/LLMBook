@@ -207,24 +207,47 @@ and send back for diagnosis.</p>
 """
 
 
+def render_png_bytes(tex: str, display: bool) -> bytes:
+    """Same as render_png but return raw bytes (for EPUB file embedding)."""
+    fontsize = 16 if display else 14
+    fig = plt.figure(figsize=(0.1, 0.1), dpi=300)
+    fig.patch.set_alpha(0)
+    fig.text(0.5, 0.5, f"${tex}$", fontsize=fontsize, ha='center', va='center',
+             color='black')
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png', dpi=300, transparent=True,
+                bbox_inches='tight', pad_inches=0.05)
+    plt.close(fig)
+    return buf.getvalue()
+
+
 def main():
     print("Rendering MathML (KaTeX)...")
     mathml = render_mathml()
     print("Rendering SVG (MathJax)...")
     svg = render_svg()
     print("Rendering PNG (matplotlib)...")
-    png_urls = {str(i): render_png(t[1], t[3]) for i, t in enumerate(TESTS)}
+    # Two forms: data: URIs for the standalone HTML, raw bytes for EPUB file
+    png_urls_data = {str(i): render_png(t[1], t[3]) for i, t in enumerate(TESTS)}
+    png_bytes_map = {str(i): render_png_bytes(t[1], t[3]) for i, t in enumerate(TESTS)}
 
-    html = build_html(mathml, svg, png_urls)
-
-    # Single-file HTML (opens in any browser)
+    # Single-file HTML (data: URIs are FINE in browsers, OPEN IT IN A BROWSER)
+    html_browser = build_html(mathml, svg, png_urls_data)
     html_path = OUT_DIR / "math-compare.html"
-    html_path.write_text(html, encoding="utf-8")
+    html_path.write_text(html_browser, encoding="utf-8")
     print(f"Wrote {html_path.relative_to(ROOT)} ({html_path.stat().st_size:,} bytes)")
 
-    # Also bundle as a compact EPUB (for Kindle Previewer 3)
+    # EPUB version: KDP strips data: URIs; use img/eq###.png file refs instead.
+    # Replace the data: URL src= with relative paths to bundled PNG files.
+    png_file_urls = {str(i): f"img/eq{int(i)+1:03d}.png" for i in png_urls_data}
+    html_epub = build_html(mathml, svg, png_file_urls)
     epub_path = OUT_DIR / "math-compare.epub"
     bookid = "urn:uuid:" + str(uuid.uuid5(uuid.NAMESPACE_OID, "math-compare"))
+    # Build manifest items for the PNG files we bundle
+    png_manifest_items = "\n    ".join(
+        f'<item id="img{int(i)+1:03d}" href="img/eq{int(i)+1:03d}.png" media-type="image/png"/>'
+        for i in sorted(png_bytes_map)
+    )
     opf = f"""<?xml version="1.0"?>
 <package xmlns="http://www.idpf.org/2007/opf" unique-identifier="id" version="3.0"
          prefix="rendition: http://www.idpf.org/vocab/rendition/#">
@@ -240,6 +263,7 @@ def main():
   <manifest>
     <item id="page" href="page.xhtml" media-type="application/xhtml+xml" properties="mathml svg"/>
     <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+    {png_manifest_items}
   </manifest>
   <spine><itemref idref="page"/></spine>
 </package>"""
@@ -261,7 +285,9 @@ def main():
                    'full-path="EPUB/content.opf"/></rootfiles></container>')
         z.writestr("EPUB/content.opf", opf)
         z.writestr("EPUB/nav.xhtml", nav)
-        z.writestr("EPUB/page.xhtml", html)
+        z.writestr("EPUB/page.xhtml", html_epub)
+        for i, png_bytes in sorted(png_bytes_map.items()):
+            z.writestr(f"EPUB/img/eq{int(i)+1:03d}.png", png_bytes)
     print(f"Wrote {epub_path.relative_to(ROOT)} ({epub_path.stat().st_size:,} bytes)")
 
 
