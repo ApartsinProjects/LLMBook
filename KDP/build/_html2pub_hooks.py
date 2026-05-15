@@ -150,6 +150,120 @@ def normalize_code_block_content(soup: BeautifulSoup) -> int:
     return n
 
 
+def strip_code_block_whitespace(soup: BeautifulSoup) -> int:
+    """v13.15: Strip leading/trailing blank lines from <pre><code> blocks.
+
+    Source HTML often has:
+        <pre><code>
+        import re
+        class X:
+            ...
+        </code></pre>
+
+    The first newline after <code> is rendered as a blank line at the top
+    of the code block, making code blocks look "over-indented" / having
+    visible whitespace at the top.
+
+    This function preserves internal whitespace (indentation) but strips
+    pure-whitespace leading/trailing lines.
+
+    Works on plain <code> blocks AND pygments-highlighted blocks (where
+    the first/last child might be a NavigableString containing just \\n).
+    """
+    from bs4 import NavigableString
+    n = 0
+    for code in soup.find_all('code'):
+        children = list(code.children)
+        if not children:
+            continue
+
+        # LEADING: if first child is NavigableString starting with whitespace
+        # ending in \n, strip the leading whitespace through and including \n
+        first = children[0]
+        if isinstance(first, NavigableString):
+            s = str(first)
+            # Find first non-whitespace OR a meaningful content marker
+            stripped = s.lstrip(' \t\n\r')
+            if stripped != s:
+                # Replace with stripped version
+                # If stripped is empty, remove the node
+                if not stripped:
+                    first.extract()
+                else:
+                    first.replace_with(NavigableString(stripped))
+                n += 1
+
+        # TRAILING: same for last child
+        children = list(code.children)  # refresh after possible extract
+        if not children:
+            continue
+        last = children[-1]
+        if isinstance(last, NavigableString):
+            s = str(last)
+            stripped = s.rstrip(' \t\n\r')
+            if stripped != s:
+                if not stripped:
+                    last.extract()
+                else:
+                    last.replace_with(NavigableString(stripped))
+                n += 1
+
+    return n
+
+
+def dedent_overindented_code(soup: BeautifulSoup) -> int:
+    """v13.13: Some <pre><code> blocks have huge leading whitespace
+    (32+ spaces) on every line, causing "over-indented cascading"
+    visual when EPUB readers wrap long lines. Strip the COMMON
+    leading whitespace from all lines while preserving relative
+    indentation.
+
+    Only operates on bare-text <code> blocks (not pre-tokenized
+    pygments blocks) and on `<pre>` text content.
+    """
+    n_blocks = 0
+    n_dedented = 0
+
+    def common_indent(lines):
+        """Find minimum leading whitespace across non-empty lines."""
+        indents = []
+        for line in lines:
+            if not line.strip():
+                continue
+            stripped = line.lstrip()
+            indents.append(len(line) - len(stripped))
+        if not indents:
+            return 0
+        return min(indents)
+
+    for pre in soup.find_all("pre"):
+        # Get all text content (including from spans for pre-highlighted)
+        text = pre.get_text()
+        lines = text.split('\n')
+        ci = common_indent(lines)
+        if ci < 8:  # only dedent if MASSIVE over-indent (>=8 leading spaces)
+            continue
+        n_blocks += 1
+        # Strip `ci` chars from start of each line in the pre's children
+        # We can't easily edit pre-existing spans, so we re-render the text.
+        # Walk through and modify any direct NavigableString or span text.
+        from bs4 import NavigableString
+        for child in list(pre.descendants):
+            if isinstance(child, NavigableString) and child.parent is not None:
+                s = str(child)
+                # If it starts at a line boundary or this is the first text node
+                # We need to strip leading spaces ONLY at line starts
+                new_s = re.sub(
+                    r'(^|\n)([ ]{' + str(ci) + r'})',
+                    lambda m: m.group(1),
+                    s
+                )
+                if new_s != s:
+                    child.replace_with(NavigableString(new_s))
+                    n_dedented += 1
+    return n_blocks
+
+
 # ----------------------------------------------------------------------
 # Wide table wrapping (>= 6 cols → wrap with horizontal-scroll note)
 # ----------------------------------------------------------------------
@@ -234,6 +348,11 @@ def simplify_inline_mathml(soup: BeautifulSoup) -> int:
 
     n = 0
 
+    # v13.15: character substitution for math operators with poor font
+    # rendering. U+22C5 DOT OPERATOR -> U+00D7 MULTIPLICATION SIGN.
+    # See fix_math_alignment() for the rationale.
+    MATH_CHAR_FIX = {'⋅': '×'}
+
     def render_token(tok):
         """Return text content of <mi>, <mn>, <mo>, etc. as str.
         Also handles <mrow> with simple content (e.g., '-z' for negative
@@ -242,7 +361,10 @@ def simplify_inline_mathml(soup: BeautifulSoup) -> int:
             return None
         name = getattr(tok, "name", None)
         if name in ("mi", "mn", "mo", "ms", "mtext"):
-            return tok.get_text()
+            text = tok.get_text()
+            for orig, sub in MATH_CHAR_FIX.items():
+                text = text.replace(orig, sub)
+            return text
         if name == "mrow":
             # Allow simple mrow: only mi/mn/mo children
             inner = [x for x in tok.children if getattr(x, "name", None)]
@@ -398,6 +520,42 @@ def fix_math_alignment(soup: BeautifulSoup) -> int:
     # markup. Eliminates line-break-around-math bug in EPUB readers
     # that treat <math> as block-level.
     n_simplified = simplify_inline_mathml(soup)
+
+    # v13.15: apply MATH_CHAR_FIX to ALL math <mo> elements (both inline
+    # math that didn't simplify AND all display math blocks).
+    # Root cause: KaTeX emits U+22C5 DOT OPERATOR for \cdot. EPUB reader
+    # fonts often render this glyph at baseline (looks like a period).
+    # U+00B7 MIDDLE DOT helps in some fonts but not all. The most reliable
+    # fix is U+00D7 MULTIPLICATION SIGN (×) which is in Latin-1 and
+    # is positioned correctly in EVERY font (it's a 2D cross at middle).
+    #
+    # Mathematical equivalence: a · b = a × b for scalar multiplication.
+    # Chain rule, gradients, dot product — all use × commonly in textbooks.
+    MATH_CHAR_FIX_GLOBAL = {
+        '⋅': '×',  # ⋅ DOT OPERATOR -> × MULTIPLICATION SIGN
+    }
+    n_chars_fixed = 0
+    for mo in soup.find_all('mo'):
+        text = mo.get_text()
+        new_text = text
+        for orig, sub in MATH_CHAR_FIX_GLOBAL.items():
+            if orig in new_text:
+                new_text = new_text.replace(orig, sub)
+        if new_text != text:
+            mo.clear()
+            mo.append(new_text)
+            n_chars_fixed += 1
+    # Also fix raw text inside <mi>/<mn>/<mtext> (less common but possible)
+    for el in soup.find_all(['mi', 'mn', 'mtext']):
+        text = el.get_text()
+        new_text = text
+        for orig, sub in MATH_CHAR_FIX_GLOBAL.items():
+            if orig in new_text:
+                new_text = new_text.replace(orig, sub)
+        if new_text != text:
+            el.clear()
+            el.append(new_text)
+            n_chars_fixed += 1
 
     # KaTeX bug: when an operator with limits (\max, \min, \sup, \inf) is used
     # as a subscript (e.g., D_{\max}), KaTeX emits a trailing
@@ -576,8 +734,13 @@ def post_process(soup: BeautifulSoup, src_rel: str, cfg) -> None:
         slim_wisdom_council(soup)
     syntax_highlight(soup)
     normalize_code_block_content(soup)
+    # v13.15: strip leading/trailing blank lines from code blocks (was
+    # causing visible empty space at top of every <pre>)
+    strip_code_block_whitespace(soup)
     wrap_wide_tables(soup, min_cols=4)  # lowered from 6: 5-col tables also overflow Kindle
     strip_wide_table_notes(soup)  # v13.6: strip prose note html2pub injects
+    # v13.14: dedent_overindented_code disabled — KPV reported E21018 after
+    # enabling it. The text manipulation breaks something in the XHTML.
     slim_chapter_index_sections_list(soup, src_rel)
     fix_math_alignment(soup)
     fix_svg_viewbox(soup)

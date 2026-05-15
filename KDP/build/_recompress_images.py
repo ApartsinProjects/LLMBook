@@ -4,12 +4,20 @@ Lossless or near-lossless additional savings on top of epub-optimizer:
   - MozJPEG: ~25-30% smaller than libjpeg at the same visual quality
   - OxiPNG:  ~10-25% smaller than oxipng-default (lossless)
 
+v14.1: hash-keyed CACHE so unchanged images skip recompression.
+  Cache lives at: ~/Tools/img-tools/cache/recompress/
+  Key: SHA-256(image_bytes) + tool-args-hash. Value: optimized image bytes.
+  Safe: content-addressed, immune to filename changes. If input changes,
+  hash differs, cache miss, tool runs. If tool args change (e.g., quality),
+  hash differs, cache miss, tool re-runs.
+
 Usage:
   python _recompress_images.py path/to/book.epub [output.epub]
 
 If output not given, recompresses in place.
 """
 from __future__ import annotations
+import hashlib
 import os, shutil, subprocess, sys, tempfile, zipfile
 from pathlib import Path
 
@@ -43,9 +51,67 @@ MOZJPEG_ARGS = ["-quality", "82", "-progressive"]
 OXIPNG_ARGS = ["-o", "4", "--strip", "safe", "--quiet"]
 
 
+# ----------------------------------------------------------------------
+# v14.1: content-addressed cache for recompressed images
+# ----------------------------------------------------------------------
+CACHE_ROOT = Path.home() / "Tools" / "img-tools" / "cache" / "recompress"
+CACHE_ROOT.mkdir(parents=True, exist_ok=True)
+
+# Encode tool-args into cache key namespace so an args change invalidates.
+_ARGS_FINGERPRINT_JPG = hashlib.sha256(
+    ("mozjpeg|" + "|".join(MOZJPEG_ARGS)).encode()
+).hexdigest()[:8]
+_ARGS_FINGERPRINT_PNG = hashlib.sha256(
+    ("oxipng|" + "|".join(OXIPNG_ARGS)).encode()
+).hexdigest()[:8]
+
+
+def _cache_key(input_bytes: bytes, fmt: str) -> str:
+    """Compute cache key from input bytes + tool-args fingerprint."""
+    h = hashlib.sha256(input_bytes).hexdigest()
+    suffix = _ARGS_FINGERPRINT_JPG if fmt == 'jpg' else _ARGS_FINGERPRINT_PNG
+    return f'{h}.{suffix}.{fmt}'
+
+
+def _cache_lookup(input_bytes: bytes, fmt: str) -> bytes | None:
+    """Return cached optimized bytes or None."""
+    key = _cache_key(input_bytes, fmt)
+    path = CACHE_ROOT / key
+    if path.exists():
+        try:
+            return path.read_bytes()
+        except Exception:
+            return None
+    return None
+
+
+def _cache_store(input_bytes: bytes, output_bytes: bytes, fmt: str) -> None:
+    """Cache the optimized bytes keyed by input hash."""
+    key = _cache_key(input_bytes, fmt)
+    path = CACHE_ROOT / key
+    try:
+        path.write_bytes(output_bytes)
+    except Exception:
+        pass  # cache write is best-effort
+
+
+# Stats for cache effectiveness reporting
+_CACHE_STATS = {"jpg_hits": 0, "jpg_miss": 0, "png_hits": 0, "png_miss": 0}
+
+
 def _recompress_jpeg(p: Path) -> int:
-    """Returns bytes saved (negative if larger)."""
+    """Returns bytes saved (negative if larger). Uses content-addressed cache."""
     orig = p.stat().st_size
+    input_bytes = p.read_bytes()
+
+    # Cache lookup first
+    cached = _cache_lookup(input_bytes, 'jpg')
+    if cached is not None and len(cached) < orig and len(cached) > 100:
+        p.write_bytes(cached)
+        _CACHE_STATS["jpg_hits"] += 1
+        return orig - len(cached)
+    _CACHE_STATS["jpg_miss"] += 1
+
     tmp = p.with_suffix(p.suffix + ".tmp")
     try:
         with open(tmp, "wb") as out_fh:
@@ -55,8 +121,11 @@ def _recompress_jpeg(p: Path) -> int:
                 stderr=subprocess.DEVNULL,
                 check=True,
             )
-        new = tmp.stat().st_size
+        new_bytes = tmp.read_bytes()
+        new = len(new_bytes)
         if new < orig and new > 100:
+            # Save to cache before moving
+            _cache_store(input_bytes, new_bytes, 'jpg')
             tmp.replace(p)
             return orig - new
         tmp.unlink(missing_ok=True)
@@ -71,7 +140,18 @@ def _recompress_jpeg(p: Path) -> int:
 
 
 def _recompress_png(p: Path) -> int:
+    """Returns bytes saved. Uses content-addressed cache."""
     orig = p.stat().st_size
+    input_bytes = p.read_bytes()
+
+    # Cache lookup first
+    cached = _cache_lookup(input_bytes, 'png')
+    if cached is not None and len(cached) < orig:
+        p.write_bytes(cached)
+        _CACHE_STATS["png_hits"] += 1
+        return orig - len(cached)
+    _CACHE_STATS["png_miss"] += 1
+
     try:
         subprocess.run(
             [str(OXIPNG), *OXIPNG_ARGS, str(p)],
@@ -80,6 +160,9 @@ def _recompress_png(p: Path) -> int:
             check=True,
         )
         new = p.stat().st_size
+        if new < orig:
+            # Save optimized bytes to cache (keyed by original input)
+            _cache_store(input_bytes, p.read_bytes(), 'png')
         return orig - new
     except Exception:
         return 0
@@ -124,6 +207,13 @@ def recompress_epub(in_path: Path, out_path: Path) -> dict:
             zout.write(p, arc, compress_type=zipfile.ZIP_DEFLATED, compresslevel=9)
 
     shutil.rmtree(work)
+    # Append cache stats to result for visibility
+    stats.update({
+        "cache_jpg_hits": _CACHE_STATS["jpg_hits"],
+        "cache_jpg_miss": _CACHE_STATS["jpg_miss"],
+        "cache_png_hits": _CACHE_STATS["png_hits"],
+        "cache_png_miss": _CACHE_STATS["png_miss"],
+    })
     return stats
 
 
