@@ -1013,6 +1013,45 @@ def _fix_svg_attr_case_in_zip(epub_path: Path) -> None:
                     if file_subs:
                         n_files += 1
                         n_subs += file_subs
+                # v15.14: fix toc.ncx dtb:depth meta. ebooklib hard-codes
+                # this to 0 regardless of the actual navMap depth. We
+                # compute the real max depth and rewrite the attribute
+                # so legacy NCX readers and audits get a correct value.
+                if info.filename.endswith("toc.ncx"):
+                    try:
+                        import re as _re
+                        text = data.decode("utf-8")
+                        # Count max depth by scanning for nested <navPoint>
+                        # using a simple line-by-line bracket tracker.
+                        max_d = 0
+                        cur_d = 0
+                        for token in _re.finditer(
+                            r"<navPoint\b|</navPoint>", text):
+                            if token.group().startswith("</"):
+                                cur_d -= 1
+                            else:
+                                cur_d += 1
+                                if cur_d > max_d:
+                                    max_d = cur_d
+                        if max_d > 0:
+                            # ebooklib emits <meta content="0" name="dtb:depth"/>
+                            # (content BEFORE name). Match either order.
+                            for pattern in (
+                                r'(<meta\s+content=")\d+("\s+name="dtb:depth"\s*/?>)',
+                                r'(<meta\s+name="dtb:depth"\s+content=")\d+(")',
+                            ):
+                                new_text = _re.sub(
+                                    pattern,
+                                    rf'\g<1>{max_d}\g<2>',
+                                    text,
+                                    count=1,
+                                )
+                                if new_text != text:
+                                    text = new_text
+                                    break
+                            data = text.encode("utf-8")
+                    except Exception:
+                        pass  # cosmetic; never block the build
                 zout.writestr(info, data)
         shutil.move(str(tmp_path), str(epub_path))
         print(f"  [svg-attr-case] {n_subs} substitutions across {n_files} files")
@@ -2191,6 +2230,7 @@ def build_toc(spine_entries, chapter_map, chapter_items):
     parts_section: list = []
     capstone_section: list = []
     appx_section: list = []
+    glossary_ci = None  # promoted to top-level after Appendices
 
     # Group chapters by part / section
     by_part: dict[str, list] = {}
@@ -2227,28 +2267,40 @@ def build_toc(spine_entries, chapter_map, chapter_items):
             by_module.setdefault((part, module), []).append(ci)
             # Don't add directly to by_part; we'll splice modules with their sections
         elif kind in ("appendix-index", "appendix"):
-            appx_section.append(ci)
+            # v15.14: Only include appendix-INDEX entries in the NCX
+            # (not appendix-section sub-pages). Mirrors nav.xhtml and
+            # keeps the NCX at the 2-level limit Kindle prefers. Also
+            # split the glossary out so it appears as a level-1 entry,
+            # matching nav.xhtml.
+            if "glossary" in src_rel and kind == "appendix":
+                glossary_ci = ci  # capture, append later as top-level
+            else:
+                appx_section.append(ci)
         elif kind == "appendix-section":
-            appx_section.append(ci)
+            # Drop from NCX entirely; section-level navigation is via
+            # the appendix-index page card grid. NCX stays at depth 2.
+            pass
         elif kind in ("capstone-index", "capstone"):
             capstone_section.append(ci)
 
-    # Build parts_section
+    # Build parts_section.
+    # v15.14: emit ONLY Part -> Chapter (module) entries, no section-level
+    # children. Matches the nav.xhtml structure and satisfies Kindle's
+    # Navigation Guidelines two-level limit for both nav.xhtml AND
+    # toc.ncx. Earlier the toc.ncx wrapped each module + its sections in
+    # an extra Section level, producing depth 3 — Kindle's legacy NCX
+    # readers showed those entries as deeply nested sub-menus.
     for part_name, items in by_part.items():
         ptitle = part_titles.get(part_name, part_name)
-        # First item is the part-index
         part_chapters = []
         for kind, ci, src in items:
             if kind == "part-index":
                 continue
             if kind == "module-index":
-                module_name = src.split("/")[1]
-                sections = by_module.get((part_name, module_name), [])
-                if sections:
-                    part_chapters.append((epub.Section(ci.title), [ci] + sections))
-                else:
-                    part_chapters.append(ci)
-        # Use a Link/Section structure compatible with ebooklib's toc
+                # Module-index leaf only; do NOT nest its sections under
+                # an extra epub.Section. Section-level navigation is
+                # provided by the chapter-index pages themselves.
+                part_chapters.append(ci)
         parts_section.append((epub.Section(ptitle, ci_for_section(items)), part_chapters))
 
     if fm_section:
@@ -2258,6 +2310,10 @@ def build_toc(spine_entries, chapter_map, chapter_items):
         toc.append((epub.Section("Capstone"), capstone_section))
     if appx_section:
         toc.append((epub.Section("Appendices"), appx_section))
+    if glossary_ci is not None:
+        # Top-level Glossary entry (after Appendices, per v15.7 promotion
+        # and NAV-011 reading-order: glossary is the spine-last entry).
+        toc.append(glossary_ci)
     return toc
 
 
