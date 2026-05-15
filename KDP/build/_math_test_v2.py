@@ -172,25 +172,26 @@ def render_svg(items: list[dict]) -> dict[str, str]:
     if proc.returncode != 0:
         raise RuntimeError(f"mathjax failed: {proc.stderr}")
     out = {}
+    import re as _re
     for r in json.loads(proc.stdout):
         svg = r.get("svg", "")
-        # MathJax SVG uses stroke="currentColor" fill="currentColor" to
-        # inherit text color. Kindle Previewer's SVG renderer doesn't
-        # resolve currentColor inside inline SVG -- the paths draw
-        # transparent or are skipped. Replace with explicit black.
+        # 1. Replace currentColor with black (Kindle <use> shadow DOM fix)
         svg = svg.replace('stroke="currentColor"', 'stroke="#000"')
         svg = svg.replace('fill="currentColor"', 'fill="#000"')
-        # Convert ex-unit dimensions to px (a single ex ≈ 8px at base
-        # font size). ex units are technically valid but some Kindle
-        # readers ignore them and fall back to width=0/height=0.
-        import re as _re
-        def _ex_to_px(m):
-            ex = float(m.group(1))
-            return f'{m.group(2)}="{int(ex * 8)}px"'
-        svg = _re.sub(r'(\d+(?:\.\d+)?)ex"', lambda m: f'{m.group(1)}ex"', svg)
-        # actually leave ex units alone; per-renderer it's hit-or-miss
-        # but converting introduces its own quirks. Focus on currentColor
-        # which is the more likely culprit.
+        # 2. Convert ex/em/pt width/height to explicit px. ex units are
+        # valid but Kindle Previewer sometimes computes them as 0;
+        # explicit px guarantees a visible bounding box. With MathJax
+        # now using em:24, ex:12 (see E:/Tools/mathjax/tex2svg.js),
+        # 1 ex ≈ 12 px.
+        def _unit_to_px(m):
+            attr = m.group(1)
+            val = float(m.group(2))
+            unit = m.group(3)
+            ratio = {'ex': 12, 'em': 24, 'pt': 1.33, 'px': 1}.get(unit, 1)
+            return f'{attr}="{val * ratio:.1f}px"'
+        svg = _re.sub(
+            r'(width|height)="(\d+(?:\.\d+)?)(ex|em|pt)"',
+            _unit_to_px, svg)
         out[r["id"]] = svg
     return out
 

@@ -154,11 +154,15 @@ def render_svg_default(items):
 
 
 def render_svg_scaled(svg_default, scale=1.5):
-    """Variant: further scale up the already-px-sized SVGs by `scale`.
+    """Variant: further multiply px sizes by `scale`, NO wrapper span.
 
-    Default SVGs already have explicit px sizes (from render_svg_default).
-    This multiplies them by `scale` AND wraps the SVG in an inline-block
-    span with vertical-align: middle so it sits aligned with text.
+    Earlier (v15.20) the wrapper span had display: inline-block which
+    actually shrank the rendered size on Kindle Previewer 3 (because
+    KPV3's default `svg { max-width: 100% }` was letting unwrapped
+    SVGs expand to fill their container in test-table cells; wrapping
+    in inline-block defeated that expansion). In real prose context
+    there is no container to expand into, so the wrapper was the only
+    case where it mattered, and there it hurt. Drop it.
     """
     out = {}
     for k, svg in svg_default.items():
@@ -169,13 +173,6 @@ def render_svg_scaled(svg_default, scale=1.5):
         modified = re.sub(
             r'(width|height)="(\d+(?:\.\d+)?)px"',
             mult_px, svg)
-        # Wrap in span: inline-block keeps the SVG in line flow,
-        # vertical-align:middle aligns with surrounding text. The span's
-        # CSS line-height:0 prevents extra vertical space below the SVG.
-        modified = (
-            f'<span style="display: inline-block; vertical-align: middle; '
-            f'line-height: 0;">{modified}</span>'
-        )
         out[k] = modified
     return out
 
