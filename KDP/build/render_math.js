@@ -27,7 +27,7 @@ process.stdin.on('end', () => {
             const html = katex.renderToString(item.tex, {
                 displayMode: !!item.display,
                 throwOnError: false,
-                output: 'html',
+                output: 'mathml',
                 strict: 'ignore',
                 trust: false,
             });
