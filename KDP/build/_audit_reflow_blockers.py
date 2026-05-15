@@ -381,18 +381,21 @@ def main():
 
     # Flag outliers: blocks with height >> expected (likely indicates a
     # source-HTML defect like a missing </div> or an `<h3none>` typo).
+    # Defect signature: figure/diagram container has > 0 headings or > 1
+    # callout inside it (real diagram containers have at most an SVG + a
+    # single caption div).
     for f in all_findings:
-        if f['category'] == 'diagram_container' and f['lines_est'] > 100:
-            f['note'] = ('LIKELY MALFORMED SOURCE HTML: container span '
-                         'extends far past the intended figure (missing '
-                         '</div> or invalid downstream tag absorbs '
-                         'following content into the atomic wrapper).')
-        elif f['category'] in ('figure_generic', 'figure_illustration',
-                               'figure_class') and f['lines_est'] > 60:
-            f['note'] = ('Container is unusually tall; check for missing '
-                         'closing tag in source HTML.')
-        else:
-            f['note'] = ''
+        f['note'] = ''
+        if (f['category'] in ('diagram_container', 'figure_container',
+                              'figure_generic', 'figure_illustration',
+                              'figure_class', 'figure_diagram')
+                and f['lines_est'] > 60):
+            f['note'] = ('LIKELY MALFORMED SOURCE HTML: container probably '
+                         'has a missing </div> or invalid tag downstream, '
+                         'which makes the atomic wrapper absorb all '
+                         'following content. Check for `<h3none>`, missing '
+                         '</div>, or stray `<` characters between this '
+                         'opening tag and the next figure/section.')
 
     by_category = Counter(f['category'] for f in all_findings)
     by_file = Counter(f['file'] for f in all_findings)
