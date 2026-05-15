@@ -127,21 +127,30 @@ def render_mathml(items: list[dict]) -> dict[str, str]:
     import re as _re
     for idx, html in raw.items():
         tex = items[int(idx)][1]
-        # Compact LaTeX source for the alttext attr value.
-        # XML-escape the alt value: " -> &quot;, < / > / & -> entities.
         alt = " ".join(tex.split())
         alt_xml = (alt.replace("&", "&amp;")
                       .replace('"', "&quot;")
                       .replace("<", "&lt;")
                       .replace(">", "&gt;"))
-        # Insert alttext as the first attribute after <math. Use a
-        # callable for the replacement so backslashes in the LaTeX
-        # source aren't interpreted as regex escapes.
+        # 1. Strip <semantics>...<annotation>tex</annotation></semantics>
+        # wrapper, leaving the bare <mrow> children inside <math>. Some
+        # Kindle MathML pathways look only at the first <mrow> child of
+        # <math> and ignore semantic markup; rare renderers display the
+        # raw <annotation> text. Simpler structure is more robust.
+        stripped = _re.sub(
+            r"<semantics>(.*?)<annotation\b[^>]*>.*?</annotation>\s*</semantics>",
+            r"\1",
+            html,
+            flags=_re.DOTALL,
+        )
+        # 2. Inject alttext on the <math> tag (callable replacement so
+        # backslashes in the LaTeX source aren't interpreted as regex
+        # escapes).
         replacement = f'<math alttext="{alt_xml}"'
         injected = _re.sub(
             r'<math\b(?![^>]*\balttext=)',
             lambda m: replacement,
-            html,
+            stripped,
             count=1,
         )
         out[idx] = injected
