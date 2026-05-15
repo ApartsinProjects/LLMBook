@@ -338,6 +338,14 @@ def clean_chapter_html(soup: BeautifulSoup) -> None:
     # <code> / <pre> to escaped text content.
     normalize_code_block_content(soup)
 
+    # v15.1: substitute {{book.edition}}, {{book.publication_year}} etc.
+    # placeholders in HTML text with the canonical values from metadata.
+    # Source HTML uses placeholders so the next edition bump touches only
+    # metadata.yaml -- no flag-day across all source files.
+    # Without this, the EPUB ships literal "{{book.edition}}" text in
+    # footers and copyright pages.
+    templatize_metadata_placeholders(soup)
+
     # Apply Pygments syntax highlighting to <pre><code class='language-X'>
     # blocks. Source HTML uses Prism.js (client-side); without highlighting
     # at build time, code shows monochrome in EPUB readers.
@@ -497,6 +505,44 @@ def slim_wisdom_council(soup: BeautifulSoup) -> None:
             intro_p.insert_after(intro)
         else:
             grid.insert_before(intro)
+
+
+def templatize_metadata_placeholders(soup: BeautifulSoup) -> int:
+    """Substitute {{book.edition}}, {{book.publication_year}}, etc. in
+    chapter text with values from the loaded metadata.
+
+    Source HTML uses placeholders so edition bumps touch only metadata.yaml.
+    Without this hook, the EPUB ships literal "{{book.edition}}" strings in
+    footers, copyright pages, and other auto-generated boilerplate.
+    """
+    # Resolve from module-level _METADATA (loaded at build start)
+    book_meta = (_METADATA or {}).get("book", {}) if isinstance(_METADATA, dict) else {}
+    edition = book_meta.get("edition") or "Fifteenth Edition"
+    pub_date = book_meta.get("publication_date") or "2026-05-15"
+    pub_year = str(book_meta.get("publication_year") or str(pub_date)[:4] or "2026")
+    title = book_meta.get("title") or "Building Conversational AI with LLMs and Agents"
+    rights = book_meta.get("rights") or ""
+    placeholders = {
+        "{{book.edition}}":          edition,
+        "{{book.publication_year}}": pub_year,
+        "{{book.publication_date}}": pub_date,
+        "{{book.title}}":            title,
+        "{{book.rights}}":           rights,
+    }
+    from bs4 import NavigableString
+    n = 0
+    for el in list(soup.find_all(string=True)):
+        text = str(el)
+        if "{{" not in text:
+            continue
+        new_text = text
+        for ph, val in placeholders.items():
+            if ph in new_text:
+                new_text = new_text.replace(ph, val)
+        if new_text != text:
+            el.replace_with(NavigableString(new_text))
+            n += 1
+    return n
 
 
 def render_math_in_soup(soup: BeautifulSoup) -> int:
@@ -1148,10 +1194,15 @@ def chapter_filename(chapter_id: str) -> str:
 
 # --------------------------------------------------------------------- EPUB build
 
+_METADATA: dict | None = None  # module-level so chapter-cleaning hooks can read it
+
+
 def build(max_side: int, jpeg_quality: int) -> int:
+    global _METADATA
     print(f"PROJECT_ROOT: {PROJECT_ROOT}")
     print(f"Loading metadata: {METADATA_FILE.relative_to(PROJECT_ROOT)}")
     md = yaml.safe_load(METADATA_FILE.read_text(encoding="utf-8"))
+    _METADATA = md
     spine_entries = json.loads(SPINE_FILE.read_text(encoding="utf-8"))
     print(f"Spine has {len(spine_entries)} entries")
 
@@ -1355,8 +1406,63 @@ def build(max_side: int, jpeg_quality: int) -> int:
     for kw in (md.get("kdp", {}) or {}).get("keywords", []):
         book.add_metadata("DC", "subject", kw)
 
+    # Explicitly declare reflowable rendition. Without this, KDP's web
+    # ingestion mis-classifies the EPUB as fixed-format and refuses to
+    # update an existing reflowable listing with the error:
+    # "This content is a fixed format eBook. Updating a reflowable eBook
+    # with a fixed format eBook is not supported."
+    # This was missing from earlier v15.x builds. v14 EPUBs had it (likely
+    # from a previous version of this script that wasn't preserved in git).
+    book.add_metadata(None, "meta", "reflowable",
+                      {"property": "rendition:layout"})
+    book.add_metadata(None, "meta", "auto",
+                      {"property": "rendition:orientation"})
+    book.add_metadata(None, "meta", "auto",
+                      {"property": "rendition:spread"})
+
     # Cover image
     cover_bytes = COVER_KDP.read_bytes()
+    # Override the cover.xhtml template BEFORE set_cover() registers the
+    # cover item. ebooklib's default template is image-only in <body>, which
+    # KDP's web ingestion heuristic classifies as a fixed-layout signal
+    # ("This content is a fixed format eBook"). The template below adds
+    # visible reflowable text (book title and authors) so the cover spine
+    # entry unambiguously declares itself as reflowable content.
+    #
+    # EpubCoverHtml.get_content() runs XPath against this template to set
+    # the <img> src/alt, so the template MUST contain exactly one <img>
+    # element. The structure around it is otherwise free.
+    _cover_book_title = full_title or md["book"].get("title", "")
+    _cover_authors = ", ".join(
+        (a.get("name") or "")
+        for a in (md.get("authors") or [])
+        if a.get("name")
+    )
+    _cover_template = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<!DOCTYPE html>\n'
+        '<html xmlns="http://www.w3.org/1999/xhtml" '
+        'xmlns:epub="http://www.idpf.org/2007/ops" lang="en" xml:lang="en">\n'
+        '<head>\n'
+        '<style>\n'
+        '  body { margin: 0; padding: 0; text-align: center; }\n'
+        '  .cover-image { max-width: 100%; height: auto; display: block; '
+        'margin: 0 auto; }\n'
+        '  .cover-title { font-size: 1.4em; font-weight: bold; '
+        'margin: 1em 0 0.3em 0; }\n'
+        '  .cover-authors { font-size: 1em; margin: 0.3em 0 1em 0; }\n'
+        '</style>\n'
+        '</head>\n'
+        '<body>\n'
+        '<section epub:type="cover" aria-label="Cover">\n'
+        '<img class="cover-image" src="" alt="" />\n'
+        f'<p class="cover-title">{escape_xml(_cover_book_title)}</p>\n'
+        f'<p class="cover-authors">{escape_xml(_cover_authors)}</p>\n'
+        '</section>\n'
+        '</body>\n'
+        '</html>\n'
+    ).encode("utf-8")
+    book.set_template("cover", _cover_template)
     book.set_cover("cover.jpg", cover_bytes)
 
     # KaTeX CSS for server-side-rendered math (loaded before book.css
@@ -1540,14 +1646,11 @@ def build(max_side: int, jpeg_quality: int) -> int:
         chapter_items.append(ch)
     print(f"  {n_svg_chapters} chapters tagged with properties='svg'")
 
-    # Make ebooklib's auto-generated cover.xhtml linear so it's reachable
-    # from the spine. Without this, epubcheck reports OPF-096.
+    # Cover.xhtml is generated from the template above (set before set_cover).
+    # Mark it linear so it's reachable from the spine (avoids OPF-096).
     cover_html = book.get_item_with_id("cover")
     if cover_html is not None:
         cover_html.is_linear = True
-
-    # ebooklib's set_cover() already created cover.xhtml and registered it.
-    # We just need to put it into the spine in front.
 
     # ---- Build the nav (table of contents + landmarks)
     # Custom nav.xhtml with both <nav epub:type="toc"> and <nav epub:type="landmarks">.
