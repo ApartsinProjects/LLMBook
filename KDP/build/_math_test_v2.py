@@ -171,7 +171,28 @@ def render_svg(items: list[dict]) -> dict[str, str]:
     )
     if proc.returncode != 0:
         raise RuntimeError(f"mathjax failed: {proc.stderr}")
-    return {r["id"]: r.get("svg", "") for r in json.loads(proc.stdout)}
+    out = {}
+    for r in json.loads(proc.stdout):
+        svg = r.get("svg", "")
+        # MathJax SVG uses stroke="currentColor" fill="currentColor" to
+        # inherit text color. Kindle Previewer's SVG renderer doesn't
+        # resolve currentColor inside inline SVG -- the paths draw
+        # transparent or are skipped. Replace with explicit black.
+        svg = svg.replace('stroke="currentColor"', 'stroke="#000"')
+        svg = svg.replace('fill="currentColor"', 'fill="#000"')
+        # Convert ex-unit dimensions to px (a single ex ≈ 8px at base
+        # font size). ex units are technically valid but some Kindle
+        # readers ignore them and fall back to width=0/height=0.
+        import re as _re
+        def _ex_to_px(m):
+            ex = float(m.group(1))
+            return f'{m.group(2)}="{int(ex * 8)}px"'
+        svg = _re.sub(r'(\d+(?:\.\d+)?)ex"', lambda m: f'{m.group(1)}ex"', svg)
+        # actually leave ex units alone; per-renderer it's hit-or-miss
+        # but converting introduces its own quirks. Focus on currentColor
+        # which is the more likely culprit.
+        out[r["id"]] = svg
+    return out
 
 
 # ----------------------------------------------------------------------
