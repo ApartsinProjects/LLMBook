@@ -611,10 +611,26 @@ def render_math_in_soup(soup: BeautifulSoup) -> int:
 
     # Map id -> rendered html
     by_id = {r["id"]: r["html"] for r in rendered}
+    # Map id -> original tex (used to inject alttext on <math> for ACC-009)
+    tex_by_id = {it["id"]: it["tex"] for it in items}
+
+    def _inject_math_alttext(parsed_soup, tex_source: str) -> None:
+        """Set alttext on every <math> element inside parsed_soup.
+
+        KaTeX 'html' output emits a <math> shell for accessibility but
+        omits alttext. EPUB accessibility (ACC-009) requires alttext on
+        every <math> element. Use the original LaTeX as alttext.
+        """
+        if not tex_source:
+            return
+        # Trim aggressively; alttext is a single attribute value, no newlines
+        alt = " ".join(tex_source.split())
+        for m in parsed_soup.find_all("math"):
+            if not m.get("alttext"):
+                m["alttext"] = alt
 
     # ---- Replace targets with rendered HTML
     n_replaced = 0
-    placeholder_idx = 0
     for i, target in enumerate(targets):
         kind, el = target
         if kind == "element":
@@ -623,6 +639,7 @@ def render_math_in_soup(soup: BeautifulSoup) -> int:
             if html is None:
                 continue
             new_soup = BeautifulSoup(html, "lxml")
+            _inject_math_alttext(new_soup, tex_by_id.get(mid, ""))
             wrap = new_soup.find(["span", "div"], class_="katex")
             if wrap is None:
                 wrap = new_soup
@@ -638,6 +655,7 @@ def render_math_in_soup(soup: BeautifulSoup) -> int:
             if html is None:
                 continue
             new_soup = BeautifulSoup(html, "lxml")
+            _inject_math_alttext(new_soup, tex_by_id.get(mid, ""))
             wrap = new_soup.find(["span", "div"], class_="katex")
             if wrap is None:
                 continue
@@ -718,6 +736,118 @@ def _split_math_in_text(s: str, items: list, targets: list):
     if pos < len(s):
         parts.append(("text", s[pos:]))
     return parts
+
+
+def _fix_svg_attr_case_in_zip(epub_path: Path) -> None:
+    """Restore camelCase SVG attributes inside the written EPUB.
+
+    Why this is needed: ebooklib's `write_epub` runs every chapter through
+    its own html.parser-based pipeline before writing, which lowercases
+    camelCase attribute names (`viewBox` -> `viewbox`, etc.). SVG renderers
+    (including Kindle/KPV) require the camelCase form for these. We fix it
+    by rewriting affected XHTML files in the produced ZIP.
+
+    String substitution is safe because the lowercase forms never appear
+    legitimately in HTML markup — only as a side-effect of BS4 mangling.
+    """
+    import zipfile, tempfile, shutil
+    # SVG attribute case fixes (camelCase required by SVG spec)
+    attr_fixes = {
+        b"viewbox=":              b"viewBox=",
+        b"preserveaspectratio=":  b"preserveAspectRatio=",
+        b"patternunits=":         b"patternUnits=",
+        b"patterntransform=":     b"patternTransform=",
+        b"gradientunits=":        b"gradientUnits=",
+        b"gradienttransform=":    b"gradientTransform=",
+        b"clippathunits=":        b"clipPathUnits=",
+        b"markerunits=":          b"markerUnits=",
+        b"markerwidth=":          b"markerWidth=",
+        b"markerheight=":         b"markerHeight=",
+        b"refx=":                 b"refX=",
+        b"refy=":                 b"refY=",
+        b"spreadmethod=":         b"spreadMethod=",
+        b"textlength=":           b"textLength=",
+        b"lengthadjust=":         b"lengthAdjust=",
+        b"basefrequency=":        b"baseFrequency=",
+        b"numoctaves=":           b"numOctaves=",
+        b"diffuseconstant=":      b"diffuseConstant=",
+        b"specularconstant=":     b"specularConstant=",
+        b"specularexponent=":     b"specularExponent=",
+        b"stddeviation=":         b"stdDeviation=",
+        b"kernelmatrix=":         b"kernelMatrix=",
+        b"kernelunitlength=":     b"kernelUnitLength=",
+        b"surfacescale=":         b"surfaceScale=",
+        b"primitiveunits=":       b"primitiveUnits=",
+        b"filterres=":            b"filterRes=",
+        b"filterunits=":          b"filterUnits=",
+        b"maskunits=":            b"maskUnits=",
+        b"maskcontentunits=":     b"maskContentUnits=",
+        b"tablevalues=":          b"tableValues=",
+    }
+    # SVG element name case fixes (camelCase required by SVG spec).
+    # Replace both opening tag <foo and closing tag </foo
+    elem_fixes_camel = {
+        b"lineargradient":   b"linearGradient",
+        b"radialgradient":   b"radialGradient",
+        b"clippath":         b"clipPath",
+        b"fedropshadow":     b"feDropShadow",
+        b"feoffset":         b"feOffset",
+        b"femerge":          b"feMerge",
+        b"femergenode":      b"feMergeNode",
+        b"fegaussianblur":   b"feGaussianBlur",
+        b"feblend":          b"feBlend",
+        b"fecolormatrix":    b"feColorMatrix",
+        b"fecomposite":      b"feComposite",
+        b"feconvolvematrix": b"feConvolveMatrix",
+        b"fediffuselighting":  b"feDiffuseLighting",
+        b"fespecularlighting": b"feSpecularLighting",
+        b"fedisplacementmap":  b"feDisplacementMap",
+        b"feflood":          b"feFlood",
+        b"feimage":          b"feImage",
+        b"femorphology":     b"feMorphology",
+        b"feturbulence":     b"feTurbulence",
+        b"fetile":           b"feTile",
+        b"fefunca":          b"feFuncA",
+        b"fefuncr":          b"feFuncR",
+        b"fefuncg":          b"feFuncG",
+        b"fefuncb":          b"feFuncB",
+        b"felightsource":    b"feLightSource",
+        b"fedistantlight":   b"feDistantLight",
+        b"fepointlight":     b"fePointLight",
+        b"fespotlight":      b"feSpotLight",
+        b"fecomponenttransfer": b"feComponentTransfer",
+        b"foreignobject":    b"foreignObject",
+    }
+    fixes = dict(attr_fixes)
+    for low, mixed in elem_fixes_camel.items():
+        fixes[b"<" + low] = b"<" + mixed
+        fixes[b"</" + low] = b"</" + mixed
+    n_files = 0
+    n_subs = 0
+    with tempfile.NamedTemporaryFile(suffix=".epub", delete=False) as tmp:
+        tmp_path = Path(tmp.name)
+    try:
+        with zipfile.ZipFile(epub_path, "r") as zin, \
+             zipfile.ZipFile(tmp_path, "w", zipfile.ZIP_DEFLATED) as zout:
+            for info in zin.infolist():
+                data = zin.read(info.filename)
+                if info.filename.endswith((".xhtml", ".html", ".svg", ".opf")):
+                    file_subs = 0
+                    for lo, hi in fixes.items():
+                        if lo in data:
+                            cnt = data.count(lo)
+                            data = data.replace(lo, hi)
+                            file_subs += cnt
+                    if file_subs:
+                        n_files += 1
+                        n_subs += file_subs
+                zout.writestr(info, data)
+        shutil.move(str(tmp_path), str(epub_path))
+        print(f"  [svg-attr-case] {n_subs} substitutions across {n_files} files")
+    except Exception:
+        if tmp_path.exists():
+            tmp_path.unlink()
+        raise
 
 
 def slim_chapter_index_sections_list(soup: BeautifulSoup) -> None:
@@ -1125,6 +1255,12 @@ def build(max_side: int, jpeg_quality: int) -> int:
         else:
             body_inner = "".join(str(c) for c in body.children)
 
+        # SVG camelCase attributes (viewBox, preserveAspectRatio, etc.) are
+        # restored AFTER ebooklib writes the EPUB; see _fix_svg_attr_case_in_zip.
+        # Doing it inline here would be wasted work because ebooklib re-parses
+        # the content through its own html.parser before writing the ZIP, and
+        # would lowercase it again.
+
         # Wrap into a clean XHTML document.
         # Stylesheet load order matters:
         #   1. blitz.css       - cross-reader typography baseline (FriendsOfEpub/Blitz)
@@ -1440,6 +1576,13 @@ def build(max_side: int, jpeg_quality: int) -> int:
     # ---- Write
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     epub.write_epub(str(OUTPUT_EPUB), book, {})
+
+    # Post-write: ebooklib re-parses content through html.parser when writing,
+    # which lowercases SVG camelCase attributes (viewBox -> viewbox, etc.).
+    # Patch the ZIP in place to restore the SVG attribute case Kindle and
+    # SVG renderers expect.
+    _fix_svg_attr_case_in_zip(OUTPUT_EPUB)
+
     out_size = OUTPUT_EPUB.stat().st_size
     print(f"\n[OK] Wrote {OUTPUT_EPUB.relative_to(PROJECT_ROOT)}")
     print(f"  Size: {out_size / 1024 / 1024:.2f} MB ({out_size:,} bytes)")
