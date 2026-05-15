@@ -196,3 +196,50 @@
 - part-8-evaluation-production/module-28-evaluation-observability/section-28.4.html : low-density:0.27
 - part-8-evaluation-production/module-28-evaluation-observability/section-28.5.html : low-density:0.28
 - part-8-evaluation-production/module-28-evaluation-observability/section-28.6.html : low-density:0.14
+
+---
+
+## Extension: Non-Glossary Concept Linking (Phase 2)
+
+After the initial phase mapped 140 aliases to 100 glossary gl-ids (862 links across 124 files), a follow-up phase targeted concepts that had NO canonical glossary entry. For these, the canonical defining SECTION in the book was used as the link target (with CSS class "concept-link" instead of "glossary-link").
+
+Script: `_fix_v14_5_hyperlink_extra.py`
+Report: `AUDIT_hyperlinks_extra.md`
+
+- Aliases added: 40 (mapped to 24 distinct concept-ids)
+- Files modified: 33
+- Total new links: 78
+- Files skipped (cap/density): 289
+
+### New target sections
+
+| Concept group         | Canonical defining section                                              |
+|-----------------------|-------------------------------------------------------------------------|
+| GPTQ / AWQ / GGUF     | appendix-s/section-s.4.html (Quantization for Serving)                  |
+| TGI                   | appendix-s/section-s.2.html                                             |
+| SGLang                | appendix-s/section-s.3.html                                             |
+| HuggingFace           | appendix-k/index.html                                                   |
+| BPE / byte-pair       | module-02/section-2.2.html (Subword Tokenization Algorithms)            |
+| continuous batching   | module-09/section-9.4.html (Serving Infrastructure)                     |
+| paged attention       | module-09/section-9.4.html                                              |
+| pruning               | module-09/section-9.5.html                                              |
+| BM25 / hybrid / dense / sparse / rerank | module-19/section-19.2.html (Advanced RAG Techniques)|
+| ReAct                 | module-21/section-21.1.html (What Makes an LLM an Agent)                |
+| multi-agent           | module-23/index.html (Multi-Agent Systems)                              |
+| agentic / agent       | module-21/index.html (AI Agent Foundations)                             |
+| MT-Bench / LLM-as-judge | module-28/section-28.8.html                                           |
+| jailbreak             | module-30/section-30.1.html (LLM Security Threats)                      |
+| red teaming           | module-30/section-30.8.html                                             |
+| alignment tax         | module-17/section-17.5.html (Alignment Research Frontiers)              |
+
+### Concepts still without a canonical target (in this pass)
+
+- `safety` (too generic; covered across module-25, module-30; no single defining section)
+- `tool use` (already mapped in phase 1 to gl-function-calling)
+- `benchmark` (root term, covered in appendix-j; too generic to safely autolink)
+- `retrieval` (root term, covered in part-5 broadly)
+- `batching` (root term; `continuous batching` is mapped)
+
+### Self-link guard
+
+A page that IS a target section never receives a link to itself. Example: section-s.4.html never gets a GPTQ self-link, section-30.1 never gets a jailbreak self-link.
