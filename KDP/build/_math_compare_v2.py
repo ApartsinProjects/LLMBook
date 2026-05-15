@@ -130,37 +130,51 @@ def render_svg_default(items):
     out = {}
     for r in json.loads(proc.stdout):
         svg = r.get("svg", "")
+        # 1. Replace currentColor with explicit black (Kindle Previewer
+        #    doesn't resolve currentColor through <use> shadow DOM and
+        #    can leave glyphs invisible).
         svg = svg.replace('stroke="currentColor"', 'stroke="#000"')
         svg = svg.replace('fill="currentColor"', 'fill="#000"')
+        # 2. Convert ex-unit width/height to explicit pixels. KPV3
+        #    sometimes ignores ex/em units and falls back to width=0/
+        #    height=0; explicit px guarantees a visible bounding box.
+        #    Conversion: 1 ex ≈ 12 px (matches the em:24 / ex:12 we set
+        #    in tex2svg.js).
+        def _ex_to_px(m):
+            attr = m.group(1)
+            val = float(m.group(2))
+            unit = m.group(3)
+            unit_to_px = {'ex': 12, 'em': 24, 'pt': 1.33, 'px': 1}
+            return f'{attr}="{val * unit_to_px.get(unit, 1):.1f}px"'
+        svg = re.sub(
+            r'(width|height)="(\d+(?:\.\d+)?)(ex|em|pt)"',
+            _ex_to_px, svg)
         out[r["id"]] = svg
     return out
 
 
 def render_svg_scaled(svg_default, scale=1.5):
-    """Variant: scale up SVG via CSS transform OR rewrite width/height.
+    """Variant: further scale up the already-px-sized SVGs by `scale`.
 
-    Approach: convert ex-unit width/height to px, then multiply.
-    `1 ex` ~= `8 px` at 16px base font; multiplied by scale.
+    Default SVGs already have explicit px sizes (from render_svg_default).
+    This multiplies them by `scale` AND wraps the SVG in an inline-block
+    span with vertical-align: middle so it sits aligned with text.
     """
     out = {}
     for k, svg in svg_default.items():
-        # Find width and height in ex
-        def to_px(m):
-            unit_val = float(m.group(2))
+        def mult_px(m):
             attr = m.group(1)
-            unit = m.group(3)
-            # Default conversion: ex → px ~= 8, em → px ~= 16
-            unit_to_px = {'ex': 8, 'em': 16, 'pt': 1.33, 'px': 1}
-            multiplier = unit_to_px.get(unit, 1)
-            new_px = unit_val * multiplier * scale
-            return f'{attr}="{new_px:.1f}px"'
+            val = float(m.group(2))
+            return f'{attr}="{val * scale:.1f}px"'
         modified = re.sub(
-            r'(width|height)="(\d+(?:\.\d+)?)(ex|em|pt|px)"',
-            to_px, svg)
-        # Also wrap in a span with vertical-align: middle to stay inline
+            r'(width|height)="(\d+(?:\.\d+)?)px"',
+            mult_px, svg)
+        # Wrap in span: inline-block keeps the SVG in line flow,
+        # vertical-align:middle aligns with surrounding text. The span's
+        # CSS line-height:0 prevents extra vertical space below the SVG.
         modified = (
-            f'<span style="display: inline-block; vertical-align: middle;">'
-            f'{modified}</span>'
+            f'<span style="display: inline-block; vertical-align: middle; '
+            f'line-height: 0;">{modified}</span>'
         )
         out[k] = modified
     return out
