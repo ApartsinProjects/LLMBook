@@ -291,6 +291,30 @@ def clean_chapter_html(soup: BeautifulSoup) -> None:
     for tag in soup(UNWANTED_TAGS):
         tag.decompose()
 
+    # v15.11: clean <img> alt attributes to be KPV/MOBI-builder-safe.
+    # KPV E21018 ("Enhanced Mobi building failure...Content: <img>")
+    # was triggered by alt attributes with multiple `&gt;` / `&lt;`
+    # entities (used to spell `->` arrows in figure descriptions).
+    # Replace `-&gt;` with " to "; cap alt at 240 chars; strip newlines.
+    for img in soup.find_all("img"):
+        alt = img.get("alt", "")
+        if not alt:
+            continue
+        # The HTML parser already decoded entities, so we look at plain `->`
+        # and stray angle brackets here.
+        new_alt = alt
+        new_alt = new_alt.replace(" -> ", " to ")
+        new_alt = new_alt.replace("->", " to ")
+        new_alt = new_alt.replace(" <- ", " from ")
+        new_alt = new_alt.replace("<-", " from ")
+        # Collapse whitespace
+        new_alt = " ".join(new_alt.split())
+        # Cap length (KPV chokes on very long alt strings too)
+        if len(new_alt) > 240:
+            new_alt = new_alt[:237].rstrip() + "..."
+        if new_alt != alt:
+            img["alt"] = new_alt
+
     # Drop oversized inline styles (page-specific animations, cover CSS, etc.)
     for style in soup.find_all("style"):
         if len(style.get_text() or "") > DROP_INLINE_STYLE_OVER:
