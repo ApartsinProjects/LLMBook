@@ -104,12 +104,20 @@ def module_order(part_dir: Path) -> list[Path]:
 
 
 def appendix_order() -> list[Path]:
+    """Return appendices in spine order.
+
+    Sort alphabetically by letter, BUT put the Glossary
+    (`appendix-f-glossary`) at the end so its TOC entry (which we
+    promote to a top-level "Glossary" entry in build_epub.py) can
+    appear after the Appendices group without triggering epubcheck
+    NAV-011 ("toc nav must be in reading order").
+    """
     app_root = ROOT / "appendices"
-    apps = sorted(
-        [p for p in app_root.iterdir() if p.is_dir() and p.name.startswith("appendix-")],
-        key=lambda p: re.match(r"appendix-([a-z])", p.name).group(1),
-    )
-    return apps
+    apps = [p for p in app_root.iterdir() if p.is_dir() and p.name.startswith("appendix-")]
+    glossary = [p for p in apps if "glossary" in p.name]
+    rest = [p for p in apps if "glossary" not in p.name]
+    rest.sort(key=lambda p: re.match(r"appendix-([a-z])", p.name).group(1))
+    return rest + glossary
 
 
 def build_spine() -> list[dict]:
