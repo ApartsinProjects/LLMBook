@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<meta content="Section N.1: PySpark for LLM Data Pipelines. A comprehensive chapter from the Building Conversational AI textbook." name="description"/>
+<title>Section N.1: PySpark for LLM Data Pipelines | Building Conversational AI with LLMs and Agents</title>
+<link href="../../styles/book.css" rel="stylesheet"/>
+<link href="../../styles/pygments.css" rel="stylesheet"/>
+<link href="../../vendor/prism/prism-theme.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/prism/prism-bundle.min.js"></script>
+<script defer="" src="../../scripts/book.js"></script>
+<link href="../../pagefind/pagefind-ui.css" rel="stylesheet"/>
+<script defer="" src="../../pagefind/pagefind-ui.js"></script>
+</head>
+<body>
+<header class="chapter-header">
+<nav class="header-nav">
+<a class="book-title-link" href="../../index.html">Building Conversational AI with LLMs and Agents</a>
+<a class="toc-link" href="../../toc.html" title="Table of Contents"><span class="toc-icon">☰</span> Contents</a>
+</nav>
+<div class="header-search">
+<div id="search"></div>
+</div>
+
+<div class="page-breadcrumb" data-pagefind-meta="chapter"><a href="../index.html">Appendices</a><span class="bc-sep">›</span><a href="index.html">Appendix M: Distributed ML: PySpark, Databricks, and Ray</a></div>
+<h1>N.1 PySpark for LLM Data Pipelines</h1><div class="page-current">Section M.1</div>
+
+</header>
+<main class="content"><span class="pagefind-meta-injected" data-pagefind-meta="part:Building Conversational AI with LLMs and Agents" hidden=""></span><span class="pagefind-meta-injected" data-pagefind-meta="chapter:Appendix M: Distributed ML: PySpark, Databricks, and Ray" hidden=""></span>
+<div class="callout big-picture">
+<div class="callout-title">Big Picture</div>
+<p>Training and fine-tuning LLMs requires processing corpora that range from tens of gigabytes to multiple terabytes. PySpark provides the distributed compute layer that makes this tractable: it parallelizes text cleaning, deduplication, tokenization, and embedding generation across hundreds of cores, and it integrates naturally with the Delta Lake storage layer covered in <a href="section-m.2.html">Section N.2</a> and the Databricks platform covered in <a href="section-m.1.html">Section N.1</a>. This section walks through each stage of a PySpark-based LLM data pipeline, from reading raw corpora to writing training-ready Parquet files and populating vector databases.</p>
+</div>
+<h2>O.1.1 PySpark Fundamentals for Text Data</h2>
+<p>
+        Before processing any text, configure your <code>SparkSession</code> for the memory profiles that
+        LLM data pipelines demand. Text data is wide (long strings), so default Spark settings for shuffle
+        partitions and executor memory are often too conservative.
+    </p>
+<pre><code class="lang-python pygments-highlighted"><span class="kn">from</span><span class="w"> </span><span class="nn">pyspark.sql</span><span class="w"> </span><span class="kn">import</span> <span class="n">SparkSession</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyspark.sql</span><span class="w"> </span><span class="kn">import</span> <span class="n">functions</span> <span class="k">as</span> <span class="n">F</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyspark.sql.types</span><span class="w"> </span><span class="kn">import</span> <span class="n">StringType</span><span class="p">,</span> <span class="n">FloatType</span><span class="p">,</span> <span class="n">IntegerType</span>
+
+<span class="c1"># Configure SparkSession for LLM data workloads</span>
+<span class="n">spark</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="n">SparkSession</span><span class="o">.</span><span class="n">builder</span>
+    <span class="o">.</span><span class="n">appName</span><span class="p">(</span><span class="s2">"llm-data-pipeline"</span><span class="p">)</span>
+    <span class="c1"># Increase shuffle partitions for large text corpora</span>
+    <span class="o">.</span><span class="n">config</span><span class="p">(</span><span class="s2">"spark.sql.shuffle.partitions"</span><span class="p">,</span> <span class="s2">"800"</span><span class="p">)</span>
+    <span class="c1"># Allow Spark to read ORC/Parquet metadata without loading full columns</span>
+    <span class="o">.</span><span class="n">config</span><span class="p">(</span><span class="s2">"spark.sql.parquet.filterPushdown"</span><span class="p">,</span> <span class="s2">"true"</span><span class="p">)</span>
+    <span class="c1"># Use Kryo for faster serialization of Python objects</span>
+    <span class="o">.</span><span class="n">config</span><span class="p">(</span><span class="s2">"spark.serializer"</span><span class="p">,</span> <span class="s2">"org.apache.spark.serializer.KryoSerializer"</span><span class="p">)</span>
+    <span class="c1"># Driver and executor memory: tune to your cluster</span>
+    <span class="o">.</span><span class="n">config</span><span class="p">(</span><span class="s2">"spark.driver.memory"</span><span class="p">,</span> <span class="s2">"16g"</span><span class="p">)</span>
+    <span class="o">.</span><span class="n">config</span><span class="p">(</span><span class="s2">"spark.executor.memory"</span><span class="p">,</span> <span class="s2">"32g"</span><span class="p">)</span>
+    <span class="o">.</span><span class="n">config</span><span class="p">(</span><span class="s2">"spark.executor.memoryOverhead"</span><span class="p">,</span> <span class="s2">"4g"</span><span class="p">)</span>
+    <span class="c1"># Adaptive Query Execution (Spark 3+): auto-coalesces small partitions</span>
+    <span class="o">.</span><span class="n">config</span><span class="p">(</span><span class="s2">"spark.sql.adaptive.enabled"</span><span class="p">,</span> <span class="s2">"true"</span><span class="p">)</span>
+    <span class="o">.</span><span class="n">config</span><span class="p">(</span><span class="s2">"spark.sql.adaptive.coalescePartitions.enabled"</span><span class="p">,</span> <span class="s2">"true"</span><span class="p">)</span>
+    <span class="o">.</span><span class="n">getOrCreate</span><span class="p">()</span>
+<span class="p">)</span>
+
+<span class="n">spark</span><span class="o">.</span><span class="n">sparkContext</span><span class="o">.</span><span class="n">setLogLevel</span><span class="p">(</span><span class="s2">"WARN"</span><span class="p">)</span></code></pre><div class="code-caption"><strong>Code Fragment M.1.1:</strong> Configure SparkSession for LLM data workloads</div>
+<pre><code class="lang-python pygments-highlighted"><span class="c1"># Read from Delta Lake (recommended for managed pipelines)</span>
+<span class="n">df_delta</span> <span class="o">=</span> <span class="n">spark</span><span class="o">.</span><span class="n">read</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="s2">"delta"</span><span class="p">)</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="s2">"s3://my-bucket/corpora/c4-en"</span><span class="p">)</span>
+
+<span class="c1"># Read from Parquet (e.g., downloaded Common Crawl snapshots)</span>
+<span class="n">df_parquet</span> <span class="o">=</span> <span class="n">spark</span><span class="o">.</span><span class="n">read</span><span class="o">.</span><span class="n">parquet</span><span class="p">(</span><span class="s2">"s3://my-bucket/raw/cc-2024-10/"</span><span class="p">)</span>
+
+<span class="c1"># Read from newline-delimited JSON</span>
+<span class="n">df_json</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="n">spark</span><span class="o">.</span><span class="n">read</span>
+    <span class="o">.</span><span class="n">option</span><span class="p">(</span><span class="s2">"multiline"</span><span class="p">,</span> <span class="s2">"false"</span><span class="p">)</span>   <span class="c1"># one JSON object per line</span>
+    <span class="o">.</span><span class="n">json</span><span class="p">(</span><span class="s2">"s3://my-bucket/raw/dolma-v1.7/"</span><span class="p">)</span>
+<span class="p">)</span>
+
+<span class="c1"># Read from CSV with header (e.g., OpenWebText metadata)</span>
+<span class="n">df_csv</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="n">spark</span><span class="o">.</span><span class="n">read</span>
+    <span class="o">.</span><span class="n">option</span><span class="p">(</span><span class="s2">"header"</span><span class="p">,</span> <span class="s2">"true"</span><span class="p">)</span>
+    <span class="o">.</span><span class="n">option</span><span class="p">(</span><span class="s2">"inferSchema"</span><span class="p">,</span> <span class="s2">"true"</span><span class="p">)</span>
+    <span class="o">.</span><span class="n">csv</span><span class="p">(</span><span class="s2">"s3://my-bucket/raw/openwebtext-meta/"</span><span class="p">)</span>
+<span class="p">)</span>
+
+<span class="c1"># Quick schema inspection</span>
+<span class="n">df_delta</span><span class="o">.</span><span class="n">printSchema</span><span class="p">()</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Row count: </span><span class="si">{</span><span class="n">df_delta</span><span class="o">.</span><span class="n">count</span><span class="p">()</span><span class="si">:</span><span class="s2">,</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span></code></pre>
+<pre><code class="lang-python pygments-highlighted"><span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn.functional</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">F</span>
+<span class="c1"># Filter to English, require minimum text length and quality score</span>
+<span class="n">df_filtered</span> <span class="o">=</span> <span class="p">(</span>
+<span class="n">df_delta</span>
+<span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">F</span><span class="o">.</span><span class="n">col</span><span class="p">(</span><span class="s2">"language"</span><span class="p">)</span> <span class="o">==</span> <span class="s2">"en"</span><span class="p">)</span>
+<span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">F</span><span class="o">.</span><span class="n">col</span><span class="p">(</span><span class="s2">"language_score"</span><span class="p">)</span> <span class="o">&gt;=</span> <span class="mf">0.85</span><span class="p">)</span>
+<span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">F</span><span class="o">.</span><span class="n">length</span><span class="p">(</span><span class="s2">"text"</span><span class="p">)</span> <span class="o">&gt;=</span> <span class="mi">200</span><span class="p">)</span>
+<span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">F</span><span class="o">.</span><span class="n">length</span><span class="p">(</span><span class="s2">"text"</span><span class="p">)</span> <span class="o">&lt;=</span> <span class="mi">100_000</span><span class="p">)</span>
+<span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">F</span><span class="o">.</span><span class="n">col</span><span class="p">(</span><span class="s2">"quality_score"</span><span class="p">)</span> <span class="o">&gt;=</span> <span class="mf">0.5</span><span class="p">)</span>
+<span class="p">)</span>
+<span class="c1"># Register a UDF for language detection on raw text (when no pre-computed label)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">langdetect</span><span class="w"> </span><span class="kn">import</span> <span class="n">detect</span><span class="p">,</span> <span class="n">LangDetectException</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">detect_lang</span><span class="p">(</span><span class="n">text</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="k">if</span> <span class="ow">not</span> <span class="n">text</span> <span class="ow">or</span> <span class="nb">len</span><span class="p">(</span><span class="n">text</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mi">20</span><span class="p">:</span>
+<span class="k">return</span> <span class="s2">"unknown"</span>
+<span class="k">try</span><span class="p">:</span>
+<span class="k">return</span> <span class="n">detect</span><span class="p">(</span><span class="n">text</span><span class="p">)</span>
+<span class="k">except</span> <span class="n">LangDetectException</span><span class="p">:</span>
+<span class="k">return</span> <span class="s2">"unknown"</span>
+<span class="n">detect_lang_udf</span> <span class="o">=</span> <span class="n">F</span><span class="o">.</span><span class="n">udf</span><span class="p">(</span><span class="n">detect_lang</span><span class="p">,</span> <span class="n">StringType</span><span class="p">())</span>
+<span class="n">df_with_lang</span> <span class="o">=</span> <span class="n">df_json</span><span class="o">.</span><span class="n">withColumn</span><span class="p">(</span><span class="s2">"detected_lang"</span><span class="p">,</span> <span class="n">detect_lang_udf</span><span class="p">(</span><span class="n">F</span><span class="o">.</span><span class="n">col</span><span class="p">(</span><span class="s2">"text"</span><span class="p">)))</span>
+<span class="n">df_en</span> <span class="o">=</span> <span class="n">df_with_lang</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">F</span><span class="o">.</span><span class="n">col</span><span class="p">(</span><span class="s2">"detected_lang"</span><span class="p">)</span> <span class="o">==</span> <span class="s2">"en"</span><span class="p">)</span></code></pre>
+<div class="code-caption"><strong>Code Fragment M.1.1</strong>: End-to-end corpus ingestion: SparkSession configuration, reading multiple formats (Delta, Parquet, JSON, CSV), and language/quality filtering. Adaptive Query Execution auto-coalesces small partitions when corpus sizes vary widely.</div>
+<p>
+        PySpark can read all common corpus formats. Delta Lake is preferred for its ACID guarantees and
+        time-travel capabilities (see <a href="section-m.2.html">Section N.2</a>), but
+        raw Parquet and JSON are also common for externally sourced datasets.
+    </p>
+<p>
+        Basic DataFrame operations for text quality gating run as distributed SQL-style transformations.
+        Language filtering, length thresholding, and quality score cuts are all expressible with
+        <code>F.col</code> predicates and are pushed down to the storage layer when reading Parquet.
+    </p>
+<pre><code class="lang-python pygments-highlighted"><span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn.functional</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">F</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">hashlib</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyspark.ml.feature</span><span class="w"> </span><span class="kn">import</span> <span class="n">MinHashLSH</span><span class="p">,</span> <span class="n">HashingTF</span><span class="p">,</span> <span class="n">Tokenizer</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyspark.sql.functions</span><span class="w"> </span><span class="kn">import</span> <span class="n">col</span><span class="p">,</span> <span class="n">udf</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyspark.sql.types</span><span class="w"> </span><span class="kn">import</span> <span class="n">StringType</span>
+<span class="c1"># --- Exact deduplication via SHA-256 ---</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">sha256_hash</span><span class="p">(</span><span class="n">text</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="k">return</span> <span class="n">hashlib</span><span class="o">.</span><span class="n">sha256</span><span class="p">(</span><span class="n">text</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s2">"utf-8"</span><span class="p">))</span><span class="o">.</span><span class="n">hexdigest</span><span class="p">()</span>
+<span class="n">hash_udf</span> <span class="o">=</span> <span class="n">F</span><span class="o">.</span><span class="n">udf</span><span class="p">(</span><span class="n">sha256_hash</span><span class="p">,</span> <span class="n">StringType</span><span class="p">())</span>
+<span class="n">df_hashed</span> <span class="o">=</span> <span class="n">df_filtered</span><span class="o">.</span><span class="n">withColumn</span><span class="p">(</span><span class="s2">"doc_hash"</span><span class="p">,</span> <span class="n">hash_udf</span><span class="p">(</span><span class="n">F</span><span class="o">.</span><span class="n">col</span><span class="p">(</span><span class="s2">"text"</span><span class="p">)))</span>
+<span class="c1"># Keep only the first occurrence of each hash</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyspark.sql.window</span><span class="w"> </span><span class="kn">import</span> <span class="n">Window</span>
+<span class="n">window</span> <span class="o">=</span> <span class="n">Window</span><span class="o">.</span><span class="n">partitionBy</span><span class="p">(</span><span class="s2">"doc_hash"</span><span class="p">)</span><span class="o">.</span><span class="n">orderBy</span><span class="p">(</span><span class="s2">"url"</span><span class="p">)</span>
+<span class="n">df_exact_deduped</span> <span class="o">=</span> <span class="p">(</span>
+<span class="n">df_hashed</span>
+<span class="o">.</span><span class="n">withColumn</span><span class="p">(</span><span class="s2">"rank"</span><span class="p">,</span> <span class="n">F</span><span class="o">.</span><span class="n">row_number</span><span class="p">()</span><span class="o">.</span><span class="n">over</span><span class="p">(</span><span class="n">window</span><span class="p">))</span>
+<span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">F</span><span class="o">.</span><span class="n">col</span><span class="p">(</span><span class="s2">"rank"</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span><span class="p">)</span>
+<span class="o">.</span><span class="n">drop</span><span class="p">(</span><span class="s2">"rank"</span><span class="p">)</span>
+<span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"After exact dedup: </span><span class="si">{</span><span class="n">df_exact_deduped</span><span class="o">.</span><span class="n">count</span><span class="p">()</span><span class="si">:</span><span class="s2">,</span><span class="si">}</span><span class="s2"> docs"</span><span class="p">)</span></code></pre><div class="code-caption"><strong>Code Fragment M.1.2:</strong> --- Exact deduplication via SHA-256 ---</div>
+<pre><code class="lang-python pygments-highlighted"><span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn.functional</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">F</span>
+<span class="c1"># --- Near-duplicate removal via MinHash LSH ---</span>
+<span class="c1"># Tokenize into word shingles</span>
+<span class="n">tokenizer</span> <span class="o">=</span> <span class="n">Tokenizer</span><span class="p">(</span><span class="n">inputCol</span><span class="o">=</span><span class="s2">"text"</span><span class="p">,</span> <span class="n">outputCol</span><span class="o">=</span><span class="s2">"words"</span><span class="p">)</span>
+<span class="n">df_words</span> <span class="o">=</span> <span class="n">tokenizer</span><span class="o">.</span><span class="n">transform</span><span class="p">(</span><span class="n">df_exact_deduped</span><span class="p">)</span>
+<span class="c1"># Hash shingles into a feature vector</span>
+<span class="n">hashing_tf</span> <span class="o">=</span> <span class="n">HashingTF</span><span class="p">(</span><span class="n">inputCol</span><span class="o">=</span><span class="s2">"words"</span><span class="p">,</span> <span class="n">outputCol</span><span class="o">=</span><span class="s2">"features"</span><span class="p">,</span> <span class="n">numFeatures</span><span class="o">=</span><span class="mi">262144</span><span class="p">)</span>
+<span class="n">df_features</span> <span class="o">=</span> <span class="n">hashing_tf</span><span class="o">.</span><span class="n">transform</span><span class="p">(</span><span class="n">df_words</span><span class="p">)</span>
+<span class="c1"># Build MinHash LSH model</span>
+<span class="n">mh</span> <span class="o">=</span> <span class="n">MinHashLSH</span><span class="p">(</span><span class="n">inputCol</span><span class="o">=</span><span class="s2">"features"</span><span class="p">,</span> <span class="n">outputCol</span><span class="o">=</span><span class="s2">"hashes"</span><span class="p">,</span> <span class="n">numHashTables</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">mh</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">df_features</span><span class="p">)</span>
+<span class="c1"># Find near-duplicate pairs (Jaccard similarity &gt;= 0.8)</span>
+<span class="n">df_pairs</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">approxSimilarityJoin</span><span class="p">(</span>
+<span class="n">df_features</span><span class="p">,</span> <span class="n">df_features</span><span class="p">,</span>
+<span class="n">threshold</span><span class="o">=</span><span class="mf">0.2</span><span class="p">,</span> <span class="c1"># distance threshold = 1 - 0.8 Jaccard</span>
+<span class="n">distCol</span><span class="o">=</span><span class="s2">"distance"</span>
+<span class="p">)</span>
+<span class="c1"># Extract IDs of duplicates to remove (keep lowest ID in each cluster)</span>
+<span class="n">duplicates_to_remove</span> <span class="o">=</span> <span class="p">(</span>
+<span class="n">df_pairs</span>
+<span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">F</span><span class="o">.</span><span class="n">col</span><span class="p">(</span><span class="s2">"datasetA.id"</span><span class="p">)</span> <span class="o">!=</span> <span class="n">F</span><span class="o">.</span><span class="n">col</span><span class="p">(</span><span class="s2">"datasetB.id"</span><span class="p">))</span>
+<span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="n">F</span><span class="o">.</span><span class="n">greatest</span><span class="p">(</span><span class="s2">"datasetA.id"</span><span class="p">,</span> <span class="s2">"datasetB.id"</span><span class="p">)</span><span class="o">.</span><span class="n">alias</span><span class="p">(</span><span class="s2">"remove_id"</span><span class="p">))</span>
+<span class="o">.</span><span class="n">distinct</span><span class="p">()</span>
+<span class="p">)</span>
+<span class="n">df_near_deduped</span> <span class="o">=</span> <span class="n">df_features</span><span class="o">.</span><span class="n">join</span><span class="p">(</span>
+<span class="n">duplicates_to_remove</span><span class="p">,</span>
+<span class="n">df_features</span><span class="p">[</span><span class="s2">"id"</span><span class="p">]</span> <span class="o">==</span> <span class="n">duplicates_to_remove</span><span class="p">[</span><span class="s2">"remove_id"</span><span class="p">],</span>
+<span class="n">how</span><span class="o">=</span><span class="s2">"left_anti"</span>
+<span class="p">)</span></code></pre>
+<div class="code-caption"><strong>Code Fragment M.1.2</strong>: Two-stage deduplication: exact removal via SHA-256 hashing with window functions, then near-duplicate removal via MinHash LSH. The distance threshold of 0.2 corresponds to Jaccard similarity above 0.8.</div>
+<div class="callout note">
+<div class="callout-title">Note</div>
+<p>Row-level Python UDFs incur Python-JVM serialization overhead for every row. For high-throughput pipelines, prefer <code>pandas_udf</code> (covered in O.1.3 and O.1.4) which processes batches of rows using Arrow, reducing overhead by 10-50x.</p>
+</div>
+<h2>O.1.2 Large-Scale Text Preprocessing</h2>
+<p>
+        Raw web corpora contain near-duplicate documents, malformed HTML, non-standard Unicode, and
+        personally identifiable information (PII). Removing these before tokenization is essential for
+        training data quality and legal compliance.
+    </p>
+<h3>Deduplication</h3>
+<p>
+        Exact deduplication uses a hash of the document content. Near-duplicate removal requires MinHash
+        Locality Sensitive Hashing (LSH), which approximates Jaccard similarity between documents at scale.
+    </p>
+<pre><code class="lang-python pygments-highlighted"><span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn.functional</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">F</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyspark.sql.types</span><span class="w"> </span><span class="kn">import</span> <span class="n">StructType</span><span class="p">,</span> <span class="n">StructField</span>
+<span class="n">SEQ_LEN</span> <span class="o">=</span> <span class="mi">4096</span>
+<span class="n">EOS_ID</span> <span class="o">=</span> <span class="mi">2</span> <span class="c1"># Llama EOS token ID</span>
+<span class="nd">@pandas_udf</span><span class="p">(</span><span class="n">ArrayType</span><span class="p">(</span><span class="n">IntegerType</span><span class="p">()))</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">pack_sequences</span><span class="p">(</span><span class="n">token_id_lists</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">:</span>
+<span class="w"> </span><span class="sd">"""Greedily pack variable-length token sequences into fixed-length chunks."""</span>
+<span class="n">packed</span> <span class="o">=</span> <span class="p">[]</span>
+<span class="n">current_chunk</span> <span class="o">=</span> <span class="p">[]</span>
+<span class="k">for</span> <span class="n">token_ids</span> <span class="ow">in</span> <span class="n">token_id_lists</span><span class="p">:</span>
+<span class="k">if</span> <span class="ow">not</span> <span class="n">token_ids</span><span class="p">:</span>
+<span class="k">continue</span>
+<span class="c1"># Append EOS after each document</span>
+<span class="n">doc_tokens</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">token_ids</span><span class="p">)</span> <span class="o">+</span> <span class="p">[</span><span class="n">EOS_ID</span><span class="p">]</span>
+<span class="c1"># Split document if longer than context window</span>
+<span class="k">while</span> <span class="nb">len</span><span class="p">(</span><span class="n">doc_tokens</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+<span class="n">space</span> <span class="o">=</span> <span class="n">SEQ_LEN</span> <span class="o">-</span> <span class="nb">len</span><span class="p">(</span><span class="n">current_chunk</span><span class="p">)</span>
+<span class="n">current_chunk</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">doc_tokens</span><span class="p">[:</span><span class="n">space</span><span class="p">])</span>
+<span class="n">doc_tokens</span> <span class="o">=</span> <span class="n">doc_tokens</span><span class="p">[</span><span class="n">space</span><span class="p">:]</span>
+<span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">current_chunk</span><span class="p">)</span> <span class="o">==</span> <span class="n">SEQ_LEN</span><span class="p">:</span>
+<span class="n">packed</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">current_chunk</span><span class="p">)</span>
+<span class="n">current_chunk</span> <span class="o">=</span> <span class="p">[]</span>
+<span class="c1"># Discard the final partial chunk (do not pad)</span>
+<span class="k">return</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">(</span><span class="n">packed</span><span class="p">)</span>
+<span class="n">df_packed</span> <span class="o">=</span> <span class="n">df_tokenized</span><span class="o">.</span><span class="n">groupBy</span><span class="p">(</span><span class="s2">"partition_id"</span><span class="p">)</span><span class="o">.</span><span class="n">agg</span><span class="p">(</span>
+<span class="n">pack_sequences</span><span class="p">(</span><span class="n">F</span><span class="o">.</span><span class="n">col</span><span class="p">(</span><span class="s2">"token_ids"</span><span class="p">))</span><span class="o">.</span><span class="n">alias</span><span class="p">(</span><span class="s2">"packed_sequences"</span><span class="p">)</span>
+<span class="p">)</span></code></pre>
+<div class="code-caption"><strong>Code Fragment M.1.3</strong>: Greedy sequence packing. The <code>pack_sequences</code> UDF concatenates variable-length documents with EOS separators into fixed-length windows of <code>SEQ_LEN</code> tokens, improving GPU utilization by 15 to 30% compared to per-document truncation with padding.</div>
+<h3>Text Cleaning and PII Redaction</h3>
+<pre><code class="lang-python pygments-highlighted"><span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn.functional</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">F</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">re</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">unicodedata</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyspark.sql.functions</span><span class="w"> </span><span class="kn">import</span> <span class="n">pandas_udf</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+<span class="c1"># Regex patterns for PII and noise</span>
+<span class="n">EMAIL_RE</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="sa">r</span><span class="s2">"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+"</span><span class="p">)</span>
+<span class="n">PHONE_RE</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="sa">r</span><span class="s2">"\b(\+?1[\s.-]?)?\(?\d</span><span class="si">{3}</span><span class="s2">\)?[\s.-]?\d</span><span class="si">{3}</span><span class="s2">[\s.-]?\d</span><span class="si">{4}</span><span class="s2">\b"</span><span class="p">)</span>
+<span class="n">HTML_TAG_RE</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="sa">r</span><span class="s2">"&lt;[^&gt;]+&gt;"</span><span class="p">)</span>
+<span class="n">MULTI_SPACE_RE</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="sa">r</span><span class="s2">"\s+"</span><span class="p">)</span>
+<span class="nd">@pandas_udf</span><span class="p">(</span><span class="n">StringType</span><span class="p">())</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">clean_text</span><span class="p">(</span><span class="n">texts</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_clean</span><span class="p">(</span><span class="n">text</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">text</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+<span class="k">return</span> <span class="s2">""</span>
+<span class="c1"># Strip HTML tags</span>
+<span class="n">text</span> <span class="o">=</span> <span class="n">HTML_TAG_RE</span><span class="o">.</span><span class="n">sub</span><span class="p">(</span><span class="s2">" "</span><span class="p">,</span> <span class="n">text</span><span class="p">)</span>
+<span class="c1"># Normalize Unicode to NFC form</span>
+<span class="n">text</span> <span class="o">=</span> <span class="n">unicodedata</span><span class="o">.</span><span class="n">normalize</span><span class="p">(</span><span class="s2">"NFC"</span><span class="p">,</span> <span class="n">text</span><span class="p">)</span>
+<span class="c1"># Redact PII</span>
+<span class="n">text</span> <span class="o">=</span> <span class="n">EMAIL_RE</span><span class="o">.</span><span class="n">sub</span><span class="p">(</span><span class="s2">"[EMAIL]"</span><span class="p">,</span> <span class="n">text</span><span class="p">)</span>
+<span class="n">text</span> <span class="o">=</span> <span class="n">PHONE_RE</span><span class="o">.</span><span class="n">sub</span><span class="p">(</span><span class="s2">"[PHONE]"</span><span class="p">,</span> <span class="n">text</span><span class="p">)</span>
+<span class="c1"># Collapse whitespace</span>
+<span class="n">text</span> <span class="o">=</span> <span class="n">MULTI_SPACE_RE</span><span class="o">.</span><span class="n">sub</span><span class="p">(</span><span class="s2">" "</span><span class="p">,</span> <span class="n">text</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+<span class="k">return</span> <span class="n">text</span>
+<span class="k">return</span> <span class="n">texts</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="n">_clean</span><span class="p">)</span>
+<span class="n">df_cleaned</span> <span class="o">=</span> <span class="n">df_near_deduped</span><span class="o">.</span><span class="n">withColumn</span><span class="p">(</span><span class="s2">"text"</span><span class="p">,</span> <span class="n">clean_text</span><span class="p">(</span><span class="n">F</span><span class="o">.</span><span class="n">col</span><span class="p">(</span><span class="s2">"text"</span><span class="p">)))</span></code></pre>
+<div class="code-caption"><strong>Code Fragment M.1.4</strong>: Vectorized text cleaning via <code>pandas_udf</code>. Processing a Pandas Series per partition is significantly faster than row-level UDFs for regex-heavy operations.</div>
+<pre><code class="lang-python pygments-highlighted"><span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn.functional</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">F</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">AutoTokenizer</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyspark.sql.types</span><span class="w"> </span><span class="kn">import</span> <span class="n">ArrayType</span><span class="p">,</span> <span class="n">IntegerType</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+<span class="n">MODEL_NAME</span> <span class="o">=</span> <span class="s2">"meta-llama/Llama-3.1-8B"</span>
+<span class="n">TOKENIZER_BROADCAST</span> <span class="o">=</span> <span class="kc">None</span> <span class="c1"># populated per-partition to avoid serialization</span>
+<span class="nd">@pandas_udf</span><span class="p">(</span><span class="n">ArrayType</span><span class="p">(</span><span class="n">IntegerType</span><span class="p">()))</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">tokenize_text</span><span class="p">(</span><span class="n">texts</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">:</span>
+<span class="c1"># Load tokenizer once per executor process (cached after first call)</span>
+<span class="k">global</span> <span class="n">TOKENIZER_BROADCAST</span>
+<span class="k">if</span> <span class="n">TOKENIZER_BROADCAST</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+<span class="n">TOKENIZER_BROADCAST</span> <span class="o">=</span> <span class="n">AutoTokenizer</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span>
+<span class="n">MODEL_NAME</span><span class="p">,</span> <span class="n">use_fast</span><span class="o">=</span><span class="kc">True</span>
+<span class="p">)</span>
+<span class="n">tok</span> <span class="o">=</span> <span class="n">TOKENIZER_BROADCAST</span>
+<span class="c1"># Tokenize the whole batch at once (fast tokenizers support batching)</span>
+<span class="n">results</span> <span class="o">=</span> <span class="n">tok</span><span class="p">(</span>
+<span class="n">texts</span><span class="o">.</span><span class="n">tolist</span><span class="p">(),</span>
+<span class="n">truncation</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<span class="n">padding</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<span class="n">add_special_tokens</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="k">return</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">(</span><span class="n">results</span><span class="p">[</span><span class="s2">"input_ids"</span><span class="p">])</span>
+<span class="n">df_tokenized</span> <span class="o">=</span> <span class="n">df_cleaned</span><span class="o">.</span><span class="n">withColumn</span><span class="p">(</span><span class="s2">"token_ids"</span><span class="p">,</span> <span class="n">tokenize_text</span><span class="p">(</span><span class="n">F</span><span class="o">.</span><span class="n">col</span><span class="p">(</span><span class="s2">"text"</span><span class="p">)))</span></code></pre>
+<div class="code-caption"><strong>Code Fragment M.1.5</strong>: Batch tokenization via <code>pandas_udf</code>. The tokenizer is loaded once per executor process using a global variable. Using <code>use_fast=True</code> enables the Rust-backed tokenizer, which is 5 to 10x faster than the Python implementation.</div>
+<div class="callout practical-example">
+<div class="callout-title">Practical Example: C4-Style Preprocessing Pipeline</div>
+<p>The C4 dataset (used to train T5 and many subsequent models) applies a sequence of quality filters that are straightforward to replicate in PySpark:</p>
+<ul>
+<li>Keep only lines ending in terminal punctuation (<code>.</code>, <code>!</code>, <code>?</code>, <code>"</code>).</li>
+<li>Remove documents with fewer than 5 sentences or fewer than 3 words per line on average.</li>
+<li>Remove documents containing any of a list of profanity/toxic keywords.</li>
+<li>Remove lines containing the substring <code>javascript</code> (catches boilerplate web page noise).</li>
+</ul>
+<p>Each filter is a simple <code>F.col</code> predicate or a single-pass UDF and adds negligible compute cost relative to the I/O required to read the corpus.</p>
+</div>
+<h2>O.1.3 Tokenization and Dataset Preparation</h2>
+<p>
+        Once text is cleaned and deduplicated, the next step is converting it into token sequences that
+        training frameworks can consume. HuggingFace tokenizers are the de facto standard; applying them
+        at scale requires wrapping them in a <code>pandas_udf</code> so the tokenizer is loaded once per
+        Spark partition rather than once per row.
+    </p>
+<pre><code class="lang-python pygments-highlighted"><span class="c1"># Write packed sequences to Parquet with tuned row group sizes</span>
+<span class="n">OUTPUT_PATH</span> <span class="o">=</span> <span class="s2">"s3://my-bucket/training/llama-sft-packed-v3"</span>
+
+<span class="p">(</span>
+    <span class="n">df_packed</span>
+    <span class="o">.</span><span class="n">write</span>
+    <span class="o">.</span><span class="n">mode</span><span class="p">(</span><span class="s2">"overwrite"</span><span class="p">)</span>
+    <span class="o">.</span><span class="n">option</span><span class="p">(</span><span class="s2">"parquet.block.size"</span><span class="p">,</span> <span class="mi">128</span> <span class="o">*</span> <span class="mi">1024</span> <span class="o">*</span> <span class="mi">1024</span><span class="p">)</span>   <span class="c1"># 128 MB row groups</span>
+    <span class="o">.</span><span class="n">option</span><span class="p">(</span><span class="s2">"parquet.page.size"</span><span class="p">,</span>  <span class="mi">1</span> <span class="o">*</span> <span class="mi">1024</span> <span class="o">*</span> <span class="mi">1024</span><span class="p">)</span>     <span class="c1"># 1 MB pages</span>
+    <span class="o">.</span><span class="n">parquet</span><span class="p">(</span><span class="n">OUTPUT_PATH</span><span class="p">)</span>
+<span class="p">)</span>
+
+<span class="c1"># --- In your training script, load directly as a HuggingFace Dataset ---</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">datasets</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_dataset</span>
+
+<span class="n">dataset</span> <span class="o">=</span> <span class="n">load_dataset</span><span class="p">(</span>
+    <span class="s2">"parquet"</span><span class="p">,</span>
+    <span class="n">data_files</span><span class="o">=</span><span class="p">{</span><span class="s2">"train"</span><span class="p">:</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">OUTPUT_PATH</span><span class="si">}</span><span class="s2">/*.parquet"</span><span class="p">},</span>
+    <span class="n">split</span><span class="o">=</span><span class="s2">"train"</span><span class="p">,</span>
+    <span class="n">num_proc</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">dataset</span><span class="p">)</span>
+<span class="c1"># Dataset({features: ['packed_sequences'], num_rows: 4200000})</span></code></pre>
+<div class="code-caption"><strong>Code Fragment M.1.6</strong>: Writing packed sequences to Parquet with tuned row group sizes, then loading them as a HuggingFace <code>Dataset</code> via the <code>parquet</code> loader. The 128 MB row group setting balances metadata overhead against read parallelism.</div>
+<p>
+        Training efficiency requires packing multiple short documents into fixed-length sequences to avoid
+        wasting context window capacity on padding tokens. The following UDF implements a greedy bin-packing
+        approach per partition.
+    </p>
+<pre><code class="lang-python pygments-highlighted"><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyspark.sql.types</span><span class="w"> </span><span class="kn">import</span> <span class="n">ArrayType</span><span class="p">,</span> <span class="n">FloatType</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyspark.sql.functions</span><span class="w"> </span><span class="kn">import</span> <span class="n">pandas_udf</span><span class="p">,</span> <span class="n">col</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">sentence_transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">SentenceTransformer</span>
+
+<span class="n">EMBEDDING_MODEL</span> <span class="o">=</span> <span class="s2">"BAAI/bge-large-en-v1.5"</span>
+<span class="n">EMBED_DIM</span> <span class="o">=</span> <span class="mi">1024</span>
+<span class="n">BATCH_SIZE</span> <span class="o">=</span> <span class="mi">256</span>   <span class="c1"># tune to GPU memory</span>
+
+<span class="c1"># Module-level cache: populated once per executor JVM process</span>
+<span class="n">_model_cache</span><span class="p">:</span> <span class="nb">dict</span> <span class="o">=</span> <span class="p">{}</span>
+
+<span class="nd">@pandas_udf</span><span class="p">(</span><span class="n">ArrayType</span><span class="p">(</span><span class="n">FloatType</span><span class="p">()))</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">embed_texts</span><span class="p">(</span><span class="n">texts</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">:</span>
+    <span class="k">global</span> <span class="n">_model_cache</span>
+    <span class="k">if</span> <span class="n">EMBEDDING_MODEL</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">_model_cache</span><span class="p">:</span>
+        <span class="n">device</span> <span class="o">=</span> <span class="s2">"cuda"</span> <span class="k">if</span> <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">is_available</span><span class="p">()</span> <span class="k">else</span> <span class="s2">"cpu"</span>
+        <span class="n">_model_cache</span><span class="p">[</span><span class="n">EMBEDDING_MODEL</span><span class="p">]</span> <span class="o">=</span> <span class="n">SentenceTransformer</span><span class="p">(</span>
+            <span class="n">EMBEDDING_MODEL</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span>
+        <span class="p">)</span>
+    <span class="n">model</span> <span class="o">=</span> <span class="n">_model_cache</span><span class="p">[</span><span class="n">EMBEDDING_MODEL</span><span class="p">]</span>
+
+    <span class="c1"># Process in mini-batches to avoid OOM on large partitions</span>
+    <span class="n">all_embeddings</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">text_list</span> <span class="o">=</span> <span class="n">texts</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">text_list</span><span class="p">),</span> <span class="n">BATCH_SIZE</span><span class="p">):</span>
+        <span class="n">batch</span> <span class="o">=</span> <span class="n">text_list</span><span class="p">[</span><span class="n">i</span> <span class="p">:</span> <span class="n">i</span> <span class="o">+</span> <span class="n">BATCH_SIZE</span><span class="p">]</span>
+        <span class="n">embs</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span>
+            <span class="n">batch</span><span class="p">,</span>
+            <span class="n">batch_size</span><span class="o">=</span><span class="nb">len</span><span class="p">(</span><span class="n">batch</span><span class="p">),</span>
+            <span class="n">normalize_embeddings</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+            <span class="n">show_progress_bar</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="n">all_embeddings</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">embs</span><span class="o">.</span><span class="n">tolist</span><span class="p">())</span>
+
+    <span class="k">return</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">(</span><span class="n">all_embeddings</span><span class="p">)</span>
+
+<span class="c1"># Repartition to align one partition per GPU worker</span>
+<span class="n">df_embedded</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="n">df_cleaned</span>
+    <span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="s2">"id"</span><span class="p">,</span> <span class="s2">"text"</span><span class="p">,</span> <span class="s2">"url"</span><span class="p">)</span>
+    <span class="o">.</span><span class="n">repartition</span><span class="p">(</span><span class="n">spark</span><span class="o">.</span><span class="n">sparkContext</span><span class="o">.</span><span class="n">defaultParallelism</span><span class="p">)</span>
+    <span class="o">.</span><span class="n">withColumn</span><span class="p">(</span><span class="s2">"embedding"</span><span class="p">,</span> <span class="n">embed_texts</span><span class="p">(</span><span class="n">col</span><span class="p">(</span><span class="s2">"text"</span><span class="p">)))</span>
+<span class="p">)</span></code></pre>
+<div class="code-caption"><strong>Code Fragment M.1.7</strong>: GPU embedding generation at scale. The module-level <code>_model_cache</code> dict ensures the model is loaded once per executor process, regardless of how many tasks that executor runs. Repartitioning to match GPU count minimizes model-load overhead.</div>
+<h3>Converting to HuggingFace Datasets</h3>
+<p>
+        The most efficient conversion path from Spark to a HuggingFace <code>Dataset</code> uses Apache
+        Arrow, which both Spark and HuggingFace natively support. Write Parquet from Spark, then load
+        with <code>datasets.load_dataset</code>.
+    </p>
+<div class="callout note">
+<div class="callout-title">Note</div>
+<p>Row group size directly affects streaming throughput. Groups that are too small increase metadata overhead; groups that are too large reduce parallelism when reading. The 128 MB default is a good starting point for single-GPU training. See <a href="section-m.2.html">Section N.2</a> for Delta Lake-specific Parquet optimization settings.</p>
+</div>
+<h2>O.1.4 Embedding Generation at Scale</h2>
+<p>
+        Generating embeddings for millions of documents is one of the most GPU-intensive offline tasks in
+        LLM infrastructure. The key challenge is loading the embedding model exactly once per Spark
+        executor (not once per row or even once per batch), and using Arrow-based <code>pandas_udf</code>
+        to send large batches to the GPU efficiently. This pattern connects directly to the vector search
+        infrastructure covered in <a href="../../part-5-retrieval-conversation/module-22-embeddings-vector-db/index.html">Chapter 22</a>.
+    </p>
+<h3>Writing Embeddings and Ingesting into Vector Databases</h3>
+<pre><code class="lang-python pygments-highlighted"><span class="c1"># Write embeddings to Parquet for offline use</span>
+<span class="n">EMBED_PATH</span> <span class="o">=</span> <span class="s2">"s3://my-bucket/embeddings/bge-large-v1"</span>
+
+<span class="p">(</span>
+    <span class="n">df_embedded</span>
+    <span class="o">.</span><span class="n">write</span>
+    <span class="o">.</span><span class="n">mode</span><span class="p">(</span><span class="s2">"overwrite"</span><span class="p">)</span>
+    <span class="o">.</span><span class="n">parquet</span><span class="p">(</span><span class="n">EMBED_PATH</span><span class="p">)</span>
+<span class="p">)</span>
+
+<span class="c1"># --- Batch upsert to Pinecone ---</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pinecone</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyspark.sql.functions</span><span class="w"> </span><span class="kn">import</span> <span class="n">struct</span>
+
+<span class="n">PINECONE_API_KEY</span> <span class="o">=</span> <span class="s2">"..."</span>
+<span class="n">INDEX_NAME</span> <span class="o">=</span> <span class="s2">"docs-bge-large"</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">upsert_to_pinecone</span><span class="p">(</span><span class="n">rows</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">"""Called once per Spark partition to batch-upsert embeddings."""</span>
+    <span class="n">pc</span> <span class="o">=</span> <span class="n">pinecone</span><span class="o">.</span><span class="n">Pinecone</span><span class="p">(</span><span class="n">api_key</span><span class="o">=</span><span class="n">PINECONE_API_KEY</span><span class="p">)</span>
+    <span class="n">index</span> <span class="o">=</span> <span class="n">pc</span><span class="o">.</span><span class="n">Index</span><span class="p">(</span><span class="n">INDEX_NAME</span><span class="p">)</span>
+
+    <span class="n">batch</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">rows</span><span class="p">:</span>
+        <span class="n">batch</span><span class="o">.</span><span class="n">append</span><span class="p">({</span>
+            <span class="s2">"id"</span><span class="p">:</span> <span class="n">row</span><span class="p">[</span><span class="s2">"id"</span><span class="p">],</span>
+            <span class="s2">"values"</span><span class="p">:</span> <span class="n">row</span><span class="p">[</span><span class="s2">"embedding"</span><span class="p">],</span>
+            <span class="s2">"metadata"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"url"</span><span class="p">:</span> <span class="n">row</span><span class="p">[</span><span class="s2">"url"</span><span class="p">]},</span>
+        <span class="p">})</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">batch</span><span class="p">)</span> <span class="o">==</span> <span class="mi">200</span><span class="p">:</span>
+            <span class="n">index</span><span class="o">.</span><span class="n">upsert</span><span class="p">(</span><span class="n">vectors</span><span class="o">=</span><span class="n">batch</span><span class="p">)</span>
+            <span class="n">batch</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">if</span> <span class="n">batch</span><span class="p">:</span>
+        <span class="n">index</span><span class="o">.</span><span class="n">upsert</span><span class="p">(</span><span class="n">vectors</span><span class="o">=</span><span class="n">batch</span><span class="p">)</span>
+
+<span class="c1"># foreachPartition loads the Pinecone client once per partition</span>
+<span class="n">df_embedded</span><span class="o">.</span><span class="n">foreachPartition</span><span class="p">(</span><span class="n">upsert_to_pinecone</span><span class="p">)</span></code></pre>
+<div class="code-caption"><strong>Code Fragment M.1.8</strong>: Writing embeddings to Parquet for offline use and batch upserting to Pinecone via <code>foreachPartition</code>. The same partition-level pattern works for Weaviate (using <code>weaviate.batch</code>) and Milvus (using <code>pymilvus.Collection.insert</code>).</div>
+<div class="callout key-insight">
+<div class="callout-title">Key Insight</div>
+<p>Use <code>foreachPartition</code> rather than <code>foreach</code> when writing to external systems like vector databases. <code>foreach</code> calls your function once per row, which causes one network round-trip per document. <code>foreachPartition</code> calls your function once per partition with an iterator, enabling batched writes and connection reuse that reduce total ingestion time by orders of magnitude.</p>
+</div>
+<h2>O.1.5 Monitoring and Optimizing Spark Jobs</h2>
+<p>
+        Even well-designed PySpark pipelines require tuning when run on real corpora. The Spark UI is the
+        primary diagnostic tool; understanding its output is essential for identifying and fixing the
+        bottlenecks most common in LLM data pipelines.
+    </p>
+<h3>Using the Spark UI</h3>
+<p>
+        The Spark UI is available at <code>http://&lt;driver-host&gt;:4040</code> during a running job. On
+        Databricks, it is accessible via the cluster detail page. The most useful views for LLM pipeline
+        debugging are:
+    </p>
+<ul>
+<li><strong>Stages tab:</strong> shows per-stage task duration distributions. A long tail in the
+            distribution indicates partition skew (one partition is much larger than others).</li>
+<li><strong>SQL tab:</strong> shows the physical query plan with operator-level timing. Look for
+            <code>BroadcastNestedLoopJoin</code> as a warning sign that a join predicate was missed.</li>
+<li><strong>Executors tab:</strong> shows GC time per executor. GC time above 10% of task time
+            usually indicates that executor heap size needs to increase or that large objects are being
+            created per row.</li>
+<li><strong>Storage tab:</strong> shows cached RDD/DataFrame sizes. If a DataFrame you intend to
+            reuse is not cached, adding <code>.cache()</code> before the second use avoids recomputing it.</li>
+</ul>
+<h3>Common Bottlenecks in LLM Data Pipelines</h3>
+<pre><code class="lang-python pygments-highlighted"><span class="c1"># --- Diagnosing and fixing partition skew ---</span>
+<span class="c1"># Check partition sizes after a wide transformation</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyspark.sql.functions</span><span class="w"> </span><span class="kn">import</span> <span class="n">spark_partition_id</span>
+
+<span class="n">partition_sizes</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="n">df_cleaned</span>
+    <span class="o">.</span><span class="n">withColumn</span><span class="p">(</span><span class="s2">"pid"</span><span class="p">,</span> <span class="n">spark_partition_id</span><span class="p">())</span>
+    <span class="o">.</span><span class="n">groupBy</span><span class="p">(</span><span class="s2">"pid"</span><span class="p">)</span>
+    <span class="o">.</span><span class="n">count</span><span class="p">()</span>
+    <span class="o">.</span><span class="n">orderBy</span><span class="p">(</span><span class="s2">"count"</span><span class="p">,</span> <span class="n">ascending</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<span class="p">)</span>
+<span class="n">partition_sizes</span><span class="o">.</span><span class="n">show</span><span class="p">(</span><span class="mi">20</span><span class="p">)</span>
+
+<span class="c1"># If max partition &gt;&gt; median, salt the skewed key</span>
+<span class="c1"># Example: language="en" dominates. Salt with a random integer.</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pyspark.sql.functions</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">F</span>
+
+<span class="n">SALT_BUCKETS</span> <span class="o">=</span> <span class="mi">50</span>
+<span class="n">df_salted</span> <span class="o">=</span> <span class="n">df_cleaned</span><span class="o">.</span><span class="n">withColumn</span><span class="p">(</span>
+    <span class="s2">"lang_salted"</span><span class="p">,</span>
+    <span class="n">F</span><span class="o">.</span><span class="n">concat</span><span class="p">(</span><span class="n">F</span><span class="o">.</span><span class="n">col</span><span class="p">(</span><span class="s2">"language"</span><span class="p">),</span> <span class="n">F</span><span class="o">.</span><span class="n">lit</span><span class="p">(</span><span class="s2">"_"</span><span class="p">),</span> <span class="p">(</span><span class="n">F</span><span class="o">.</span><span class="n">rand</span><span class="p">()</span> <span class="o">*</span> <span class="n">SALT_BUCKETS</span><span class="p">)</span><span class="o">.</span><span class="n">cast</span><span class="p">(</span><span class="s2">"int"</span><span class="p">))</span>
+<span class="p">)</span>
+
+<span class="c1"># --- Broadcast join for small lookup tables ---</span>
+<span class="c1"># Use when one side of a join is small (e.g., a domain blocklist)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyspark.sql.functions</span><span class="w"> </span><span class="kn">import</span> <span class="n">broadcast</span>
+
+<span class="n">df_blocklist</span> <span class="o">=</span> <span class="n">spark</span><span class="o">.</span><span class="n">read</span><span class="o">.</span><span class="n">parquet</span><span class="p">(</span><span class="s2">"s3://my-bucket/blocklist/"</span><span class="p">)</span>  <span class="c1"># small table</span>
+
+<span class="n">df_clean_domains</span> <span class="o">=</span> <span class="n">df_cleaned</span><span class="o">.</span><span class="n">join</span><span class="p">(</span>
+    <span class="n">broadcast</span><span class="p">(</span><span class="n">df_blocklist</span><span class="p">),</span>
+    <span class="n">on</span><span class="o">=</span><span class="s2">"domain"</span><span class="p">,</span>
+    <span class="n">how</span><span class="o">=</span><span class="s2">"left_anti"</span>  <span class="c1"># exclude rows matching the blocklist</span>
+<span class="p">)</span>
+
+<span class="c1"># --- Tune partition count for large shuffles ---</span>
+<span class="c1"># Rule of thumb: target 100-200 MB per partition after shuffle</span>
+<span class="c1"># For a 2 TB corpus with 200 MB target:</span>
+<span class="n">spark</span><span class="o">.</span><span class="n">conf</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="s2">"spark.sql.shuffle.partitions"</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="mi">2000</span> <span class="o">*</span> <span class="mi">1024</span> <span class="o">//</span> <span class="mi">200</span><span class="p">))</span></code></pre>
+<div class="code-caption"><strong>Code Fragment M.1.9</strong>: Diagnosing partition skew, applying salting, using broadcast joins for small lookup tables, and setting shuffle partition count. These three techniques resolve the majority of Spark performance issues in text pipelines.</div>
+<div class="callout warning">
+<div class="callout-title">Warning</div>
+<p>Python UDFs serialize each row as a Python object, cross the JVM-Python boundary, execute the Python function, and serialize the result back. On a 1 TB corpus this overhead can be the dominant cost in your pipeline. Always profile with the Spark UI before adding UDFs, and prefer built-in Spark SQL functions (<code>F.regexp_replace</code>, <code>F.length</code>, etc.) when they cover your use case. Reserve Python UDFs for logic that genuinely cannot be expressed with built-ins, and use <code>pandas_udf</code> for everything else.</p>
+</div>
+<h3>Cost Optimization</h3>
+<pre><code class="lang-python pygments-highlighted"><span class="c1"># --- Databricks cluster autoscaling configuration (JSON, not Python) ---</span>
+<span class="c1"># Set in cluster creation API or Databricks UI</span>
+<span class="n">CLUSTER_CONFIG</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">"cluster_name"</span><span class="p">:</span> <span class="s2">"llm-data-pipeline"</span><span class="p">,</span>
+    <span class="s2">"spark_version"</span><span class="p">:</span> <span class="s2">"15.4.x-scala2.12"</span><span class="p">,</span>
+    <span class="s2">"node_type_id"</span><span class="p">:</span> <span class="s2">"i3.2xlarge"</span><span class="p">,</span>
+    <span class="s2">"autoscale"</span><span class="p">:</span> <span class="p">{</span>
+        <span class="s2">"min_workers"</span><span class="p">:</span> <span class="mi">4</span><span class="p">,</span>
+        <span class="s2">"max_workers"</span><span class="p">:</span> <span class="mi">40</span><span class="p">,</span>
+    <span class="p">},</span>
+    <span class="s2">"aws_attributes"</span><span class="p">:</span> <span class="p">{</span>
+        <span class="s2">"availability"</span><span class="p">:</span> <span class="s2">"SPOT_WITH_FALLBACK"</span><span class="p">,</span>
+        <span class="s2">"spot_bid_price_percent"</span><span class="p">:</span> <span class="mi">100</span><span class="p">,</span>
+        <span class="s2">"first_on_demand"</span><span class="p">:</span> <span class="mi">2</span><span class="p">,</span>   <span class="c1"># keep 2 on-demand nodes as stable driver/coordinator</span>
+    <span class="p">},</span>
+    <span class="s2">"spark_conf"</span><span class="p">:</span> <span class="p">{</span>
+        <span class="s2">"spark.sql.adaptive.enabled"</span><span class="p">:</span> <span class="s2">"true"</span><span class="p">,</span>
+        <span class="s2">"spark.sql.adaptive.coalescePartitions.enabled"</span><span class="p">:</span> <span class="s2">"true"</span><span class="p">,</span>
+    <span class="p">},</span>
+<span class="p">}</span>
+
+<span class="c1"># --- Checkpoint long pipelines to avoid recomputation on failure ---</span>
+<span class="n">spark</span><span class="o">.</span><span class="n">sparkContext</span><span class="o">.</span><span class="n">setCheckpointDir</span><span class="p">(</span><span class="s2">"s3://my-bucket/checkpoints/"</span><span class="p">)</span>
+
+<span class="c1"># Checkpoint after the expensive deduplication stage</span>
+<span class="n">df_near_deduped</span><span class="o">.</span><span class="n">checkpoint</span><span class="p">()</span>   <span class="c1"># materializes to S3, breaks lineage graph</span>
+
+<span class="c1"># --- Cache DataFrames used more than once ---</span>
+<span class="n">df_tokenized</span><span class="o">.</span><span class="n">cache</span><span class="p">()</span>
+<span class="n">df_tokenized</span><span class="o">.</span><span class="n">count</span><span class="p">()</span>    <span class="c1"># trigger materialization immediately</span></code></pre>
+<div class="code-caption"><strong>Code Fragment M.1.10</strong>: Cost optimization via spot instances with on-demand fallback, adaptive autoscaling, checkpointing to break long lineage graphs, and explicit caching for reused DataFrames.</div>
+<div class="callout tip">
+<div class="callout-title">Tip</div>
+<p>For pipelines that process a corpus incrementally (new data arriving daily), use Delta Lake's <code>MERGE INTO</code> operation rather than reprocessing the entire corpus each run. Combined with Delta's change data feed, you can identify only new or updated documents and pass them through the expensive deduplication and tokenization stages. This is covered in detail in <a href="section-m.2.html">Section N.2</a>.</p>
+</div>
+<h2>Summary</h2>
+<p>
+        PySpark provides the distributed compute foundation for every stage of an LLM data pipeline.
+        The <code>SparkSession</code> configuration choices in O.1.1 set the foundation for throughput and
+        memory stability. Deduplication via exact hashing and MinHash LSH in O.1.2 is the most impactful
+        single quality intervention for pretraining data. The <code>pandas_udf</code> pattern for
+        tokenization and embedding generation in O.1.3 and O.1.4 bridges PySpark with the HuggingFace
+        and SentenceTransformer ecosystems without sacrificing throughput. Finally, the Spark UI
+        diagnostics and tuning patterns in O.1.5 give you the tools to identify and eliminate the
+        bottlenecks that emerge when pipelines move from prototype to production scale.
+    </p>
+<p>
+        These techniques integrate directly with the Databricks platform
+        (<a href="section-m.1.html">Section N.1</a>), Delta Lake storage and ACID
+        semantics (<a href="section-m.2.html">Section N.2</a>), and the HuggingFace
+        Datasets library for downstream training
+        (<a href="../../appendices/appendix-c-huggingface-ecosystem/index.html">Appendix D</a>).
+        For the vector search applications that consume the embeddings produced here, see
+        <a href="../../part-5-retrieval-conversation/module-22-embeddings-vector-db/index.html">Chapter 22</a>.
+    </p>
+<nav class="chapter-nav">
+<a class="prev" href="index.html"><span class="nav-label">Previous</span><span class="nav-num">Appendix M</span><span class="nav-title">Distributed ML: PySpark, Databricks, and Ray</span></a>
+<a class="up" href="index.html"><span class="nav-label">In Appendix</span><span class="nav-num">Appendix M</span><span class="nav-title">Distributed ML: PySpark, Databricks, and Ray</span></a>
+<a class="next" href="section-m.2.html"><span class="nav-label">Next</span><span class="nav-num">Section M.2</span><span class="nav-title">N.2 Delta Lake and Lakehouse Architecture</span></a>
+</nav>
+<footer><p>Fifteenth Edition, 2026 · <a href="../../toc.html">Contents</a></p></footer>
+</main>
+<script>
+window.addEventListener("DOMContentLoaded", function() {
+  if (window.PagefindUI) {
+    new PagefindUI({
+      element: "#search",
+      showSubResults: true,
+      showImages: false,
+      resetStyles: false,
+      pageSize: 8,
+      autofocus: false,
+      translations: {
+        placeholder: "Search the book\u2026",
+      },
+      processResult: function (result) {
+        try {
+          var part = (result && result.meta && result.meta.part) ? result.meta.part : "";
+          var chap = (result && result.meta && result.meta.chapter) ? result.meta.chapter : "";
+          var partShort = part.split(":")[0].trim();
+          var chapShort = chap.split(":")[0].trim();
+          var crumb = [partShort, chapShort].filter(Boolean).join(" \u203a ");
+          if (crumb && result.meta && result.meta.title
+              && result.meta.title.indexOf("[" + partShort) !== 0) {
+            result.meta.title = "[" + crumb + "]  " + result.meta.title;
+          }
+        } catch (e) { /* fall through */ }
+        return result;
+      },
+    });
+  }
+});
+</script>
+</body>
+</html>
