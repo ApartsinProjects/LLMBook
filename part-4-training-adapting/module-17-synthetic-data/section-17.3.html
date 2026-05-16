@@ -1,0 +1,751 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<meta content="Section 17.3: Quality Assurance &amp; Data Curation. A comprehensive chapter from the Building Conversational AI textbook." name="description"/>
+<title>Section 17.3: Quality Assurance &amp; Data Curation</title>
+<link href="../../styles/book.css" rel="stylesheet"/>
+<link href="../../styles/pygments.css" rel="stylesheet"/>
+<link href="../../vendor/prism/prism-theme.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/prism/prism-bundle.min.js"></script>
+<script defer="" src="../../scripts/book.js"></script>
+<link href="../../pagefind/pagefind-ui.css" rel="stylesheet"/>
+<script defer="" src="../../pagefind/pagefind-ui.js"></script>
+</head>
+<body>
+<header class="chapter-header">
+<nav class="header-nav">
+<a class="book-title-link" href="../../index.html">Building Conversational AI with LLMs and Agents</a>
+<a class="toc-link" href="../../toc.html" title="Table of Contents"><span class="toc-icon">☰</span> Contents</a>
+</nav>
+<div class="header-search">
+<div id="search"></div>
+</div>
+<div class="page-breadcrumb" data-pagefind-meta="chapter"><a href="../index.html">Part IV: Training and Adapting</a><span class="bc-sep">›</span><a href="index.html">Chapter 20: Synthetic Data Generation & LLM Simulation</a></div>
+<h1>Quality Assurance &amp; Data Curation</h1>
+<p class="chapter-subtitle">Automated quality scoring, deduplication strategies, multi-dimensional filtering, and production-grade curation with Argilla and Distilabel</p><div class="page-current">Section 17.3</div>
+</header>
+<main class="content"><span class="pagefind-meta-injected" data-pagefind-meta="part:Part IV: Training and Adapting" hidden=""></span><span class="pagefind-meta-injected" data-pagefind-meta="chapter:Chapter 17 · Section 17.3" hidden=""></span>
+<blockquote class="epigraph">
+<p>"Generating a million examples takes an afternoon. Finding the 600,000 worth keeping takes actual engineering."</p> <span class="agent-avatar-inline" style="background-color: #f1c40f;"><img alt="Synth" height="28" src="../../front-matter/images/agents/synth.png" width="28"/></span><cite>Synth, <span class="agent-desc">Quality-Obsessed AI Agent</span></cite>
+</blockquote>
+<div class="callout big-picture">
+<div class="callout-title">Big Picture</div>
+<p><strong>Generation is easy; curation is where the value lies.</strong> A raw synthetic dataset typically contains 20% to 40% examples that are low quality, duplicated, or potentially harmful. The curation pipeline transforms this raw output into a clean, diverse, high quality training set. This section covers the three pillars of data curation: quality scoring (using <a href="../../part-8-evaluation-production/module-34-evaluation-observability/section-34.1.html">LLM-as-judge</a> to rate each example), deduplication (removing exact and near-duplicate content at multiple granularities), and filtering (enforcing constraints on length, language, toxicity, and topical relevance). Together, these steps typically improve downstream model performance by 10% to 25% compared to training on uncurated data. The data quality principles from <a href="../../part-2-understanding-llms/module-07-pretraining-scaling-laws/section-7.4.html">Section 7.4</a> apply equally to <a class="glossary-link" href="../../appendices/glossary/section-f.4.html#gl-synthetic-data" title="Glossary: Synthetic Data">synthetic data</a> curation.</p> </div>
+<div class="prerequisites">
+<h3>Prerequisites</h3>
+<p>Before starting, make sure you are familiar with synthetic data fundamentals as covered in <a href="section-17.1.html">Section 17.1: Principles of Synthetic Data Generation</a>.</p>
+</div>
+<h2>14.3.1 Automated Quality Scoring with LLM-as-Judge</h2>
+<div class="callout postmortem">
+<div class="callout-title">Postmortem: The 5% That Poisoned the Pretrain</div>
+<p>Team F pretrained a 7B model on a curated corpus where 5% of the data was synthetically generated (to fill gaps in technical writing). Loss curves looked clean throughout training. After deployment, the model showed strange repetition patterns and a tendency to emit specific phrasings ("It is important to note that...") at unnaturally high frequency. Root cause: the synthetic-generation prompt had a stylistic tic that the model learned. The 5% concentration was enough to bias generation patterns even though it didn't move loss measurably. Fix: stylistic-diversity audit on synthetic data; cap synthetic share at 1-2% per data domain; and at minimum run perplexity-based dedup against synthetic-vs-organic to detect over-clustering. Lesson: synthetic data does not need to be wrong to poison; it needs only to be uniform.</p>
+</div>
+<p>The first step in curation is scoring every example in your synthetic dataset on multiple quality dimensions. While human review of every example is impractical at scale, LLM-as-judge (an approach explored further in <a href="../../part-8-evaluation-production/module-34-evaluation-observability/index.html">Chapter 34 on evaluation</a>) provides a reliable proxy that correlates well with human judgments (typically 0.7 to 0.85 Spearman correlation) and can process thousands of examples per hour. Code Fragment 17.3.2 shows this in practice.</p>
+<div class="callout key-insight">
+<div class="callout-title">Key Insight</div>
+<p>The 80/20 rule of synthetic data curation: roughly 20% of your generated examples will be responsible for 80% of downstream training value. Aggressive filtering that keeps only the top 60% of examples by quality score typically improves model performance compared to training on the full unfiltered set. More data is not always better; cleaner data almost always is.</p>
+</div>
+<div class="callout warning">
+<div class="callout-title">Common Mistake: Using the Same Model to Generate and Judge Data</div>
+<p>If you use GPT-4o to generate synthetic data and then use GPT-4o to score that data for quality, the judge will systematically overrate the generator's output. This happens because both share the same distributional biases: the judge finds the generator's phrasing, structure, and vocabulary "natural" because they come from the same model. Use a different model family for judging (e.g., generate with GPT-4o, judge with Claude, or vice versa), or validate a sample of judge scores against human ratings to calibrate for this bias.</p>
+</div>
+<h3>14.3.1.1 Multi-Dimensional Scoring Rubric</h3>
+<div class="comparison-table">
+<div class="comparison-table-title">1.1 Multi-Dimensional Scoring Rubric Comparison (as of 2026)</div>
+<table class="complex-table">
+<tr><th scope="col">Dimension</th><th scope="col">Scale</th><th scope="col">What It Measures</th><th scope="col">Common Failure Modes</th></tr>
+<tr><td><strong>Instruction Clarity</strong></td><td>1-5</td><td>Is the instruction unambiguous and well-formed?</td><td>Vague tasks, missing context, contradictory requirements</td></tr>
+<tr><td><strong>Response Quality</strong></td><td>1-5</td><td>Is the response accurate, complete, and well-organized?</td><td>Section 37.2, incomplete answers, poor structure</td></tr>
+<tr><td><strong>Instruction-Response <a class="glossary-link" href="../../appendices/glossary/section-f.4.html#gl-alignment" title="Glossary: Alignment">Alignment</a></strong></td><td>1-5</td><td>Does the response actually answer the instruction?</td><td>Topic drift, answering a different question</td></tr>
+<tr><td><strong>Complexity</strong></td><td>1-5</td><td>How challenging is the instruction?</td><td>Trivially simple tasks, overly repetitive patterns</td></tr>
+<tr><td><strong>Safety</strong></td><td>Pass/Fail</td><td>Does the content violate safety policies?</td><td>Harmful advice, PII leakage, biased content</td></tr>
+</table>
+</div>
+<p>Code Fragment 17.3.2 demonstrates the Batch API workflow.</p>
+<div class="code-block-wrapper">
+<pre><code class="lang-python pygments-highlighted"><span class="c1"># Load synthetic data and apply multi-stage quality filtering</span>
+<span class="c1"># Combine rule-based checks with LLM-based quality scoring</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">openai</span><span class="w"> </span><span class="kn">import</span> <span class="n">OpenAI</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
+<span class="n">client</span> <span class="o">=</span> <span class="n">OpenAI</span><span class="p">()</span>
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">QualityScore</span><span class="p">:</span>
+    <span class="n">instruction_clarity</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">response_quality</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">alignment</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">complexity</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">safety_pass</span><span class="p">:</span> <span class="nb">bool</span>
+    <span class="n">reasoning</span><span class="p">:</span> <span class="nb">str</span>
+<span class="nd">@property</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">composite</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Weighted composite score (excluding safety, which is binary)."""</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">safety_pass</span><span class="p">:</span>
+        <span class="k">return</span> <span class="mf">0.0</span>
+        <span class="k">return</span> <span class="p">(</span>
+            <span class="mf">0.20</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">instruction_clarity</span> <span class="o">+</span>
+            <span class="mf">0.35</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">response_quality</span> <span class="o">+</span>
+            <span class="mf">0.25</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">alignment</span> <span class="o">+</span>
+            <span class="mf">0.20</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">complexity</span>
+            <span class="p">)</span> <span class="o">/</span> <span class="mf">5.0</span> <span class="c1"># Normalize to 0-1</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">score_example</span><span class="p">(</span><span class="n">instruction</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">response</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">model</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"gpt-4o"</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">QualityScore</span><span class="p">:</span>
+<span class="sd">"""Score a single instruction-response pair on multiple dimensions."""</span>
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                <span class="n">prompt</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"""Evaluate this instruction-response pair on the following</span>
+<span class="s2">dimensions. Think through each dimension carefully before scoring.</span>
+<span class="s2">INSTRUCTION: </span><span class="si">{</span><span class="n">instruction</span><span class="si">}</span>
+<span class="s2">RESPONSE: </span><span class="si">{</span><span class="n">response</span><span class="si">}</span>
+<span class="s2">Score each dimension:</span>
+<span class="s2">- instruction_clarity (1-5): Is the instruction clear and unambiguous?</span>
+<span class="s2">- response_quality (1-5): Is the response accurate, complete, well-organized?</span>
+<span class="s2">- alignment (1-5): Does the response directly address the instruction?</span>
+<span class="s2">- complexity (1-5): How challenging is the task? (1=trivial, 5=expert-level)</span>
+<span class="s2">- safety_pass (true/false): Is the content free of harmful/biased material?</span>
+<span class="s2">Provide your analysis, then scores as JSON:</span>
+<span class="se">{{</span>
+<span class="s2">        "reasoning": "your analysis of each dimension",</span>
+<span class="s2">        "instruction_clarity": &lt;1-5&gt;,</span>
+<span class="s2">        "response_quality": &lt;1-5&gt;,</span>
+<span class="s2">        "alignment": &lt;1-5&gt;,</span>
+<span class="s2">        "complexity": &lt;1-5&gt;,</span>
+<span class="s2">        "safety_pass":</span>
+<span class="s2">        </span><span class="se">}}</span><span class="s2">"""</span>
+<span class="c1"># Send chat completion request to the API</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">chat</span><span class="o">.</span><span class="n">completions</span><span class="o">.</span><span class="n">create</span><span class="p">(</span>
+    <span class="n">model</span><span class="o">=</span><span class="n">model</span><span class="p">,</span>
+    <span class="n">messages</span><span class="o">=</span><span class="p">[{</span><span class="s2">"role"</span><span class="p">:</span> <span class="s2">"user"</span><span class="p">,</span> <span class="s2">"content"</span><span class="p">:</span> <span class="n">prompt</span><span class="p">}],</span>
+    <span class="n">temperature</span><span class="o">=</span><span class="mf">0.1</span><span class="p">,</span>
+    <span class="n">response_format</span><span class="o">=</span><span class="p">{</span><span class="s2">"type"</span><span class="p">:</span> <span class="s2">"json_object"</span><span class="p">}</span>
+    <span class="p">)</span>
+<span class="n">data</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">choices</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">message</span><span class="o">.</span><span class="n">content</span><span class="p">)</span>
+<span class="k">return</span> <span class="n">QualityScore</span><span class="p">(</span><span class="o">**</span><span class="n">data</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">batch_score_dataset</span><span class="p">(</span>
+    <span class="n">dataset</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">],</span>
+    <span class="n">min_composite</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.6</span><span class="p">,</span>
+    <span class="n">model</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"gpt-4o"</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">],</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">]]:</span>
+<span class="sd">"""Score and partition a dataset into accepted and rejected examples."""</span>
+<span class="n">accepted</span><span class="p">,</span> <span class="n">rejected</span> <span class="o">=</span> <span class="p">[],</span> <span class="p">[]</span>
+<span class="k">for</span> <span class="n">example</span> <span class="ow">in</span> <span class="n">dataset</span><span class="p">:</span>
+    <span class="n">score</span> <span class="o">=</span> <span class="n">score_example</span><span class="p">(</span>
+        <span class="n">example</span><span class="p">[</span><span class="s2">"instruction"</span><span class="p">],</span> <span class="n">example</span><span class="p">[</span><span class="s2">"response"</span><span class="p">],</span> <span class="n">model</span>
+        <span class="p">)</span>
+    <span class="n">example</span><span class="p">[</span><span class="s2">"quality_score"</span><span class="p">]</span> <span class="o">=</span> <span class="n">score</span><span class="o">.</span><span class="n">composite</span>
+    <span class="n">example</span><span class="p">[</span><span class="s2">"quality_details"</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s2">"clarity"</span><span class="p">:</span> <span class="n">score</span><span class="o">.</span><span class="n">instruction_clarity</span><span class="p">,</span>
+        <span class="s2">"quality"</span><span class="p">:</span> <span class="n">score</span><span class="o">.</span><span class="n">response_quality</span><span class="p">,</span>
+        <span class="s2">"alignment"</span><span class="p">:</span> <span class="n">score</span><span class="o">.</span><span class="n">alignment</span><span class="p">,</span>
+        <span class="s2">"complexity"</span><span class="p">:</span> <span class="n">score</span><span class="o">.</span><span class="n">complexity</span><span class="p">,</span>
+        <span class="s2">"safety"</span><span class="p">:</span> <span class="n">score</span><span class="o">.</span><span class="n">safety_pass</span><span class="p">,</span>
+        <span class="p">}</span>
+    <span class="k">if</span> <span class="n">score</span><span class="o">.</span><span class="n">composite</span> <span class="o">&gt;=</span> <span class="n">min_composite</span> <span class="ow">and</span> <span class="n">score</span><span class="o">.</span><span class="n">safety_pass</span><span class="p">:</span>
+        <span class="n">accepted</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">example</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+            <span class="n">rejected</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">example</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">accepted</span><span class="p">,</span> <span class="n">rejected</span>
+            <span class="c1"># Example usage</span>
+            <span class="n">sample_data</span> <span class="o">=</span> <span class="p">[</span>
+                <span class="p">{</span><span class="s2">"instruction"</span><span class="p">:</span> <span class="s2">"Explain how B-tree indexing works in databases."</span><span class="p">,</span>
+                    <span class="s2">"response"</span><span class="p">:</span> <span class="s2">"B-tree indexes organize data in a balanced tree structure "</span>
+                    <span class="s2">"where each node can have multiple children. Leaf nodes contain pointers "</span>
+                    <span class="s2">"to the actual data rows. Lookups are $O(\log n)$ because the tree stays "</span>
+                    <span class="s2">"balanced through splits and merges during insertions and deletions."</span><span class="p">},</span>
+                <span class="p">{</span><span class="s2">"instruction"</span><span class="p">:</span> <span class="s2">"Do something."</span><span class="p">,</span>
+                    <span class="s2">"response"</span><span class="p">:</span> <span class="s2">"Sure, I did something."</span><span class="p">},</span>
+                <span class="p">]</span>
+            <span class="n">accepted</span><span class="p">,</span> <span class="n">rejected</span> <span class="o">=</span> <span class="n">batch_score_dataset</span><span class="p">(</span><span class="n">sample_data</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Accepted: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">accepted</span><span class="p">)</span><span class="si">}</span><span class="s2">, Rejected: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">rejected</span><span class="p">)</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">ex</span> <span class="ow">in</span> <span class="n">accepted</span><span class="p">:</span>
+                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">" Score: </span><span class="si">{</span><span class="n">ex</span><span class="p">[</span><span class="s1">'quality_score'</span><span class="p">]</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2"> | </span><span class="si">{</span><span class="n">ex</span><span class="p">[</span><span class="s1">'instruction'</span><span class="p">][:</span><span class="mi">50</span><span class="p">]</span><span class="si">}</span><span class="s2">..."</span><span class="p">)</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> 
+Accepted: 1, Rejected: 1
+ Score: 0.830 | Explain how B-tree indexing works in databases....
+ 
+
+</div>
+<div class="code-caption"><strong>Code Fragment 17.3.1:</strong> Load synthetic data and apply multi-stage quality filtering</div>
+</div>
+<p>Beyond per-example quality, you also need to guard against <a class="glossary-link" href="../../appendices/glossary/section-f.4.html#gl-data-contamination" title="Glossary: Data Contamination">data contamination</a>: synthetic examples that accidentally overlap with benchmark test sets. Code Fragment 17.3.4 implements n-gram overlap detection to catch this before it inflates your <a class="glossary-link" href="../../appendices/glossary/section-f.4.html#gl-eval" title="Glossary: Evaluation">evaluation</a> scores.</p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># Check for train/test contamination using n-gram overlap detection</span>
+<span class="c1"># Prevent data leakage that would inflate benchmark scores</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">hashlib</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">collections</span><span class="w"> </span><span class="kn">import</span> <span class="n">defaultdict</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">exact_dedup</span><span class="p">(</span><span class="n">examples</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">],</span> <span class="n">key</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"instruction"</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">"""Remove exact duplicates based on normalized text hash."""</span>
+    <span class="n">seen</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
+    <span class="n">unique</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">ex</span> <span class="ow">in</span> <span class="n">examples</span><span class="p">:</span>
+        <span class="c1"># Normalize: lowercase, strip whitespace, collapse spaces</span>
+        <span class="n">normalized</span> <span class="o">=</span> <span class="s2">" "</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">ex</span><span class="p">[</span><span class="n">key</span><span class="p">]</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span><span class="o">.</span><span class="n">split</span><span class="p">())</span>
+        <span class="n">text_hash</span> <span class="o">=</span> <span class="n">hashlib</span><span class="o">.</span><span class="n">sha256</span><span class="p">(</span><span class="n">normalized</span><span class="o">.</span><span class="n">encode</span><span class="p">())</span><span class="o">.</span><span class="n">hexdigest</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">text_hash</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">seen</span><span class="p">:</span>
+            <span class="n">seen</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">text_hash</span><span class="p">)</span>
+            <span class="n">unique</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">ex</span><span class="p">)</span>
+            <span class="n">removed</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">examples</span><span class="p">)</span> <span class="o">-</span> <span class="nb">len</span><span class="p">(</span><span class="n">unique</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Exact dedup: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">examples</span><span class="p">)</span><span class="si">}</span><span class="s2"> -&gt; </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">unique</span><span class="p">)</span><span class="si">}</span><span class="s2"> "</span>
+                <span class="sa">f</span><span class="s2">"(</span><span class="si">{</span><span class="n">removed</span><span class="si">}</span><span class="s2"> removed, </span><span class="si">{</span><span class="n">removed</span><span class="o">/</span><span class="nb">len</span><span class="p">(</span><span class="n">examples</span><span class="p">)</span><span class="o">*</span><span class="mi">100</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2">%)"</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">unique</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">minhash_dedup</span><span class="p">(</span>
+    <span class="n">examples</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">],</span>
+    <span class="n">key</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"instruction"</span><span class="p">,</span>
+    <span class="n">num_perm</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">128</span><span class="p">,</span>
+    <span class="n">threshold</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.7</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">"""Remove near-duplicates using MinHash with n-gram shingling."""</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">datasketch</span><span class="w"> </span><span class="kn">import</span> <span class="n">MinHash</span><span class="p">,</span> <span class="n">MinHashLSH</span>
+    <span class="n">lsh</span> <span class="o">=</span> <span class="n">MinHashLSH</span><span class="p">(</span><span class="n">threshold</span><span class="o">=</span><span class="n">threshold</span><span class="p">,</span> <span class="n">num_perm</span><span class="o">=</span><span class="n">num_perm</span><span class="p">)</span>
+    <span class="n">minhashes</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="c1"># Create MinHash for each example</span>
+    <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">ex</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">examples</span><span class="p">):</span>
+        <span class="n">mh</span> <span class="o">=</span> <span class="n">MinHash</span><span class="p">(</span><span class="n">num_perm</span><span class="o">=</span><span class="n">num_perm</span><span class="p">)</span>
+        <span class="c1"># 3-gram character shingles</span>
+        <span class="n">text</span> <span class="o">=</span> <span class="n">ex</span><span class="p">[</span><span class="n">key</span><span class="p">]</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">text</span><span class="p">)</span> <span class="o">-</span> <span class="mi">2</span><span class="p">):</span>
+            <span class="n">shingle</span> <span class="o">=</span> <span class="n">text</span><span class="p">[</span><span class="n">j</span><span class="p">:</span><span class="n">j</span><span class="o">+</span><span class="mi">3</span><span class="p">]</span>
+            <span class="n">mh</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">shingle</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s2">"utf-8"</span><span class="p">))</span>
+            <span class="n">minhashes</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">mh</span><span class="p">)</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">lsh</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="sa">f</span><span class="s2">"doc_</span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2">"</span><span class="p">,</span> <span class="n">mh</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+                <span class="k">pass</span> <span class="c1"># Duplicate detected by LSH</span>
+                <span class="c1"># Find clusters of similar documents</span>
+                <span class="n">keep_indices</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
+                <span class="n">processed</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
+                <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">examples</span><span class="p">)):</span>
+                    <span class="k">if</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">processed</span><span class="p">:</span>
+                        <span class="k">continue</span>
+                    <span class="n">similar</span> <span class="o">=</span> <span class="n">lsh</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="n">minhashes</span><span class="p">[</span><span class="n">i</span><span class="p">])</span>
+                    <span class="n">cluster_indices</span> <span class="o">=</span> <span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">s</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">"_"</span><span class="p">)[</span><span class="mi">1</span><span class="p">])</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">similar</span><span class="p">]</span>
+                    <span class="c1"># Keep the first (or best quality) in each cluster</span>
+                    <span class="n">best</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="n">cluster_indices</span><span class="p">)</span> <span class="c1"># Keep first occurrence</span>
+                    <span class="n">keep_indices</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">best</span><span class="p">)</span>
+                    <span class="n">processed</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">cluster_indices</span><span class="p">)</span>
+                    <span class="n">unique</span> <span class="o">=</span> <span class="p">[</span><span class="n">examples</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">keep_indices</span><span class="p">)]</span>
+                    <span class="n">removed</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">examples</span><span class="p">)</span> <span class="o">-</span> <span class="nb">len</span><span class="p">(</span><span class="n">unique</span><span class="p">)</span>
+                    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"MinHash dedup: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">examples</span><span class="p">)</span><span class="si">}</span><span class="s2"> -&gt; </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">unique</span><span class="p">)</span><span class="si">}</span><span class="s2"> "</span>
+                        <span class="sa">f</span><span class="s2">"(</span><span class="si">{</span><span class="n">removed</span><span class="si">}</span><span class="s2"> removed, </span><span class="si">{</span><span class="n">removed</span><span class="o">/</span><span class="nb">len</span><span class="p">(</span><span class="n">examples</span><span class="p">)</span><span class="o">*</span><span class="mi">100</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2">%)"</span><span class="p">)</span>
+                    <span class="k">return</span> <span class="n">unique</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">semantic_dedup</span><span class="p">(</span>
+    <span class="n">examples</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">],</span>
+    <span class="n">key</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"instruction"</span><span class="p">,</span>
+    <span class="n">threshold</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.92</span><span class="p">,</span>
+    <span class="n">model</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"text-embedding-3-small"</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">"""Remove semantic duplicates using embedding similarity."""</span>
+    <span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+    <span class="c1"># Get embeddings</span>
+    <span class="n">texts</span> <span class="o">=</span> <span class="p">[</span><span class="n">ex</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="k">for</span> <span class="n">ex</span> <span class="ow">in</span> <span class="n">examples</span><span class="p">]</span>
+    <span class="n">response</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">embeddings</span><span class="o">.</span><span class="n">create</span><span class="p">(</span><span class="n">model</span><span class="o">=</span><span class="n">model</span><span class="p">,</span> <span class="nb">input</span><span class="o">=</span><span class="n">texts</span><span class="p">)</span>
+    <span class="n">embeddings</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">e</span><span class="o">.</span><span class="n">embedding</span> <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">response</span><span class="o">.</span><span class="n">data</span><span class="p">])</span>
+    <span class="c1"># Normalize for cosine similarity</span>
+    <span class="n">norms</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">norm</span><span class="p">(</span><span class="n">embeddings</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">keepdims</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="n">normalized</span> <span class="o">=</span> <span class="n">embeddings</span> <span class="o">/</span> <span class="n">norms</span>
+    <span class="c1"># Find pairs above threshold</span>
+    <span class="n">similarity_matrix</span> <span class="o">=</span> <span class="n">normalized</span> <span class="o">@</span> <span class="n">normalized</span><span class="o">.</span><span class="n">T</span>
+    <span class="n">keep</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">examples</span><span class="p">)))</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">examples</span><span class="p">)):</span>
+        <span class="k">if</span> <span class="n">i</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">keep</span><span class="p">:</span>
+            <span class="k">continue</span>
+        <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">i</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">examples</span><span class="p">)):</span>
+            <span class="k">if</span> <span class="n">j</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">keep</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="k">if</span> <span class="n">similarity_matrix</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="n">j</span><span class="p">]</span> <span class="o">&gt;</span> <span class="n">threshold</span><span class="p">:</span>
+                <span class="n">keep</span><span class="o">.</span><span class="n">discard</span><span class="p">(</span><span class="n">j</span><span class="p">)</span> <span class="c1"># Remove the later duplicate</span>
+                <span class="n">unique</span> <span class="o">=</span> <span class="p">[</span><span class="n">examples</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">keep</span><span class="p">)]</span>
+                <span class="n">removed</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">examples</span><span class="p">)</span> <span class="o">-</span> <span class="nb">len</span><span class="p">(</span><span class="n">unique</span><span class="p">)</span>
+                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Semantic dedup: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">examples</span><span class="p">)</span><span class="si">}</span><span class="s2"> -&gt; </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">unique</span><span class="p">)</span><span class="si">}</span><span class="s2"> "</span>
+                    <span class="sa">f</span><span class="s2">"(</span><span class="si">{</span><span class="n">removed</span><span class="si">}</span><span class="s2"> removed, </span><span class="si">{</span><span class="n">removed</span><span class="o">/</span><span class="nb">len</span><span class="p">(</span><span class="n">examples</span><span class="p">)</span><span class="o">*</span><span class="mi">100</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2">%)"</span><span class="p">)</span>
+                <span class="k">return</span> <span class="n">unique</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> 
+Filtering: 3 -&gt; 1 accepted
+ length: 1 removed (33.3%)
+ quality: 0 removed (0.0%)
+ repetition: 1 removed (33.3%)
+ 
+
+</div>
+<div class="code-caption"><strong>Code Fragment 17.3.2:</strong> Check for train/test contamination using n-gram overlap detection</div>
+</div>
+<div class="callout key-insight">
+<div class="callout-title">Mental Model: The Three-Sieve Funnel</div>
+<p>Think of data curation as pouring sand through three progressively finer sieves. The first sieve (exact hashing) catches obvious rocks quickly and cheaply. The second sieve (MinHash near-duplicate detection) catches pebbles that the first sieve missed, at moderate cost. The third sieve (semantic similarity) catches the finest grit, but is the most expensive to run. Always run them in order from coarsest to finest, because each sieve reduces the volume for the next stage. Skipping the cheap sieves and running only the expensive one wastes compute on duplicates that could have been caught for pennies.</p>
+</div>
+<h3>14.3.1.2 Paraphrase Generation as Data Augmentation</h3>
+<p>While deduplication removes unwanted redundancy, <strong>paraphrase generation</strong> introduces controlled redundancy as a deliberate augmentation strategy. The idea is simple: for each high-quality example in your dataset, generate semantically equivalent variations with different surface forms. This teaches models that meaning is invariant under rephrasing, improving robustness to input variation and reducing <a class="glossary-link" href="../../appendices/glossary/section-f.4.html#gl-overfitting" title="Glossary: Overfitting">overfitting</a> to specific phrasings. Paraphrase augmentation is especially valuable for small datasets where every original example must be leveraged to its fullest.
+ </p>
+<p>LLMs make paraphrase generation straightforward, but quality control is essential. A good paraphrase preserves the core meaning while changing vocabulary, sentence structure, or rhetorical style. A bad paraphrase either drifts semantically (introducing new information or losing key details) or changes so little that it functions as a near-duplicate rather than a genuine augmentation. The solution is to measure semantic similarity between the original and each paraphrase, accepting only those that fall within a "goldilocks zone": similar enough to preserve meaning (<a href="../../part-5-retrieval-conversation/module-22-embeddings-vector-db/section-22.1.html">cosine similarity</a> above 0.85) but different enough to provide genuine diversity (<a class="glossary-link" href="../../appendices/glossary/section-f.4.html#gl-cosine-similarity" title="Glossary: Cosine Similarity">cosine similarity</a> below 0.97).
+ </p>
+<div class="code-block-wrapper">
+<pre><code class="lang-python pygments-highlighted"><span class="c1"># Paraphrase generation with diversity control and quality filtering</span>
+<span class="c1"># Uses semantic similarity to enforce the goldilocks zone</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">openai</span><span class="w"> </span><span class="kn">import</span> <span class="n">OpenAI</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">sentence_transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">SentenceTransformer</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="n">client</span> <span class="o">=</span> <span class="n">OpenAI</span><span class="p">()</span>
+<span class="n">embed_model</span> <span class="o">=</span> <span class="n">SentenceTransformer</span><span class="p">(</span><span class="s2">"all-MiniLM-L6-v2"</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">generate_paraphrases</span><span class="p">(</span>
+    <span class="n">text</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">n</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">5</span><span class="p">,</span>
+    <span class="n">style_variants</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">sim_min</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.85</span><span class="p">,</span>
+    <span class="n">sim_max</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.97</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">]:</span>
+<span class="sd">"""Generate diverse paraphrases with semantic similarity filtering."""</span>
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                <span class="k">if</span> <span class="n">style_variants</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="n">style_variants</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="s2">"more formal and technical"</span><span class="p">,</span>
+        <span class="s2">"simpler and more conversational"</span><span class="p">,</span>
+        <span class="s2">"more concise, removing unnecessary words"</span><span class="p">,</span>
+        <span class="s2">"restructured with different sentence order"</span><span class="p">,</span>
+        <span class="s2">"using different vocabulary and phrasing"</span><span class="p">,</span>
+        <span class="p">]</span>
+    <span class="n">prompt</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"""Generate </span><span class="si">{</span><span class="n">n</span><span class="si">}</span><span class="s2"> paraphrases of the following text.</span>
+<span class="s2">    Each paraphrase must preserve the EXACT same meaning but use</span>
+<span class="s2">    different wording, structure, or style.</span>
+<span class="s2">    Style guidance for each variant:</span>
+<span class="s2">    </span><span class="si">{</span><span class="nb">chr</span><span class="p">(</span><span class="mi">10</span><span class="p">)</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="sa">f</span><span class="s1">'</span><span class="si">{</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="si">}</span><span class="s1">. </span><span class="si">{</span><span class="n">s</span><span class="si">}</span><span class="s1">'</span><span class="w"> </span><span class="k">for</span><span class="w"> </span><span class="n">i</span><span class="p">,</span><span class="w"> </span><span class="n">s</span><span class="w"> </span><span class="ow">in</span><span class="w"> </span><span class="nb">enumerate</span><span class="p">(</span><span class="n">style_variants</span><span class="p">[:</span><span class="n">n</span><span class="p">]))</span><span class="si">}</span>
+<span class="s2">    Original: </span><span class="si">{</span><span class="n">text</span><span class="si">}</span>
+<span class="s2">    Return only the paraphrases, one per line, numbered 1 through </span><span class="si">{</span><span class="n">n</span><span class="si">}</span><span class="s2">."""</span>
+    <span class="n">response</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">chat</span><span class="o">.</span><span class="n">completions</span><span class="o">.</span><span class="n">create</span><span class="p">(</span>
+        <span class="n">model</span><span class="o">=</span><span class="s2">"gpt-4o-mini"</span><span class="p">,</span>
+        <span class="n">messages</span><span class="o">=</span><span class="p">[{</span><span class="s2">"role"</span><span class="p">:</span> <span class="s2">"user"</span><span class="p">,</span> <span class="s2">"content"</span><span class="p">:</span> <span class="n">prompt</span><span class="p">}],</span>
+        <span class="n">temperature</span><span class="o">=</span><span class="mf">0.9</span><span class="p">,</span>
+        <span class="p">)</span>
+    <span class="n">paraphrases</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="n">line</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">". "</span><span class="p">,</span> <span class="mi">1</span><span class="p">)[</span><span class="mi">1</span><span class="p">]</span> <span class="k">if</span> <span class="s2">". "</span> <span class="ow">in</span> <span class="n">line</span> <span class="k">else</span> <span class="n">line</span>
+        <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">response</span><span class="o">.</span><span class="n">choices</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">message</span><span class="o">.</span><span class="n">content</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">"</span><span class="se">\n</span><span class="s2">"</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">line</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+        <span class="p">][:</span><span class="n">n</span><span class="p">]</span>
+    <span class="c1"># Quality control: filter by semantic similarity</span>
+    <span class="n">orig_emb</span> <span class="o">=</span> <span class="n">embed_model</span><span class="o">.</span><span class="n">encode</span><span class="p">([</span><span class="n">text</span><span class="p">])</span>
+    <span class="n">para_embs</span> <span class="o">=</span> <span class="n">embed_model</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="n">paraphrases</span><span class="p">)</span>
+    <span class="n">similarities</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">para_embs</span><span class="p">,</span> <span class="n">orig_emb</span><span class="o">.</span><span class="n">T</span><span class="p">)</span><span class="o">.</span><span class="n">flatten</span><span class="p">()</span>
+    <span class="n">results</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">para</span><span class="p">,</span> <span class="n">sim</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">paraphrases</span><span class="p">,</span> <span class="n">similarities</span><span class="p">):</span>
+        <span class="n">results</span><span class="o">.</span><span class="n">append</span><span class="p">({</span>
+                <span class="s2">"paraphrase"</span><span class="p">:</span> <span class="n">para</span><span class="p">,</span>
+                <span class="s2">"similarity"</span><span class="p">:</span> <span class="nb">float</span><span class="p">(</span><span class="n">sim</span><span class="p">),</span>
+                <span class="s2">"accepted"</span><span class="p">:</span> <span class="n">sim_min</span> <span class="o">&lt;=</span> <span class="n">sim</span> <span class="o">&lt;=</span> <span class="n">sim_max</span><span class="p">,</span>
+                <span class="p">})</span>
+        <span class="k">return</span> <span class="n">results</span>
+        <span class="c1"># Example usage</span>
+        <span class="n">original</span> <span class="o">=</span> <span class="s2">"The model achieved 94.2</span><span class="si">% a</span><span class="s2">ccuracy on the test set."</span>
+        <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">generate_paraphrases</span><span class="p">(</span><span class="n">original</span><span class="p">,</span> <span class="n">n</span><span class="o">=</span><span class="mi">3</span><span class="p">):</span>
+            <span class="n">status</span> <span class="o">=</span> <span class="s2">"ACCEPT"</span> <span class="k">if</span> <span class="n">r</span><span class="p">[</span><span class="s2">"accepted"</span><span class="p">]</span> <span class="k">else</span> <span class="s2">"REJECT"</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">" [</span><span class="si">{</span><span class="n">status</span><span class="si">}</span><span class="s2">] (sim=</span><span class="si">{</span><span class="n">r</span><span class="p">[</span><span class="s1">'similarity'</span><span class="p">]</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">) </span><span class="si">{</span><span class="n">r</span><span class="p">[</span><span class="s1">'paraphrase'</span><span class="p">]</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span></code></pre>
+<div class="code-caption"><strong>Code Fragment 17.3.3:</strong> Paraphrase generation with diversity control. Each paraphrase is scored against the original using <a class="glossary-link" href="../../appendices/glossary/section-f.4.html#gl-embedding" title="Glossary: Embedding">embedding</a> similarity, and only those in the goldilocks zone (similar enough to preserve meaning, different enough to add diversity) are accepted.</div>
+</div>
+<p>Paraphrase augmentation connects naturally to two other areas of this textbook. For <strong>contrastive learning and embedding training</strong> (covered in <a href="../../part-5-retrieval-conversation/module-22-embeddings-vector-db/section-22.1.html">Section 22.1</a>), paraphrase pairs serve as positive examples: texts that should have similar embeddings. Generating diverse paraphrases at scale provides the large positive-pair datasets that contrastive learning methods like SimCSE require. For <strong><a href="../module-18-fine-tuning-fundamentals/section-18.4.html">instruction tuning</a></strong>, paraphrasing the instruction portion of training examples teaches models to follow the same instruction regardless of how it is phrased, improving robustness to prompt variation in deployment.
+ </p>
+<div class="callout note">
+<div class="callout-title">Note</div>
+<p><strong>Paraphrase vs. deduplication tension:</strong> There is a productive tension between paraphrase generation (adding controlled variation) and deduplication (removing unwanted variation). The key distinction is intent. Paraphrases generated deliberately from known-good examples increase effective training diversity. Near-duplicates that arise accidentally from overlapping generation prompts waste training compute on redundant signal. Run deduplication first to clean the base dataset, then apply paraphrase augmentation to expand the cleaned dataset with intentional variation.</p>
+</div>
+<h3>14.3.1.3 Multi-Dimensional Filtering</h3>
+<p>After deduplication, the next stage applies content-based filters that check each example against multiple quality dimensions. The following pipeline demonstrates a composable filtering architecture.</p>
+<p>Code Fragment 17.3.4 implements quality filtering.</p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># Build a composable filter pipeline for synthetic data quality control</span>
+<span class="c1"># Chain length, quality score, and repetition filters in sequence</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span><span class="p">,</span> <span class="n">field</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Callable</span>
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">FilterResult</span><span class="p">:</span>
+    <span class="n">passed</span><span class="p">:</span> <span class="nb">bool</span>
+    <span class="n">reason</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">""</span>
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">FilterPipeline</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Configurable pipeline of data quality filters."""</span>
+    <span class="n">filters</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Callable</span><span class="p">]]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">add_filter</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">fn</span><span class="p">:</span> <span class="n">Callable</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">filters</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">name</span><span class="p">,</span> <span class="n">fn</span><span class="p">))</span>
+        <span class="k">return</span> <span class="bp">self</span> <span class="c1"># Allow chaining</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">examples</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">],</span> <span class="nb">dict</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">"""Run all filters, returning accepted examples and statistics."""</span>
+        <span class="n">stats</span> <span class="o">=</span> <span class="p">{</span><span class="n">name</span><span class="p">:</span> <span class="mi">0</span> <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">_</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">filters</span><span class="p">}</span>
+        <span class="n">accepted</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">ex</span> <span class="ow">in</span> <span class="n">examples</span><span class="p">:</span>
+            <span class="n">passed_all</span> <span class="o">=</span> <span class="kc">True</span>
+            <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">fn</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">filters</span><span class="p">:</span>
+                <span class="n">result</span> <span class="o">=</span> <span class="n">fn</span><span class="p">(</span><span class="n">ex</span><span class="p">)</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="n">result</span><span class="o">.</span><span class="n">passed</span><span class="p">:</span>
+                    <span class="n">stats</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
+                    <span class="n">passed_all</span> <span class="o">=</span> <span class="kc">False</span>
+                    <span class="k">break</span> <span class="c1"># Fail fast on first filter failure</span>
+                <span class="k">if</span> <span class="n">passed_all</span><span class="p">:</span>
+                    <span class="n">accepted</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">ex</span><span class="p">)</span>
+                    <span class="n">total</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">examples</span><span class="p">)</span>
+                    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Filtering: </span><span class="si">{</span><span class="n">total</span><span class="si">}</span><span class="s2"> -&gt; </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">accepted</span><span class="p">)</span><span class="si">}</span><span class="s2"> accepted"</span><span class="p">)</span>
+                    <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">count</span> <span class="ow">in</span> <span class="n">stats</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+                        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">" </span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">count</span><span class="si">}</span><span class="s2"> removed (</span><span class="si">{</span><span class="n">count</span><span class="o">/</span><span class="n">total</span><span class="o">*</span><span class="mi">100</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2">%)"</span><span class="p">)</span>
+                        <span class="k">return</span> <span class="n">accepted</span><span class="p">,</span> <span class="n">stats</span>
+<span class="c1"># Define individual filters</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">length_filter</span><span class="p">(</span><span class="n">ex</span><span class="p">:</span> <span class="nb">dict</span><span class="p">,</span> <span class="n">min_tokens</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">20</span><span class="p">,</span>
+    <span class="n">max_tokens</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">2048</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">FilterResult</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Filter by response length in approximate tokens."""</span>
+    <span class="n">token_count</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">ex</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"response"</span><span class="p">,</span> <span class="s2">""</span><span class="p">)</span><span class="o">.</span><span class="n">split</span><span class="p">())</span> <span class="o">*</span> <span class="mf">1.3</span> <span class="c1"># rough estimate</span>
+    <span class="k">if</span> <span class="n">token_count</span> <span class="o">&lt;</span> <span class="n">min_tokens</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">FilterResult</span><span class="p">(</span><span class="kc">False</span><span class="p">,</span> <span class="sa">f</span><span class="s2">"Too short: ~</span><span class="si">{</span><span class="n">token_count</span><span class="si">:</span><span class="s2">.0f</span><span class="si">}</span><span class="s2"> tokens"</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">token_count</span> <span class="o">&gt;</span> <span class="n">max_tokens</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">FilterResult</span><span class="p">(</span><span class="kc">False</span><span class="p">,</span> <span class="sa">f</span><span class="s2">"Too long: ~</span><span class="si">{</span><span class="n">token_count</span><span class="si">:</span><span class="s2">.0f</span><span class="si">}</span><span class="s2"> tokens"</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">FilterResult</span><span class="p">(</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">quality_score_filter</span><span class="p">(</span><span class="n">ex</span><span class="p">:</span> <span class="nb">dict</span><span class="p">,</span>
+    <span class="n">min_score</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.6</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">FilterResult</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Filter by pre-computed quality score."""</span>
+    <span class="n">score</span> <span class="o">=</span> <span class="n">ex</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"quality_score"</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">score</span> <span class="o">&lt;</span> <span class="n">min_score</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">FilterResult</span><span class="p">(</span><span class="kc">False</span><span class="p">,</span> <span class="sa">f</span><span class="s2">"Low quality: </span><span class="si">{</span><span class="n">score</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">FilterResult</span><span class="p">(</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">repetition_filter</span><span class="p">(</span><span class="n">ex</span><span class="p">:</span> <span class="nb">dict</span><span class="p">,</span>
+    <span class="n">max_repeat_ratio</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.3</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">FilterResult</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Filter responses with excessive repeated phrases."""</span>
+    <span class="n">response</span> <span class="o">=</span> <span class="n">ex</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"response"</span><span class="p">,</span> <span class="s2">""</span><span class="p">)</span>
+    <span class="n">words</span> <span class="o">=</span> <span class="n">response</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span><span class="o">.</span><span class="n">split</span><span class="p">()</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">words</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mi">10</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">FilterResult</span><span class="p">(</span><span class="kc">True</span><span class="p">)</span>
+    <span class="c1"># Check for repeated 4-grams</span>
+    <span class="n">ngrams</span> <span class="o">=</span> <span class="p">[</span><span class="s2">" "</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">words</span><span class="p">[</span><span class="n">i</span><span class="p">:</span><span class="n">i</span><span class="o">+</span><span class="mi">4</span><span class="p">])</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">words</span><span class="p">)</span> <span class="o">-</span> <span class="mi">3</span><span class="p">)]</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">collections</span><span class="w"> </span><span class="kn">import</span> <span class="n">Counter</span>
+    <span class="n">counts</span> <span class="o">=</span> <span class="n">Counter</span><span class="p">(</span><span class="n">ngrams</span><span class="p">)</span>
+    <span class="n">max_count</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">counts</span><span class="o">.</span><span class="n">values</span><span class="p">())</span> <span class="k">if</span> <span class="n">counts</span> <span class="k">else</span> <span class="mi">0</span>
+    <span class="n">repeat_ratio</span> <span class="o">=</span> <span class="n">max_count</span> <span class="o">/</span> <span class="nb">len</span><span class="p">(</span><span class="n">ngrams</span><span class="p">)</span> <span class="k">if</span> <span class="n">ngrams</span> <span class="k">else</span> <span class="mi">0</span>
+    <span class="k">if</span> <span class="n">repeat_ratio</span> <span class="o">&gt;</span> <span class="n">max_repeat_ratio</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">FilterResult</span><span class="p">(</span><span class="kc">False</span><span class="p">,</span> <span class="sa">f</span><span class="s2">"Repetitive: </span><span class="si">{</span><span class="n">repeat_ratio</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> ratio"</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">FilterResult</span><span class="p">(</span><span class="kc">True</span><span class="p">)</span>
+<span class="c1"># Build and run the pipeline</span>
+<span class="n">pipeline</span> <span class="o">=</span> <span class="n">FilterPipeline</span><span class="p">()</span>
+<span class="n">pipeline</span><span class="o">.</span><span class="n">add_filter</span><span class="p">(</span><span class="s2">"length"</span><span class="p">,</span> <span class="n">length_filter</span><span class="p">)</span>
+<span class="n">pipeline</span><span class="o">.</span><span class="n">add_filter</span><span class="p">(</span><span class="s2">"quality"</span><span class="p">,</span> <span class="n">quality_score_filter</span><span class="p">)</span>
+<span class="n">pipeline</span><span class="o">.</span><span class="n">add_filter</span><span class="p">(</span><span class="s2">"repetition"</span><span class="p">,</span> <span class="n">repetition_filter</span><span class="p">)</span>
+<span class="c1"># Example run (would normally be on thousands of examples)</span>
+<span class="n">sample</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="p">{</span><span class="s2">"instruction"</span><span class="p">:</span> <span class="s2">"Explain Docker"</span><span class="p">,</span> <span class="s2">"response"</span><span class="p">:</span> <span class="s2">"Docker is..."</span><span class="p">,</span>
+    <span class="s2">"quality_score"</span><span class="p">:</span> <span class="mf">0.3</span><span class="p">},</span> <span class="c1"># Too short + low quality</span>
+    <span class="p">{</span><span class="s2">"instruction"</span><span class="p">:</span> <span class="s2">"Explain K8s"</span><span class="p">,</span> <span class="s2">"response"</span><span class="p">:</span> <span class="s2">"Kubernetes is an "</span> <span class="o">*</span> <span class="mi">100</span><span class="p">,</span>
+    <span class="s2">"quality_score"</span><span class="p">:</span> <span class="mf">0.7</span><span class="p">},</span> <span class="c1"># Repetitive</span>
+    <span class="p">{</span><span class="s2">"instruction"</span><span class="p">:</span> <span class="s2">"Explain REST APIs"</span><span class="p">,</span>
+    <span class="s2">"response"</span><span class="p">:</span> <span class="s2">"REST APIs use HTTP methods to expose resources. "</span>
+    <span class="s2">"GET retrieves data, POST creates new resources, PUT updates "</span>
+    <span class="s2">"existing ones, and DELETE removes them. RESTful design follows "</span>
+    <span class="s2">"principles like statelessness and uniform interfaces."</span><span class="p">,</span>
+    <span class="s2">"quality_score"</span><span class="p">:</span> <span class="mf">0.85</span><span class="p">},</span> <span class="c1"># Good</span>
+    <span class="p">]</span>
+<span class="n">accepted</span><span class="p">,</span> <span class="n">stats</span> <span class="o">=</span> <span class="n">pipeline</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">sample</span><span class="p">)</span></code></pre>
+<div class="code-caption"><strong>Code Fragment 17.3.4:</strong> Build a composable filter pipeline for synthetic data quality control</div>
+</div>
+<h2>14.3.4 Argilla for Human-in-the-Loop Curation</h2>
+<p>Argilla is an open-source data curation platform designed specifically for NLP and LLM data workflows. It provides a web UI for reviewing, annotating, and correcting synthetic data, combined with Python SDK integration for programmatic workflows. Argilla bridges the gap between automated quality scoring and human judgment by presenting borderline examples to human reviewers. Code Fragment 17.3.4 shows this approach in practice.</p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># Push synthetic data to Argilla for human review and annotation</span>
+<span class="c1"># Borderline examples are flagged for manual inspection</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">argilla</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">rg</span>
+<span class="c1"># Initialize Argilla client</span>
+<span class="n">rg</span><span class="o">.</span><span class="n">init</span><span class="p">(</span><span class="n">api_url</span><span class="o">=</span><span class="s2">"http://localhost:6900"</span><span class="p">,</span> <span class="n">api_key</span><span class="o">=</span><span class="s2">"argilla.apikey"</span><span class="p">)</span>
+<span class="c1"># Create a dataset for reviewing synthetic data quality</span>
+<span class="n">settings</span> <span class="o">=</span> <span class="n">rg</span><span class="o">.</span><span class="n">Settings</span><span class="p">(</span>
+    <span class="n">guidelines</span><span class="o">=</span><span class="s2">"Review synthetic instruction-response pairs for quality. "</span>
+    <span class="s2">"Score each dimension 1-5 and flag any safety concerns."</span><span class="p">,</span>
+    <span class="n">fields</span><span class="o">=</span><span class="p">[</span>
+    <span class="n">rg</span><span class="o">.</span><span class="n">TextField</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">"instruction"</span><span class="p">,</span> <span class="n">title</span><span class="o">=</span><span class="s2">"Instruction"</span><span class="p">),</span>
+    <span class="n">rg</span><span class="o">.</span><span class="n">TextField</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">"response"</span><span class="p">,</span> <span class="n">title</span><span class="o">=</span><span class="s2">"Response"</span><span class="p">),</span>
+    <span class="p">],</span>
+    <span class="n">questions</span><span class="o">=</span><span class="p">[</span>
+    <span class="n">rg</span><span class="o">.</span><span class="n">RatingQuestion</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">"instruction_clarity"</span><span class="p">,</span>
+    <span class="n">title</span><span class="o">=</span><span class="s2">"Instruction Clarity"</span><span class="p">,</span>
+    <span class="n">description</span><span class="o">=</span><span class="s2">"Is the instruction clear and unambiguous?"</span><span class="p">,</span>
+    <span class="n">values</span><span class="o">=</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">5</span><span class="p">]</span>
+    <span class="p">),</span>
+    <span class="n">rg</span><span class="o">.</span><span class="n">RatingQuestion</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">"response_quality"</span><span class="p">,</span>
+    <span class="n">title</span><span class="o">=</span><span class="s2">"Response Quality"</span><span class="p">,</span>
+    <span class="n">description</span><span class="o">=</span><span class="s2">"Is the response accurate, complete, and well-organized?"</span><span class="p">,</span>
+    <span class="n">values</span><span class="o">=</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">5</span><span class="p">]</span>
+    <span class="p">),</span>
+    <span class="n">rg</span><span class="o">.</span><span class="n">LabelQuestion</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">"safety"</span><span class="p">,</span>
+    <span class="n">title</span><span class="o">=</span><span class="s2">"Safety Check"</span><span class="p">,</span>
+    <span class="n">labels</span><span class="o">=</span><span class="p">[</span><span class="s2">"safe"</span><span class="p">,</span> <span class="s2">"unsafe"</span><span class="p">,</span> <span class="s2">"borderline"</span><span class="p">]</span>
+    <span class="p">),</span>
+    <span class="n">rg</span><span class="o">.</span><span class="n">TextQuestion</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">"comments"</span><span class="p">,</span>
+    <span class="n">title</span><span class="o">=</span><span class="s2">"Comments"</span><span class="p">,</span>
+    <span class="n">description</span><span class="o">=</span><span class="s2">"Any notes about this example?"</span><span class="p">,</span>
+    <span class="n">required</span><span class="o">=</span><span class="kc">False</span>
+    <span class="p">),</span>
+    <span class="p">],</span>
+    <span class="n">metadata</span><span class="o">=</span><span class="p">[</span>
+    <span class="n">rg</span><span class="o">.</span><span class="n">FloatMetadataProperty</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">"llm_quality_score"</span><span class="p">,</span>
+    <span class="n">title</span><span class="o">=</span><span class="s2">"LLM Quality Score"</span><span class="p">),</span>
+    <span class="n">rg</span><span class="o">.</span><span class="n">TermsMetadataProperty</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">"source"</span><span class="p">,</span>
+    <span class="n">title</span><span class="o">=</span><span class="s2">"Generation Source"</span><span class="p">),</span>
+    <span class="p">],</span>
+<span class="p">)</span>
+<span class="n">dataset</span> <span class="o">=</span> <span class="n">rg</span><span class="o">.</span><span class="n">Dataset</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">"synthetic_data_review"</span><span class="p">,</span> <span class="n">settings</span><span class="o">=</span><span class="n">settings</span><span class="p">)</span>
+<span class="n">dataset</span><span class="o">.</span><span class="n">create</span><span class="p">()</span>
+<span class="c1"># Upload synthetic examples for human review</span>
+<span class="n">records</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="n">rg</span><span class="o">.</span><span class="n">Record</span><span class="p">(</span>
+    <span class="n">fields</span><span class="o">=</span><span class="p">{</span>
+    <span class="s2">"instruction"</span><span class="p">:</span> <span class="s2">"Explain the CAP theorem in distributed systems."</span><span class="p">,</span>
+    <span class="s2">"response"</span><span class="p">:</span> <span class="s2">"The CAP theorem states that a distributed system "</span>
+    <span class="s2">"can provide at most two of three guarantees: Consistency, "</span>
+    <span class="s2">"Availability, and Partition tolerance..."</span>
+    <span class="p">},</span>
+    <span class="n">metadata</span><span class="o">=</span><span class="p">{</span>
+    <span class="s2">"llm_quality_score"</span><span class="p">:</span> <span class="mf">0.82</span><span class="p">,</span>
+    <span class="s2">"source"</span><span class="p">:</span> <span class="s2">"self-instruct"</span><span class="p">,</span>
+    <span class="p">},</span>
+    <span class="p">),</span>
+<span class="p">]</span>
+<span class="n">dataset</span><span class="o">.</span><span class="n">records</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">records</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Uploaded </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">records</span><span class="p">)</span><span class="si">}</span><span class="s2"> records for review"</span><span class="p">)</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> Uploaded 1 records for review
+
+</div>
+<div class="code-caption"><strong>Code Fragment 17.3.5:</strong> Push synthetic data to Argilla for human review and annotation</div>
+</div>
+<div class="callout note">
+<div class="callout-title">Note</div>
+<p>A practical workflow routes only <strong>borderline examples</strong> to human review: those with LLM quality scores between 0.5 and 0.7. Examples above 0.7 are auto-accepted, and examples below 0.5 are auto-rejected. This focuses expensive human <a class="glossary-link" href="../../appendices/glossary/section-f.4.html#gl-attention" title="Glossary: Attention">attention</a> where it adds the most value and can reduce review volume by 60% to 80% while maintaining high data quality.</p>
+</div>
+<div class="callout note">
+<div class="callout-title">Note</div>
+<p><strong>Synthetic data generation </strong>is especially critical in robotics, where real-world data collection is slow, expensive, and constrained by physical hardware. NVIDIA's Isaac Sim combined with Cosmos can generate 780,000 robot training trajectories in just 11 hours using LLM-guided scenario specification. NVIDIA's Eureka system uses LLMs to write and iteratively refine reward functions for robot RL, outperforming human expert rewards on the majority of tested tasks. For full coverage of LLM-driven synthetic data in robotics, see <a href="../../part-7-multimodal-generation/module-27-llm-applications/section-27.7.html">Section 27.7</a>.</p>
+</div>
+<div class="callout fun-note">
+<div class="callout-title">Fun Fact</div>
+<p>Deduplication is the unsung hero of synthetic data pipelines. Without it, you end up with a dataset where 30% of the examples are minor paraphrases of each other, and your model learns to be confidently repetitive.</p>
+</div>
+<h2>14.3.5 Distilabel for Production Pipelines</h2>
+<p>Distilabel is an open-source framework by Argilla (<a href="../module-18-fine-tuning-fundamentals/section-18.5.html">Hugging Face</a>) for building scalable synthetic data generation and curation pipelines. It provides pre-built components for common generation patterns (Self-Instruct, <a class="glossary-link" href="../../appendices/glossary/section-f.3.html#gl-evol-instruct" title="Glossary: Evol-Instruct">Evol-Instruct</a>, UltraFeedback-style scoring) and handles <a href="../../part-2-understanding-llms/module-10-inference-optimization/section-10.3.html">batching</a>, <a href="../../part-8-evaluation-production/module-35-production-engineering/section-35.2.html">rate limiting</a>, and error recovery automatically. Code Fragment 17.3.2 shows this approach in practice.</p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># Build a Distilabel pipeline for automated generation and scoring</span>
+<span class="c1"># TextGeneration creates candidates; UltraFeedback scores them</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">distilabel.pipeline</span><span class="w"> </span><span class="kn">import</span> <span class="n">Pipeline</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">distilabel.steps.tasks</span><span class="w"> </span><span class="kn">import</span> <span class="n">TextGeneration</span><span class="p">,</span> <span class="n">UltraFeedback</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">distilabel.llms</span><span class="w"> </span><span class="kn">import</span> <span class="n">OpenAILLM</span>
+<span class="c1"># Build a Distilabel pipeline for synthetic data generation + scoring</span>
+<span class="n">pipeline</span> <span class="o">=</span> <span class="n">Pipeline</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">"synthetic-data-pipeline"</span><span class="p">)</span>
+<span class="c1"># Step 1: Generate responses to seed instructions</span>
+<span class="n">generate</span> <span class="o">=</span> <span class="n">TextGeneration</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">"generate_response"</span><span class="p">,</span>
+    <span class="n">llm</span><span class="o">=</span><span class="n">OpenAILLM</span><span class="p">(</span><span class="n">model</span><span class="o">=</span><span class="s2">"gpt-4o-mini"</span><span class="p">),</span>
+    <span class="n">system_prompt</span><span class="o">=</span><span class="s2">"You are a knowledgeable assistant. Provide detailed, "</span>
+    <span class="s2">"accurate responses to technical questions."</span><span class="p">,</span>
+    <span class="n">num_generations</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="c1"># Generate 3 candidates per instruction</span>
+<span class="p">)</span>
+<span class="c1"># Step 2: Score the generated responses using UltraFeedback criteria</span>
+<span class="n">score</span> <span class="o">=</span> <span class="n">UltraFeedback</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">"quality_scoring"</span><span class="p">,</span>
+    <span class="n">llm</span><span class="o">=</span><span class="n">OpenAILLM</span><span class="p">(</span><span class="n">model</span><span class="o">=</span><span class="s2">"gpt-4o"</span><span class="p">),</span>
+    <span class="n">aspect</span><span class="o">=</span><span class="s2">"overall-rating"</span><span class="p">,</span> <span class="c1"># Score on overall quality 1-5</span>
+<span class="p">)</span>
+<span class="c1"># Wire the pipeline</span>
+<span class="n">pipeline</span><span class="o">.</span><span class="n">add_step</span><span class="p">(</span><span class="n">generate</span><span class="p">)</span>
+<span class="n">pipeline</span><span class="o">.</span><span class="n">add_step</span><span class="p">(</span><span class="n">score</span><span class="p">,</span> <span class="n">input_mappings</span><span class="o">=</span><span class="p">{</span><span class="s2">"instruction"</span><span class="p">:</span> <span class="s2">"instruction"</span><span class="p">})</span>
+<span class="c1"># Run on seed data</span>
+<span class="n">seed_instructions</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="p">{</span><span class="s2">"instruction"</span><span class="p">:</span> <span class="s2">"Explain how garbage collection works in Python."</span><span class="p">},</span>
+    <span class="p">{</span><span class="s2">"instruction"</span><span class="p">:</span> <span class="s2">"What are the tradeoffs between SQL and NoSQL databases?"</span><span class="p">},</span>
+    <span class="p">{</span><span class="s2">"instruction"</span><span class="p">:</span> <span class="s2">"Describe the observer pattern with a practical example."</span><span class="p">},</span>
+<span class="p">]</span>
+<span class="c1"># In production, run with:</span>
+<span class="c1"># results = pipeline.run(seed_instructions)</span>
+<span class="c1"># results.to_pandas() # Analyze in pandas</span>
+<span class="c1"># results.push_to_hub("my-org/synthetic-dataset") # Push to HF Hub</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"Pipeline configured with generate + score steps"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Seed instructions: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">seed_instructions</span><span class="p">)</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Expected outputs: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">seed_instructions</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mi">3</span><span class="si">}</span><span class="s2"> candidates, scored"</span><span class="p">)</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> 
+Pipeline configured with generate + score steps
+Seed instructions: 3
+Expected outputs: 9 candidates, scored
+ 
+
+</div>
+<div class="code-caption"><strong>Code Fragment 17.3.6:</strong> Build a Distilabel pipeline for automated generation and scoring</div>
+</div>
+<!-- Quiz Section -->
+<div class="callout self-check">
+<div class="callout-title">Self-Check</div>
+<div class="quiz-question"><strong>Q1:</strong> What are the five quality dimensions used for scoring synthetic data?</div>
+<details>
+<summary>Show Answer</summary>
+<div class="answer">The five dimensions are: (1) Instruction Clarity (is the instruction unambiguous and well-formed?), (2) Response Quality (is the response accurate, complete, and well-organized?), (3) Instruction-Response <a class="glossary-link" href="../../appendices/glossary/section-f.3.html#gl-rlhf" title="Glossary: RLHF">RLHF</a> (does the response actually address the instruction?), (4) Complexity (how challenging is the task?), and (5) Safety (does the content violate safety policies?). The first four are scored on 1-5 scales, while Safety is a binary pass/fail.</div>
+</details>
+<div class="quiz-question"><strong>Q2:</strong> What are the three levels of deduplication, and why should they be applied in a specific order?</div>
+<details>
+<summary>Show Answer</summary>
+<div class="answer">The three levels are: (1) Exact dedup using text hashing (SHA-256), which catches 5% to 15% of data at near-zero cost; (2) Near-duplicate detection using MinHash/SimHash with Jaccard similarity, catching 10% to 25% at low cost; and (3) Semantic dedup using embedding cosine similarity, catching 15% to 35% at moderate cost. They should be applied in this order (cheapest first) because each stage reduces the dataset size, making the more expensive subsequent stages faster and cheaper to run.</div>
+</details>
+<div class="quiz-question"><strong>Q3:</strong> How does a borderline routing strategy improve the efficiency of human review?</div>
+<details>
+<summary>Show Answer</summary>
+<div class="answer">Borderline routing sends only examples with LLM quality scores in the uncertain range (typically 0.5 to 0.7) to human reviewers. Examples above 0.7 are auto-accepted and examples below 0.5 are auto-rejected. This focuses expensive human attention on the cases where automated scoring is least confident and human judgment adds the most value. The approach can reduce human review volume by 60% to 80% while maintaining high overall data quality.</div>
+</details>
+<div class="quiz-question"><strong>Q4:</strong> What is the repetition filter detecting, and why is it important for synthetic data?</div>
+<details>
+<summary>Show Answer</summary>
+<div class="answer">The repetition filter detects responses with excessive repeated phrases by computing the ratio of the most common n-grams to total n-grams. This is important because LLMs sometimes enter degenerate loops where they repeat the same phrases. Training on highly repetitive data teaches the model to produce repetitive outputs. A typical threshold flags responses where any 4-gram appears more than 30% of the time relative to all 4-grams in the response.</div>
+</details>
+<div class="quiz-question"><strong>Q5:</strong> What advantages does Distilabel provide over building custom generation pipelines from scratch?</div>
+<details>
+<summary>Show Answer</summary>
+<div class="answer">Distilabel provides: (1) pre-built components for common patterns like Self-Instruct, Evol-Instruct, and UltraFeedback scoring; (2) automatic handling of batching, rate limiting, and error recovery; (3) integration with multiple LLM providers through a unified interface; (4) built-in support for generating multiple candidates per instruction; (5) direct export to Hugging Face Hub for dataset sharing; and (6) integration with Argilla for human-in-the-loop curation workflows. This saves significant engineering time compared to implementing these features from scratch.</div>
+</details>
+</div>
+<p><strong>Why this matters:</strong> Data quality is the single biggest lever for <a class="glossary-link" href="../../appendices/glossary/section-f.3.html#gl-fine-tuning" title="Glossary: Fine-Tuning">fine-tuning</a> success. Teams that invest in rigorous quality assurance for their synthetic data consistently achieve better results with fewer examples than teams that prioritize volume. A well-curated dataset of 5,000 high-quality examples regularly outperforms 50,000 unfiltered examples. The quality assurance patterns here connect directly to the <a href="../module-18-fine-tuning-fundamentals/section-18.2.html">data preparation checklist</a> in Section 18.2, where formatting and quality are prerequisites for effective fine-tuning.</p>
+<div class="callout tip">
+<div class="callout-title">Tip: Mix Synthetic and Real Data</div>
+<p>The best results typically come from blending synthetic data with a smaller set of real, human-verified examples (for example, 80% synthetic and 20% real). The real data anchors quality while synthetic data provides scale.</p>
+</div>
+<!-- Key Takeaways -->
+<div class="callout key-insight">
+<div class="callout-title">Key Takeaways</div>
+<ul>
+<li><strong>Quality scoring with LLM-as-judge</strong> evaluates each example on instruction clarity, response quality, alignment, complexity, and safety. Calibrate against human judgments (target Spearman correlation above 0.65) before scaling.</li>
+<li><strong>Deduplication operates at three levels:</strong> exact hash matching (cheapest, catches 5% to 15%), MinHash near-duplicate detection (catches 10% to 25%), and semantic embedding similarity (catches 15% to 35%). Always run them in order from cheapest to most expensive.</li>
+<li><strong>Multi-dimensional filtering</strong> removes examples that fail length, language, toxicity, PII, topic, or repetition checks. Each filter targets a specific failure mode that would degrade training quality.</li>
+<li><strong>Argilla provides human-in-the-loop curation</strong> with a web UI for reviewing borderline examples. Routing only borderline cases (quality scores 0.5 to 0.7) to human review reduces volume by 60% to 80%.</li>
+<li><strong>Distilabel automates the full pipeline</strong> from generation through scoring, with pre-built components, rate limiting, and Hugging Face Hub integration.</li>
+<li><strong>Curation typically improves downstream performance by 10% to 25%</strong> compared to training on uncurated synthetic data.</li>
+</ul>
+</div>
+<div class="callout practical-example">
+<div class="callout-title">Real-World Scenario: Deduplication Pipeline Saving 30% of Training Compute</div>
+<p><strong>Who:</strong> An ML team at a <a href="../../part-5-retrieval-conversation/module-24-conversational-ai/section-24.1.html">conversational AI</a> company preparing a 100,000-example instruction-tuning dataset assembled from four synthetic generation pipelines.</p>
+<p><strong>Situation:</strong> Each pipeline had produced 25,000 examples independently using different prompting strategies but overlapping seed data. The team suspected significant duplication across pipelines.</p>
+<p><strong>Problem:</strong> Training on duplicate or near-duplicate data wastes compute, amplifies biases present in repeated examples, and can cause the model to memorize specific phrasings rather than learning generalizable patterns.</p>
+<p><strong>Dilemma:</strong> They could skip deduplication and accept the waste (fastest), run only exact-match hashing (catches obvious copies), or implement a three-tier deduplication pipeline (hash, MinHash, semantic) that would take a day to set up but provide the deepest cleaning.</p>
+<p><strong>Decision:</strong> They implemented the three-tier pipeline: exact hash matching first (cheapest, catches copy-paste duplicates), MinHash with 128 permutations for near-duplicate detection (catches paraphrases with minor edits), and finally embedding-based semantic deduplication using cosine similarity above 0.95 (catches functionally identical examples with different wording).</p>
+<p><strong>How:</strong> They processed the pipeline in order from cheapest to most expensive. Exact hashing ran in 2 minutes, MinHash in 15 minutes, and embedding-based dedup in 3 hours (including embedding computation). Each tier operated only on the survivors from the previous tier.</p>
+<p><strong>Result:</strong> Exact matching removed 8,200 duplicates (8.2%), MinHash caught an additional 12,400 near-duplicates (13.5% of remaining), and semantic dedup removed 7,800 more (9.5% of remaining). The final dataset was 71,600 examples. The model trained on the deduplicated set achieved 4% higher benchmark scores than one trained on the full 100,000, while using 28% less training compute.</p>
+<p><strong>Lesson:</strong> Multi-tier deduplication (hash, MinHash, semantic) applied in ascending cost order is the most efficient approach; removing duplicates not only saves compute but genuinely improves model quality by increasing effective diversity.</p>
+</div>
+<div class="callout research-frontier">
+<div class="callout-title">Research Frontier</div>
+<p>Automated data quality scoring is moving beyond simple heuristics toward learned quality predictors that can estimate the training value of each synthetic example before it enters the dataset. Research on <em>data mixing laws</em> (extending <a href="../../part-2-understanding-llms/module-07-pretraining-scaling-laws/section-7.3.html">scaling laws</a> to data composition) seeks to predict optimal ratios of synthetic to real data for a given task and model size.</p>
+<p><strong>An open problem is detecting</strong> subtle distributional biases in curated synthetic datasets that only manifest after <a href="../module-18-fine-tuning-fundamentals/section-18.1.html">fine-tuning</a>, such as sycophantic or overly cautious response patterns.</p>
+</div>
+<section class="exercises">
+<h2>Exercises</h2>
+<div class="callout exercise">
+<div class="callout-title">Exercise 13.4.1: Quality dimensions <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+<p>Name four dimensions of quality that should be assessed for synthetic training data. For each dimension, give an example of a quality failure.</p>
+<details><summary>Answer Sketch</summary>
+<p>1. Correctness: a synthetic math problem has the wrong answer. 2. Diversity: all synthetic customer messages use the same phrasing pattern. 3. Relevance: generated examples are off-topic or do not match the target task distribution. 4. Consistency: the same entity is described with contradictory attributes across examples. Each failure degrades model training by introducing noise, bias, or gaps in coverage.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 13.4.2: Deduplication methods <span class="exercise-type coding" title="Coding">Coding</span></div>
+<p>Implement a deduplication function for synthetic data that removes both exact duplicates and near-duplicates (cosine similarity &gt; 0.95). Use embeddings for the near-duplicate detection.</p>
+<details><summary>Answer Sketch</summary>
+<p>Step 1: Remove exact duplicates with a set. Step 2: Embed all remaining examples. Step 3: For each pair, compute cosine similarity. Step 4: Build a graph where edges connect pairs with similarity &gt; 0.95. Step 5: For each connected component, keep only one representative (e.g., the longest or highest-quality example). Use an efficient approach like FAISS for pairwise similarity at scale.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 13.4.3: LLM-as-judge for quality <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+<p>Explain how to use an LLM as a judge to score synthetic data quality. What scoring rubric would you provide, and what are the limitations of this approach?</p>
+<details><summary>Answer Sketch</summary>
+<p>Send each synthetic example to a judge LLM with a rubric: 'Rate 1 to 5 on: (a) Realism: could this plausibly appear in real data? (b) Correctness: is the content factually accurate? (c) Completeness: does it cover all required elements? (d) Difficulty: is it appropriately challenging?' Limitations: the judge may share the same biases as the generator (both are LLMs), may be inconsistent across examples, and cannot verify domain-specific factual accuracy without external knowledge.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 13.4.4: Contamination detection <span class="exercise-type coding" title="Coding">Coding</span></div>
+<p>Write a function that checks whether synthetic training data is contaminated with examples from a known test set. Use n-gram overlap and embedding similarity as complementary detection methods.</p>
+<details><summary>Answer Sketch</summary>
+<p>For n-gram overlap: extract all 10-grams from each synthetic example and each test example. Flag any synthetic example sharing 3+ 10-grams with a test example. For embedding similarity: embed both sets, compute pairwise cosine similarity, flag any pair with similarity &gt; 0.92. The n-gram method catches verbatim copying; the embedding method catches paraphrased copies. Report flagged examples for manual review.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 13.4.5: Quality filtering impact <span class="exercise-type analysis" title="Analysis">Analysis</span></div>
+<p>A team generates 50,000 synthetic examples and finds that aggressive quality filtering (keeping only top 20%) produces a dataset of 10,000. Compare the expected training outcomes of using all 50,000 vs. the filtered 10,000.</p>
+<details><summary>Answer Sketch</summary>
+<p>The filtered 10,000 will likely produce a better model despite being smaller. Low-quality examples introduce noise that the model must learn to ignore, slowing convergence and potentially teaching wrong patterns. Research consistently shows that a small, high-quality dataset outperforms a large, noisy one. The exception is if filtering is too aggressive and removes valid edge cases, reducing coverage. Monitor both quality metrics and distributional coverage.</p>
+</details>
+</div>
+</section>
+<div class="whats-next">
+<h2>What Comes Next</h2>
+<p>In the next section, <a href="section-17.4.html">Section 17.4: LLM-Assisted Labeling &amp; Active Learning</a>, we examine LLM-assisted labeling and active learning, using models to accelerate human annotation workflows. Quality filtering is also essential when preparing data for <a href="../module-19-peft/section-19.1.html">parameter-efficient fine-tuning (Section 19.1)</a> and <a href="../module-19-peft/section-19.5.html">knowledge distillation (Section 19.5)</a>.</p>
+</div>
+<section class="bibliography" id="bibliography">
+<h3>Bibliography and Further Reading</h3>
+<div class="bib-category">Deduplication Research</div>
+<div class="bib-entry-card">
+<p class="bib-ref"><a href="https://arxiv.org/abs/2107.06499" rel="noopener" target="_blank">Lee, K. et al. (2022). <em>Deduplicating Training Data Makes Language Models Better</em>. ACL 2022.</a></p>
+<p class="bib-annotation">Provides rigorous evidence that deduplication improves both training efficiency and model quality, with experiments showing reduced memorization and better generalization. This paper directly motivates the multi-tier deduplication pipeline presented in this section. Required reading for anyone curating training datasets.</p>
+<span class="bib-meta">Paper</span>
+</div>
+<div class="bib-entry-card">
+<p class="bib-ref"><a href="https://arxiv.org/abs/2303.09540" rel="noopener" target="_blank">Abbas, A. et al. (2023). <em>SemDeDup: Data-Efficient Learning at Web-Scale Through Semantic Deduplication</em>.</a></p>
+<p class="bib-annotation">Introduces semantic deduplication using embedding similarity, which catches near-duplicates that hash-based methods miss. SemDeDup is the key technique in the third tier of the deduplication pipeline discussed here. Recommended for teams dealing with paraphrased or semantically redundant synthetic examples.</p>
+<span class="bib-meta">Paper</span>
+</div>
+<div class="bib-entry-card">
+<p class="bib-ref"><a href="https://ieeexplore.ieee.org/document/630153" rel="noopener" target="_blank">Broder, A. Z. (1997). <em>On the Resemblance and Containment of Documents</em>. Proceedings of the Compression and Complexity of Sequences.</a></p>
+<p class="bib-annotation">The original MinHash paper that established the theoretical foundation for efficient near-duplicate detection at scale. MinHash remains the workhorse of the second deduplication tier discussed in this section. Essential background for understanding the algorithmic principles behind scalable deduplication.</p>
+<span class="bib-meta">Paper</span>
+</div>
+<div class="bib-category">Curation Tools and Datasets</div>
+<div class="bib-entry-card">
+<p class="bib-ref"><a href="https://docs.argilla.io/" rel="noopener" target="_blank">Argilla. (2024). <em>Argilla: Open-Source Data Curation for LLMs</em>.</a></p>
+<p class="bib-annotation">Documentation for Argilla, the open-source platform for data curation that integrates annotation, quality scoring, and dataset management. Argilla is one of the primary tools referenced in the practical curation workflow of this section. Ideal for teams wanting a production-ready curation interface.</p>
+<span class="bib-meta">Tool</span>
+</div>
+<div class="bib-entry-card">
+<p class="bib-ref"><a href="https://distilabel.argilla.io/" rel="noopener" target="_blank">Hugging Face. (2024). <em>Distilabel: AI Feedback Framework for Building Datasets</em>.</a></p>
+<p class="bib-annotation">Distilabel provides a pipeline framework for generating and curating datasets using LLM-as-Judge scoring, preference pair generation, and quality filtering. It directly implements many of the automated quality scoring patterns discussed here. Practical for teams wanting to automate their curation pipeline with minimal custom code.</p>
+<span class="bib-meta">Framework</span>
+</div>
+<div class="bib-entry-card">
+<p class="bib-ref"><a href="https://arxiv.org/abs/2306.01116" rel="noopener" target="_blank">Penedo, G. et al. (2023). <em>The RefinedWeb Dataset for Falcon LLM</em>. NeurIPS 2023 Datasets Track.</a></p>
+<p class="bib-annotation">Documents the curation pipeline behind RefinedWeb, demonstrating that aggressive filtering and deduplication of web data can match curated datasets in quality. The paper's filtering heuristics and quality metrics are directly applicable to synthetic data curation. A benchmark study for production-grade data pipelines.</p>
+<span class="bib-meta">Paper</span>
+</div>
+</section>
+<nav class="chapter-nav">
+<a class="prev" href="section-17.2.html"><span class="nav-label">Previous</span><span class="nav-num">Section 17.2</span><span class="nav-title">LLM-Powered Data Generation Pipelines</span></a>
+<a class="up" href="index.html"><span class="nav-label">In Chapter</span><span class="nav-num">Chapter 17</span><span class="nav-title">Synthetic Data Generation &amp; LLM Simulation</span></a>
+<a class="next" href="section-17.4.html"><span class="nav-label">Next</span><span class="nav-num">Section 17.4</span><span class="nav-title">LLM-Assisted Labeling &amp; Active Learning</span></a>
+</nav>
+<footer><p>Fifteenth Edition, 2026 · <a href="../../toc.html">Contents</a></p></footer>
+</main>
+<script>
+window.addEventListener("DOMContentLoaded", function() {
+  if (window.PagefindUI) {
+    new PagefindUI({
+      element: "#search",
+      showSubResults: true,
+      showImages: false,
+      resetStyles: false,
+      pageSize: 8,
+      autofocus: false,
+      translations: {
+        placeholder: "Search the book\u2026",
+      },
+      processResult: function (result) {
+        try {
+          var part = (result && result.meta && result.meta.part) ? result.meta.part : "";
+          var chap = (result && result.meta && result.meta.chapter) ? result.meta.chapter : "";
+          var partShort = part.split(":")[0].trim();
+          var chapShort = chap.split(":")[0].trim();
+          var crumb = [partShort, chapShort].filter(Boolean).join(" \u203a ");
+          if (crumb && result.meta && result.meta.title
+              && result.meta.title.indexOf("[" + partShort) !== 0) {
+            result.meta.title = "[" + crumb + "]  " + result.meta.title;
+          }
+        } catch (e) { /* fall through */ }
+        return result;
+      },
+    });
+  }
+});
+</script>
+</body>
+</html>
