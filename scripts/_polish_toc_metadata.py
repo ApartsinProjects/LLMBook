@@ -108,17 +108,29 @@ def main() -> int:
     #                                L=Docker)
     #    Reference & Pedagogy   (M=Tables, N=Patterns, O=Pedagogy,
     #                                P=Prob-Solution, Q=Freshness)
+    # Final group structure (May 2026 v3 post-Production-Patterns drop +
+    # Experiment Tracking moved to Dev Setup):
+    #   Foundations              A Math, B ML
+    #   Development Setup        C Python, D Env, I Experiments
+    #   Library & Framework      E HF, F LangChain, G Tooling
+    #   Production Infrastructure (MLOps)  H Git/DVC, J Inference,
+    #                             K Distributed, L Docker
+    #   Cross-Cutting Reference  M Master Tables, N Problem-Solution Key
+    #   Pedagogical Kit          O Pedagogy Kit, P Freshness 2026
     APPENDIX_GROUPS = {
         "A": "Foundations", "B": "Foundations",
         "C": "Development Setup", "D": "Development Setup",
-        "E": "Development Setup",
-        "F": "Framework Guides", "G": "Framework Guides",
-        "H": "Framework Guides",
-        "I": "Production Infrastructure", "J": "Production Infrastructure",
-        "K": "Production Infrastructure", "L": "Production Infrastructure",
-        "M": "Reference & Pedagogy", "N": "Reference & Pedagogy",
-        "O": "Reference & Pedagogy", "P": "Reference & Pedagogy",
-        "Q": "Reference & Pedagogy",
+        "I": "Development Setup",
+        "E": "Library & Framework Guides",
+        "F": "Library & Framework Guides",
+        "G": "Library & Framework Guides",
+        "H": "Production Infrastructure",
+        "J": "Production Infrastructure",
+        "K": "Production Infrastructure",
+        "L": "Production Infrastructure",
+        "M": "Cross-Cutting Reference",
+        "N": "Cross-Cutting Reference",
+        "O": "Pedagogical Kit", "P": "Pedagogical Kit",
     }
     n_app = 0
     for app in struct.get("appendices", []):
