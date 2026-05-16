@@ -65,6 +65,10 @@ IMG_RE = re.compile(
     r"""<img\b[^>]*?\bsrc\s*=\s*["']([^"'>]+)["'][^>]*?>""",
     re.IGNORECASE | re.DOTALL,
 )
+IMG_ALT_RE = re.compile(
+    r"""<img\b[^>]*?\balt\s*=\s*["']([^"']*)["'][^>]*?>""",
+    re.IGNORECASE | re.DOTALL,
+)
 FIGCAPTION_RE = re.compile(
     r"""<figcaption\b[^>]*>(.*?)</figcaption>""",
     re.IGNORECASE | re.DOTALL,
@@ -108,6 +112,11 @@ def module_num_for_file(p: Path) -> Optional[int]:
     return None
 
 
+def is_appendix_file(p: Path) -> bool:
+    """True if the file lives under appendices/."""
+    return any(part == "appendices" for part in p.parts)
+
+
 def section_num_for_file(p: Path) -> Optional[tuple[int, int]]:
     """Return (module, sub) if filename is section-N.M.html."""
     m = SECTION_FILE_RE.match(p.name)
@@ -116,13 +125,16 @@ def section_num_for_file(p: Path) -> Optional[tuple[int, int]]:
     return None
 
 
-def extract_img_tags(html_text: str) -> list[tuple[int, str, str]]:
-    """Return [(line_no, src, full_tag), ...] for every <img src='...'>."""
+def extract_img_tags(html_text: str) -> list[tuple[int, str, str, str]]:
+    """Return [(line_no, src, alt, full_tag), ...] for every <img src='...'>."""
     out = []
     for m in IMG_RE.finditer(html_text):
         line_no = html_text.count("\n", 0, m.start()) + 1
         src = m.group(1).strip()
-        out.append((line_no, src, m.group(0)))
+        full_tag = m.group(0)
+        alt_m = IMG_ALT_RE.search(full_tag)
+        alt = alt_m.group(1).strip() if alt_m else ""
+        out.append((line_no, src, alt, full_tag))
     return out
 
 
@@ -146,6 +158,14 @@ def resolve_src(html_file: Path, src: str) -> Optional[Path]:
     # Drop URL fragments / queries
     src_clean = src.split("#", 1)[0].split("?", 1)[0]
     return (html_file.parent / src_clean).resolve()
+
+
+def _relpath_posix(target: Path, start: Path) -> str:
+    """Compute a relative path from start to target, posix slashes.
+    Uses os.path.relpath to allow ../ traversal."""
+    import os
+    rp = os.path.relpath(str(target.resolve()), str(start.resolve()))
+    return rp.replace("\\", "/")
 
 
 # ---- Fix strategies ----
@@ -189,9 +209,7 @@ def find_sibling_module_match(broken_src: str, html_file: Path) -> list[str]:
         target = img_dir / fname
         if target.exists():
             candidates.append(target)
-    return [
-        str(c.relative_to(html_file.parent)).replace("\\", "/") for c in candidates
-    ]
+    return [_relpath_posix(c, html_file.parent) for c in candidates]
 
 
 def find_extension_swap(broken_src: str, html_file: Path) -> Optional[str]:
@@ -282,10 +300,106 @@ def find_bare_filename(broken_src: str, html_file: Path) -> list[str]:
         target = img_dir / fname
         if target.exists():
             candidates.append(target)
-    return [
-        str(c.resolve().relative_to(html_file.parent.resolve())).replace("\\", "/")
-        for c in candidates
-    ]
+    return [_relpath_posix(c, html_file.parent) for c in candidates]
+
+
+# Strategy 6: fuzzy filename matching
+# Strip stale chapter prefixes like "ch24-", "ch26-", "ch34-", trailing "-v2",
+# "-v3", and figure prefixes like "fig-25.1.3-", "figure-30.5.1-". Then look for
+# a unique remaining stem-substring match in any images/ dir.
+
+_PREFIX_RE = re.compile(
+    r"""^(ch\d+|fig|figure|diagram|image)[-_.](?:\d+\.\d+(?:\.\d+)?[-_.])?""",
+    re.IGNORECASE,
+)
+_VERSION_SUFFIX_RE = re.compile(r"""[-_]v\d+$""", re.IGNORECASE)
+_TRAILING_NUM_RE = re.compile(r"""[-_]\d+$""")
+
+
+def _normalize_stem(fname: str) -> str:
+    """Reduce a filename like 'ch26-sandbox-fishbowl.png' to 'sandbox-fishbowl'."""
+    stem = Path(fname).stem
+    stem = _PREFIX_RE.sub("", stem)
+    stem = _VERSION_SUFFIX_RE.sub("", stem)
+    return stem.lower()
+
+
+def _slug_tokens(stem: str) -> set[str]:
+    """Tokenize a slug into informative words (3+ chars, alphanumeric)."""
+    tokens = re.split(r"[-_.]+", stem)
+    return {t for t in tokens if len(t) >= 3 and t.isalnum()}
+
+
+GENERIC_STEMS = {
+    "chapter-opener", "opener", "part-opener", "module-opener",
+    "hero", "banner", "cover", "diagram", "figure",
+}
+
+
+def find_fuzzy_match(broken_src: str, html_file: Path) -> list[tuple[float, str]]:
+    """Strategy 6: fuzzy match by normalized stem and shared tokens.
+
+    Returns a ranked list of (score, relative_path) tuples. Top match (if any)
+    has highest score. Lower-ranked are weaker. Caller decides on threshold.
+
+    Generic stems (e.g. 'chapter-opener') are skipped to avoid cross-module
+    false positives.
+    """
+    broken_stem = _normalize_stem(Path(broken_src).name)
+    if broken_stem in GENERIC_STEMS:
+        return []
+    broken_tokens = _slug_tokens(broken_stem)
+    if not broken_tokens:
+        return []
+    # Collect all candidate image files
+    scored: list[tuple[float, Path]] = []
+    seen: set[Path] = set()
+    for img_dir in ROOT.rglob("images"):
+        rel = img_dir.relative_to(ROOT)
+        if is_skipped(rel) or not img_dir.is_dir():
+            continue
+        for candidate in img_dir.iterdir():
+            if not candidate.is_file():
+                continue
+            if candidate.suffix.lower() not in {".png", ".svg", ".jpg", ".jpeg", ".webp"}:
+                continue
+            if candidate.name.endswith((".orig", ".bak")):
+                continue
+            if candidate in seen:
+                continue
+            seen.add(candidate)
+            cand_stem = _normalize_stem(candidate.name)
+            cand_tokens = _slug_tokens(cand_stem)
+            if not cand_tokens:
+                continue
+            # Exact normalized stem match -> high score
+            if cand_stem == broken_stem:
+                score = 100.0
+            else:
+                overlap = len(broken_tokens & cand_tokens)
+                if overlap == 0:
+                    continue
+                # Jaccard-ish similarity
+                union = len(broken_tokens | cand_tokens)
+                score = (overlap / union) * 100.0
+                # Bonus if all broken tokens are in the candidate
+                if broken_tokens.issubset(cand_tokens):
+                    score += 20.0
+                # Small bonus if candidate's tokens are subset of broken's
+                # (means candidate is a simpler/more generic name)
+                if cand_tokens.issubset(broken_tokens):
+                    score += 10.0
+            if score >= 40.0:  # threshold for "plausible"
+                scored.append((score, candidate))
+    scored.sort(key=lambda x: -x[0])
+    result: list[tuple[float, str]] = []
+    for score, p in scored[:5]:
+        try:
+            rel = _relpath_posix(p, html_file.parent)
+            result.append((score, rel))
+        except ValueError:
+            result.append((score, str(p).replace("\\", "/")))
+    return result
 
 
 def is_caption_module_stale(caption: str, current_module: int) -> Optional[tuple[int, int, Optional[int]]]:
@@ -306,15 +420,16 @@ def is_caption_module_stale(caption: str, current_module: int) -> Optional[tuple
 
 class BrokenImage:
     __slots__ = (
-        "file", "line", "src", "caption", "current_module",
+        "file", "line", "src", "alt", "caption", "current_module",
         "fix_strategy", "fix_target", "fix_caption_from", "fix_caption_to",
         "candidates_ambiguous", "explanation",
     )
 
-    def __init__(self, file: Path, line: int, src: str, caption: Optional[str], current_module: Optional[int]):
+    def __init__(self, file: Path, line: int, src: str, alt: str, caption: Optional[str], current_module: Optional[int]):
         self.file = file
         self.line = line
         self.src = src
+        self.alt = alt
         self.caption = caption
         self.current_module = current_module
         self.fix_strategy: Optional[str] = None
@@ -341,7 +456,7 @@ def discover(root: Path) -> list[BrokenImage]:
         captions = extract_captions(text)
         caption_by_line: dict[int, str] = {ln: cap for ln, cap in captions}
         current_module = module_num_for_file(f)
-        for line, src, _tag in imgs:
+        for line, src, alt, _tag in imgs:
             target = resolve_src(f, src)
             if target is None:
                 continue  # external URL
@@ -353,7 +468,7 @@ def discover(root: Path) -> list[BrokenImage]:
                 if (line + delta) in caption_by_line:
                     cap_text = caption_by_line[line + delta]
                     break
-            bi = BrokenImage(f, line, src, cap_text, current_module)
+            bi = BrokenImage(f, line, src, alt, cap_text, current_module)
             broken.append(bi)
     return broken
 
@@ -361,23 +476,21 @@ def discover(root: Path) -> list[BrokenImage]:
 def plan_fixes(broken: list[BrokenImage]) -> None:
     """Annotate each BrokenImage with a fix strategy if one is found."""
     for bi in broken:
-        if bi.current_module is None:
-            bi.explanation = "could not infer current module from file path"
-            continue
-        # Strategy 1: renumber
-        target = find_renumber_match(bi.src, bi.file, bi.current_module)
-        if target is not None:
-            bi.fix_strategy = "renumber"
-            bi.fix_target = target
-            _maybe_fix_caption(bi)
-            continue
-        # Strategy 4 (caption-driven) often subsumes 2-3 when the caption is right.
-        target = find_caption_driven_match(bi.src, bi.caption, bi.file, bi.current_module)
-        if target is not None:
-            bi.fix_strategy = "caption-driven"
-            bi.fix_target = target
-            _maybe_fix_caption(bi)
-            continue
+        # Strategy 1: renumber (requires module number)
+        if bi.current_module is not None:
+            target = find_renumber_match(bi.src, bi.file, bi.current_module)
+            if target is not None:
+                bi.fix_strategy = "renumber"
+                bi.fix_target = target
+                _maybe_fix_caption(bi)
+                continue
+            # Strategy 4 (caption-driven) often subsumes 2-3 when caption is right.
+            target = find_caption_driven_match(bi.src, bi.caption, bi.file, bi.current_module)
+            if target is not None:
+                bi.fix_strategy = "caption-driven"
+                bi.fix_target = target
+                _maybe_fix_caption(bi)
+                continue
         # Strategy 3: extension swap
         target = find_extension_swap(bi.src, bi.file)
         if target is not None:
@@ -403,6 +516,21 @@ def plan_fixes(broken: list[BrokenImage]) -> None:
             continue
         elif len(cands2) > 1 and not bi.candidates_ambiguous:
             bi.candidates_ambiguous = cands2
+        # Strategy 6: fuzzy stem match
+        fuzzy = find_fuzzy_match(bi.src, bi.file)
+        if fuzzy:
+            top_score, top_path = fuzzy[0]
+            # Strongly dominant top hit -> auto-fix
+            # Conditions: top score >= 90 (essentially exact normalized stem)
+            # OR top score >= 60 AND next-best is at least 25 points worse.
+            second_score = fuzzy[1][0] if len(fuzzy) > 1 else 0.0
+            if top_score >= 90.0 or (top_score >= 60.0 and (top_score - second_score) >= 25.0):
+                bi.fix_strategy = f"fuzzy-stem (score={top_score:.0f})"
+                bi.fix_target = top_path
+                _maybe_fix_caption(bi)
+                continue
+            if not bi.candidates_ambiguous:
+                bi.candidates_ambiguous = [f"{s:.0f}: {p}" for s, p in fuzzy]
         # No fix possible
         if not bi.explanation:
             target_path = resolve_src(bi.file, bi.src)
@@ -522,7 +650,15 @@ def find_caption_only_drifts(root: Path) -> list[tuple[Path, int, str, str]]:
 
 # ---- Reporting ----
 
-def render_catalog(broken: list[BrokenImage], caption_only_drifts: list, out_path: Path, applied: bool, img_applied: int, cap_applied: int) -> None:
+def render_catalog(
+    broken: list[BrokenImage],
+    caption_only_drifts: list,
+    out_path: Path,
+    applied: bool,
+    img_applied: int,
+    cap_applied: int,
+    prior_autofix_count: int = 0,
+) -> None:
     lines: list[str] = []
     lines.append("# Broken Images Catalog")
     lines.append("")
@@ -531,6 +667,13 @@ def render_catalog(broken: list[BrokenImage], caption_only_drifts: list, out_pat
         lines.append(f"Mode: **AUTO-FIX APPLIED** ({img_applied} src rewrites, {cap_applied} caption rewrites).")
     else:
         lines.append("Mode: **READ-ONLY** (re-run with `--apply` to write fixes).")
+    if prior_autofix_count:
+        lines.append("")
+        lines.append(
+            f"**Note:** {prior_autofix_count} broken image(s) were auto-fixed in a "
+            "prior run of this script; they are not listed below because they no "
+            "longer point at missing files."
+        )
     lines.append("")
     total = len(broken)
     autofixed = sum(1 for b in broken if b.fix_strategy)
@@ -542,8 +685,12 @@ def render_catalog(broken: list[BrokenImage], caption_only_drifts: list, out_pat
             by_dir_manual[d].append(b)
     lines.append("## Summary")
     lines.append("")
-    lines.append(f"- Total broken images found: **{total}**")
-    lines.append(f"- Auto-fix planned (or applied): **{autofixed}**")
+    if applied and prior_autofix_count:
+        lines.append(f"- Auto-fixed in this run: **{img_applied}** image src rewrites, **{cap_applied}** caption text rewrites.")
+        lines.append(f"- Remaining broken: **{total}**")
+    else:
+        lines.append(f"- Total broken images still on disk: **{total}**")
+        lines.append(f"- Auto-fix planned: **{autofixed}**")
     lines.append(f"- Manual queue: **{manual}** across {len(by_dir_manual)} directories")
     lines.append(f"- Caption-text fixes planned: **{sum(1 for b in broken if b.fix_caption_from)}**")
     lines.append(f"- Caption-only drifts (src works, number stale): **{len(caption_only_drifts)}**")
@@ -575,12 +722,25 @@ def render_catalog(broken: list[BrokenImage], caption_only_drifts: list, out_pat
         lines.append("")
         lines.append("## Manual Queue (grouped by directory)")
         lines.append("")
+        lines.append(
+            "Each entry includes the alt text and caption already in the HTML, "
+            "which can be used as a generation prompt (gemini-imagegen skill) "
+            "or removed if the figure is not needed."
+        )
+        lines.append("")
         for d in sorted(by_dir_manual):
             items = by_dir_manual[d]
             lines.append(f"### {d} ({len(items)})")
             for b in items:
                 rel = str(b.file.relative_to(ROOT)).replace("\\", "/")
-                lines.append(f"- {rel}:{b.line} -> `{b.src}` ({b.explanation or 'no candidate'})")
+                lines.append(f"- **{rel}:{b.line}** -> `{b.src}`")
+                if b.alt:
+                    lines.append(f"  - **alt:** {b.alt[:240]}")
+                if b.caption:
+                    # Strip HTML tags from caption for readability
+                    plain = re.sub(r"<[^>]+>", "", b.caption).strip()
+                    lines.append(f"  - **caption:** {plain[:240]}")
+                lines.append(f"  - reason: {b.explanation or 'no candidate'}")
             lines.append("")
     # Caption-only drift
     if caption_only_drifts:
@@ -614,12 +774,26 @@ def main() -> int:
 
     img_applied = 0
     cap_applied = 0
+    prior_autofix_count = 0
     if args.apply:
         img_applied, cap_applied = apply_fixes(broken)
         print(f"Applied {img_applied} src rewrites, {cap_applied} caption rewrites.", file=sys.stderr)
+        # Re-discover so the catalog only lists what's still broken.
+        post_broken = discover(ROOT)
+        plan_fixes(post_broken)
+        prior_autofix_count = len(broken) - len(post_broken)
+        broken = post_broken
 
     out = Path(args.catalog)
-    render_catalog(broken, caption_drifts, out, args.apply, img_applied, cap_applied)
+    render_catalog(
+        broken,
+        caption_drifts,
+        out,
+        args.apply,
+        img_applied,
+        cap_applied,
+        prior_autofix_count=prior_autofix_count,
+    )
     print(f"Wrote {out}", file=sys.stderr)
     return 0
 
