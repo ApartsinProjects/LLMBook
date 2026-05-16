@@ -276,8 +276,15 @@ def rebuild_index(idx_path: Path) -> tuple[str | None, dict]:
             break
 
     if not replaced:
-        # Fallback: insert before <div class="whats-next">
+        # Fallback 1: insert before <div class="whats-next">
         m = re.search(r'<div\s+class="whats-next"', text)
+        if m:
+            text = text[:m.start()] + new_block + "\n" + text[m.start():]
+            replaced = True
+
+    if not replaced:
+        # Fallback 2: insert before <nav class="chapter-nav">
+        m = re.search(r'<nav\s+class="chapter-nav"', text)
         if m:
             text = text[:m.start()] + new_block + "\n" + text[m.start():]
             replaced = True
