@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<meta content="Section 35.2: Contrastive vision-language learning. CLIP, SigLIP, EVA-CLIP, OpenCLIP, zero-shot classification." name="description"/>
+<title>Section 35.2: Contrastive Vision-Language: CLIP and SigLIP</title>
+<link href="../../styles/book.css" rel="stylesheet"/>
+<link href="../../styles/pygments.css" rel="stylesheet"/>
+<link href="../../vendor/prism/prism-theme.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/prism/prism-bundle.min.js"></script>
+<script defer="" src="../../scripts/book.js"></script>
+<link href="../../pagefind/pagefind-ui.css" rel="stylesheet"/>
+<script defer="" src="../../pagefind/pagefind-ui.js"></script>
+</head>
+<body>
+<header class="chapter-header">
+<nav class="header-nav">
+<a class="book-title-link" href="../../index.html">Building Conversational AI with LLMs and Agents</a>
+<a class="toc-link" href="../../toc.html" title="Table of Contents"><span class="toc-icon">☰</span> Contents</a>
+</nav>
+<div class="header-search">
+<div id="search"></div>
+</div>
+<div class="page-breadcrumb" data-pagefind-meta="chapter"><a href="../index.html">Part VII: Multimodal Generation</a><span class="bc-sep">›</span><a href="index.html">Chapter 35: Vision-Language Models</a></div>
+<h1>Contrastive Vision-Language: CLIP and SigLIP</h1><div class="page-current">Section 35.2</div>
+</header>
+<main class="content"><span class="pagefind-meta-injected" data-pagefind-meta="part:Building Conversational AI with LLMs and Agents" hidden=""></span><span class="pagefind-meta-injected" data-pagefind-meta="chapter:Chapter 35: Vision-Language Models" hidden=""></span>
+<div class="callout big-picture">
+<div class="callout-title">Big Picture</div>
+<p>CLIP was the model that taught a vision encoder to speak. Trained on 400 million (image, caption) pairs scraped from the public web with a contrastive objective, CLIP produced image embeddings and text embeddings that lived in the same space. The same recipe, scaled and refined, underlies every production VLM in 2026 (LLaVA, BLIP-3, Qwen-VL, Pixtral, the vision tower in GPT-4o). This section explains the contrastive InfoNCE objective, the sigmoid variant introduced by SigLIP, the open-source scaling trajectory (OpenCLIP, EVA-CLIP), and shows how to use CLIP for zero-shot image classification without any fine-tuning.</p>
+</div>
+
+<h2 id="1-the-contrastive-objective">1. The Contrastive Objective</h2>
+<p>The CLIP training recipe (Radford et al., OpenAI, 2021) is conceptually simple. Take a batch of N (image, caption) pairs. Encode each image through a vision encoder (originally ResNet-50, later ViT-B/16, ViT-L/14, ViT-H/14) and each caption through a text encoder (a 12-layer transformer trained from scratch). Project both into a shared d-dimensional embedding space (typically d=512 or 768). Now you have N image vectors and N text vectors.</p>
+
+<p>The training objective is to make matching (image, caption) pairs have high cosine similarity and non-matching pairs have low similarity. Concretely, CLIP computes the NxN matrix of cosine similarities between every image and every caption in the batch, scales by a learnable temperature, and applies symmetric cross-entropy: the model is trained to assign the highest probability to the correct caption when given an image, and to the correct image when given a caption. This is the InfoNCE objective:</p>
+
+<p><code>L = -1/(2N) * [ Sum_i log( exp(s_ii / T) / Sum_j exp(s_ij / T) ) + Sum_i log( exp(s_ii / T) / Sum_j exp(s_ji / T) ) ]</code></p>
+
+<p>where s_ij is the cosine similarity between image i and caption j, and T is the learnable temperature parameter (typically initialized at 0.07).</p>
+
+<p>The genius of the recipe is what it does not require: no per-image labels, no curated dataset, no human annotation. Captions scraped from the web (alt-text on news sites, ecommerce product descriptions, Wikipedia image captions, Reddit posts) are the supervision. OpenAI's training set, named WIT-400M, was 400 million such pairs assembled from public web crawls.</p>
+
+<h2 id="2-the-zero-shot-magic">2. The Zero-Shot Magic</h2>
+<p>The transformative property of CLIP is zero-shot classification. To classify an image into one of K classes, you do not need to fine-tune CLIP on labeled examples of those classes. Instead, you write a textual prompt for each class (typically "a photo of a {class_name}"), encode each prompt through the text encoder, encode the image through the vision encoder, and pick the class whose text embedding has the highest cosine similarity with the image embedding. This works for any class describable in natural language.</p>
+
+<p>On ImageNet (1000 classes), zero-shot CLIP-L/14 scores 75.5% top-1 accuracy, matching a ResNet-50 explicitly trained on ImageNet. On more specialized benchmarks (fine-grained bird species, satellite imagery, medical images), zero-shot accuracy is lower but still useful for rapid prototyping without labeled data.</p>
+
+<p>The mechanism that makes zero-shot work is the structure of the embedding space. Because CLIP was trained on diverse web image-text pairs, the text encoder has learned to map descriptions like "a photo of a golden retriever" to a region of embedding space close to images of actual golden retrievers. A new class the model has never seen as a label (say, "a photo of a Boston Terrier in a sweater") inherits structure from the training distribution: "Boston Terrier" maps near other dog breeds, "sweater" near other clothing items, and the composition lands in a plausible region of image-embedding space.</p>
+
+<h2 id="3-running-clip-zero-shot-classification">3. Running CLIP Zero-Shot Classification</h2>
+<p>The OpenAI CLIP repo and the Hugging Face <code>CLIPModel</code> class both expose CLIP for inference. The Hugging Face version is more convenient for integration with other models. The pattern is: load the model and processor, prepare a list of candidate text prompts, encode both modalities, and compute the similarity matrix.</p>
+
+<pre><code class="lang-python pygments-highlighted"><span class="kn">from</span><span class="w"> </span><span class="nn">transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">CLIPProcessor</span><span class="p">,</span> <span class="n">CLIPModel</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">PIL</span><span class="w"> </span><span class="kn">import</span> <span class="n">Image</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="c1"># Load CLIP-L/14 trained at 336x336 resolution</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">CLIPModel</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span><span class="s2">"openai/clip-vit-large-patch14-336"</span><span class="p">)</span>
+<span class="n">processor</span> <span class="o">=</span> <span class="n">CLIPProcessor</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span><span class="s2">"openai/clip-vit-large-patch14-336"</span><span class="p">)</span>
+
+<span class="c1"># Image + 5 candidate class prompts</span>
+<span class="n">image</span> <span class="o">=</span> <span class="n">Image</span><span class="o">.</span><span class="nb">open</span><span class="p">(</span><span class="s2">"unknown_animal.jpg"</span><span class="p">)</span><span class="o">.</span><span class="n">convert</span><span class="p">(</span><span class="s2">"RGB"</span><span class="p">)</span>
+<span class="n">prompts</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="s2">"a photo of a golden retriever"</span><span class="p">,</span>
+    <span class="s2">"a photo of a Boston Terrier"</span><span class="p">,</span>
+    <span class="s2">"a photo of a Siamese cat"</span><span class="p">,</span>
+    <span class="s2">"a photo of a red fox"</span><span class="p">,</span>
+    <span class="s2">"a photo of a gray wolf"</span><span class="p">,</span>
+<span class="p">]</span>
+
+<span class="n">inputs</span> <span class="o">=</span> <span class="n">processor</span><span class="p">(</span>
+    <span class="n">text</span><span class="o">=</span><span class="n">prompts</span><span class="p">,</span> <span class="n">images</span><span class="o">=</span><span class="n">image</span><span class="p">,</span>
+    <span class="n">return_tensors</span><span class="o">=</span><span class="s2">"pt"</span><span class="p">,</span> <span class="n">padding</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">inference_mode</span><span class="p">():</span>
+    <span class="n">outputs</span> <span class="o">=</span> <span class="n">model</span><span class="p">(</span><span class="o">**</span><span class="n">inputs</span><span class="p">)</span>
+
+<span class="c1"># logits_per_image: [batch_images, batch_texts] = [1, 5]</span>
+<span class="n">probs</span> <span class="o">=</span> <span class="n">outputs</span><span class="o">.</span><span class="n">logits_per_image</span><span class="o">.</span><span class="n">softmax</span><span class="p">(</span><span class="n">dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+<span class="k">for</span> <span class="n">prompt</span><span class="p">,</span> <span class="n">p</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">prompts</span><span class="p">,</span> <span class="n">probs</span><span class="p">):</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"  </span><span class="si">{</span><span class="n">p</span><span class="o">.</span><span class="n">item</span><span class="p">()</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">  </span><span class="si">{</span><span class="n">prompt</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+
+<span class="c1"># Direct embedding access for retrieval applications</span>
+<span class="n">image_emb</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">get_image_features</span><span class="p">(</span><span class="n">pixel_values</span><span class="o">=</span><span class="n">inputs</span><span class="o">.</span><span class="n">pixel_values</span><span class="p">)</span>
+<span class="n">image_emb</span> <span class="o">/=</span> <span class="n">image_emb</span><span class="o">.</span><span class="n">norm</span><span class="p">(</span><span class="n">dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">,</span> <span class="n">keepdim</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Image embedding shape: </span><span class="si">{</span><span class="n">image_emb</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2"> (L2-normalized)"</span><span class="p">)</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span>   0.0008  a photo of a golden retriever
+   0.0003  a photo of a Boston Terrier
+   0.0002  a photo of a Siamese cat
+   0.9982  a photo of a red fox
+   0.0005  a photo of a gray wolf
+ Image embedding shape: torch.Size([1, 768]) (L2-normalized)</div>
+<div class="code-caption"><strong>Code Fragment 35.2.1:</strong> Zero-shot image classification with CLIP-L/14@336. The softmax over <code>logits_per_image</code> gives a probability distribution over candidate prompts. Prompt engineering ("a photo of a {class}", "a blurry photo of a {class}", ensembles of 80 templates) typically gains 1-3% top-1 accuracy on ImageNet.</div>
+
+<h2 id="4-prompt-engineering-for-clip">4. Prompt Engineering for CLIP</h2>
+<p>Although CLIP is presented as a zero-shot model, prompt engineering substantially affects accuracy. Three patterns dominate. The first is template ensembling: rather than "a photo of a {class}", use 80 templates ("a sketch of a {class}", "a low-resolution photo of a {class}", "an art photo of a {class}", etc.), encode each, average the resulting text embeddings, and use the average for classification. This typically adds 1-3% top-1 accuracy on ImageNet.</p>
+
+<p>The second is class name normalization. CLIP was trained on web text, so colloquial names often outperform Latin or scientific names. "Mountain lion" beats "Puma concolor"; "tiger shark" beats "Galeocerdo cuvier". When class names are ambiguous (multiple senses for the same word, like "crane" for the bird vs. the construction machine), adding a disambiguator helps: "a photo of a crane bird".</p>
+
+<p>The third is multi-modal retrieval. Beyond single-class classification, the same embedding space enables image retrieval ("find images matching this caption") and text retrieval ("find captions matching this image"). FAISS or HNSW indices over normalized image embeddings give millisecond-latency retrieval over tens of millions of images.</p>
+
+<h2 id="5-siglip-the-sigmoid-variant">5. SigLIP: The Sigmoid Variant</h2>
+<p>SigLIP (Zhai et al., Google, 2023) is a refinement of CLIP that replaces the softmax-over-batch contrastive loss with an independent sigmoid loss per (image, text) pair. The change looks small but has two important consequences.</p>
+
+<p>The first is independence from batch size. CLIP's softmax requires the entire batch's similarity matrix to be normalized together, which means the loss for any single pair depends on every other pair in the batch. Doubling the batch size doubles the implicit negative samples and improves training. This forces CLIP to be trained at enormous batch sizes (32k-65k). SigLIP's sigmoid loss treats each pair independently as a binary classification (positive or negative match), so smaller batches work nearly as well as huge batches. SigLIP can be trained effectively at batch sizes of 2k-8k.</p>
+
+<p>The second is calibration. The sigmoid output is interpretable as a probability of match, which makes SigLIP scores comparable across models and tasks. CLIP's softmax probabilities only make sense relative to a specific set of candidates in a batch.</p>
+
+<p>Empirically, SigLIP-So400M (the public flagship released in late 2023) matches or exceeds CLIP-L/14 on zero-shot ImageNet (81.3% vs. 75.5%) and beats CLIP on every multilingual benchmark, primarily because the smaller-batch tolerance let Google train on 4 billion image-text pairs with reasonable compute budgets. As of 2026, SigLIP-So400M is the most common vision encoder choice for new VLM projects, having largely replaced OpenAI's CLIP-L/14.</p>
+
+<figure>
+<table>
+<thead>
+<tr><th scope="col">Model</th><th scope="col">Vision Encoder</th><th scope="col">Text Encoder</th><th scope="col">Training Pairs</th><th scope="col">ImageNet 0-shot</th></tr>
+</thead>
+<tbody>
+<tr><td>CLIP-B/32</td><td>ViT-B/32</td><td>12-layer transformer</td><td>400M (WIT)</td><td>63.2%</td></tr>
+<tr><td>CLIP-L/14</td><td>ViT-L/14</td><td>12-layer transformer</td><td>400M (WIT)</td><td>75.5%</td></tr>
+<tr><td>OpenCLIP-G/14</td><td>ViT-G/14</td><td>14-layer transformer</td><td>2B (LAION-2B)</td><td>80.1%</td></tr>
+<tr><td>EVA-CLIP-G/14</td><td>EVA-ViT-G/14</td><td>14-layer transformer</td><td>2B (LAION-2B+ours)</td><td>83.3%</td></tr>
+<tr><td>SigLIP-So400M</td><td>ViT-So400M/14</td><td>27-layer transformer</td><td>4B (WebLI)</td><td>83.1%</td></tr>
+<tr><td>SigLIP-2-L/16</td><td>ViT-L/16</td><td>27-layer transformer</td><td>10B (WebLI-100)</td><td>85.8%</td></tr>
+</tbody>
+</table>
+<figcaption><strong>Figure 35.2.1</strong>: Contrastive VLM lineage and zero-shot ImageNet performance. Training data scale (400M → 10B) and the shift from softmax (CLIP) to sigmoid (SigLIP) loss have driven the largest gains. SigLIP-2 (2024) leads the public frontier.</figcaption></figure>
+
+<div class="callout key-insight">
+<div class="callout-title">The Sigmoid Loss Was Not Just an Optimization</div>
+<p>Replacing softmax with sigmoid in SigLIP was framed at first as "easier to train at smaller batches", but its real impact was data scaling. Because SigLIP did not need 32k-batch infrastructure, the Google team could train on the much larger WebLI-100 corpus (10 billion pairs across 100+ languages). The 1.4x training compute relative to CLIP produced a 7.6-point accuracy gain primarily from the data scale-up the new loss enabled. The lesson generalizes: small algorithmic improvements can unlock much larger data-engineering gains, and the algorithmic paper often understates the engineering payoff.</p>
+</div>
+
+<h2 id="6-openclip-and-the-open-source-frontier">6. OpenCLIP and the Open-Source Frontier</h2>
+<p>The original CLIP was released by OpenAI with weights but no training code. OpenCLIP (LAION + community, 2022-present) is the open replica: full training code, hyperparameters, multiple model sizes from B/32 through G/14, training on the LAION-2B and LAION-5B image-text datasets. As of 2026, OpenCLIP supports 30+ model variants and is the dominant choice for academic research and self-hosted production deployments.</p>
+
+<p>OpenCLIP's most impactful variants are the ViT-G/14 (2B parameters total, trained on LAION-2B) and the ViT-bigG/14 (2.5B parameters, trained on LAION-2B + 0.4B private). On zero-shot ImageNet, these reach 80-82% top-1 accuracy, within 1-2% of OpenAI's never-released private replicas. They are also frequently substituted for OpenAI CLIP in production VLM pipelines when license terms matter; OpenCLIP weights are released under permissive licenses while OpenAI's CLIP has more restrictive terms for commercial use.</p>
+
+<h2 id="7-eva-clip-and-data-recipes">7. EVA-CLIP and Data Recipes</h2>
+<p>EVA-CLIP (BAAI, 2023-2024) demonstrates that CLIP's training recipe can be improved by better data and better initialization, not just larger scale. EVA-CLIP starts from EVA-02 (a masked-image-modeling pretrained ViT) rather than random initialization, applies aggressive learning-rate warmup, and uses a curated subset of LAION + JFT data. The result is that EVA-CLIP-G/14 matches OpenCLIP-G/14 with 40% less training compute and beats it by 3 points on zero-shot ImageNet at the same compute budget.</p>
+
+<p>The 2024 follow-up, EVA-CLIP-18B, scales to 18 billion total parameters by adding 14B of text encoder while keeping the vision encoder at 6B. This is the largest publicly known CLIP-style model, reaching 84.5% zero-shot ImageNet and excellent retrieval on dense image-text datasets. Its inference cost (40-60 GB VRAM for fp16) limits production use, but it serves as the gold-standard reference for downstream distillation.</p>
+
+<h2 id="8-where-clip-and-siglip-fit-in-vlms">8. Where CLIP and SigLIP Fit in VLMs</h2>
+<p>In a generative VLM like LLaVA, the role of the contrastive vision encoder is to produce image embeddings that the connector module can project into the LLM's token-embedding space. The contrastive pretraining ensures these embeddings already encode language-aligned semantic structure: a photo of a dog produces an embedding "near" the text embedding of "a photo of a dog", which means the LLM only needs to learn a relatively simple projection rather than reverse-engineer the visual-language alignment from scratch.</p>
+
+<p>Empirical ablations show this matters dramatically. A VLM with a CLIP-pretrained vision encoder reaches a given accuracy with 4-8x less alignment training than the same architecture with a randomly initialized or ImageNet-pretrained encoder. This is why every production VLM uses a contrastive-pretrained vision encoder, and why understanding CLIP and SigLIP is foundational for understanding the rest of the chapter.</p>
+
+<div class="callout practical-example">
+<div class="callout-title">CLIP as an Aesthetic Scorer</div>
+<p>Beyond classification and retrieval, CLIP embeddings turned out to be useful as aesthetic predictors. A simple linear classifier trained on 5k human-rated images (rated 1-10 for aesthetic quality) on top of frozen CLIP features predicts human aesthetic judgments at correlation 0.7, vastly better than any pre-CLIP method. This is the LAION-Aesthetic v2 scorer, used to filter the training corpora of Stable Diffusion XL and many subsequent text-to-image models. A pretrained representation good for retrieval turned out to be incidentally good for "is this image well-composed?" because aesthetic judgment is heavily correlated with semantic structure (subject placement, lighting, color harmony) that CLIP already encodes.</p>
+</div>
+
+<h2 id="9-key-takeaways">9. Key Takeaways</h2>
+<div class="callout key-takeaway">
+<div class="callout-title">Key Takeaways</div>
+<ul>
+<li>CLIP trains a vision encoder and text encoder jointly with a contrastive InfoNCE objective on hundreds of millions of (image, caption) web pairs.</li>
+<li>Zero-shot classification works by encoding text prompts ("a photo of a {class}") and the image, then choosing the class whose embedding has highest cosine similarity.</li>
+<li>SigLIP replaces softmax with sigmoid, decoupling the loss from batch size and enabling training on 10B-pair corpora at modest compute.</li>
+<li>The SigLIP-So400M model is the dominant 2026 vision encoder for new VLM projects, surpassing CLIP-L/14 on every benchmark.</li>
+<li>OpenCLIP provides open-license replications of CLIP and SigLIP at multiple scales, important for commercial deployments where license terms matter.</li>
+<li>CLIP/SigLIP pretraining is what makes generative VLMs trainable at reasonable cost: language-aligned embeddings give the LLM connector an easy starting point.</li>
+</ul>
+</div>
+
+<h2 id="10-self-check">10. Self-Check</h2>
+<div class="callout self-check">
+<div class="callout-title">Self-Check Exercises</div>
+<ol>
+<li><strong>Contrastive math:</strong> For a batch of N=4 (image, caption) pairs, write out the 4x4 similarity matrix and the InfoNCE loss explicitly. Then explain why the loss for pair i depends on every pair j in the batch, and what changes when sigmoid loss replaces softmax.</li>
+<li><strong>Zero-shot vs. fine-tune:</strong> Under what circumstances would you choose to fine-tune CLIP on a labeled dataset rather than use zero-shot classification? Sketch two scenarios where each approach wins.</li>
+<li><strong>Prompt ensembling:</strong> Why does averaging text embeddings across 80 prompt templates improve accuracy by 1-3% over a single "a photo of a {class}" template? Connect your answer to the geometry of the text-embedding space and the diversity of training-time captions.</li>
+</ol>
+</div>
+
+<h2 id="11-whats-next">11. What's Next</h2>
+<p>Section 35.3 puts CLIP/SigLIP encoders to work inside generative VLMs. We will examine the vision-encoder-plus-LLM-connector pattern used by LLaVA, BLIP-3, Qwen-VL, and Pixtral, including the design choices for the connector (linear projection, MLP, cross-attention, Q-Former) and how they affect both training cost and downstream accuracy.</p>
+
+<h2 id="12-bibliography">12. Bibliography</h2>
+<div class="bibliography">
+<ol>
+<li>Radford, A., Kim, J. W., Hallacy, C., et al. (2021). <em>Learning Transferable Visual Models From Natural Language Supervision (CLIP)</em>. ICML 2021. <a href="https://arxiv.org/abs/2103.00020">arXiv:2103.00020</a>.</li>
+<li>Zhai, X., Mustafa, B., Kolesnikov, A., Beyer, L. (2023). <em>Sigmoid Loss for Language Image Pre-Training (SigLIP)</em>. ICCV 2023. <a href="https://arxiv.org/abs/2303.15343">arXiv:2303.15343</a>.</li>
+<li>Tschannen, M., Gritsenko, A., Wang, X., et al. (2025). <em>SigLIP 2: Multilingual Vision-Language Encoders with Improved Semantic Understanding, Localization, and Dense Features</em>. <a href="https://arxiv.org/abs/2502.14786">arXiv:2502.14786</a>.</li>
+<li>Cherti, M., Beaumont, R., Wightman, R., et al. (2023). <em>Reproducible Scaling Laws for Contrastive Language-Image Learning (OpenCLIP)</em>. CVPR 2023. <a href="https://arxiv.org/abs/2212.07143">arXiv:2212.07143</a>.</li>
+<li>Sun, Q., Fang, Y., Wu, L., Wang, X., Cao, Y. (2023). <em>EVA-CLIP: Improved Training Techniques for CLIP at Scale</em>. <a href="https://arxiv.org/abs/2303.15389">arXiv:2303.15389</a>.</li>
+<li>Schuhmann, C., Beaumont, R., Vencu, R., et al. (2022). <em>LAION-5B: An Open Large-Scale Dataset for Training Next Generation Image-Text Models</em>. NeurIPS Datasets &amp; Benchmarks 2022. <a href="https://arxiv.org/abs/2210.08402">arXiv:2210.08402</a>.</li>
+<li>Hugging Face. (2024). <em>CLIP Model Documentation</em>. <a href="https://huggingface.co/docs/transformers/model_doc/clip">huggingface.co/docs/transformers/model_doc/clip</a>.</li>
+<li>LAION. (2024). <em>OpenCLIP GitHub Repository</em>. <a href="https://github.com/mlfoundations/open_clip">github.com/mlfoundations/open_clip</a>.</li>
+</ol>
+</div>
+
+<nav class="chapter-nav">
+<a class="prev" href="section-35.1.html"><span class="nav-label">Previous</span><span class="nav-num">Section 35.1</span><span class="nav-title">ViT &amp; Visual Tokenization</span></a>
+<a class="up" href="index.html"><span class="nav-label">In Chapter</span><span class="nav-num">Chapter 35</span><span class="nav-title">Vision-Language Models</span></a>
+<a class="next" href="section-35.3.html"><span class="nav-label">Next</span><span class="nav-num">Section 35.3</span><span class="nav-title">Generative VLMs: LLaVA, BLIP-3, Qwen-VL</span></a>
+</nav>
+<footer><p>Fifteenth Edition, 2026 · <a href="../../toc.html">Contents</a></p></footer>
+</main>
+<script>
+window.addEventListener("DOMContentLoaded", function() {
+  if (window.PagefindUI) {
+    new PagefindUI({
+      element: "#search",
+      showSubResults: true,
+      showImages: false,
+      resetStyles: false,
+      pageSize: 8,
+      autofocus: false,
+      translations: {
+        placeholder: "Search the book…",
+      },
+      processResult: function (result) {
+        try {
+          var part = (result && result.meta && result.meta.part) ? result.meta.part : "";
+          var chap = (result && result.meta && result.meta.chapter) ? result.meta.chapter : "";
+          var partShort = part.split(":")[0].trim();
+          var chapShort = chap.split(":")[0].trim();
+          var crumb = [partShort, chapShort].filter(Boolean).join(" › ");
+          if (crumb && result.meta && result.meta.title
+              && result.meta.title.indexOf("[" + partShort) !== 0) {
+            result.meta.title = "[" + crumb + "]  " + result.meta.title;
+          }
+        } catch (e) { /* fall through */ }
+        return result;
+      },
+    });
+  }
+});
+</script>
+</body>
+</html>
