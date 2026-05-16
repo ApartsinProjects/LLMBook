@@ -350,4 +350,54 @@ document.addEventListener('DOMContentLoaded', function () {
     });
     mo.observe(searchEl, { childList: true, subtree: true });
   }
+
+  // Wave D6 search-icon UX: click to open, ESC or click-outside to close.
+  // The .header-search wrapper has CSS that hides the search card by
+  // default and reveals it when .search-open is set. We toggle the class
+  // on click, focus the input on open, and bind ESC + outside-click to
+  // close.
+  var searchWrap = document.querySelector('.header-search');
+  if (searchWrap) {
+    searchWrap.setAttribute('role', 'button');
+    searchWrap.setAttribute('tabindex', '0');
+    searchWrap.setAttribute('aria-label', 'Search the book');
+    var openSearch = function () {
+      if (searchWrap.classList.contains('search-open')) return;
+      searchWrap.classList.add('search-open');
+      searchWrap.setAttribute('aria-expanded', 'true');
+      setTimeout(function () {
+        var input = searchWrap.querySelector('input[type="text"], .pagefind-ui__search-input');
+        if (input) input.focus();
+      }, 50);
+    };
+    var closeSearch = function () {
+      searchWrap.classList.remove('search-open');
+      searchWrap.setAttribute('aria-expanded', 'false');
+    };
+    searchWrap.addEventListener('click', function (e) {
+      if (e.target === searchWrap) {
+        e.stopPropagation();
+        if (searchWrap.classList.contains('search-open')) closeSearch();
+        else openSearch();
+      }
+    });
+    searchWrap.addEventListener('keydown', function (e) {
+      if ((e.key === 'Enter' || e.key === ' ') && e.target === searchWrap) {
+        e.preventDefault();
+        openSearch();
+      }
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && searchWrap.classList.contains('search-open')) {
+        closeSearch();
+        searchWrap.focus();
+      }
+    });
+    document.addEventListener('click', function (e) {
+      if (!searchWrap.contains(e.target) &&
+          searchWrap.classList.contains('search-open')) {
+        closeSearch();
+      }
+    });
+  }
 });

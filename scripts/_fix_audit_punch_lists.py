@@ -638,33 +638,63 @@ def _fix_broken_interspersed_numbering(pre_tag: Tag) -> bool:
 def _standardize_substep_indent(pre_tag: Tag) -> bool:
     """Standardize a/b/c sub-step indent to 2 spaces.
 
-    Audit calls 'surprising indent' for [1] (one-space indent). Convert any
-    leading single-space indentation before 'a.', 'b.', 'c.' patterns to two
-    spaces.
+    Two cases handled:
+      1. Existing 1-space indent ` a.` -> `  a.`
+      2. Zero indent `a.` at start of line, but ONLY when context shows the
+         block uses top-level digit numbering (e.g., `1.`, `2.`) — in which
+         case the unindented letters are sub-steps that should be indented.
+
+    Operates on text nodes directly to preserve existing markup (e.g.
+    algo-line-keyword spans).
     """
     code = pre_tag.find("code")
     if code is None:
         return False
-    raw = code.get_text()
-    lines = raw.split("\n")
-    out: list[str] = []
+
+    # Inspect full text to decide case.
+    full = code.get_text()
+    has_one_space_letters = bool(re.search(r"(?:^|\n) {1}[a-z]\.\s", full))
+    has_zero_indent_letters = bool(re.search(r"(?:^|\n)[a-z]\.\s", full))
+    has_top_level_numbering = bool(re.search(r"(?:^|\n)\d+\.\s", full))
+
     changed = False
-    for line in lines:
-        # Look for ' a. ', ' b. ' etc. (single-space indent before letter)
-        m = re.match(r"^( {1})([a-z])\.\s", line)
-        if m:
-            out.append("  " + line[1:])
-            changed = True
-        else:
-            out.append(line)
-    if not changed:
-        return False
-    new_text = "\n".join(out)
-    if new_text == raw:
-        return False
-    code.clear()
-    code.append(NavigableString(new_text))
-    return True
+    if has_one_space_letters:
+        pat = re.compile(r"(^|\n)( {1})([a-z])\.\s")
+        for node in list(code.descendants):
+            if not isinstance(node, NavigableString):
+                continue
+            s = str(node)
+            new_s = pat.sub(r"\1  \3. ", s)
+            if new_s != s:
+                node.replace_with(NavigableString(new_s))
+                changed = True
+
+    if not changed and has_zero_indent_letters and has_top_level_numbering:
+        # Indent zero-space sub-step letters to 2 spaces.
+        # Pattern: \n + [a-z] + . + space (no leading whitespace).
+        pat = re.compile(r"(^|\n)([a-z])\.\s")
+        for node in list(code.descendants):
+            if not isinstance(node, NavigableString):
+                continue
+            s = str(node)
+            new_s = pat.sub(r"\1  \2. ", s)
+            if new_s != s:
+                node.replace_with(NavigableString(new_s))
+                changed = True
+
+        if not changed:
+            # Span-per-token Pygments markup hides the newline-then-letter
+            # pattern across nodes. Rebuild code element with plain text:
+            # collapse spans, then re-apply indent. (Acceptable trade-off:
+            # we lose Pygments coloring on this block, which the audit calls
+            # 'pyg-text-bad' anyway.)
+            new_text = re.sub(r"(^|\n)([a-z])\.\s", r"\1  \2. ", full)
+            if new_text != full:
+                code.clear()
+                code.append(NavigableString(new_text))
+                changed = True
+
+    return changed
 
 
 # Per-block decisions for category D.
@@ -706,16 +736,22 @@ CATEGORY_D_TARGETS = [
         "actions": ["renumber", "indent"],
     },
     # Indent-standardization blocks (1-space -> 2-space sub-step indent).
+    # The audit flagged 5 blocks with "surprising" 1-space indent. Two are
+    # already covered above (Token bucket, ReAct). The remaining three need
+    # only the indent fix.
     {
         "marker": "Function calling loop",  # Pseudocode 26.1.1
         "actions": ["indent"],
     },
     {
-        "marker": "Automated red teaming pipeline",  # Pseudocode 29.8.1
+        "marker": "Automated red teaming pipeline",  # Pseudocode 35.8.1
         "actions": ["indent"],
     },
     {
-        "marker": "supervisor (hub-and-spoke) pattern",  # Pseudocode 28.2.X
+        "marker": "supervisor (hub-and-spoke) pattern",  # Pseudocode 27.2.1
+        # The supervisor block uses Pygments per-token markup and 0-indent
+        # sub-step letters (different case from the 1-space audit). Apply
+        # zero-indent handling which rebuilds the code element.
         "actions": ["indent"],
     },
 ]
@@ -800,36 +836,23 @@ def category_d_pseudocode(section_index: dict[str, list[Path]]) -> Tuple[int, in
 # Category E: Wide-cell tables (14 tables)
 # --------------------------------------------------------------------------
 
-# For each wide cell, insert <br/> line breaks at sentence boundaries.
-CATEGORY_E_TARGETS = [
-    ("part-11-idea-to-product/module-35-shipping-scaling/section-35.1.html",
-     "AI transparency labels are in the UI"),
-    ("part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.4.html",
-     "General-purpose AI model providers must publish technical documentation"),
-    ("part-4-training-adapting/module-14-synthetic-data/section-14.1.html",
-     "Check provider ToS for training data generation permissions"),
-    ("part-4-training-adapting/module-16-peft/section-16.5.html",
-     'You may not use outputs to "develop any artificial intelligence models'),
-    ("appendices/appendix-m-inference-serving/section-m.1.html",
-     "Nucleus sampling"),
-    ("part-1-foundations/module-00-ml-pytorch-foundations/section-0.2.html",
-     "Scales weights by"),
-    ("appendices/appendix-a-mathematical-foundations/section-a.2.html",
-     "Weight initialization, noise in diffusion models"),
-    ("appendices/appendix-u-freshness-2026/index.html",
-     "R1 is the first open-weights reasoning model"),
-    ("part-9-safety-strategy/module-31-strategy-product-roi/section-31.5.html",
-     "Cost-competitive training; integrated in Intel cloud partners"),
-    ("appendices/appendix-u-freshness-2026/index.html",
-     "Standardizes how streaming agent events are surfaced"),
-    ("capstone/requirements.html",
-     "Multiple evaluation methods; statistical analysis; honest reporting"),
-    ("part-2-understanding-llms/module-08-reasoning-test-time-compute/section-8.1.html",
-     "Structured reasoning explores the solution space more efficiently"),
-    ("part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.5.html",
-     "Abstractive keyphrases, categorization, domain-specific extraction"),
-    ("capstone/requirements.html",
-     "Safety-critical outputs, evidence-based citations, regulatory compliance"),
+# For each wide cell, the audit gives a substring that uniquely identifies it.
+# Files paths shifted post-restructure, so we search by content marker.
+CATEGORY_E_MARKERS = [
+    "AI transparency labels are in the UI",
+    "General-purpose AI model providers must publish technical documentation",
+    "Check provider ToS for training data generation permissions",
+    'You may not use outputs to "develop any artificial intelligence models',
+    "considers tokens whose cumulative probability reaches",
+    "Scales weights by",
+    "Weight initialization, noise in diffusion models",
+    "R1 is the first open-weights reasoning model",
+    "Cost-competitive training; integrated in Intel cloud partners",
+    "Standardizes how streaming agent events are surfaced",
+    "Multiple evaluation methods; statistical analysis; honest reporting",
+    "Structured reasoning explores the solution space more efficiently",
+    "Abstractive keyphrases, categorization, domain-specific extraction",
+    "Safety-critical outputs, evidence-based citations, regulatory compliance",
 ]
 
 
@@ -868,39 +891,41 @@ def _insert_breaks_at_sentence_boundaries(td: Tag, marker_substr: str) -> bool:
 
 
 def category_e_wide_tables(section_index: dict[str, list[Path]]) -> Tuple[int, int, List[str]]:
-    """Insert line breaks in wide table cells."""
+    """Insert line breaks in wide table cells using content markers."""
     fixed = 0
     skipped = 0
     reasons: List[str] = []
 
-    # Dedupe by (file, marker) to avoid double-processing capstone twice
-    seen = set()
-    for audit_rel, marker in CATEGORY_E_TARGETS:
-        key = (audit_rel, marker)
-        if key in seen:
+    # Build a small index for fast lookup.
+    file_index: list[tuple[Path, str]] = []
+    for p in ROOT.rglob("*.html"):
+        parts = set(p.relative_to(ROOT).parts[:1])
+        if parts & EXCLUDE_PARTS:
             continue
-        seen.add(key)
+        if any(seg.startswith("temp_") or "backup" in seg.lower() for seg in p.parts):
+            continue
+        try:
+            file_index.append((p, p.read_text(encoding="utf-8")))
+        except Exception:
+            continue
 
-        path = _resolve_audit_path(audit_rel, section_index)
-        if path is None:
+    for marker in CATEGORY_E_MARKERS:
+        candidates = [(p, h) for p, h in file_index if marker in h]
+        if not candidates:
             skipped += 1
-            reasons.append(f"E: cannot resolve {audit_rel}")
+            reasons.append(f"E: marker not found: '{marker[:40]}...'")
             continue
-        html = _read(path)
+        path, html = candidates[0]
         soup = BeautifulSoup(html, "html.parser")
         changed = False
         for td in soup.find_all(["td", "th"]):
             if marker in td.get_text():
                 if _insert_breaks_at_sentence_boundaries(td, marker):
                     changed = True
-                    break  # one cell per (file, marker)
+                    break
         if changed:
             _write(path, str(soup))
             fixed += 1
-        else:
-            # Idempotent / not applicable — don't count as skipped if the cell
-            # already has <br/> tags.
-            pass
 
     return fixed, skipped, reasons
 
