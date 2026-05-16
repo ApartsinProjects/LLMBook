@@ -135,38 +135,35 @@ def main() -> int:
     #                            P Freshness 2026
     #   For Instructors          O Pedagogy Kit (with Course Syllabi, Reading
     #                            Pathways as sections)
-    # 5-group structure (May 2026 v10: split Distributed ML into Data
-    # Engineering (M) + Distributed ML (N); add new MLOps appendix (O);
-    # cascade Docker N->P and For-Instructors O-S -> Q-U):
+    # 5-group structure (May 2026 v11: drop Appendix G Problem-Solution Key;
+    # cascade H-U -> G-T):
     #   Foundations                       A Math, B ML
     #   Framework Guides                  C HF, D LangChain,
-    #                                     E Orchestration, F Agent Frameworks,
-    #                                     G Problem-Solution Key
-    #   Research & Development Infra      H Python, I Env Setup, J Git/DVC,
-    #                                     K Experiments
-    #   Production Infrastructure         L Inference, M Data Engineering,
-    #                                     N Distributed ML, O MLOps,
-    #                                     P Docker
-    #   For Instructors                   Q Course Syllabi, R Reading Pathways,
-    #                                     S Intermediate Projects,
-    #                                     T Capstone Project,
-    #                                     U War Stories for Discussion
+    #                                     E Orchestration, F Agent Frameworks
+    #   Research & Development Infra      G Python, H Env Setup, I Git/DVC,
+    #                                     J Experiments
+    #   Production Infrastructure         K Inference, L Data Engineering,
+    #                                     M Distributed ML, N MLOps,
+    #                                     O Docker
+    #   For Instructors                   P Course Syllabi, Q Reading Pathways,
+    #                                     R Intermediate Projects,
+    #                                     S Capstone Project,
+    #                                     T War Stories for Discussion
     APPENDIX_GROUPS = {
         "A": "Foundations", "B": "Foundations",
         "C": "Framework Guides", "D": "Framework Guides",
         "E": "Framework Guides", "F": "Framework Guides",
-        "G": "Framework Guides",
+        "G": "Research & Development Infrastructure",
         "H": "Research & Development Infrastructure",
         "I": "Research & Development Infrastructure",
         "J": "Research & Development Infrastructure",
-        "K": "Research & Development Infrastructure",
+        "K": "Production Infrastructure",
         "L": "Production Infrastructure",
         "M": "Production Infrastructure",
         "N": "Production Infrastructure",
         "O": "Production Infrastructure",
-        "P": "Production Infrastructure",
-        "Q": "For Instructors", "R": "For Instructors",
-        "S": "For Instructors", "T": "For Instructors", "U": "For Instructors",
+        "P": "For Instructors", "Q": "For Instructors",
+        "R": "For Instructors", "S": "For Instructors", "T": "For Instructors",
     }
     n_app = 0
     for app in struct.get("appendices", []):
