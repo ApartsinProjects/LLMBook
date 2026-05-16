@@ -118,26 +118,26 @@ def main() -> int:
     #                            P Freshness 2026
     #   For Instructors          O Pedagogy Kit (with Course Syllabi, Reading
     #                            Pathways as sections)
-    # 5-group structure (May 2026 v6: Tooling split into Orchestration F +
-    # Agent Frameworks G; G-P shifted to H-Q; Freshness Q in Cross-Cutting):
-    #   Foundations              A Math, B ML, C Python
-    #   Framework Guides         D HF, E LangChain,
-    #                            F Orchestration Frameworks,
-    #                            G Agent Frameworks
-    #   Production Infrastructure (MLOps)
-    #                            H Env Setup, I Git/DVC, J Experiments,
-    #                            K Inference, L Distributed, M Docker
-    #   Cross-Cutting References N Master Tables, O Problem-Solution Key,
-    #                            Q Freshness 2026
-    #   For Instructors          P Pedagogy Kit (with O.6 Course Syllabi
-    #                            + O.7 Reading Pathways as sections)
+    # 6-group structure (May 2026 v7: Production Infra split into
+    # Research & Development Infra and Production Infrastructure):
+    #   Foundations                       A Math, B ML, C Python
+    #   Framework Guides                  D HF, E LangChain,
+    #                                     F Orchestration, G Agent Frameworks
+    #   Research & Development Infra      H Env Setup, I Git/DVC, J Experiments
+    #   Production Infrastructure (MLOps) K Inference, L Distributed, M Docker
+    #   Cross-Cutting References          N Master Tables, O Problem-Solution Key,
+    #                                     Q Freshness 2026
+    #   For Instructors                   P Pedagogy Kit
     APPENDIX_GROUPS = {
         "A": "Foundations", "B": "Foundations", "C": "Foundations",
         "D": "Framework Guides", "E": "Framework Guides",
         "F": "Framework Guides", "G": "Framework Guides",
-        "H": "Production Infrastructure", "I": "Production Infrastructure",
-        "J": "Production Infrastructure", "K": "Production Infrastructure",
-        "L": "Production Infrastructure", "M": "Production Infrastructure",
+        "H": "Research & Development Infrastructure",
+        "I": "Research & Development Infrastructure",
+        "J": "Research & Development Infrastructure",
+        "K": "Production Infrastructure",
+        "L": "Production Infrastructure",
+        "M": "Production Infrastructure",
         "N": "Cross-Cutting References", "O": "Cross-Cutting References",
         "Q": "Cross-Cutting References",
         "P": "For Instructors",
