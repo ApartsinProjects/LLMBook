@@ -98,20 +98,27 @@ def main() -> int:
                     c["subtitle"] = TOOLS_SUBTITLES[pnum]
                     n_tools += 1
 
-    # 2. Appendix subtitles + group assignment
+    # 2. Appendix subtitles + group assignment (5-group structure post
+    #    GPU Hardware drop, May 2026; appendices A-Q):
+    #
+    #    Foundations            (A=Math, B=ML)
+    #    Development Setup      (C=Python, D=Env, E=Git/DVC)
+    #    Framework Guides       (F=HF, G=LangChain, H=Tooling Ecosystem)
+    #    Production Infrastructure  (I=Experiments, J=Inference, K=Distributed,
+    #                                L=Docker)
+    #    Reference & Pedagogy   (M=Tables, N=Patterns, O=Pedagogy,
+    #                                P=Prob-Solution, Q=Freshness)
     APPENDIX_GROUPS = {
-        # Foundations: A-E
-        "A": "Foundations", "B": "Foundations", "C": "Foundations",
-        "D": "Foundations", "E": "Foundations",
-        # Framework Guides: F-H
-        "F": "Framework Guides", "G": "Framework Guides", "H": "Framework Guides",
-        # Infrastructure & MLOps: I-O
-        "I": "Infrastructure & MLOps", "J": "Infrastructure & MLOps",
-        "K": "Infrastructure & MLOps", "L": "Infrastructure & MLOps",
-        "M": "Infrastructure & MLOps", "N": "Infrastructure & MLOps",
-        "O": "Infrastructure & MLOps",
-        # Pedagogical Kit: P-R
-        "P": "Pedagogical Kit", "Q": "Pedagogical Kit", "R": "Pedagogical Kit",
+        "A": "Foundations", "B": "Foundations",
+        "C": "Development Setup", "D": "Development Setup",
+        "E": "Development Setup",
+        "F": "Framework Guides", "G": "Framework Guides",
+        "H": "Framework Guides",
+        "I": "Production Infrastructure", "J": "Production Infrastructure",
+        "K": "Production Infrastructure", "L": "Production Infrastructure",
+        "M": "Reference & Pedagogy", "N": "Reference & Pedagogy",
+        "O": "Reference & Pedagogy", "P": "Reference & Pedagogy",
+        "Q": "Reference & Pedagogy",
     }
     n_app = 0
     for app in struct.get("appendices", []):
