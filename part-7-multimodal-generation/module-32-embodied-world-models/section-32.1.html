@@ -25,11 +25,58 @@
 
 </header>
 <main class="content"><span class="pagefind-meta-injected" data-pagefind-meta="part:Part VII: Multimodal Generation" hidden=""></span><span class="pagefind-meta-injected" data-pagefind-meta="chapter:Chapter 32: Embodied AI, World Models &amp; Multimodal Reasoning" hidden=""></span>
-<p>TODO author this section. This is a scaffold; replace with chapter content authored in Phase E.</p>
+<p>A Vision-Language-Action model is the simplest possible answer to "what does a robot brain look like in 2026?": take a multimodal LLM, extend its vocabulary with motor-command tokens, and finetune on demonstration trajectories. The architecture has three parts stacked end to end. A vision encoder (typically <a href="https://arxiv.org/abs/2303.15343" rel="noopener" target="_blank">SigLIP</a> or DINOv2) consumes wrist-camera and head-camera frames into a token sequence. A language model (Llama, Gemma, or a custom backbone of 3B to 7B parameters) attends jointly over those visual tokens and the natural-language instruction. An action decoder, often just the LM head reading from a dedicated subset of vocabulary, produces a sequence of discrete tokens that decode back into joint angles, gripper signals, or end-effector deltas.</p>
+<p>The conceptual move is what makes the field tractable. Before VLAs, robotics built bespoke policies per task and per platform. After VLAs, a robot policy is structurally identical to a chat model: you tokenize, you predict the next token, you decode. This section walks through that architecture, surveys the 2024-2026 models that proved it works, and explains why "VLA = LLM where motor commands are extra tokens in the vocabulary" is not a metaphor but a literal description of the implementation.</p>
+<h2>32.1.1 The architecture in one diagram (and one equation)</h2>
+<p>A VLA forward pass is structurally a multimodal LLM forward pass with one extra step at the output. The model sees a sequence <code>[v_1, ..., v_K, t_1, ..., t_L]</code> where the <code>v_i</code> are image patch tokens and the <code>t_j</code> are text tokens from the instruction. It autoregressively emits <code>[a_1, ..., a_H]</code>, where each <code>a_i</code> is an action token drawn from a discretized vocabulary that covers the robot's degrees of freedom. The same softmax that picks "Paris" given "The capital of France is" picks <em>"joint-5 +0.03 rad"</em> given <em>"pick up the red block, image: [pixels]"</em>. For more on how the LM head turns hidden states into a categorical distribution over a vocabulary, see <a href="../../part-1-foundations/module-04-transformer-anatomy/section-4.4.html">Section 4.4 (the LM head)</a>; the math is identical, only the vocabulary is reinterpreted.</p>
+<div class="callout key-insight">
+<div class="callout-title">VLA = LLM with motor tokens</div>
+<p>Discretize each robot degree of freedom into ~256 bins; reserve a contiguous slice of the LLM vocabulary (say, indices 32000 to 32767) for those bins; finetune the model so that emitting the right token sequence executes the right movement. Every architectural choice you already understand from chat models (KV cache, FlashAttention, RoPE scaling, speculative decoding) transfers to robotics with zero modification. This is why a robotics team in 2026 hires the same engineers an LLM team does.</p>
+</div>
+<h2>32.1.2 OpenVLA-7B: the open-weights reference implementation</h2>
+<p><a href="https://openvla.github.io/" rel="noopener" target="_blank">OpenVLA-7B</a> (Stanford and Toyota Research Institute, 2024) is the first open-weights generalist VLA and remains the easiest entry point. It uses a fused SigLIP+DINOv2 vision encoder, a Llama-2 7B backbone, and a 7-dimensional end-effector action space discretized into 256 bins per dimension. Training data: the <a href="https://robotics-transformer-x.github.io/" rel="noopener" target="_blank">Open X-Embodiment</a> mixture of 970k demonstrations across 22 robots. Inference cost: about 6 Hz on an A100, which is fast enough for manipulation but not for high-frequency control. The minimal call signature reads almost exactly like a chat completion:</p>
+<pre><code class="lang-python">from openvla import OpenVLA
+
+model = OpenVLA.from_pretrained("openvla/openvla-7b")
+image = camera.get_frame()                    # PIL.Image from wrist camera
+instruction = "place the red block on the plate"
+action = model.predict_action(image, instruction)
+# action: np.array of shape (7,), i.e. [dx, dy, dz, droll, dpitch, dyaw, gripper]
+robot.step(action)
+</code></pre>
+<p>That is the entire interface. Closed-loop control is a Python <code>while True:</code> loop around those four lines. Everything you learned about prompting, sampling temperature, and KV caching applies directly. The <a href="https://huggingface.co/openvla" rel="noopener" target="_blank">HuggingFace checkpoints</a> are downloadable without a license gate, which is the principal reason OpenVLA has become the teaching example for university courses.</p>
+<h2>32.1.3 Physical Intelligence pi-0 and pi-0.5: the generalist push</h2>
+<p><a href="https://www.physicalintelligence.company/blog/pi0" rel="noopener" target="_blank">Physical Intelligence's pi-0</a> (October 2024) and its successor <a href="https://www.physicalintelligence.company/blog/pi05" rel="noopener" target="_blank">pi-0.5</a> (October 2025) raised the ceiling on what a single VLA can do. The technical changes over OpenVLA are two: a <em>flow-matching</em> action head replaces the discrete-token decoder, which lets the model emit smooth continuous trajectories at high frequency (up to 50 Hz); and the training mixture spans an order of magnitude more demonstrations across five embodiments (two single-arm robots, two bimanual platforms, and a mobile manipulator). The headline pi-0.5 result is <em>cross-embodiment transfer</em>: a single set of weights drives all five robot platforms, and zero-shot transfer to a sixth platform recovers about 70% of fine-tuned performance after seeing only the URDF and a handful of teleoperated demos.</p>
+<p>Why this matters: in 2023 a "VLA model" was usually a custom-trained policy for one platform and one task family. In 2026 a VLA model is a foundation model in the same sense as a base LLM: you download weights, you finetune on your platform, you ship. The cost of bringing up a new robot collapsed roughly 100x in two years.</p>
+<h2>32.1.4 RT-2-X and the data-scaling story</h2>
+<p><a href="https://robotics-transformer-x.github.io/" rel="noopener" target="_blank">RT-2-X</a> (Google DeepMind, 2024) is the precursor that established the scaling claim: train one VLA on demonstrations pooled from many labs and platforms, and emergent generalization improves with mixture size. The Open X-Embodiment dataset that RT-2-X consumed is the robotics analog of <a href="https://commoncrawl.org/" rel="noopener" target="_blank">Common Crawl</a>: messy, multi-source, and the substrate everything else stands on. The original closed-weights RT-2-X has been largely superseded by OpenVLA and pi-0 for practical work, but its data contribution remains foundational.</p>
+<div class="callout production-pattern">
+<div class="callout-title">Production pattern: pretrain, then finetune on your factory floor</div>
+<p>The 2026 playbook for shipping a VLA on a new robot: (1) start from OpenVLA-7B or pi-0.5 weights; (2) collect 500 to 5000 teleoperated demonstrations on your platform with <a href="https://github.com/huggingface/lerobot" rel="noopener" target="_blank">LeRobot</a> or <a href="https://www.dynalabs.io/" rel="noopener" target="_blank">DynaLabs</a>; (3) LoRA-finetune for 8 to 24 hours on a single A100; (4) deploy with a safety wrapper that vetoes actions outside a velocity envelope. The economic shape mirrors LLM finetuning exactly: 99% of the intelligence is in the pretrain, the last percent is yours.</p>
+</div>
+<h2>32.1.5 Comparing the three reference models</h2>
+<div class="comparison-table">
+<div class="comparison-table-title">32.1.1 Reference VLAs, late-2025 snapshot</div>
+<table class="complex-table">
+<thead><tr><th scope="col">Model</th><th scope="col">Params</th><th scope="col">Action head</th><th scope="col">Embodiments</th><th scope="col">Weights</th><th scope="col">Best for</th></tr></thead>
+<tbody>
+<tr><td><a href="https://openvla.github.io/" rel="noopener" target="_blank">OpenVLA-7B</a></td><td>7B</td><td>Discrete tokens, 256 bins</td><td>Single-arm dominant</td><td>Open (Apache 2.0)</td><td>Learning, university labs, single-arm pick-and-place</td></tr>
+<tr><td><a href="https://www.physicalintelligence.company/blog/pi05" rel="noopener" target="_blank">pi-0.5</a></td><td>~3B vision-LM + flow head</td><td>Continuous flow-matching</td><td>5 platforms + zero-shot</td><td>Partial open (research)</td><td>Cross-embodiment, smooth high-frequency control</td></tr>
+<tr><td><a href="https://robotics-transformer-x.github.io/" rel="noopener" target="_blank">RT-2-X</a></td><td>5B / 55B variants</td><td>Discrete tokens</td><td>22 robots (training)</td><td>Closed</td><td>Reference for scaling experiments; weights not shippable</td></tr>
+</tbody>
+</table>
+</div>
+<div class="callout cross-ref">
+<div class="callout-title">Cross-references</div>
+<p>The "tokens in, tokens out" framing of this section is the literal application of <a href="../../part-1-foundations/module-04-transformer-anatomy/section-4.4.html">Section 4.4's LM head</a> to motor control. The agent loop that wraps a VLA in a higher-level planner is the same loop introduced in <a href="../../part-6-agentic-ai/module-26-agents/index.html">Chapter 26 (Agents)</a>: perceive, plan, act, observe. Section 32.2 next examines the planner side of that loop in detail.</p>
+</div>
+<h2>32.1.6 The honest limitations</h2>
+<p>VLAs are not solved. Three failure modes recur: (1) <em>generalization gaps under distribution shift</em>: changing lighting or adding a novel distractor object often drops success rate by 30 to 50 percentage points, even on pi-0.5; (2) <em>long-horizon brittleness</em>: success rates compound multiplicatively across subtasks, so a 90%-per-step policy is a 35%-after-ten-step policy; (3) <em>data hunger</em>: the most performant policies still need thousands of demonstrations per task family, and demonstration collection is expensive (teleoperators, time, instrumentation). The frontier work in 2026 is largely about closing those gaps with world-model rollouts (section 32.4), better visual representations, and reinforcement-learning fine-tunes on top of supervised VLA bases.</p>
+<p>Section 32.2 turns from the action-emission layer to the planning layer: when the task is "tidy the kitchen" rather than "place the red block", who decides what the VLA should do next? The answer in 2026 is a second LLM, often a different one, acting as a dispatcher over a fleet of VLA primitives. That stack, with SayCan, Code as Policies, and VoxPoser as its lineage, is the subject of LLM-powered robotics, which is what we look at next.</p>
 <nav class="chapter-nav">
 <a class="prev" href="index.html"><span class="nav-label">Previous</span><span class="nav-num">Chapter 32</span><span class="nav-title">Embodied AI, World Models &amp; Multimodal Reasoning</span></a>
 <a class="up" href="index.html"><span class="nav-label">In Chapter</span><span class="nav-num">Chapter 32</span><span class="nav-title">Embodied AI, World Models &amp; Multimodal Reasoning</span></a>
-<a class="next" href="index.html"><span class="nav-label">Next</span><span class="nav-num">Chapter 32</span><span class="nav-title">Embodied AI, World Models &amp; Multimodal Reasoning</span></a>
+<a class="next" href="section-32.2.html"><span class="nav-label">Next</span><span class="nav-num">Section 32.2</span><span class="nav-title">LLM-Powered Robotics: Navigation, Planning, and Multi-Robot Coordination</span></a>
 </nav>
 <footer><p>Fifteenth Edition, 2026 · <a href="../../toc.html">Contents</a></p></footer>
 </main>
