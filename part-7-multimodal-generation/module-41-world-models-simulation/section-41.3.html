@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<meta content="Section 41.3: 3D Gaussian Splatting and Neural Scene Representation. A chapter from the Building Conversational AI textbook." name="description"/>
+<title>Section 41.3: 3D Gaussian Splatting and Neural Scene Representation</title>
+<link href="../../styles/book.css" rel="stylesheet"/>
+<link href="../../styles/pygments.css" rel="stylesheet"/>
+<script defer="" src="../../scripts/book.js"></script>
+<link href="../../pagefind/pagefind-ui.css" rel="stylesheet"/>
+<script defer="" src="../../pagefind/pagefind-ui.js"></script>
+</head>
+<body>
+<header class="chapter-header">
+<nav class="header-nav">
+<a class="book-title-link" href="../../index.html">Building Conversational AI with LLMs and Agents</a>
+<a class="toc-link" href="../../toc.html" title="Table of Contents"><span class="toc-icon">☰</span> Contents</a>
+</nav>
+<div class="header-search"><div id="search"></div></div>
+
+<div class="page-breadcrumb" data-pagefind-meta="chapter"><a href="../index.html">Part VII: Multimodal Generation</a><span class="bc-sep">›</span><a href="index.html">Chapter 41: Embodied AI, World Models &amp; Multimodal Reasoning</a></div>
+<h1>3D Gaussian Splatting and Neural Scene Representation</h1><div class="page-current">Section 41.3</div>
+
+</header>
+<main class="content"><span class="pagefind-meta-injected" data-pagefind-meta="part:Part VII: Multimodal Generation" hidden=""></span><span class="pagefind-meta-injected" data-pagefind-meta="chapter:Chapter 41: Embodied AI, World Models &amp; Multimodal Reasoning" hidden=""></span>
+<p>3D Gaussian Splatting (3DGS) is the answer to "what data structure represents a 3D scene if you want both photo-real rendering and gradient-friendly editing?". A scene is a cloud of millions of anisotropic 3D Gaussians, each carrying a position, a covariance, an opacity, and a view-dependent color. Rendering an image projects them to screen-space ellipses and alpha-blends. Training back-propagates pixel loss into Gaussian parameters and dynamically adds, removes, and splits Gaussians where reconstruction error is high. The result, demonstrated in the <a href="https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/" rel="noopener" target="_blank">original 2023 paper by Kerbl, Kopanas, Leimkuehler, and Drettakis</a>, is a representation that trains in 30 minutes and renders at 100+ FPS on a consumer GPU.</p>
+<p>By 2025, 3DGS had displaced NeRFs in essentially every production-facing pipeline (scene capture, content creation, robot perception, real-to-sim). This section explains why, walks through the training pipeline, surveys the 2024-2026 extensions to 4D (time-varying scenes) and few-view reconstruction, and offers a conceptual bridge: a Gaussian, like a transformer key, is an addressable unit whose parameters the model learns to update.</p>
+<figure class="diagram">
+<img alt="3D Gaussian Splatting training pipeline diagram: input photos flow through COLMA" src="images/diagram-32-3-1.svg" aria-describedby="long-desc-8"/>
+<figcaption id="long-desc-8"><strong>Figure 41.3.1</strong>: 3D Gaussian Splatting: photos in, a differentiable point cloud out. Each box is a piece of software you can swap; the inner loop is gradient descent through a tile-based rasterizer. P structure-from-motion to recover camera poses and a sparse point cloud; the points are initialized as anisotropic 3D Gaussians (each with position, covariance, opacity, view-dependent SH color); a tile-based rasterizer projects them to screen-space ellipses for each training view; alpha-blended rendered images are compared to ground-truth photos with L1 + SSIM loss; gradients flow back to Gaussian parameters; an adaptive densification step adds, splits, or prunes Gaussians where reconstruction error is high; after ~30 minutes of training the splat renders at 100+ FPS.</figcaption>
+</figure>
+<h2 id="32-3-1-why-gaussians-instead-of-neural-fields">41.3.1 Why Gaussians instead of neural fields?</h2>
+<p>NeRFs (<a href="https://www.matthewtancik.com/nerf" rel="noopener" target="_blank">Mildenhall et al., 2020</a>) parameterize a scene as a neural network mapping (3D point, view direction) to (color, density). Rendering requires marching hundreds of rays through that network per pixel, which is slow at training time and slower at inference. Gaussian splatting flips the representation: instead of an implicit function evaluated by a network, the scene is an explicit set of primitives evaluated by a tile-based rasterizer. The rasterizer is friendly to GPU sort-and-blend kernels in a way ray marching is not. Rendering becomes embarrassingly parallel and trivially fast.</p>
+<div class="callout key-insight">
+<div class="callout-title">The Gaussian-as-key analogy</div>
+<p>An attention block stores a learned bag of keys; given a query, it weighs each key and aggregates values. A Gaussian splat stores a learned bag of 3D primitives; given a pixel ray, it weighs each Gaussian by its projected opacity and aggregates colors. The bridge is closer than the visual difference suggests: both are sparse, content-addressable, differentiable, and grow or shrink in count during training. The conceptual move from <a href="../../part-1-foundations/module-04-transformer-architecture/section-4.2.html">Section 4.2 (attention)</a> to 3DGS is "what if the keys were locations in space and the values were colors?".</p>
+</div>
+<div class="callout key-insight">
+<div class="callout-title">Gaussians are keys; the camera is a query</div>
+<p>Make the analogy precise. The scaled dot-product attention from <a href="../../part-1-foundations/module-03-sequence-models-attention/section-3.3.html">Section 3.3</a> takes a query, scores it against every key, softmaxes, and aggregates values. Splat rendering takes a camera ray (the query), scores it against every Gaussian (the keys) via projected opacity, alpha-composites front-to-back (the soft pool), and aggregates view-dependent colors (the values). Compress this further: a million-Gaussian scene is structurally identical to a million-entry KV cache from <a href="../../part-2-understanding-llms/module-10-inference-optimization/section-10.3.html">Section 10.3</a>, with positional addressing instead of token-index addressing. The optimization tricks (sort once, render many; tile, then aggregate) are the same family of ideas as paged attention.</p>
+</div>
+<h2 id="32-3-2-the-training-pipeline-colmap-to-splat-to-render">41.3.2 The training pipeline (COLMAP to splat to render)</h2>
+<p>The end-to-end pipeline from a phone video to a renderable splat in 2026 is short enough to fit on one screen:</p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-bash"><span class="c1"># 1. Estimate camera poses from a video or photo set with COLMAP</span>
+colmap<span class="w"> </span>automatic_reconstructor<span class="w"> </span>--workspace_path<span class="w"> </span>scene/<span class="w"> </span>--image_path<span class="w"> </span>scene/images
+
+<span class="c1"># 2. Train a splat with nerfstudio&#39;s splatfacto pipeline</span>
+ns-train<span class="w"> </span>splatfacto<span class="w"> </span>--data<span class="w"> </span>scene/
+
+<span class="c1"># 3. View interactively or render a flythrough</span>
+ns-viewer<span class="w"> </span>--load-config<span class="w"> </span>outputs/scene/splatfacto/.../config.yml
+ns-render<span class="w"> </span>--load-config<span class="w"> </span>...<span class="w"> </span>--output-path<span class="w"> </span>flythrough.mp4</code></pre>
+<div class="code-caption"><strong>Code Fragment 41.3.1:</strong> The end-to-end pipeline from a phone video to a renderable splat in 2026 is short enough to fit on one screen:.</div>
+</div>
+<p><a href="https://docs.nerf.studio/" rel="noopener" target="_blank">Nerfstudio</a> (which exposes the splatfacto pipeline) and <a href="https://github.com/nerfstudio-project/gsplat" rel="noopener" target="_blank">gsplat</a> (the underlying differentiable rasterizer) are the canonical libraries. Training time on a single RTX 4090 for a typical room-scale scene is 15 to 40 minutes; rendering at 1080p is 60 to 200 FPS depending on Gaussian count. The output is portable: the <code>.ply</code> file with the Gaussian parameters drops into Unreal, Unity, three.js, or directly into a Gaussian-splat web viewer.</p>
+<div class="callout key-insight">
+<div class="callout-title">Adaptive density is sparse attention for geometry</div>
+<p>The "split where error is high, prune where opacity is low" densification loop in 3DGS is the same routing logic as sparse attention and MoE token routing from <a href="../../part-1-foundations/module-04-transformer-architecture/section-4.3.html">Section 4.3</a>, and the KV-cache eviction heuristics from <a href="../../part-2-understanding-llms/module-10-inference-optimization/section-10.3.html">Section 10.3</a>. Compute moves to where signal lives. In an LM you spend FLOPs on the experts that matter for the current token; in 3DGS you spend Gaussians on the volumes that matter for the current image.</p>
+</div>
+<div class="callout key-insight">
+<div class="callout-title">SH is positional encoding for view direction</div>
+<p>The spherical-harmonic coefficients per Gaussian are a frequency-domain basis for view-dependent color. They serve the same role as sinusoidal positional encoding or RoPE from <a href="../../part-1-foundations/module-04-transformer-architecture/section-4.1.html">Section 4.1</a>: a learned-coefficient frequency basis lets the model express any function on the sphere up to the chosen degree, just as Fourier features let the model express any function over a 1D sequence. Read SH as RoPE-on-a-sphere and the 32 coefficients per channel become familiar.</p>
+</div>
+<h2 id="32-3-3-4d-splats-scenes-that-move">41.3.3 4D splats: scenes that move</h2>
+<p>Static 3DGS captures geometry. <em>4D splats</em> capture geometry through time and are the 2024-2025 extension. The dominant approach (<a href="https://guanjunwu.github.io/4dgs/" rel="noopener" target="_blank">4DGS</a>, Wu et al. 2024) parameterizes each Gaussian's position and color as a small MLP conditioned on time, plus a deformation network that warps a canonical splat through frames. The training data is a multi-view video; the result is a renderable scene you can scrub through in time. By late 2025, <a href="https://github.com/oppo-us-research/SpacetimeGaussians" rel="noopener" target="_blank">Spacetime Gaussians</a> and <a href="https://shape-of-motion.github.io/" rel="noopener" target="_blank">Shape of Motion</a> had pushed quality far enough that 4D splats are used in volumetric video productions and as backdrops for synthetic-training-data pipelines.</p>
+<h2 id="32-3-4-few-view-when-you-do-not-have-a-video">41.3.4 Few-view: when you do not have a video</h2>
+<p>InstantSplat (<a href="https://instantsplat.github.io/" rel="noopener" target="_blank">Fan et al., 2024</a>) tackled the "I have 3 photos, not 300" problem by pairing a sparse-view monocular depth estimator with a Gaussian-splat optimizer. The result trains in seconds rather than minutes and accepts as few as 3 input images, with quality that degrades gracefully. By 2026 the InstantSplat lineage had merged with <a href="https://dust3r.europe.naverlabs.com/" rel="noopener" target="_blank">DUSt3R</a>-style geometry priors, producing pipelines where a single phone photo plus a depth model is enough for a usable (if low-fidelity) splat.</p>
+<h2 id="32-3-5-nerfs-3dgs-instantsplat-compared">41.3.5 NeRFs, 3DGS, InstantSplat compared</h2>
+<div class="comparison-table">
+<div class="comparison-table-title"><strong>Table 41.3.1:</strong> <em>32.3.1 Neural scene representations, mid-2025 production reality.</em></div>
+<table class="complex-table">
+<thead><tr><th scope="col">Method</th><th scope="col">Training time (room scene, RTX 4090)</th><th scope="col">Render speed (1080p)</th><th scope="col">Inputs needed</th><th scope="col">Quality (PSNR proxy)</th><th scope="col">Best for</th></tr></thead>
+<tbody>
+<tr><td><a href="https://www.matthewtancik.com/nerf" rel="noopener" target="_blank">Original NeRF</a> (2020)</td><td>~12 hours</td><td>~0.05 FPS</td><td>50-100 posed images</td><td>26-30 dB</td><td>Research baseline only; production-obsolete</td></tr>
+<tr><td><a href="https://nvlabs.github.io/instant-ngp/" rel="noopener" target="_blank">Instant-NGP</a> (2022)</td><td>~5 minutes</td><td>~5-10 FPS</td><td>50-100 posed images</td><td>28-32 dB</td><td>Fast NeRF baselines; still used as gold-standard quality</td></tr>
+<tr><td><a href="https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/" rel="noopener" target="_blank">3DGS</a> (2023)</td><td>~15-40 minutes</td><td>60-200 FPS</td><td>50-100 posed images</td><td>30-35 dB</td><td>Default production pipeline; VR / AR; real-to-sim</td></tr>
+<tr><td><a href="https://instantsplat.github.io/" rel="noopener" target="_blank">InstantSplat</a> (2024)</td><td>10-60 seconds</td><td>60-200 FPS</td><td>3-12 unposed images</td><td>24-29 dB</td><td>Mobile capture, rapid prototyping, low-data setups</td></tr>
+</tbody>
+</table>
+</div>
+<div class="callout numeric-example">
+<div class="callout-title">A back-of-the-envelope for why splats won</div>
+<p>For a 1080p frame: NeRF needs ~2 million pixel rays times ~128 sample points per ray times one MLP forward = ~256M MLP evaluations. A Gaussian splat needs to sort ~1M Gaussians by depth into ~16x16 pixel tiles and blend them, which is one rasterizer pass. On the same GPU, the Gaussian pass is ~100-200x faster. The mathematical content of "why splats win" is just "explicit primitives parallelize better than implicit fields on current hardware".</p>
+</div>
+<h2 id="32-3-6-why-splats-matter-for-embodied-ai-specifically">41.3.6 Why splats matter for embodied AI specifically</h2>
+<p>For robotics and embodied AI, 3DGS is not a rendering trick; it is a <em>scene representation</em>. Three practical consequences. First, <em>real-to-sim</em>: capture your factory floor on a phone, train a splat, drop it into Isaac Sim as the background, and your simulator now matches reality. Second, <em>policy conditioning</em>: a VLA can be conditioned on a splat rendering of the environment from the robot's actual viewpoint, closing one source of visual distribution shift. Third, <em>scene editing</em>: because Gaussians are explicit primitives, you can delete a chair, move a table, or insert a new object directly in 3D, then re-render. <a href="https://nv-tlabs.github.io/Splatraj/" rel="noopener" target="_blank">NVIDIA's 2025 work</a> on robot-policy training with splat backgrounds reported 12 percentage points of sim-to-real gain over textured-mesh baselines.</p>
+<div class="callout key-insight">
+<div class="callout-title">A splat is an embedding for a scene</div>
+<p>A million-Gaussian scene is a compressed, differentiable, queryable representation of a high-dimensional signal (the radiance field), structurally analogous to the role text embeddings play for documents in <a href="../../part-5-retrieval-conversation/module-22-embeddings-vector-db/section-22.1.html">Section 22.1</a>. You can do nearest-neighbor over splat embeddings, edit specific Gaussians (the "feature steering" of geometry, see <a href="../../part-2-understanding-llms/module-11-interpretability/section-11.3.html">Section 11.3</a> for the text analogy), and compose them. The Gaussian Splatting SLAM paper (Matsuki et al., 2024, arXiv:2312.06741) is the most literal demonstration that a splat is a memory the robot reads from and writes to.</p>
+</div>
+<div class="callout key-insight">
+<div class="callout-title">Text-to-3D is text-to-image with one more axis, distilled</div>
+<p>DreamFusion-style text-to-3D pipelines (Poole et al., 2022, arXiv:2209.14988) use Score Distillation Sampling: a frozen text-to-image diffusion model from <a href="../module-31-multimodal/section-31.1.html">Section 31.1</a> acts as a critic, and gradients flow back through it into the 3D Gaussians. This is RLHF (<a href="../../part-4-training-adapting/module-20-alignment-rlhf-dpo/section-20.1.html">Section 20.1</a>) with the diffusion model as the reward model and the 3D representation as the policy. SDS is the same algorithm pattern Module 20 describes, with a different critic and a different action space. LGM (Tang et al., 2024, arXiv:2402.05054) pushes this further: tokenize the 3D scene and run a transformer over the tokens, making the parallel to text language models explicit.</p>
+</div>
+<div class="callout library-shortcut">
+<div class="callout-title">Library shortcut</div>
+<p>The smallest useful working set: <a href="https://github.com/nerfstudio-project/gsplat" rel="noopener" target="_blank">gsplat</a> (the differentiable rasterizer as a PyTorch extension), <a href="https://docs.nerf.studio/" rel="noopener" target="_blank">nerfstudio</a> (training pipeline with <code>splatfacto</code>), <a href="https://colmap.github.io/" rel="noopener" target="_blank">COLMAP</a> (camera pose estimation), and <a href="https://github.com/antimatter15/splat" rel="noopener" target="_blank">antimatter15/splat</a> (a 200-line WebGL viewer). That stack covers capture-to-render-to-share end to end.</p>
+</div>
+<h2 id="32-3-7-what-splats-still-cannot-do">41.3.7 What splats still cannot do</h2>
+<p>Splats are not a free lunch. They struggle with transparent and reflective surfaces (glass, water, polished metal); they need known camera poses (COLMAP fails on textureless scenes); they can drift on long capture sequences where loop closure is poor; and the file sizes (50 to 500 MB for a typical scene) are awkward for streaming over slow connections. The <a href="https://niedermayr.github.io/2024-RD-GS/" rel="noopener" target="_blank">RD-GS</a> and <a href="https://github.com/KeKsBoTer/c3dgs" rel="noopener" target="_blank">c3dgs</a> compression lines push sizes down 5 to 20x and are the production answer to the streaming problem.</p>
+<p>Section 41.4 turns from scene representation to scene <em>imagination</em>. Where 3DGS captures the world as it is, world models predict the world as it will be: next frame, next event, next consequence of an action. The connection back to language modeling is direct, and that is exactly the parallel we examine next.</p>
+<nav class="chapter-nav">
+<a class="prev" href="section-41.2.html"><span class="nav-label">Previous</span><span class="nav-num">Section 41.2</span><span class="nav-title">LLM-Powered Robotics: Navigation, Planning, and Multi-Robot Coordination</span></a>
+<a class="up" href="index.html"><span class="nav-label">In Chapter</span><span class="nav-num">Chapter 41</span><span class="nav-title">Embodied AI, World Models &amp; Multimodal Reasoning</span></a>
+<a class="next" href="section-41.4.html"><span class="nav-label">Next</span><span class="nav-num">Section 41.4</span><span class="nav-title">World Models: Video Generation, Simulation, and Embodied Reasoning</span></a>
+</nav>
+<footer><p>Fifteenth Edition, 2026 · <a href="../../toc.html">Contents</a></p></footer>
+</main>
+</body>
+</html>
