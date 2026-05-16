@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<meta content="Section 56.2: Text Watermarking: Kirchenbauer Green-List and SynthID-Text. A comprehensive chapter from the Building Conversational AI textbook." name="description"/>
+<title>Section 56.2: Text Watermarking: Kirchenbauer Green-List and SynthID-Text</title>
+<link href="../../styles/book.css" rel="stylesheet"/>
+<link href="../../styles/pygments.css" rel="stylesheet"/>
+<link href="../../vendor/prism/prism-theme.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/prism/prism-bundle.min.js"></script>
+<script defer="" src="../../scripts/book.js"></script>
+<link href="../../pagefind/pagefind-ui.css" rel="stylesheet"/>
+<script defer="" src="../../pagefind/pagefind-ui.js"></script>
+</head>
+<body>
+<header class="chapter-header">
+<nav class="header-nav">
+<a class="book-title-link" href="../../index.html">Building Conversational AI with LLMs and Agents</a>
+<a class="toc-link" href="../../toc.html" title="Table of Contents"><span class="toc-icon">☰</span> Contents</a>
+</nav>
+<div class="header-search">
+<div id="search"></div>
+</div>
+
+<div class="page-breadcrumb" data-pagefind-meta="chapter"><a href="../index.html">Part IX: LLM Safety, Security, and Ethics</a><span class="bc-sep">›</span><a href="index.html">Chapter 56: Watermarking, Provenance, and Deepfake Defense</a></div>
+<h1>Text Watermarking: Kirchenbauer Green-List and SynthID-Text</h1><div class="page-current">Section 56.2</div>
+
+</header>
+<main class="content"><span class="pagefind-meta-injected" data-pagefind-meta="part:Part IX: LLM Safety, Security, and Ethics" hidden=""></span><span class="pagefind-meta-injected" data-pagefind-meta="chapter:Chapter 56: Watermarking, Provenance, and Deepfake Defense" hidden=""></span>
+
+<div class="callout big-picture">
+<div class="callout-title">Big Picture</div>
+<p>Text watermarking embeds a statistical signal into a model's output that is invisible to readers but detectable by anyone with the right key. The breakthrough algorithm, Kirchenbauer et al.'s 2023 "green-list" scheme, biases each token's probability distribution toward a pseudo-randomly chosen subset of the vocabulary. SynthID-Text from Google DeepMind, deployed in production across Gemini in 2024, generalizes the green-list idea to a tournament-based scheme with better detectability per token. This section walks through the algorithms, gives working code, analyzes robustness, and explains the limits, why even a well-designed text watermark is not a panacea, and where it sits in the broader provenance stack.</p>
+</div>
+
+<h2 id="1-the-core-idea">1. The Core Idea: Bias the Distribution, Decode the Bias</h2>
+<p>Imagine you are generating text one token at a time. At each step, the model has a probability distribution over the vocabulary. The trick is to <em>partition</em> the vocabulary into two sets, call them green and red, before each step, in a way that depends pseudo-randomly on the previous token. You then add a small bonus &delta; to the logits of green tokens and renormalize. The model still picks tokens that are good completions, but it has a measurable preference for green tokens at every step.</p>
+<p>To detect the watermark on a piece of text, you re-derive the green-list partition for each position, count how often the actual chosen token was on the green list, and run a statistical test. If the green-token rate is much higher than the chance baseline (50% by default for a 50/50 partition), the text is watermarked with high confidence; if it's near 50%, it isn't.</p>
+
+<h2 id="2-the-kirchenbauer-algorithm-in-detail">2. The Kirchenbauer Algorithm in Detail</h2>
+<p>Let V be the model's vocabulary. For each generation step t with previous token x<sub>t-1</sub>, the algorithm:</p>
+<ol>
+<li>Seeds a pseudorandom generator with hash(x<sub>t-1</sub>, secret_key).</li>
+<li>Uses that seed to partition V into a green list G<sub>t</sub> (size &gamma;|V|, typically &gamma;=0.5) and a red list R<sub>t</sub>.</li>
+<li>Adds a bias &delta; to the logits of all green tokens.</li>
+<li>Samples the next token from the modified distribution.</li>
+</ol>
+<p>Detection runs the same hash function over the candidate text. For each position t, it determines G<sub>t</sub> and checks whether the token at position t is in G<sub>t</sub>. Let n be the number of tokens checked and |s| the number that fell in the green list. Under the null hypothesis (no watermark, no bias), |s| follows a Binomial(n, &gamma;) distribution. The z-score is:</p>
+<p style="text-align: center; font-family: monospace;">z = (|s| - &gamma;n) / &radic;(n &gamma; (1 - &gamma;))</p>
+<p>A watermarked text has z &gtrsim; 4, easily distinguishable from chance. For a 50-token sample with &gamma;=0.5 and &delta;=2 in a well-aligned base model, the watermark is detectable at p &lt; 10<sup>-6</sup>.</p>
+
+<pre><code class="lang-python">import hashlib
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+class GreenListWatermark:
+    def __init__(self, model, tokenizer, secret_key: bytes,
+                 gamma: float = 0.5, delta: float = 2.0):
+        self.model = model
+        self.tokenizer = tokenizer
+        self.vocab_size = model.config.vocab_size
+        self.secret_key = secret_key
+        self.gamma = gamma
+        self.delta = delta
+
+    def _green_list(self, prev_token_id: int) -&gt; torch.Tensor:
+        """Returns a boolean mask of size vocab_size; True = green."""
+        h = hashlib.sha256(self.secret_key + prev_token_id.to_bytes(4, "big")).digest()
+        seed = int.from_bytes(h[:4], "big")
+        g = torch.Generator().manual_seed(seed)
+        perm = torch.randperm(self.vocab_size, generator=g)
+        green_size = int(self.gamma * self.vocab_size)
+        mask = torch.zeros(self.vocab_size, dtype=torch.bool)
+        mask[perm[:green_size]] = True
+        return mask
+
+    def generate(self, prompt: str, max_new_tokens: int = 50) -&gt; str:
+        ids = self.tokenizer(prompt, return_tensors="pt").input_ids[0]
+        for _ in range(max_new_tokens):
+            with torch.no_grad():
+                logits = self.model(ids.unsqueeze(0)).logits[0, -1]
+            green = self._green_list(int(ids[-1]))
+            logits[green] += self.delta
+            next_id = int(torch.argmax(logits))  # or sample with softmax
+            ids = torch.cat([ids, torch.tensor([next_id])])
+        return self.tokenizer.decode(ids, skip_special_tokens=True)
+
+    def detect(self, text: str) -&gt; dict:
+        ids = self.tokenizer(text, return_tensors="pt").input_ids[0]
+        n_green = 0
+        n_total = 0
+        for i in range(1, len(ids)):
+            green = self._green_list(int(ids[i - 1]))
+            if green[int(ids[i])]:
+                n_green += 1
+            n_total += 1
+        expected = self.gamma * n_total
+        std = (n_total * self.gamma * (1 - self.gamma)) ** 0.5
+        z = (n_green - expected) / std if std &gt; 0 else 0
+        return {"n_tokens": n_total, "n_green": n_green, "z_score": z,
+                "watermarked": z &gt; 4.0}</code></pre>
+<div class="code-caption"><strong>Code Fragment 56.2.1:</strong> A minimal Kirchenbauer green-list watermark implementation. The seed for each step depends on the previous token, so the green list is deterministic given the secret key. The detector reconstructs the same green lists and tallies hits. In production, sampling (rather than argmax) is used so the watermark preserves diversity, and the seed function uses several previous tokens to defeat single-token substitution attacks.</div>
+
+<h2 id="3-synthid-text-tournament-sampling-at-google-scale">3. SynthID-Text: Tournament Sampling at Google Scale</h2>
+<p>SynthID-Text, deployed in production across Gemini in late 2024, generalizes the green-list scheme. Instead of a binary green/red partition, SynthID-Text uses a <em>tournament</em>: at each step, it samples k candidate tokens from the model's distribution, then runs a single-elimination tournament where the winner is determined by a pseudo-random function keyed on context and a secret. The winner is emitted as the next token.</p>
+<p>Key properties from the published DeepMind paper (Dathathri et al., 2024, Nature):</p>
+<ul>
+<li><strong>Distortion-free at low strength.</strong> Sampling from the tournament with the right parameters yields a distribution that is statistically indistinguishable from the original, but still detectable in aggregate over &gt;100 tokens.</li>
+<li><strong>Detectable at production thresholds.</strong> SynthID-Text achieves &gt;95% detection at false-positive rate &lt;1% on Gemini outputs of 200+ tokens.</li>
+<li><strong>Robust under moderate paraphrasing.</strong> Detection survives word-level paraphrasing of up to ~25% of tokens. Sentence-level rewrites by a separate LLM degrade detection more substantially.</li>
+</ul>
+
+<div class="callout key-insight">
+<div class="callout-title">Key Insight</div>
+<p><strong>Watermarking is most effective at the platform level.</strong> Embedding a watermark in every Gemini output is feasible because Google controls the decoder. The same scheme is not deployable for arbitrary open-weight Llama or Mistral fine-tunes, since users can disable the watermarking step entirely. The honest characterization is that text watermarking is a tool against the cooperative-generator threat model (commercial chatbots) and largely useless against the adversarial-generator threat model (jailbroken open-weight deployment).</p>
+</div>
+
+<h2 id="4-robustness-analysis">4. Robustness: What Watermarks Survive and What Kills Them</h2>
+<p>Empirical robustness data, mostly from the Kirchenbauer 2023 follow-ups and the SynthID-Text paper, gives a sober picture.</p>
+<p><strong>Survives</strong>: typo correction, whitespace normalization, minor punctuation changes, light Grammarly-style edits. Adding ~5% of human edits to a 500-token watermarked passage typically leaves the z-score above the detection threshold.</p>
+<p><strong>Degrades</strong>: word-level synonym substitution (each substitution has ~50% chance of moving the new token off the green list), translation to another language and back. With ~30% of tokens substituted, detection drops to chance.</p>
+<p><strong>Defeats</strong>: full LLM-based paraphrasing (re-generating the text via another model), sentence reordering, summarization. These are <em>generative</em> attacks, the attacker has access to an LLM, so the cost of removal is the same as the cost of original generation.</p>
+
+<figure>
+<img alt="Curve plot showing watermark detection rate (y-axis, 0 to 100%) vs perturbation intensity (x-axis, 0 to 50% tokens edited). Four curves shown: (1) typo edits stay near 99% across the range; (2) word-synonym substitution falls linearly from 99% to 50% by 30% edits; (3) back-translation French-English starts at 80% and falls to 30% by 30% edits; (4) full LLM paraphrase starts at 30% and falls to baseline by 10% edits. Shaded region marks 'realistic adversarial budget' where attackers can spend up to 20% edit equivalent." src="images/watermark-robustness.svg"/>
+<figcaption><strong>Figure 56.2.1</strong>: Detection rate as a function of perturbation intensity, summarizing data from Kirchenbauer 2023 follow-up studies and the SynthID-Text Nature paper. Watermarks are reliably detectable against light edits but fall to chance under generative paraphrasing. The shaded "realistic adversarial budget" region is where production decisions live: detection is useful at &gt;90% recall against typo and light-edit attacks but cannot be relied on against motivated paraphrasing.</figcaption>
+</figure>
+
+<h2 id="5-practical-deployment-considerations">5. Practical Deployment Considerations</h2>
+<p>Five issues come up in every production deployment.</p>
+<p><strong>Quality tradeoff.</strong> A higher &delta; gives stronger detection at the cost of pushing the output distribution further from the unwatermarked version. SynthID-Text's tournament scheme is designed to minimize this tradeoff; the operating point for Gemini is reported as effectively imperceptible on human-evaluation studies.</p>
+<p><strong>Short-text undetectability.</strong> All current schemes need ~50-200 tokens to achieve reliable detection. Tweets, single sentences, and code snippets are essentially undetectable. This is a fundamental information-theoretic limit, not an implementation flaw.</p>
+<p><strong>Key management.</strong> The secret key used for green-list seeding must be guarded. If it leaks, attackers can deliberately produce text with adversarial low z-scores (text that <em>looks</em> watermarked is not), undermining the detector's credibility.</p>
+<p><strong>Per-language behavior.</strong> Green-list watermarks behave differently across languages because vocabularies have different size and entropy. SynthID-Text reports per-language calibration; if you fine-tune for a new language, recalibrate.</p>
+<p><strong>Detection-as-a-service.</strong> Google ships a detector that runs server-side: you submit text and a model identifier, the API returns a confidence score. This makes detection accessible without exposing the secret key. Cost is currently negligible (under $0.001 per call). The trade-off is centralization: you must trust Google's API to behave honestly.</p>
+
+<div class="callout warning">
+<div class="callout-title">Watermark Calibration Drift</div>
+<p>A watermark's detection threshold is calibrated against a known model. When the model is fine-tuned (instruction tuning, RLHF, distillation), the distribution shifts and the watermark's per-token detectability changes. Recalibrate after every model update, and version the detector so old text can be validated against the model and key that produced it. Failing to do this gives the worst possible failure mode: silent degradation of detection accuracy with no signal that anything is wrong.</p>
+</div>
+
+<div class="callout practical-example">
+<div class="callout-title">Worked Example: A News Outlet Verifies a Tip</div>
+<p>A reporter receives an anonymous tip in the form of a 800-word document allegedly from an industry whistleblower. The outlet runs the document through Google's SynthID-Text detector and gets a confidence score of 0.82 that it was Gemini-generated. The reporter does not conclude that the document is false (the watermark says only "generated by Gemini," not "false"). Instead, the outlet asks the source how the document was prepared. The source admits to using Gemini for drafting but says the facts came from internal documents. The story moves forward with appropriate caveats. This is the realistic value of text watermarking, an input to editorial judgment, not a verdict.</p>
+</div>
+
+<div class="callout key-takeaway">
+<div class="callout-title">Key Takeaway</div>
+<p>Text watermarking embeds a statistical bias into model output via a green-list (Kirchenbauer) or tournament (SynthID-Text) scheme. Detection runs the same scheme in reverse and tallies hits. The technique is effective against light edits but degraded by generative paraphrasing. Watermarks work for cooperative generators (commercial platforms with controlled decoders) and fail against adversarial generators (open-weight models). The realistic role of text watermarking is as one of several signals in a provenance stack, not as a standalone "is this AI?" detector.</p>
+</div>
+
+<div class="callout self-check">
+<div class="callout-title">Self-Check</div>
+<ol>
+<li>Why does a watermark's detectability scale with sequence length? What is the practical lower bound for reliable detection?</li>
+<li>An attacker translates a watermarked English document to French and back. How does detection degrade, and why?</li>
+<li>You run the green-list detector on a 200-token sample and get z = 2.3. What is your confidence that the text is watermarked, and what additional evidence would you want before publishing a claim?</li>
+<li>Why is text watermarking primarily a tool against the cooperative-generator threat model? What kind of attacker is it useless against?</li>
+</ol>
+</div>
+
+<div class="callout whats-next">
+<div class="callout-title">What's Next</div>
+<p>Section 56.3 moves from text to images and video. We will cover the C2PA Content Credentials specification (versions 2.x), Google DeepMind's SynthID-Image (pixel-domain watermarking that survives JPEG re-encoding), and Adobe's Content Credentials in production at the AP, Microsoft, and the BBC. Image provenance is further along than text in real-world deployment, partly because the cryptographic-signature approach (C2PA) has a simpler threat model than statistical watermarking.</p>
+</div>
+
+<h2 id="bibliography">Bibliography</h2>
+<ul class="bibliography">
+<li>Kirchenbauer, J., Geiping, J., Wen, Y., et al. (2023). <em>A Watermark for Large Language Models.</em> ICML 2023.</li>
+<li>Kirchenbauer, J., Geiping, J., Wen, Y., et al. (2024). <em>On the Reliability of Watermarks for Large Language Models.</em> ICLR 2024.</li>
+<li>Dathathri, S., See, A., Ghaisas, S., et al. (2024). <em>Scalable Watermarking for Identifying Large Language Model Outputs (SynthID-Text).</em> Nature 634, 818-823.</li>
+<li>Aaronson, S. (2023). <em>Watermarking GPT Outputs.</em> Talk at Simons Institute; technical report.</li>
+<li>Christ, M., Gunn, S., Zamir, O. (2024). <em>Undetectable Watermarks for Language Models.</em> COLT 2024.</li>
+<li>Zhao, X., Ananth, P., Li, L., Wang, Y.-X. (2024). <em>Provable Robust Watermarking for AI-Generated Text.</em> ICLR 2024.</li>
+<li>Krishna, K., Song, Y., Karpinska, M., et al. (2023). <em>Paraphrasing Evades Detectors of AI-Generated Text, But Retrieval Is an Effective Defense.</em> NeurIPS 2023.</li>
+</ul>
+
+<nav class="chapter-nav">
+<a class="prev" href="section-56.1.html"><span class="nav-label">Previous</span><span class="nav-num">Section 56.1</span><span class="nav-title">Why Provenance Matters</span></a>
+<a class="up" href="index.html"><span class="nav-label">In Chapter</span><span class="nav-num">Chapter 56</span><span class="nav-title">Watermarking, Provenance, and Deepfake Defense</span></a>
+<a class="next" href="section-56.3.html"><span class="nav-label">Next</span><span class="nav-num">Section 56.3</span><span class="nav-title">Image and Video Provenance: C2PA, SynthID-Image, Content Credentials</span></a>
+</nav>
+<footer><p>Fifteenth Edition, 2026 · <a href="../../toc.html">Contents</a></p></footer>
+</main>
+<script>
+window.addEventListener("DOMContentLoaded", function() {
+  if (window.PagefindUI) {
+    new PagefindUI({
+      element: "#search",
+      showSubResults: true,
+      showImages: false,
+      resetStyles: false,
+      pageSize: 8,
+      autofocus: false,
+      translations: {
+        placeholder: "Search the book…",
+      },
+    });
+  }
+});
+</script>
+</body>
+</html>
