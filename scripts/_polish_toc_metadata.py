@@ -46,6 +46,10 @@ APPENDIX_SUBTITLES = {
         "Practical guide to the HuggingFace ecosystem: loading models, training with Trainer, sharing on the Hub.",
     "langchain":
         "Building LLM applications with LangChain's chain composition, agent framework, and retrieval integration.",
+    "orchestration-frameworks":
+        "LangChain, LlamaIndex, Haystack, DSPy: pick a chain / RAG orchestration layer for your stack.",
+    "agent-frameworks":
+        "LangGraph, CrewAI, AutoGen, OpenAI Agents SDK, Semantic Kernel, smolagents, PydanticAI.",
     "tooling-ecosystem":
         "A survey of the broader LLM tooling landscape: evaluation platforms, guardrail libraries, observability tools, emerging frameworks.",
     "hardware-compute":
@@ -62,12 +66,21 @@ APPENDIX_SUBTITLES = {
         "Fifteen scannable comparison tables for the recurring decisions practitioners make.",
     "production-patterns":
         "Twenty-two engineering patterns for shipping LLM systems at scale, organized by operational problem.",
-    "pedagogy-kit":
-        "Capstone rubric, three intermediate projects, named production war stories, and per-section reading-pathway upgrades.",
     "problem-solution-key":
         "A lookup table mapping common NLP / ML / AI engineering tasks to the chapters and sections that solve them.",
     "freshness-2026":
         "The 2024-2026 papers, models, protocols, and benchmarks that define the field at publication date.",
+    # Pedagogy Kit split into 5 (v8, May 2026)
+    "course-syllabi":
+        "Five tested course tracks (undergraduate engineering, undergraduate research, graduate engineering, graduate research, professional bootcamp) with week-by-week schedules.",
+    "reading-pathways":
+        "Per-audience reading guides for engineers, researchers, founders / PMs, and self-study learners.",
+    "intermediate-projects":
+        "Three multi-week projects between the 60-minute chapter labs and the 6-week capstone.",
+    "capstone-project":
+        "Three-track capstone (full-stack, API-only, research replication) with a five-dimension grading rubric.",
+    "war-stories":
+        "Five named production failures (Air Canada, Chevy of Watsonville, Bing / Sydney, Samsung leak, fintech runaway bill) with discussion prompts and chapter pairings.",
 }
 
 # Front-matter natural reading order (welcome → orient → who/why → how → instructor/back)
@@ -118,20 +131,25 @@ def main() -> int:
     #                            P Freshness 2026
     #   For Instructors          O Pedagogy Kit (with Course Syllabi, Reading
     #                            Pathways as sections)
-    # 6-group structure (May 2026 v7: Production Infra split into
-    # Research & Development Infra and Production Infrastructure):
-    #   Foundations                       A Math, B ML, C Python
-    #   Framework Guides                  D HF, E LangChain,
-    #                                     F Orchestration, G Agent Frameworks
-    #   Research & Development Infra      H Env Setup, I Git/DVC, J Experiments
+    # 6-group structure (May 2026 v8: Python moves to R&D; Pedagogy Kit
+    # split into 5 separate appendices):
+    #   Foundations                       A Math, B ML
+    #   Framework Guides                  C HF, D LangChain,
+    #                                     E Orchestration, F Agent Frameworks
+    #   Research & Development Infra      G Python, H Env Setup, I Git/DVC,
+    #                                     J Experiments
     #   Production Infrastructure (MLOps) K Inference, L Distributed, M Docker
-    #   Cross-Cutting References          N Master Tables, O Problem-Solution Key,
-    #                                     Q Freshness 2026
-    #   For Instructors                   P Pedagogy Kit
+    #   Cross-Cutting References          N Master Tables, O Problem-Solution,
+    #                                     P Freshness 2026
+    #   For Instructors                   Q Course Syllabi, R Reading Pathways,
+    #                                     S Intermediate Projects,
+    #                                     T Capstone Project,
+    #                                     U War Stories for Discussion
     APPENDIX_GROUPS = {
-        "A": "Foundations", "B": "Foundations", "C": "Foundations",
-        "D": "Framework Guides", "E": "Framework Guides",
-        "F": "Framework Guides", "G": "Framework Guides",
+        "A": "Foundations", "B": "Foundations",
+        "C": "Framework Guides", "D": "Framework Guides",
+        "E": "Framework Guides", "F": "Framework Guides",
+        "G": "Research & Development Infrastructure",
         "H": "Research & Development Infrastructure",
         "I": "Research & Development Infrastructure",
         "J": "Research & Development Infrastructure",
@@ -139,8 +157,9 @@ def main() -> int:
         "L": "Production Infrastructure",
         "M": "Production Infrastructure",
         "N": "Cross-Cutting References", "O": "Cross-Cutting References",
-        "Q": "Cross-Cutting References",
-        "P": "For Instructors",
+        "P": "Cross-Cutting References",
+        "Q": "For Instructors", "R": "For Instructors", "S": "For Instructors",
+        "T": "For Instructors", "U": "For Instructors",
     }
     n_app = 0
     for app in struct.get("appendices", []):

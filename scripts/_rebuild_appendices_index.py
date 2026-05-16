@@ -1,4 +1,4 @@
-"""Rebuild `appendices/index.html` from book_structure.target.yaml.
+"""Rebuild `appendices/index.html` from book_structure.yaml.
 
 Layout: same chapter-card grid as before, grouped by `group` field. Glossary
 gets a special card (no Appendix letter, just "Glossary"). Front-matter
@@ -104,7 +104,7 @@ def render_appendices_page(struct: dict) -> str:
 </blockquote>
 <div class="part-overview">
 <h2>Part Overview</h2>
-<p>The appendices provide essential reference material organized into four groups. <strong>Foundations</strong> covers mathematical prerequisites, ML essentials, Python tooling, environment configuration, and version control. <strong>Framework Guides</strong> offers hands-on introductions to HuggingFace, LangChain, and the broader LLM tooling ecosystem. <strong>Infrastructure and MLOps</strong> covers GPU hardware, experiment tracking, inference serving, distributed computing, containerization, and cross-cutting reference catalogs. Finally, <strong>Pedagogical Kit</strong> contains the capstone rubric, intermediate projects, war stories, the problem-solution key, and the 2026 freshness index.</p>
+<p>The appendices provide reference material organized into six groups. <strong>Foundations</strong> covers the mathematical and ML prerequisites. <strong>Framework Guides</strong> offers hands-on introductions to HuggingFace, LangChain, orchestration frameworks, and agent frameworks. <strong>Research and Development Infrastructure</strong> covers Python tooling, environment setup, version control, and experiment tracking. <strong>Production Infrastructure</strong> covers inference serving, distributed ML, and Docker. <strong>Cross-Cutting References</strong> collects master reference tables, the problem-solution key, and the 2026 freshness index. <strong>For Instructors</strong> contains course syllabi, reading pathways, intermediate projects, the capstone project, and named production war stories for classroom discussion.</p>
 </div>
 <div class="callout big-picture">
 <div class="callout-title">Big Picture</div>
@@ -128,7 +128,7 @@ def render_appendices_page(struct: dict) -> str:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--yaml", type=Path,
-                    default=ROOT / "book_structure.target.yaml")
+                    default=ROOT / "book_structure.yaml")
     ap.add_argument("--out", type=Path,
                     default=ROOT / "appendices" / "index.html")
     args = ap.parse_args()
