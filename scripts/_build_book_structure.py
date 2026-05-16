@@ -274,6 +274,10 @@ def _appendix_section_sort_key(name: str) -> tuple:
 def glossary_entry() -> dict[str, Any]:
     gdir = BOOK_ROOT / "appendices" / "glossary"
     idx = gdir / "index.html"
+    if not idx.exists():
+        # Glossary dropped (v9, May 2026). Return None so downstream
+        # renderers (rebuild_toc, rebuild_appendices_index) skip it.
+        return None
     rel = str(idx.relative_to(BOOK_ROOT)).replace("\\", "/")
     soup = parse(idx)
     h1 = get_h1_text(soup, rel)
@@ -373,7 +377,7 @@ def main() -> int:
     n_sections = sum(len(c["sections"]) for p in parts for c in p["chapters"])
     n_app = len(appendices)
     n_app_sections = sum(len(a["sections"]) for a in appendices)
-    n_gloss = len(glossary["sections"])
+    n_gloss = len(glossary["sections"]) if glossary else 0
     n_fm = len(fm)
 
     print(f"\nWrote {OUT_PATH}")

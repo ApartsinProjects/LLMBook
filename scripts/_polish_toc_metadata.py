@@ -131,35 +131,34 @@ def main() -> int:
     #                            P Freshness 2026
     #   For Instructors          O Pedagogy Kit (with Course Syllabi, Reading
     #                            Pathways as sections)
-    # 6-group structure (May 2026 v8: Python moves to R&D; Pedagogy Kit
-    # split into 5 separate appendices):
+    # 5-group structure (May 2026 v9: Cross-Cutting References dropped;
+    # Master Tables + Freshness deleted; Glossary deleted;
+    # Problem-Solution Key moved to Framework Guides as G):
     #   Foundations                       A Math, B ML
     #   Framework Guides                  C HF, D LangChain,
-    #                                     E Orchestration, F Agent Frameworks
-    #   Research & Development Infra      G Python, H Env Setup, I Git/DVC,
-    #                                     J Experiments
-    #   Production Infrastructure (MLOps) K Inference, L Distributed, M Docker
-    #   Cross-Cutting References          N Master Tables, O Problem-Solution,
-    #                                     P Freshness 2026
-    #   For Instructors                   Q Course Syllabi, R Reading Pathways,
-    #                                     S Intermediate Projects,
-    #                                     T Capstone Project,
-    #                                     U War Stories for Discussion
+    #                                     E Orchestration, F Agent Frameworks,
+    #                                     G Problem-Solution Key
+    #   Research & Development Infra      H Python, I Env Setup, J Git/DVC,
+    #                                     K Experiments
+    #   Production Infrastructure (MLOps) L Inference, M Distributed, N Docker
+    #   For Instructors                   O Course Syllabi, P Reading Pathways,
+    #                                     Q Intermediate Projects,
+    #                                     R Capstone Project,
+    #                                     S War Stories for Discussion
     APPENDIX_GROUPS = {
         "A": "Foundations", "B": "Foundations",
         "C": "Framework Guides", "D": "Framework Guides",
         "E": "Framework Guides", "F": "Framework Guides",
-        "G": "Research & Development Infrastructure",
+        "G": "Framework Guides",
         "H": "Research & Development Infrastructure",
         "I": "Research & Development Infrastructure",
         "J": "Research & Development Infrastructure",
-        "K": "Production Infrastructure",
+        "K": "Research & Development Infrastructure",
         "L": "Production Infrastructure",
         "M": "Production Infrastructure",
-        "N": "Cross-Cutting References", "O": "Cross-Cutting References",
-        "P": "Cross-Cutting References",
+        "N": "Production Infrastructure",
+        "O": "For Instructors", "P": "For Instructors",
         "Q": "For Instructors", "R": "For Instructors", "S": "For Instructors",
-        "T": "For Instructors", "U": "For Instructors",
     }
     n_app = 0
     for app in struct.get("appendices", []):
