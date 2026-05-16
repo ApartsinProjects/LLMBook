@@ -9,14 +9,14 @@ Root: `E:/Projects/BookBlogsHome/LLMBook` | HTML pages scanned: 476
 
 ## Summary
 
-- Cross-links checked (excluding nav / external / anchor / self / broken): 4905
-- Resolvable + relevant: 4482
-- P0 (mismatched topic): 133
-- P1 (number drift, topic right): 290
+- Cross-links checked (excluding nav / external / anchor / self / broken): 4928
+- Resolvable + relevant: 4671
+- P0 (mismatched topic): 132
+- P1 (number drift, topic right): 125
 - P2 (stale label, dropped resource): 0
 - P3 (over-promise): 0
 
-_Skipped: 3086 external, 20 anchor-only, 10 self, 3680 structural-nav, 366 broken hrefs._
+_Skipped: 3086 external, 20 anchor-only, 10 self, 3680 structural-nav, 355 broken hrefs._
 
 ## P0: Mismatched topic
 
@@ -145,10 +145,6 @@ These are the lies-by-omission: the reader clicks expecting X and lands on Y.
   Destination: Open-Source & Open-Weight Models
   Example: `part-2-understanding-llms/module-10-inference-optimization/section-10.5.html:263` href=`../module-08-modern-llm-landscape/section-8.2.html`
 
-- Text: `Pretraining Foundations (Section 7.1)`
-  Destination: BERT, GPT, T5: Three Bets That Shaped Today's LLMs
-  Example: `appendices/appendix-b-ml-essentials/section-b.1.html:53` href=`../../part-2-understanding-llms/module-07-pretraining-scaling-laws/section-7.1.html`
-
 - Text: `Production Observability and Cost Control`
   Destination: Agentic Security Benchmarks for Tool-Using Systems
   Example: `part-9-safety-security-ethics/module-38-agent-safety-security/section-38.2.html:264` href=`section-38.3.html`
@@ -241,7 +237,11 @@ These are the lies-by-omission: the reader clicks expecting X and lands on Y.
   Destination: Ideation: Finding LLM-Worthy Problems
   Example: `part-10-idea-to-product/module-46-compute-planning/section-46.4.html:42` href=`../module-40-ideation/index.html`
 
-_(... and 6 more unique mismatch patterns, capped.)_
+- Text: `semantic similarity`
+  Destination: RAG Architecture & Fundamentals
+  Example: `part-9-safety-security-ethics/module-37-safety-ethics-regulation/section-37.1.html:322` href=`../../part-5-retrieval-conversation/module-23-rag/section-23.1.html`
+
+_(... and 5 more unique mismatch patterns, capped.)_
 
 ## P1: Number drift (topic right, citation stale)
 
@@ -281,11 +281,6 @@ to cite the new number; the href is already correct.
   Example: `part-2-understanding-llms/module-07-pretraining-scaling-laws/section-7.5.html:195` text=`Chapter 17`
   Other: `part-2-understanding-llms/module-08-modern-llm-landscape/section-8.2.html:58`, `part-2-understanding-llms/module-08-modern-llm-landscape/section-8.4.html:66`
 
-- Section 9.5 -> Section 10.5: Model Pruning & Sparsity (3 occurrences)
-  Example: `part-2-understanding-llms/module-10-inference-optimization/index.html:140` text=`9.5 Model Pruning & Sparsity Structured and unstructured pruning techniques, magnitude and gradient-based
-              `
-  Other: `part-2-understanding-llms/module-10-inference-optimization/section-10.3.html:130`, `part-2-understanding-llms/module-10-inference-optimization/section-10.6.html:97`
-
 - Appendix G -> Appendix K: Experiment Tracking: W&B and MLflow (2 occurrences)
   Example: `appendices/appendix-m-distributed-ml/section-m.4.html:319` text=`Appendix G`
   Other: `appendices/appendix-m-distributed-ml/section-m.4.html:585`
@@ -311,38 +306,11 @@ to cite the new number; the href is already correct.
   Other: `part-9-safety-security-ethics/index.html:100`
 
 - Part XI -> Part X (2 occurrences)
-  Example: `part-12-frontiers/index.html:70` text=`Part XI`
+  Example: `part-12-frontiers/index.html:122` text=`Part XI`
   Other: `part-12-frontiers/module-61-frontier-architectures/index.html:185`
 
-- Section 30.10 -> Section 37.10: Environmental Impact & Green AI (2 occurrences)
-  Example: `part-9-safety-security-ethics/module-37-safety-ethics-regulation/index.html:186` text=`30.10 Environmental Impact & Green AI Carbon and water footprint of training and inference. Measurement methodology,
-   `
-  Other: `part-9-safety-security-ethics/module-37-safety-ethics-regulation/index.html:261`
-
-- Section 30.11 -> Section 37.11: Privacy Attacks & Differential Privacy for LLMs (2 occurrences)
-  Example: `part-9-safety-security-ethics/module-37-safety-ethics-regulation/index.html:197` text=`30.11 Privacy Attacks & Differential Privacy for LLMs Membership inference, training-data extraction, model inversion. D`
-  Other: `part-9-safety-security-ethics/module-37-safety-ethics-regulation/index.html:272`
-
-- Section 30.6 -> Section 37.6: LLM Licensing, IP & Privacy (2 occurrences)
-  Example: `part-9-safety-security-ethics/module-37-safety-ethics-regulation/index.html:143` text=`30.6 LLM Licensing, IP & Privacy Model license families (proprietary, open-weight, restricted-use), copyright in trainin`
-  Other: `part-9-safety-security-ethics/module-37-safety-ethics-regulation/index.html:221`
-
-- Section 30.7 -> Section 37.7: Machine Unlearning (2 occurrences)
-  Example: `part-9-safety-security-ethics/module-37-safety-ethics-regulation/index.html:154` text=`30.7 Machine Unlearning Removing specific training data influence from a deployed model. Approximate unlearning
-        `
-  Other: `part-9-safety-security-ethics/module-37-safety-ethics-regulation/index.html:231`
-
-- Section 30.8 -> Section 37.8: Red Teaming Frameworks & LLM Security Testing (2 occurrences)
-  Example: `part-9-safety-security-ethics/module-37-safety-ethics-regulation/index.html:164` text=`30.8 Red Teaming Frameworks & LLM Security Testing Structured adversarial probing of deployed models. Attack taxonomies,`
-  Other: `part-9-safety-security-ethics/module-37-safety-ethics-regulation/index.html:241`
-
-- Section 30.9 -> Section 37.9: EU AI Act Compliance in Practice (2 occurrences)
-  Example: `part-9-safety-security-ethics/module-37-safety-ethics-regulation/index.html:175` text=`30.9 EU AI Act Compliance in Practice Translating the EU AI Act's risk tiers into concrete engineering deliverables: con`
-  Other: `part-9-safety-security-ethics/module-37-safety-ethics-regulation/index.html:251`
-
-- Section 9.1 -> Section 10.1: Model Quantization (2 occurrences)
-  Example: `part-2-understanding-llms/module-10-inference-optimization/index.html:96` text=`9.1 Model Quantization Quantization math (absmax, zero-point, per-group), data types (INT8, INT4, FP8, NF4),
-           `
+- Section 9.5 -> Section 10.5: Model Pruning & Sparsity (2 occurrences)
+  Example: `part-2-understanding-llms/module-10-inference-optimization/section-10.3.html:130` text=`9.5`
   Other: `part-2-understanding-llms/module-10-inference-optimization/section-10.6.html:97`
 
 - Appendix G -> Appendix M: Distributed ML: PySpark, Databricks, and Ray
@@ -426,7 +394,28 @@ to cite the new number; the href is already correct.
 - Chapter 25 -> Chapter 37: Safety, Ethics & Regulation
   Example: `part-2-understanding-llms/module-07-pretraining-scaling-laws/section-7.4.html:312` text=`Chapter 25`
 
-_(... and 159 more unique drift patterns, capped.)_
+- Chapter 27 -> Chapter 31: Multimodal Generation
+  Example: `part-2-understanding-llms/module-07-pretraining-scaling-laws/section-7.1.html:168` text=`Chapter 27`
+
+- Chapter 29 -> Chapter 34: LLM Evaluation & Quality Metrics
+  Example: `part-2-understanding-llms/module-07-pretraining-scaling-laws/section-7.3.html:187` text=`Chapter 29`
+
+- Chapter 6 -> Chapter 7: Pre-training Objectives & Paradigms
+  Example: `part-1-foundations/module-00-ml-pytorch-foundations/section-0.1.html:314` text=`scaling laws and the Chinchilla findings in Chapter 06`
+
+- Chapter 7 -> Chapter 5: Decoding Strategies & Text Generation
+  Example: `appendices/appendix-c-huggingface-ecosystem/section-c.1.html:223` text=`Chapter 07: Text Generation and Decoding`
+
+- Chapter 8 -> Chapter 10: Inference Optimization & Efficient Serving
+  Example: `part-2-understanding-llms/module-07-pretraining-scaling-laws/section-7.3.html:149` text=`Chapter 08`
+
+- Chapter 9 -> Chapter 18: Fine-Tuning Fundamentals
+  Example: `appendices/appendix-c-huggingface-ecosystem/section-c.3.html:37` text=`Chapter 09: Fine-Tuning`
+
+- Section 11.2 -> Section 14.2: Chain-of-Thought & Reasoning Techniques
+  Example: `part-3-working-with-llms/module-14-prompt-engineering/section-14.3.html:39` text=`11.2`
+
+_(... and 2 more unique drift patterns, capped.)_
 
 ## P2: Stale label (dropped resource)
 
@@ -464,19 +453,19 @@ _None auto-detected. Consider a manual sweep for prose like "for the X recipe", 
 | 6 | `Chapter 8 -> Chapter 9` |
 | 5 | `Appendix D -> Appendix C` |
 | 3 | `Chapter 17 -> Chapter 18` |
-| 3 | `Section 9.5 -> Section 10.5` |
 | 2 | `Appendix K -> Appendix D` |
 | 2 | `Appendix G -> Appendix K` |
 | 2 | `Chapter 20 -> Chapter 19` |
 | 2 | `Part X -> Part XII` |
 | 2 | `Part XI -> Part X` |
-| 2 | `Section 9.1 -> Section 10.1` |
+| 2 | `Section 9.5 -> Section 10.5` |
 | 2 | `Chapter 11 -> Chapter 10` |
 | 2 | `Chapter 25 -> Chapter 26` |
-| 2 | `Section 30.6 -> Section 37.6` |
-| 2 | `Section 30.7 -> Section 37.7` |
-| 2 | `Section 30.8 -> Section 37.8` |
-| 2 | `Section 30.9 -> Section 37.9` |
+| 2 | `Chapter 52 -> Chapter 37` |
+| 1 | `Chapter 7 -> Chapter 5` |
+| 1 | `Chapter 9 -> Chapter 18` |
+| 1 | `Chapter 13 -> Chapter 20` |
+| 1 | `Appendix M.1 -> Appendix L.1` |
 
 ### P2 dropped-resource labels
 
@@ -486,26 +475,26 @@ _None._
 
 | Issues | File |
 |---:|---|
-| 18 | `part-9-safety-security-ethics/module-37-safety-ethics-regulation/index.html` |
-| 12 | `part-8-evaluation-production/module-34-evaluation-observability/index.html` |
-| 10 | `part-5-retrieval-conversation/module-23-rag/index.html` |
-| 9 | `part-2-understanding-llms/module-07-pretraining-scaling-laws/index.html` |
-| 9 | `part-2-understanding-llms/module-09-reasoning-test-time-compute/index.html` |
-| 9 | `part-7-multimodal-generation/module-31-multimodal/index.html` |
-| 9 | `part-8-evaluation-production/module-35-production-engineering/index.html` |
-| 8 | `part-2-understanding-llms/module-10-inference-optimization/index.html` |
-| 8 | `part-4-training-adapting/module-18-fine-tuning-fundamentals/index.html` |
-| 8 | `part-4-training-adapting/module-19-peft/index.html` |
 | 7 | `appendices/appendix-m-distributed-ml/index.html` |
-| 7 | `part-10-idea-to-product/module-45-prototype-to-production/index.html` |
-| 7 | `part-3-working-with-llms/module-15-hybrid-ml-llm/index.html` |
-| 7 | `part-4-training-adapting/module-17-synthetic-data/index.html` |
-| 7 | `part-4-training-adapting/module-20-alignment-rlhf-dpo/index.html` |
-| 7 | `part-6-agentic-ai/module-26-ai-agents/index.html` |
-| 6 | `part-3-working-with-llms/module-14-prompt-engineering/index.html` |
-| 6 | `part-2-understanding-llms/module-08-modern-llm-landscape/index.html` |
 | 5 | `appendices/appendix-l-inference-serving/index.html` |
-| 5 | `part-2-understanding-llms/module-11-interpretability/index.html` |
+| 4 | `part-12-frontiers/module-61-frontier-architectures/section-61.2.html` |
+| 4 | `part-8-evaluation-production/module-35-production-engineering/section-35.7.html` |
+| 4 | `part-9-safety-security-ethics/module-37-safety-ethics-regulation/section-37.1.html` |
+| 4 | `appendices/appendix-m-distributed-ml/section-m.4.html` |
+| 4 | `appendices/appendix-n-docker-containers/index.html` |
+| 4 | `part-1-foundations/module-05-decoding-text-generation/section-5.4.html` |
+| 4 | `part-2-understanding-llms/module-10-inference-optimization/section-10.6.html` |
+| 3 | `part-12-frontiers/module-61-frontier-architectures/section-61.3.html` |
+| 3 | `part-2-understanding-llms/module-07-pretraining-scaling-laws/section-7.3.html` |
+| 3 | `part-2-understanding-llms/module-07-pretraining-scaling-laws/section-7.4.html` |
+| 3 | `part-2-understanding-llms/module-08-modern-llm-landscape/section-8.2.html` |
+| 3 | `part-2-understanding-llms/module-10-inference-optimization/section-10.3.html` |
+| 3 | `part-2-understanding-llms/module-10-inference-optimization/section-10.4.html` |
+| 3 | `part-3-working-with-llms/module-15-hybrid-ml-llm/section-15.2.html` |
+| 3 | `part-4-training-adapting/module-19-peft/section-19.1.html` |
+| 3 | `part-4-training-adapting/module-19-peft/section-19.5.html` |
+| 3 | `part-5-retrieval-conversation/module-23-rag/section-23.5.html` |
+| 3 | `part-8-evaluation-production/module-34-evaluation-observability/section-34.3.html` |
 
 ## Method notes
 

@@ -58,8 +58,12 @@ APPENDIX_SUBTITLES = {
         "Logging experiments, comparing runs, and managing model artifacts with Weights & Biases and MLflow.",
     "inference-serving":
         "High-throughput LLM serving with continuous batching, PagedAttention, and production deployment patterns.",
+    "data-engineering":
+        "PySpark, Delta Lake, feature stores, and production data pipelines for the LLM stack.",
     "distributed-ml":
-        "Scaling data pipelines and training across clusters with PySpark, Databricks, and Ray.",
+        "DDP / FSDP / ZeRO training, Databricks workspace, and Ray Train / Serve / Data for scale.",
+    "mlops":
+        "Observability, monitoring, deployment patterns, model registry, SLOs, and FinOps for production LLMs.",
     "docker-containers":
         "Containerizing LLM applications with Docker, GPU passthrough, and orchestration with Docker Compose.",
     "master-reference-tables":
@@ -131,20 +135,22 @@ def main() -> int:
     #                            P Freshness 2026
     #   For Instructors          O Pedagogy Kit (with Course Syllabi, Reading
     #                            Pathways as sections)
-    # 5-group structure (May 2026 v9: Cross-Cutting References dropped;
-    # Master Tables + Freshness deleted; Glossary deleted;
-    # Problem-Solution Key moved to Framework Guides as G):
+    # 5-group structure (May 2026 v10: split Distributed ML into Data
+    # Engineering (M) + Distributed ML (N); add new MLOps appendix (O);
+    # cascade Docker N->P and For-Instructors O-S -> Q-U):
     #   Foundations                       A Math, B ML
     #   Framework Guides                  C HF, D LangChain,
     #                                     E Orchestration, F Agent Frameworks,
     #                                     G Problem-Solution Key
     #   Research & Development Infra      H Python, I Env Setup, J Git/DVC,
     #                                     K Experiments
-    #   Production Infrastructure (MLOps) L Inference, M Distributed, N Docker
-    #   For Instructors                   O Course Syllabi, P Reading Pathways,
-    #                                     Q Intermediate Projects,
-    #                                     R Capstone Project,
-    #                                     S War Stories for Discussion
+    #   Production Infrastructure         L Inference, M Data Engineering,
+    #                                     N Distributed ML, O MLOps,
+    #                                     P Docker
+    #   For Instructors                   Q Course Syllabi, R Reading Pathways,
+    #                                     S Intermediate Projects,
+    #                                     T Capstone Project,
+    #                                     U War Stories for Discussion
     APPENDIX_GROUPS = {
         "A": "Foundations", "B": "Foundations",
         "C": "Framework Guides", "D": "Framework Guides",
@@ -157,8 +163,10 @@ def main() -> int:
         "L": "Production Infrastructure",
         "M": "Production Infrastructure",
         "N": "Production Infrastructure",
-        "O": "For Instructors", "P": "For Instructors",
-        "Q": "For Instructors", "R": "For Instructors", "S": "For Instructors",
+        "O": "Production Infrastructure",
+        "P": "Production Infrastructure",
+        "Q": "For Instructors", "R": "For Instructors",
+        "S": "For Instructors", "T": "For Instructors", "U": "For Instructors",
     }
     n_app = 0
     for app in struct.get("appendices", []):
