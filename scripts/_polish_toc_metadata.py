@@ -108,29 +108,23 @@ def main() -> int:
     #                                L=Docker)
     #    Reference & Pedagogy   (M=Tables, N=Patterns, O=Pedagogy,
     #                                P=Prob-Solution, Q=Freshness)
-    # Final group structure (May 2026 v3 post-Production-Patterns drop +
-    # Experiment Tracking moved to Dev Setup):
-    #   Foundations              A Math, B ML
-    #   Development Setup        C Python, D Env, I Experiments
-    #   Library & Framework      E HF, F LangChain, G Tooling
-    #   Production Infrastructure (MLOps)  H Git/DVC, J Inference,
-    #                             K Distributed, L Docker
-    #   Cross-Cutting Reference  M Master Tables, N Problem-Solution Key
-    #   Pedagogical Kit          O Pedagogy Kit, P Freshness 2026
+    # Final 5-group structure (May 2026 v4):
+    #   Foundations              A Math, B ML, C Python
+    #   Framework Guides         D HF, E LangChain, F Tooling
+    #   Production Infrastructure (MLOps)
+    #                            G Env Setup, H Git/DVC, I Experiments,
+    #                            J Inference, K Distributed, L Docker
+    #   Cross-Cutting References M Master Tables, N Problem-Solution Key
+    #   For Instructors          O Pedagogy Kit, P Freshness 2026
     APPENDIX_GROUPS = {
-        "A": "Foundations", "B": "Foundations",
-        "C": "Development Setup", "D": "Development Setup",
-        "I": "Development Setup",
-        "E": "Library & Framework Guides",
-        "F": "Library & Framework Guides",
-        "G": "Library & Framework Guides",
-        "H": "Production Infrastructure",
-        "J": "Production Infrastructure",
-        "K": "Production Infrastructure",
-        "L": "Production Infrastructure",
-        "M": "Cross-Cutting Reference",
-        "N": "Cross-Cutting Reference",
-        "O": "Pedagogical Kit", "P": "Pedagogical Kit",
+        "A": "Foundations", "B": "Foundations", "C": "Foundations",
+        "D": "Framework Guides", "E": "Framework Guides",
+        "F": "Framework Guides",
+        "G": "Production Infrastructure", "H": "Production Infrastructure",
+        "I": "Production Infrastructure", "J": "Production Infrastructure",
+        "K": "Production Infrastructure", "L": "Production Infrastructure",
+        "M": "Cross-Cutting References", "N": "Cross-Cutting References",
+        "O": "For Instructors", "P": "For Instructors",
     }
     n_app = 0
     for app in struct.get("appendices", []):
