@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<meta content="Section 37.7: Eval-as-Product: Braintrust, Latitude, Laminar. A comprehensive chapter from the Building Conversational AI textbook." name="description"/>
+<title>Section 37.7: Eval-as-Product: Braintrust, Latitude, Laminar</title>
+<link href="../../styles/book.css" rel="stylesheet"/>
+<link href="../../styles/pygments.css" rel="stylesheet"/>
+<link href="../../vendor/katex/katex.min.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/katex/katex.min.js"></script>
+<script defer="" onload="renderMathInElement(document.body, {
+ delimiters: [
+ {left: '$$', right: '$$', display: true},
+ {left: '$', right: '$', display: false}
+ ],
+ throwOnError: false
+ });" src="../../vendor/katex/contrib/auto-render.min.js"></script>
+<link href="../../vendor/prism/prism-theme.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/prism/prism-bundle.min.js"></script>
+<script defer="" src="../../scripts/book.js"></script>
+<link href="../../pagefind/pagefind-ui.css" rel="stylesheet"/>
+<script defer="" src="../../pagefind/pagefind-ui.js"></script>
+</head>
+<body>
+<header class="chapter-header">
+<nav class="header-nav">
+<a class="book-title-link" href="../../index.html">Building Conversational AI with LLMs and Agents</a>
+<a class="toc-link" href="../../toc.html" title="Table of Contents"><span class="toc-icon">☰</span> Contents</a>
+</nav>
+<div class="header-search">
+<div id="search"></div>
+</div>
+
+<div class="page-breadcrumb" data-pagefind-meta="chapter"><a href="../index.html">Part VIII: Evaluation of LLM-Based Systems</a><span class="bc-sep">›</span><a href="index.html">Chapter 37: Eval Platforms &amp; Workflows</a></div>
+<h1>Eval-as-Product: Braintrust, Latitude, Laminar</h1><div class="page-current">Section 37.7</div>
+
+</header>
+<main class="content"><span class="pagefind-meta-injected" data-pagefind-meta="part:Part VIII: Evaluation of LLM-Based Systems" hidden=""></span><span class="pagefind-meta-injected" data-pagefind-meta="chapter:Chapter 37: Eval Platforms &amp; Workflows" hidden=""></span>
+<blockquote class="epigraph">
+<p>"Observability tells you what already broke. Eval-as-product tells you what will break tomorrow if you ship the new prompt today."</p> <span class="agent-avatar-inline" style="background-color: #7f8c8d;"><img alt="Eval" height="28" src="../../front-matter/images/agents/eval.png" width="28"/></span><cite>Eval, <span class="agent-desc">Replay-Native AI Agent</span></cite>
+</blockquote>
+<div class="callout big-picture">
+<div class="callout-title">Big Picture</div>
+<p><strong>Between 2023 and 2026, evaluation moved out of CI and into a new product category.</strong> The CI-gated eval pipeline of <a href="../module-34-evaluation-observability/section-34.1.html">Section 34.1</a> is still essential, but it leaves three jobs undone: <em>scoring live production traffic</em> as it happens, <em>replaying</em> historical traffic against new prompts and models, and <em>comparing</em> dozens of prompt-and-model variants in a UI that PMs and domain experts can actually use. A new generation of tools, Braintrust, Latitude, Laminar, LangSmith, Helicone, and others, has emerged to fill that gap, and the category has a name: <strong>eval-as-product</strong>. This section is about when to adopt one of these platforms, which one fits which team, and what the integration looks like in code. It is also about when <em>not</em> to adopt one: for fully automated, CI-gated evaluation, the platform fees and integration cost rarely pay back. The decision rests on whether human review and replay loops are central to your iteration cycle.</p>
+</div>
+<div class="prerequisites">
+<h3 id="prerequisites">Prerequisites</h3>
+<p>This section assumes familiarity with the eval-as-CI pattern from <a href="../module-34-evaluation-observability/section-34.1.html">Section 34.1</a> and basic observability concepts (traces, spans, metrics) from <a href="../module-34-evaluation-observability/section-34.6.html">Section 34.6</a>. Some familiarity with promptfoo or DeepEval from <a href="../module-36-tools-of-the-trade/section-36.2.html">Section 36.2</a> helps with the comparison.</p>
+</div>
+<h2 id="37-7-1-from-eval-as-ci-to-eval-as-product">37.7.1 From Eval-as-CI to Eval-as-Product</h2>
+<div class="callout production-pattern">
+<div class="callout-title">Production Pattern: The Replay Loop</div>
+<p><strong>When:</strong> any team iterating on prompts for a production LLM application with non-trivial traffic (more than a few hundred user-facing requests per day). <strong>How:</strong> sample 200-2000 representative production traces per week, store them in an eval platform's dataset, and re-run them against every prompt/model candidate before merging. Score each replay with the same LLM-as-judge or rule-based scorers, and surface side-by-side diffs in the platform UI. <strong>Watch for:</strong> sample-bias drift (production traffic shifts, your dataset stays stale), PII leakage (production traces contain user data, the eval dataset inherits it), and judge-rubric rot (the judge prompt that worked six months ago no longer matches what reviewers actually care about). <strong>Result:</strong> prompt regressions are caught in a UI review before they ship, not by users.</p>
+</div>
+<p>The eval-as-CI pattern from <a href="../module-34-evaluation-observability/section-34.1.html">Section 34.1</a> is necessary but incomplete. It runs the same fixed golden set on every PR, blocks merges on metric thresholds, and reports a pass/fail. That works well for the regression-prevention job: it catches the cases where a new prompt or model degrades a well-understood behavior. It does not work well for the three jobs that emerged as LLM apps got more complex:</p>
+<ul>
+<li><strong>Scoring live traffic.</strong> A golden set is static; production traffic shifts daily. A reasonable score on yesterday's eval set does not guarantee a reasonable score on today's incoming queries. You need a way to score live traffic, at least on a sample, and surface trends as they emerge.</li>
+<li><strong>Replaying historical traffic.</strong> When you want to try a new prompt, the question "would this prompt have produced better results on the last week of traffic?" is more decision-relevant than "does this prompt pass the golden set?" Replay against historical traces, with scoring side-by-side, is the core eval-as-product operation.</li>
+<li><strong>Comparing many variants.</strong> A spreadsheet of 20 prompts and 4 models is 80 cells. CI gates only the merge candidate; they don't let a PM or domain expert sweep a candidate space. A UI that shows the 80 cells with per-cell scores, side-by-side diffs, and confidence intervals is a fundamentally different workflow than CI.</li>
+</ul>
+<p>Eval-as-product is the category of tools that do those three jobs in one UI. The first generation (Promptfoo, OpenAI Evals) emphasized the static-eval job and had limited replay and live-traffic features. The second generation (Braintrust, Latitude, Laminar, LangSmith, Helicone, plus offerings from the major model providers) treats live-scoring, replay, and variant-comparison as first-class operations alongside static eval.</p>
+<div class="callout note">
+<div class="callout-title">Note: Eval-as-Product Is Not the Same as Observability</div>
+<p>It is easy to confuse eval-as-product with LLM observability platforms (Langfuse, Arize Phoenix, Honeycomb's LLM features). Observability is read-only: it captures traces, lets you query them, and computes aggregate metrics. Eval-as-product adds the active components: you can <em>replay</em> a captured trace against a new prompt, <em>score</em> the historical run against new judges, and <em>A/B compare</em> variants. The line is blurry, modern platforms increasingly do both, but the core distinction is read-only vs replay-capable.</p>
+</div>
+<h2 id="37-7-2-the-eval-first-workflow">37.7.2 The Eval-First Workflow: Experiment, Score, Compare, Iterate</h2>
+<p>The workflow that eval-as-product platforms optimize for has four steps, and the shape of the workflow is what distinguishes good platforms from bad ones.</p>
+<p><strong>Step 1: Experiment.</strong> Define a hypothesis (a new prompt, a new model, a new tool, a new retrieval strategy), and a dataset (production traces, a curated golden set, a synthetic eval set). The platform runs the hypothesis against the dataset and produces a result table: one row per dataset item, one column per metric.</p>
+<p><strong>Step 2: Score.</strong> Each row's output is scored along multiple axes: rule-based metrics (exact-match, JSON validity), LLM-as-judge scores (helpfulness, faithfulness), and custom metrics (latency, cost, token count). The good platforms make adding a custom metric a 5-minute job: write a function that takes (input, output, expected) and returns a score, register it as a scorer.</p>
+<p><strong>Step 3: Compare.</strong> The platform diffs your experiment against a baseline (the production prompt, the last shipped version). Per-row diffs highlight which items improved, which regressed, and by how much. Aggregate diffs show overall direction. This is the step where most teams catch the cases that CI gates miss: a 0.5% aggregate improvement that masks a 20% regression on one specific user segment.</p>
+<p><strong>Step 4: Iterate.</strong> Based on the comparison, refine the prompt, retry, score, compare. The fastest platforms make this loop tight (sub-minute for small datasets). The slow ones make it slow enough that teams stop using them after a week.</p>
+<p>The crucial insight is that this is the <em>same loop</em> that ML researchers run for fine-tuning experiments, but with a UI tailored for prompt-engineering iteration cycles instead of training-run cycles. The platforms that have succeeded in 2025-2026 are the ones that nailed the UI ergonomics, the ones that treated this as an ML-platform problem in disguise.</p>
+<h2 id="37-7-3-braintrust">37.7.3 Braintrust: The Polished Default</h2>
+<p>Braintrust (braintrust.dev) is the most polished of the three platforms covered here, and it has captured a large share of the venture-backed AI-product market. Its design choices reflect that audience: rich playground for prompt iteration, deep integration with OpenAI and Anthropic SDKs, automatic regression detection against the previous experiment, and a Python/TypeScript SDK that maps cleanly onto existing eval patterns.</p>
+<p>The core abstractions are <em>datasets</em> (collections of input/expected-output pairs), <em>experiments</em> (a run of your task against a dataset), and <em>scorers</em> (functions that judge each row of an experiment). The Braintrust scorer library includes pre-built scorers for many common metrics: Factuality (LLM-as-judge for factual accuracy), Faithfulness (RAG-style faithfulness scoring), AnswerRelevancy, JSONDiff (structural diff for JSON outputs), Levenshtein, NumericDiff, Sql (SQL-equivalence checking), and others. You can add custom scorers by writing a Python or TypeScript function.</p>
+<p>Strengths:</p>
+<ul>
+<li><strong>Rich scoring DSL.</strong> The scorer library is broad and well-curated. The same scorer interface works for batch eval, live scoring, and replay.</li>
+<li><strong>OpenAI/Anthropic native.</strong> First-class integration with both major provider SDKs. Drop-in proxy mode that captures all calls without code changes is a major time-saver for teams already on those SDKs.</li>
+<li><strong>Automatic regression detection.</strong> Compare any new experiment against the production baseline with one click; the UI surfaces per-row regressions and aggregates.</li>
+<li><strong>Playground.</strong> Interactive prompt editing with side-by-side comparison across models, useful for the PM-and-domain-expert audience.</li>
+</ul>
+<p>Weak spots:</p>
+<ul>
+<li><strong>Enterprise pricing.</strong> The free tier is generous for small projects, but enterprise pricing scales with traffic volume and gets expensive quickly. Teams running millions of traced requests per day are typically looking at five-figure annual contracts.</li>
+<li><strong>Closed-source.</strong> Self-hosting is not an option; if you need on-premises evaluation (regulated industries, air-gapped environments), Braintrust is off the table.</li>
+<li><strong>Vendor lock-in risk.</strong> The scorer DSL is proprietary; migrating away requires rewriting the eval definitions.</li>
+</ul>
+<h2 id="37-7-4-latitude">37.7.4 Latitude: The Open-Source Alternative</h2>
+<p>Latitude (latitude.so) takes the opposite design stance: open-source under an MIT-style license, self-hostable, prompt-versioning as the central abstraction. The hosted SaaS version exists, but Latitude's pitch is the on-premises option. For regulated industries (finance, healthcare, defense) and for teams that already run Postgres-and-Docker infrastructure, the self-hostable property dominates other considerations.</p>
+<p>Latitude's primary abstraction is a <em>prompt</em>, with versioning, parameters, and metadata as first-class properties. Datasets and experiments build on top of prompts. The LLM-as-judge functionality is built in: you write a judge prompt in the same DSL as a regular prompt, and Latitude scores experiments using it.</p>
+<p>Strengths:</p>
+<ul>
+<li><strong>Open-source and self-hostable.</strong> Run it on your own Postgres and Docker. The license is permissive enough for commercial use.</li>
+<li><strong>Prompt-versioning-first.</strong> Treats prompts as the unit of work, with diff, history, and rollback. For teams whose iteration is mostly prompt-engineering (rather than full-stack agent development), this is a natural fit.</li>
+<li><strong>Built-in LLM-as-judge.</strong> Judge prompts are first-class objects, not custom scorer code.</li>
+<li><strong>Cheap.</strong> Self-hosted incurs only your infra cost; the hosted tier is priced below Braintrust.</li>
+</ul>
+<p>Weak spots:</p>
+<ul>
+<li><strong>Less polished UI.</strong> The trade-off for being open-source: the UX is functional but lags Braintrust in places.</li>
+<li><strong>Smaller scorer library.</strong> You will write more custom judges; the pre-built scorer catalogue is thinner.</li>
+<li><strong>Younger community.</strong> Fewer Stack Overflow answers, fewer integration examples for niche provider SDKs.</li>
+</ul>
+<h2 id="37-7-5-laminar">37.7.5 Laminar: Observability Plus Eval, Span-Based</h2>
+<p>Laminar (lmnr.ai) sits in a third position: it merges observability and eval into a single span-based system, treating every LLM call (and every tool call, every retrieval, every span in your trace) as both an observability event and a potential eval target. The unit of work is the <em>span</em>, and you can attach scorers to spans the same way you attach metrics to traces.</p>
+<p>Laminar's design choices favor agent-style applications where the trace is the primary object of analysis: long traces, many tool calls, multi-turn conversations, hierarchical span structure. For teams whose evaluation question is "did this 30-step agent trajectory succeed?" rather than "did this single LLM call produce the right answer?", Laminar's span-centric model maps more cleanly.</p>
+<p>Strengths:</p>
+<ul>
+<li><strong>Cheap and fast.</strong> Pricing is among the lowest in the category. Ingestion latency is low; queries on large trace sets are fast.</li>
+<li><strong>Span-based filtering and scoring.</strong> Filter traces by any span property; attach scorers at span granularity rather than trace granularity. Useful for agent debugging.</li>
+<li><strong>Combined observability and eval.</strong> One platform for both jobs, with a unified trace model. Fewer tools to integrate, fewer SDKs to learn.</li>
+</ul>
+<p>Weak spots:</p>
+<ul>
+<li><strong>Newer and less mature.</strong> Smaller team, fewer integrations, fewer pre-built scorers than Braintrust. Documentation gaps in places.</li>
+<li><strong>Self-hosting requires more legwork.</strong> The open-core model exists, but the deployment story is rougher than Latitude's.</li>
+<li><strong>Less polished playground.</strong> The interactive prompt-editing UX is functional but not the equal of Braintrust's.</li>
+</ul>
+<h3 id="comparison-table">Comparison table</h3>
+<p>The decision matrix below summarizes the three platforms (and includes LangSmith and OpenAI Evals as anchors) across the dimensions that typically drive selection.</p>
+<div style="overflow-x:auto;">
+<table style="border-collapse:collapse;width:100%;font-size:0.92em;">
+<thead>
+<tr style="background:#1a1a2e;color:white;">
+<th style="padding:8px;text-align:left;border:1px solid #333;">Property</th>
+<th style="padding:8px;text-align:left;border:1px solid #333;">Braintrust</th>
+<th style="padding:8px;text-align:left;border:1px solid #333;">Latitude</th>
+<th style="padding:8px;text-align:left;border:1px solid #333;">Laminar</th>
+<th style="padding:8px;text-align:left;border:1px solid #333;">LangSmith</th>
+<th style="padding:8px;text-align:left;border:1px solid #333;">OpenAI Evals</th>
+</tr>
+</thead>
+<tbody>
+<tr><td style="padding:6px;border:1px solid #ddd;">Self-hostable</td><td style="padding:6px;border:1px solid #ddd;">No</td><td style="padding:6px;border:1px solid #ddd;">Yes (MIT)</td><td style="padding:6px;border:1px solid #ddd;">Partial (open-core)</td><td style="padding:6px;border:1px solid #ddd;">Enterprise only</td><td style="padding:6px;border:1px solid #ddd;">Yes (Apache-2)</td></tr>
+<tr style="background:#f8f9fa;"><td style="padding:6px;border:1px solid #ddd;">Free tier</td><td style="padding:6px;border:1px solid #ddd;">Generous</td><td style="padding:6px;border:1px solid #ddd;">Cloud free; OSS free</td><td style="padding:6px;border:1px solid #ddd;">Free up to N spans</td><td style="padding:6px;border:1px solid #ddd;">Limited</td><td style="padding:6px;border:1px solid #ddd;">N/A (self-run)</td></tr>
+<tr><td style="padding:6px;border:1px solid #ddd;">SOC-2</td><td style="padding:6px;border:1px solid #ddd;">Type II</td><td style="padding:6px;border:1px solid #ddd;">Type II (cloud)</td><td style="padding:6px;border:1px solid #ddd;">In progress</td><td style="padding:6px;border:1px solid #ddd;">Type II</td><td style="padding:6px;border:1px solid #ddd;">N/A</td></tr>
+<tr style="background:#f8f9fa;"><td style="padding:6px;border:1px solid #ddd;">Python SDK</td><td style="padding:6px;border:1px solid #ddd;">Mature</td><td style="padding:6px;border:1px solid #ddd;">Good</td><td style="padding:6px;border:1px solid #ddd;">Good</td><td style="padding:6px;border:1px solid #ddd;">Mature</td><td style="padding:6px;border:1px solid #ddd;">Basic</td></tr>
+<tr><td style="padding:6px;border:1px solid #ddd;">TypeScript SDK</td><td style="padding:6px;border:1px solid #ddd;">Mature</td><td style="padding:6px;border:1px solid #ddd;">Good</td><td style="padding:6px;border:1px solid #ddd;">Good</td><td style="padding:6px;border:1px solid #ddd;">Mature</td><td style="padding:6px;border:1px solid #ddd;">Community</td></tr>
+<tr style="background:#f8f9fa;"><td style="padding:6px;border:1px solid #ddd;">Pre-built scorers</td><td style="padding:6px;border:1px solid #ddd;">~25</td><td style="padding:6px;border:1px solid #ddd;">~10</td><td style="padding:6px;border:1px solid #ddd;">~15</td><td style="padding:6px;border:1px solid #ddd;">~12</td><td style="padding:6px;border:1px solid #ddd;">~10</td></tr>
+<tr><td style="padding:6px;border:1px solid #ddd;">Multi-judge support</td><td style="padding:6px;border:1px solid #ddd;">Yes</td><td style="padding:6px;border:1px solid #ddd;">Yes</td><td style="padding:6px;border:1px solid #ddd;">Yes</td><td style="padding:6px;border:1px solid #ddd;">Yes</td><td style="padding:6px;border:1px solid #ddd;">Manual</td></tr>
+<tr style="background:#f8f9fa;"><td style="padding:6px;border:1px solid #ddd;">Live-traffic scoring</td><td style="padding:6px;border:1px solid #ddd;">Yes</td><td style="padding:6px;border:1px solid #ddd;">Yes</td><td style="padding:6px;border:1px solid #ddd;">Yes (span-based)</td><td style="padding:6px;border:1px solid #ddd;">Yes</td><td style="padding:6px;border:1px solid #ddd;">No</td></tr>
+<tr><td style="padding:6px;border:1px solid #ddd;">Replay UX</td><td style="padding:6px;border:1px solid #ddd;">Best-in-class</td><td style="padding:6px;border:1px solid #ddd;">Good</td><td style="padding:6px;border:1px solid #ddd;">Span-based</td><td style="padding:6px;border:1px solid #ddd;">Good</td><td style="padding:6px;border:1px solid #ddd;">CLI only</td></tr>
+<tr style="background:#f8f9fa;"><td style="padding:6px;border:1px solid #ddd;">Best for</td><td style="padding:6px;border:1px solid #ddd;">Polished default</td><td style="padding:6px;border:1px solid #ddd;">Regulated / OSS</td><td style="padding:6px;border:1px solid #ddd;">Agents / spans</td><td style="padding:6px;border:1px solid #ddd;">LangChain stacks</td><td style="padding:6px;border:1px solid #ddd;">Static CI eval</td></tr>
+</tbody>
+</table>
+</div>
+<div class="callout warning">
+<div class="callout-title">Warning: Comparison Table Half-Life</div>
+<p>This category is moving fast. The features, pricing, and SOC-2 status of each platform have shifted at least once per quarter through 2024-2026. Treat the table above as a starting point for a 2026 selection, not a permanent reference. Verify the specifics from each vendor's docs before committing to a contract; a feature that wasn't available six months ago may be GA by the time you read this section.</p>
+</div>
+<h2 id="37-7-6-wiring-braintrust-into-a-production-agent">37.7.6 Wiring Braintrust Into a Production Agent Loop</h2>
+<p>The simplest useful Braintrust integration: instrument your production agent to log every run to Braintrust, then run a nightly job that scores the previous day's runs and surfaces the results in the Braintrust UI.</p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># Input: prod traces logged to Braintrust by braintrust.wrap_openai()</span>
+<span class="c1"># Output: nightly scored experiment in the Braintrust UI</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">braintrust</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">braintrust</span><span class="w"> </span><span class="kn">import</span> <span class="n">init_dataset</span><span class="p">,</span> <span class="n">Eval</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">autoevals</span><span class="w"> </span><span class="kn">import</span> <span class="n">Factuality</span><span class="p">,</span> <span class="n">AnswerRelevancy</span><span class="p">,</span> <span class="n">JSONDiff</span>
+
+<span class="c1"># 1) at app startup, wrap OpenAI so every prod call is auto-logged</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">openai</span><span class="w"> </span><span class="kn">import</span> <span class="n">OpenAI</span>
+<span class="n">client</span> <span class="o">=</span> <span class="n">braintrust</span><span class="o">.</span><span class="n">wrap_openai</span><span class="p">(</span><span class="n">OpenAI</span><span class="p">())</span>      <span class="c1"># traces -&gt; project "prod-agent"</span>
+
+<span class="c1"># 2) nightly: pull yesterday's traces as a dataset, score against scorers</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">nightly_score</span><span class="p">():</span>
+    <span class="n">dataset</span> <span class="o">=</span> <span class="n">init_dataset</span><span class="p">(</span><span class="n">project</span><span class="o">=</span><span class="s2">"prod-agent"</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="s2">"yesterday"</span><span class="p">,</span>
+                           <span class="n">filter</span><span class="o">=</span><span class="s2">"created &gt; now() - interval '1 day'"</span><span class="p">)</span>
+    <span class="n">Eval</span><span class="p">(</span>
+        <span class="n">name</span><span class="o">=</span><span class="s2">"prod-agent-nightly"</span><span class="p">,</span>
+        <span class="n">data</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">dataset</span><span class="p">,</span>
+        <span class="n">task</span><span class="o">=</span><span class="k">lambda</span> <span class="n">row</span><span class="p">:</span> <span class="n">row</span><span class="p">[</span><span class="s2">"output"</span><span class="p">],</span>   <span class="c1"># replay-mode: score existing outputs</span>
+        <span class="n">scores</span><span class="o">=</span><span class="p">[</span><span class="n">Factuality</span><span class="p">(),</span> <span class="n">AnswerRelevancy</span><span class="p">(),</span> <span class="n">JSONDiff</span><span class="p">()],</span>
+    <span class="p">)</span>
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">"__main__"</span><span class="p">:</span>
+    <span class="n">nightly_score</span><span class="p">()</span>                                <span class="c1"># cron: 0 3 * * *</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> Eval prod-agent-nightly created. View: https://www.braintrust.dev/app/.../experiments/prod-agent-nightly. 1284 rows scored. Factuality mean: 4.21/5. AnswerRelevancy mean: 0.87. JSONDiff exact-match: 96.3%.
+</div>
+<div class="code-caption"><strong>Code Fragment 37.7.1:</strong> A nightly Braintrust scoring job for a production agent. The <code>wrap_openai()</code> call at app startup captures every LLM call without code changes; the nightly cron rescores the captured traces against your scorer library.</div>
+</div>
+<p>The same pattern works in TypeScript, in Latitude (with a different SDK shape), and in Laminar (with a span-filter instead of a trace-filter). The interesting part is not the SDK, it is the workflow: <em>scoring happens after the fact</em>, on real traffic, with the latest version of your scorer library. If you change a scorer's prompt, you can rescore the last month of traffic with one command and see whether the new scorer agrees with the old one on the same data.</p>
+<h2 id="37-7-7-when-not-to-use-eval-as-product">37.7.7 When Not to Use Eval-as-Product</h2>
+<p>Eval-as-product is not a universal good. The platforms have real costs (subscription fees, integration effort, vendor lock-in), and there are workflows where those costs do not pay back.</p>
+<p><strong>Fully automated, CI-gated eval.</strong> If your eval is 100% rule-based or unit-test-style (exact-match against expected outputs, JSON-schema validation, latency thresholds), and there is no human review loop, then a simple promptfoo or pytest harness running in CI is sufficient. The eval-as-product features (replay UX, side-by-side comparison, live scoring) add little value to a workflow that does not use them.</p>
+<p><strong>Tiny traffic, slow iteration.</strong> A team shipping a low-volume internal tool that updates its prompts once a quarter does not need a replay loop. The fixed cost of adopting a platform exceeds the savings.</p>
+<p><strong>Regulated environments without self-hosting.</strong> If you cannot send production data to a third-party SaaS, Braintrust and Laminar's hosted tiers are off the table. Latitude's self-host option or a custom-built solution becomes the relevant choice.</p>
+<p><strong>When your eval workflow is fundamentally upstream of LLMs.</strong> If your team's evaluation is mostly about classical ML (a tabular classifier, an embedding retriever, a search-quality A/B test), MLflow or Weights and Biases are a better fit. Eval-as-product platforms are optimized for LLM-shaped evaluation; using them for non-LLM workloads is forcing a square peg into a round hole.</p>
+<div class="callout postmortem">
+<div class="callout-title">Postmortem: Adopting Eval-as-Product Too Early</div>
+<p>An early-stage startup integrated Braintrust during their first three weeks, before they had any production traffic. They built scorer rubrics, set up nightly jobs, and configured dashboards. Over the next six weeks, the eval setup consumed about 30% of one engineer's time, and the dashboards showed nothing useful because there was no traffic. When traffic eventually arrived, the prompts had changed enough that the original scorers no longer matched the task. <strong>Lesson:</strong> eval-as-product platforms shine when there is enough live traffic to replay and enough prompt iteration to compare. Before that, a simple pytest harness is fine, and a paid platform is premature. The right time to adopt is usually somewhere between the first 1,000 production requests per week and the first major prompt-revision cycle.</p>
+</div>
+<h2 id="37-7-8-the-platform-vs-build-decision">37.7.8 The Platform vs. Build Decision</h2>
+<p>The recurring question: should we adopt a platform or build the equivalent in-house? For most teams in 2026, the answer is platform. The integration effort is hours to days, not weeks; the feature surface (replay, side-by-side, scorer library, live scoring, multi-judge orchestration) is hard to replicate quickly; and the platforms genuinely move faster than internal eval teams can.</p>
+<p>The cases where building in-house pays back are narrow but real:</p>
+<ul>
+<li><strong>Air-gapped or PII-saturated environments.</strong> Where no SaaS option is acceptable and Latitude's OSS does not fit your stack.</li>
+<li><strong>Highly domain-specific scoring.</strong> If your eval is dominated by a single bespoke metric (code-execution success, theorem-proving validity, drug-interaction safety) and the platform's pre-built scorers add little value, a thin in-house harness around your bespoke scorer may be enough.</li>
+<li><strong>Eval as part of a larger ML platform.</strong> If your organization already runs MLflow or W&amp;B at scale, integrating LLM eval into that stack may produce a more coherent system than adding a separate platform.</li>
+</ul>
+<p>For everyone else, the platform-or-build calculus comes out heavily in favor of adopting one of the three platforms covered here, ideally after running a 2-week trial with at least two of them on your real data.</p>
+<div class="callout research-frontier">
+<div class="callout-title">Research Frontier: Where Eval-as-Product Is Heading</div>
+<p>Three trends to watch in 2026-2027:</p>
+<ul>
+<li><strong>Synthetic eval generation.</strong> Platforms are starting to generate eval datasets from production logs automatically (taking real traces, clustering them, sampling representative examples). This reduces the manual cost of building eval sets but introduces its own bias: the synthetic set reflects the model's current strengths, not the failure modes you care about.</li>
+<li><strong>Live judge calibration.</strong> Tools that automatically detect when an LLM-as-judge has drifted from human preferences, by sampling a small fraction for human review and recalibrating the judge prompt or model. Promising but still early.</li>
+<li><strong>Agent-trajectory eval.</strong> For multi-step agents, the unit of eval is no longer a single LLM call but a full trajectory (planning, tool use, recovery). Platforms are scrambling to add hierarchical span scoring; expect the agent-eval feature gap to close in 2026-2027.</li>
+</ul>
+<p><strong>Explore Further:</strong> Run a side-by-side trial of Braintrust and Latitude on the same 200 production traces. Define three scorers, two automatic and one LLM-as-judge, and run the same experiment in both platforms. Compare ingestion latency, UI ergonomics, and scorer agreement. The result is your team's data-driven choice between the two.</p>
+</div>
+<h2 id="key-takeaways">Key Takeaways</h2>
+<div class="callout key-takeaway">
+<div class="callout-title">Key Takeaways</div>
+<ul>
+<li><strong>Eval-as-product is a distinct category from eval-as-CI and from observability.</strong> Its core operations are live scoring, replay, and side-by-side comparison.</li>
+<li><strong>Braintrust is the polished default; Latitude is the OSS choice; Laminar is the span-native option.</strong> Pick based on hosting constraints, scorer library needs, and trace-shape priorities.</li>
+<li><strong>Adopt when iteration is active and traffic is non-trivial.</strong> Premature adoption (before traffic exists) wastes engineering time on dashboards no one reads.</li>
+<li><strong>Replay is the most underused feature.</strong> Most teams adopt for live scoring and discover the replay loop later; consider designing your integration to use replay from day one.</li>
+<li><strong>Keep eval-as-CI alongside.</strong> Eval-as-product complements CI gates, it does not replace them. Both should run.</li>
+</ul>
+</div>
+<h2 id="exercises">Exercises</h2>
+<div class="callout exercise">
+<div class="callout-title">Exercise 37.7.1: Platform Selection <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+<p>You are choosing an eval platform for a healthcare-AI startup that processes patient-derived text and is subject to HIPAA. Production traffic is ~10,000 LLM calls per day, the team has 3 engineers, and the prompt iteration rate is weekly. Pick a platform, justify the choice, and identify the top three risks of your selection.</p>
+<details>
+<summary>Answer Sketch</summary>
+<p>Latitude (self-hosted) is the strongest fit: HIPAA-compliance on a SaaS requires either a BAA (some platforms offer one, some do not) or self-hosting; the 10K/day traffic and weekly iteration rate justify a real platform over a custom harness; the team size is small enough that the OSS option is manageable. Risks: (1) UI maturity lags Braintrust, slowing the iteration loop; (2) smaller pre-built scorer library means more in-house scorer work; (3) Latitude OSS deployment maintenance is your team's responsibility, including security patches and upgrades. Mitigation: budget for 0.25 FTE on eval-platform maintenance.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 37.7.2: Replay Bias <span class="exercise-type analysis" title="Analysis">Analysis</span></div>
+<p>You set up a replay loop on production traces, sampling 500 traces per week. After three months, your replay-based regression detection misses an important regression that users complain about. Hypothesize three reasons the replay sample missed it, and propose mitigations.</p>
+<details>
+<summary>Answer Sketch</summary>
+<p>(1) Sampling bias: random sampling under-represents rare failure modes. Mitigation: stratified sampling that oversamples segments where past failures have occurred. (2) Distribution drift: production traffic changed faster than the sample refreshed (e.g., a new user segment arrived). Mitigation: shorten the replay window and add a freshness check that compares the current sample's distribution to the previous sample. (3) Scorer-rubric drift: the regression manifests on a dimension the current scorers do not measure (e.g., tone, brand voice). Mitigation: periodically review user-complaint themes and add scorers for dimensions that complaints surface.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 37.7.3: Side-by-Side Diff Workflow <span class="exercise-type coding" title="Coding">Coding</span></div>
+<p>Implement a script that takes two experiment IDs from Braintrust (or Latitude), pulls the per-row scores from each, and reports the rows where experiment B regressed more than 20% relative to experiment A on any scorer. Sort the regressions by magnitude.</p>
+<details>
+<summary>Answer Sketch</summary>
+<p>Use the platform's Python SDK to fetch both experiments' rows. Match rows by input ID (each row has a unique input identifier). For each matched pair, compute the per-scorer delta (B - A) and identify rows where any scorer's relative delta is below -20%. Sort by absolute relative delta, descending. Print a table of (input_id, scorer_name, score_A, score_B, relative_delta). Optionally, fetch the input text and outputs for the top 10 regressions and write them to a CSV for manual review.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 37.7.4: Multi-Judge Configuration <span class="exercise-type analysis" title="Analysis">Analysis</span></div>
+<p>You want to use three different LLMs as judges (GPT-4o, Claude Opus, Gemini 2.5 Pro) and aggregate their scores. Describe (a) the aggregation rule, (b) how to handle the case where one judge consistently disagrees with the other two, and (c) the cost-benefit trade-off of multi-judge versus single-judge.</p>
+<details>
+<summary>Answer Sketch</summary>
+<p>(a) For categorical judgments (win/lose/tie), use majority vote with ties handled explicitly; for numeric scores, use median (robust to single-judge drift). (b) Track per-judge agreement rate against the consensus; if one judge consistently disagrees, audit its prompt or replace it. Persistent disagreement may indicate genuine ambiguity in the task, not judge failure. (c) Multi-judge typically reduces noise and bias but costs 3x the API spend; the break-even depends on the decision stakes: high-stakes release gates justify multi-judge, day-to-day prompt iteration usually does not.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 37.7.5: Eval Platform vs. Custom Build <span class="exercise-type coding" title="Coding">Coding</span></div>
+<p>You have a team of two ML engineers and a budget of one engineer-month to set up evaluation infrastructure. List the features you would build in-house first (rank them) and identify the point at which adopting a platform becomes the right move.</p>
+<details>
+<summary>Answer Sketch</summary>
+<p>Priority order: (1) a static eval harness around pytest with a fixed golden set and rule-based scorers; (2) trace logging to Postgres with PII redaction; (3) a simple replay script that runs prompts against the trace store; (4) a basic LLM-as-judge integration for one or two judges. The point at which a platform pays back: when you start needing side-by-side UIs that PMs and domain experts can use, when you have more than three concurrent prompt experiments to track, or when your eval-set curation becomes a multi-engineer effort. In dollar terms, when the engineering time spent on internal eval tooling exceeds the platform's annual fee, switch.</p>
+</details>
+</div>
+<div class="whats-next">
+<h2 id="what-comes-next">What Comes Next</h2>
+<p>The next section covers self-hosted eval orchestration: when the off-the-shelf platforms don't fit, how to build a credible in-house eval pipeline using open-source primitives (Postgres for trace storage, Temporal for replay orchestration, Prefect for nightly jobs).</p>
+</div>
+<details class="bibliography-collapsible" open>
+<summary><strong>Further Reading</strong></summary>
+<section class="bibliography">
+<h3 id="platform-documentation">Platform Documentation</h3>
+<div class="bib-entry-card">
+<div class="bib-ref">Braintrust Documentation. (2026). "Braintrust Eval Platform Reference." <a href="https://www.braintrust.dev/docs" rel="noopener" target="_blank">braintrust.dev/docs</a></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Latitude Documentation. (2026). "Latitude: Open-Source Prompt Engineering and Evaluation." <a href="https://docs.latitude.so/" rel="noopener" target="_blank">docs.latitude.so</a></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Laminar Documentation. (2026). "Laminar: Observability and Evaluation for LLM Agents." <a href="https://docs.lmnr.ai/" rel="noopener" target="_blank">docs.lmnr.ai</a></div>
+</div>
+<h3 id="comparative-resources">Comparative Resources</h3>
+<div class="bib-entry-card">
+<div class="bib-ref">LangSmith Documentation. (2026). "LangSmith Evaluation Guide." <a href="https://docs.smith.langchain.com/" rel="noopener" target="_blank">docs.smith.langchain.com</a></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">OpenAI Evals. (2024-2026). "OpenAI Evals: A Framework for Evaluating LLMs and LLM Systems." <a href="https://github.com/openai/evals" rel="noopener" target="_blank">github.com/openai/evals</a></div>
+</div>
+<h3 id="background-papers">Background Papers and Posts</h3>
+<div class="bib-entry-card">
+<div class="bib-ref">Zheng, L., Chiang, W.L., Sheng, Y., et al. (2023). "Judging LLM-as-a-Judge with MT-Bench and Chatbot Arena." <a href="https://arxiv.org/abs/2306.05685" rel="noopener" target="_blank">arXiv:2306.05685</a></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Hamel Husain. (2024). "Your AI Product Needs Evals." <a href="https://hamel.dev/blog/posts/evals/" rel="noopener" target="_blank">hamel.dev/blog/posts/evals</a></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Eugene Yan. (2024). "Evaluating LLM Applications: A Practical Guide." <a href="https://eugeneyan.com/writing/evals/" rel="noopener" target="_blank">eugeneyan.com/writing/evals</a></div>
+</div>
+<h3 id="observability-counterparts">Observability Counterparts</h3>
+<div class="bib-entry-card">
+<div class="bib-ref">Langfuse Documentation. (2026). "Open-source LLM Engineering Platform." <a href="https://langfuse.com/docs" rel="noopener" target="_blank">langfuse.com/docs</a></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Arize Phoenix Documentation. (2026). "Phoenix: ML Observability for LLM Applications." <a href="https://docs.arize.com/phoenix" rel="noopener" target="_blank">docs.arize.com/phoenix</a></div>
+</div>
+</section>
+</details>
+<nav class="chapter-nav">
+<a class="prev" href="section-37.6.html"><span class="nav-label">Previous</span><span class="nav-num">Section 37.6</span><span class="nav-title">CI Eval Frameworks</span></a>
+<a class="up" href="index.html"><span class="nav-label">In Chapter</span><span class="nav-num">Chapter 37</span><span class="nav-title">Eval Platforms &amp; Workflows</span></a>
+<a class="next" href="section-37.8.html"><span class="nav-label">Next</span><span class="nav-num">Section 37.8</span><span class="nav-title">Self-Hosted Eval Orchestration</span></a>
+</nav>
+<footer><p>Fifteenth Edition, 2026 · <a href="../../toc.html">Contents</a></p></footer>
+</main>
+<script>
+window.addEventListener("DOMContentLoaded", function() {
+  if (window.PagefindUI) {
+    new PagefindUI({
+      element: "#search",
+      showSubResults: true,
+      showImages: false,
+      resetStyles: false,
+      pageSize: 8,
+      autofocus: false,
+      translations: {
+        placeholder: "Search the book…",
+      },
+      processResult: function (result) {
+        try {
+          var part = (result && result.meta && result.meta.part) ? result.meta.part : "";
+          var chap = (result && result.meta && result.meta.chapter) ? result.meta.chapter : "";
+          var partShort = part.split(":")[0].trim();
+          var chapShort = chap.split(":")[0].trim();
+          var crumb = [partShort, chapShort].filter(Boolean).join(" › ");
+          if (crumb && result.meta && result.meta.title
+              && result.meta.title.indexOf("[" + partShort) !== 0) {
+            result.meta.title = "[" + crumb + "]  " + result.meta.title;
+          }
+        } catch (e) { /* fall through */ }
+        return result;
+      },
+    });
+  }
+});
+</script>
+</body>
+</html>
