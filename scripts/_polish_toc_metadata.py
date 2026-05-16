@@ -108,23 +108,39 @@ def main() -> int:
     #                                L=Docker)
     #    Reference & Pedagogy   (M=Tables, N=Patterns, O=Pedagogy,
     #                                P=Prob-Solution, Q=Freshness)
-    # Final 5-group structure (May 2026 v4):
+    # 5-group structure (May 2026 v5: Freshness moved to Cross-Cutting):
     #   Foundations              A Math, B ML, C Python
     #   Framework Guides         D HF, E LangChain, F Tooling
     #   Production Infrastructure (MLOps)
     #                            G Env Setup, H Git/DVC, I Experiments,
     #                            J Inference, K Distributed, L Docker
-    #   Cross-Cutting References M Master Tables, N Problem-Solution Key
-    #   For Instructors          O Pedagogy Kit, P Freshness 2026
+    #   Cross-Cutting References M Master Tables, N Problem-Solution Key,
+    #                            P Freshness 2026
+    #   For Instructors          O Pedagogy Kit (with Course Syllabi, Reading
+    #                            Pathways as sections)
+    # 5-group structure (May 2026 v6: Tooling split into Orchestration F +
+    # Agent Frameworks G; G-P shifted to H-Q; Freshness Q in Cross-Cutting):
+    #   Foundations              A Math, B ML, C Python
+    #   Framework Guides         D HF, E LangChain,
+    #                            F Orchestration Frameworks,
+    #                            G Agent Frameworks
+    #   Production Infrastructure (MLOps)
+    #                            H Env Setup, I Git/DVC, J Experiments,
+    #                            K Inference, L Distributed, M Docker
+    #   Cross-Cutting References N Master Tables, O Problem-Solution Key,
+    #                            Q Freshness 2026
+    #   For Instructors          P Pedagogy Kit (with O.6 Course Syllabi
+    #                            + O.7 Reading Pathways as sections)
     APPENDIX_GROUPS = {
         "A": "Foundations", "B": "Foundations", "C": "Foundations",
         "D": "Framework Guides", "E": "Framework Guides",
-        "F": "Framework Guides",
-        "G": "Production Infrastructure", "H": "Production Infrastructure",
-        "I": "Production Infrastructure", "J": "Production Infrastructure",
-        "K": "Production Infrastructure", "L": "Production Infrastructure",
-        "M": "Cross-Cutting References", "N": "Cross-Cutting References",
-        "O": "For Instructors", "P": "For Instructors",
+        "F": "Framework Guides", "G": "Framework Guides",
+        "H": "Production Infrastructure", "I": "Production Infrastructure",
+        "J": "Production Infrastructure", "K": "Production Infrastructure",
+        "L": "Production Infrastructure", "M": "Production Infrastructure",
+        "N": "Cross-Cutting References", "O": "Cross-Cutting References",
+        "Q": "Cross-Cutting References",
+        "P": "For Instructors",
     }
     n_app = 0
     for app in struct.get("appendices", []):
