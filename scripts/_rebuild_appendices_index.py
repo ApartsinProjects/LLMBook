@@ -127,7 +127,7 @@ def render_appendices_page(struct: dict) -> str:
 <nav class="chapter-nav">
 <a class="prev" href="../index.html"><span class="nav-label">Previous</span><span class="nav-num">Cover</span><span class="nav-title">{title}</span></a>
 <a class="up" href="../toc.html"><span class="nav-label">Up</span><span class="nav-num">Book Index</span><span class="nav-title">Table of Contents</span></a>
-<a class="next" href="../front-matter/index.html"><span class="nav-label">Next</span><span class="nav-num">Front Matter</span><span class="nav-title">Welcome, Authors, How to Read</span></a>
+<a class="next" href="../front-matter/index.html"><span class="nav-label">Next</span><span class="nav-num">Front Matter</span><span class="nav-title">Why This Book Exists</span></a>
 </nav>
 
 <footer><p>{edition} &middot; <a href="../toc.html">Contents</a></p></footer>
