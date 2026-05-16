@@ -85,96 +85,84 @@ def _write(p: Path, content: str) -> None:
 # Category A: Caption colon typos (12 captions missing a colon)
 # --------------------------------------------------------------------------
 
-# Hard-coded list of files + caption text fragments to fix.
-CATEGORY_A_TARGETS = [
-    ("part-8-evaluation-production/module-29-production-engineering/section-29.1.html",
-     "Figure 29.1.2 ", "Figure 29.1.2: "),
-    ("part-8-evaluation-production/module-29-production-engineering/section-29.2.html",
-     "Figure 29.2.3 ", "Figure 29.2.3: "),
-    ("part-8-evaluation-production/module-29-production-engineering/section-29.3.html",
-     "Figure 29.3.2 ", "Figure 29.3.2: "),
-    ("part-8-evaluation-production/module-29-production-engineering/section-29.4.html",
-     "Figure 29.4.1 ", "Figure 29.4.1: "),
-    ("part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.1.html",
-     "Figure 30.1.2 ", "Figure 30.1.2: "),
-    ("part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.2.html",
-     "Figure 30.2.4 ", "Figure 30.2.4: "),
-    ("part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.7.html",
-     "Figure 30.7.3 ", "Figure 30.7.3: "),
-    ("part-9-safety-strategy/module-31-strategy-product-roi/section-31.1.html",
-     "Figure 31.1.3 ", "Figure 31.1.3: "),
-    ("part-9-safety-strategy/module-31-strategy-product-roi/section-31.2.html",
-     "Figure 31.2.2 ", "Figure 31.2.2: "),
-    ("part-9-safety-strategy/module-31-strategy-product-roi/section-31.3.html",
-     "Figure 31.3.3 ", "Figure 31.3.3: "),
-    ("part-9-safety-strategy/module-31-strategy-product-roi/section-31.4.html",
-     "Figure 31.4.2 ", "Figure 31.4.2: "),
-    ("part-9-safety-strategy/module-31-strategy-product-roi/section-31.5.html",
-     "Figure 31.5.3 ", "Figure 31.5.3: "),
+# Category A targets: each entry is a unique caption text snippet that
+# identifies the diagram-caption div (post-restructure, file paths and figure
+# numbers may have shifted, but the caption prose is unchanged).
+CATEGORY_A_CAPTION_MARKERS = [
+    "The three-layer architecture separates API concerns",
+    "Token streaming pipeline and how each frontend framework",
+    "Complete request flow with rate limiting, backpressure queue",
+    "The LLMOps lifecycle connects four phases",
+    "The OWASP Top 10 for LLM applications organized",
+    "A production hallucination pipeline routes",
+    "Two geometric views of unlearning in weight space",
+    "The four-phase Use Case Discovery Workshop",
+    "The LLM Product Metrics Pyramid showing",
+    "Side-by-side ROI comparison showing how SaaS",
+    "The LLM technology stack with build vs. buy",
+    "Monthly compute budget breakdown showing how inference",
 ]
 
 
 def category_a_caption_colons(section_index: dict[str, list[Path]]) -> Tuple[int, int, List[str]]:
     """Add colon after 'Figure X.Y.Z' label in diagram-caption divs.
 
-    The audit identified 12 diagram-captions where the label is followed by a
-    space + caption text but no colon. Pattern: `<strong>Figure X.Y.Z</strong> caption`
-    (missing colon). Convert to `<strong>Figure X.Y.Z:</strong> caption` (canonical).
+    Searches by content marker (caption prose), since file numbering shifted
+    during the book restructure. For each marker, find the diagram-caption div
+    that contains it; if its <strong> label has no colon, append one.
+    Idempotent.
     """
     fixed = 0
     skipped = 0
     reasons: List[str] = []
 
-    for audit_rel, find_text, _replace_with in CATEGORY_A_TARGETS:
-        path = _resolve_audit_path(audit_rel, section_index)
-        if path is None:
-            skipped += 1
-            reasons.append(f"A: cannot resolve {audit_rel}")
+    # Build a content-keyed index of all section/index HTML once.
+    file_index: list[tuple[Path, str]] = []
+    for p in ROOT.rglob("*.html"):
+        parts = set(p.relative_to(ROOT).parts[:1])
+        if parts & EXCLUDE_PARTS:
+            continue
+        if any(seg.startswith("temp_") or "backup" in seg.lower() for seg in p.parts):
+            continue
+        try:
+            file_index.append((p, p.read_text(encoding="utf-8")))
+        except Exception:
             continue
 
-        html = _read(path)
+    for marker in CATEGORY_A_CAPTION_MARKERS:
+        candidates = [(p, h) for p, h in file_index if marker in h]
+        if not candidates:
+            skipped += 1
+            reasons.append(f"A: marker not found in any file: '{marker[:40]}...'")
+            continue
+        # Use the first candidate
+        path, html = candidates[0]
         soup = BeautifulSoup(html, "html.parser")
-
-        # Find diagram-caption div containing the figure label without colon.
-        # Pattern in HTML: <div class="diagram-caption"><strong>Figure X.Y.Z</strong> caption
-        # (note: no colon inside or right after the </strong>).
-        label_only = find_text.strip()  # e.g. "Figure 29.1.2"
-        # Idempotent check: if already has colon after the label, skip.
 
         changed_this_file = False
         for div in soup.select("div.diagram-caption"):
+            div_text = div.get_text()
+            if marker not in div_text:
+                continue
             strong = div.find("strong")
             if not strong:
                 continue
             strong_text = strong.get_text()
-            if strong_text.strip() != label_only:
-                continue
-            # Check if colon is already in strong (canonical "Figure X.Y.Z:")
-            # or immediately following.
+            # Canonical form check: ends with ":"
             if strong_text.rstrip().endswith(":"):
-                continue  # idempotent, already canonical
-            # Check next sibling: if starts with ":", already fixed.
+                continue
+            # Next sibling check: starts with ":"
             nxt = strong.next_sibling
             if isinstance(nxt, NavigableString) and str(nxt).lstrip().startswith(":"):
                 continue
-            # Apply fix: put colon inside the strong tag.
+            # Apply fix: put colon inside the <strong>.
             strong.string = strong_text.rstrip() + ":"
             changed_this_file = True
-            break  # one fix per file (only one such caption per audit row)
+            break
 
         if changed_this_file:
             _write(path, str(soup))
             fixed += 1
-        else:
-            # Either already fixed (idempotent) or pattern didn't match.
-            # Re-check whether the canonical form exists; if so, count as
-            # already-fixed (silent success rather than skip).
-            if re.search(re.escape(label_only) + r":", html):
-                # Already in canonical form
-                pass
-            else:
-                skipped += 1
-                reasons.append(f"A: pattern not found in {path.name}")
 
     return fixed, skipped, reasons
 
@@ -203,89 +191,85 @@ CATEGORY_B_TARGETS = [
     ("part-5-retrieval-conversation/module-20-conversational-ai/section-20.3.html", 592,
      "User is vegetarian", "note"),
     ("part-6-agentic-ai/module-21-ai-agents/section-21.5.html", 261,
-     "Completed. Step 1", "note"),
+     "Step 1 (lookup_order): success", "note"),
 ]
 
 
 def category_b_orphan_outputs(section_index: dict[str, list[Path]]) -> Tuple[int, int, List[str]]:
     """For each orphan code-output div, convert to a callout note.
 
-    An orphan code-output is a `<div class="code-output">` whose previous
-    element-sibling is not a `<pre>` (or a code-block-wrapper containing one).
-    Conversion: wrap content in `<div class="callout note">` with the Output:
-    label preserved as a title.
+    Content-marker driven (paths shifted post-restructure). For each (marker,
+    decision) pair, find the file containing it, then find the unique orphan
+    code-output div whose text includes the marker. An orphan code-output is
+    a `<div class="code-output">` whose previous element-sibling is not a
+    `<pre>` or a code-block-wrapper containing one.
     """
     fixed = 0
     skipped = 0
     reasons: List[str] = []
 
-    # Group targets by file so we can scan once.
-    by_file: dict[str, list[tuple[int, str, str]]] = {}
-    for audit_rel, line_hint, preview, decision in CATEGORY_B_TARGETS:
-        by_file.setdefault(audit_rel, []).append((line_hint, preview, decision))
+    markers = [(preview, decision) for _, _, preview, decision in CATEGORY_B_TARGETS]
 
-    for audit_rel, entries in by_file.items():
-        path = _resolve_audit_path(audit_rel, section_index)
-        if path is None:
-            for line_hint, preview, _ in entries:
-                skipped += 1
-                reasons.append(f"B: cannot resolve {audit_rel}:{line_hint}")
+    # Build a file index to find each marker.
+    file_index: list[tuple[Path, str]] = []
+    for p in ROOT.rglob("*.html"):
+        parts = set(p.relative_to(ROOT).parts[:1])
+        if parts & EXCLUDE_PARTS:
+            continue
+        if any(seg.startswith("temp_") or "backup" in seg.lower() for seg in p.parts):
+            continue
+        try:
+            file_index.append((p, p.read_text(encoding="utf-8")))
+        except Exception:
             continue
 
+    # Group markers by file for one-pass editing.
+    file_to_markers: dict[Path, list[tuple[str, str]]] = {}
+    for marker, decision in markers:
+        # Find files containing this marker.
+        cand_files = [p for p, h in file_index if marker in h]
+        if not cand_files:
+            skipped += 1
+            reasons.append(f"B: marker not found: '{marker}'")
+            continue
+        file_to_markers.setdefault(cand_files[0], []).append((marker, decision))
+
+    for path, entries in file_to_markers.items():
         html = _read(path)
         soup = BeautifulSoup(html, "html.parser")
 
-        # Find all code-output divs whose previous sibling is NOT a <pre>
-        # or a code-block-wrapper.
         outputs = soup.select("div.code-output")
         for div in outputs:
-            # Check previous element sibling
             prev = div.find_previous_sibling()
-            if prev is None:
-                pass  # truly orphan
-            elif isinstance(prev, Tag):
+            if isinstance(prev, Tag):
                 if prev.name == "pre":
-                    continue  # paired with pre
+                    continue
                 if prev.name == "div" and "code-block-wrapper" in (prev.get("class") or []):
-                    continue  # already wrapped
-                # Otherwise orphan
+                    continue
 
-            # Match against any of the previews for this file
             text = div.get_text(" ", strip=True)
             matched_entry = None
-            for entry in entries:
-                _, preview, _ = entry
-                if preview in text:
-                    matched_entry = entry
+            for marker, decision in entries:
+                if marker in text:
+                    matched_entry = (marker, decision)
                     break
             if matched_entry is None:
-                continue  # not one of the targeted orphans
+                continue
 
-            _, _, decision = matched_entry
+            _, decision = matched_entry
 
             if decision == "note":
-                # Convert to callout note.
-                # Original markup: <div class="code-output">
-                #   <span class="output-label"><strong>Output:</strong></span> ...text...
-                # </div>
-                # Idempotency: skip if we've already done this (no code-output class).
-                # Build the new callout.
                 new_callout = soup.new_tag("div", attrs={"class": "callout note"})
                 title = soup.new_tag("div", attrs={"class": "callout-title"})
                 title.string = "Example output"
                 new_callout.append(title)
                 body = soup.new_tag("pre", attrs={"class": "callout-output-body"})
-                # Extract the output text minus the "Output:" label
-                output_text = text
-                # Strip leading "Output:" or "Output"
-                output_text = re.sub(r"^\s*Output:?\s*", "", output_text)
+                output_text = re.sub(r"^\s*Output:?\s*", "", text)
                 body.string = output_text
                 new_callout.append(body)
                 div.replace_with(new_callout)
                 fixed += 1
             elif decision == "wrap":
-                # Wrap previous <pre> + this div in a code-block-wrapper.
-                prev = div.find_previous_sibling()
                 if not (isinstance(prev, Tag) and prev.name == "pre"):
                     skipped += 1
                     reasons.append(f"B: no preceding <pre> in {path.name}")
@@ -305,97 +289,83 @@ def category_b_orphan_outputs(section_index: dict[str, list[Path]]) -> Tuple[int
 # Category C: Broken figure references
 # --------------------------------------------------------------------------
 
-# From numbering-audit.md: 7 phantom appendix references + 1 code fragment drift.
-# Drift case: Code Fragment 30.3.4 -> Code Fragment 30.3.3 (or 30.3.2/30.3.1; pick
-# nearest preceding, which is 30.3.3 per audit's "Likely intended" list).
-CATEGORY_C_DRIFT_FIXES = [
-    # (audit_rel, line_hint, citation, replacement_or_None)
-    # The drift case: Code Fragment 30.3.4 does not exist; the audit suggests
-    # 30.3.3, 30.3.2, or 30.3.1. We'll add a TODO marker rather than guess.
-    ("part-9-safety-strategy/module-30-safety-ethics-regulation/section-30.3.html",
-     158, "Code Fragment 30.3.4", "TODO"),
-]
-
-CATEGORY_C_PHANTOM_APPENDIX = [
-    # Phantom appendix refs. These cite appendices that don't exist; add TODO
-    # markers in-place rather than try to renumber the whole appendix tree.
-    ("appendices/appendix-m-inference-serving/index.html", 37, "Appendix P"),
-    ("appendices/appendix-n-distributed-ml/index.html", 7, "Appendix N"),
-    ("appendices/appendix-o-docker-containers/index.html", 41, "Appendix N"),
-    ("appendices/appendix-p-tooling-ecosystem/index.html", 7, "Appendix P"),
-    ("appendices/appendix-p-tooling-ecosystem/index.html", 41, "Appendix M"),
+# Live-scan results from the post-restructure tree: 7 broken Figure X.Y.Z
+# citations. Audit listed 5; we handle all 7 found in the current tree, since
+# they all pattern-match the same template (prose cites a figure followed by
+# a <p class="figure-replaced"><em>...</em></p> placeholder that was never
+# turned into a real diagram). The TODO marker preserves the editorial intent
+# without making up content.
+CATEGORY_C_BROKEN_FIGURE_REFS = [
+    # (citation, expected-substring-of-paragraph) -- the expected-substring
+    # disambiguates when a number occurs multiple times.
+    ("Figure 37.2.3", "arranges these along a spectrum"),
+    ("Figure 37.3.3", "compares what each document covers"),
+    ("Figure 37.4.3", "maps the regulatory obligations by sector"),
+    ("Figure 37.5.2", "illustrates how each entry links to the previous"),
+    ("Figure 37.6.2", "shows the three-step process"),
+    ("Figure 41.2.4", "depicts this rapid iteration cycle"),
+    ("Figure 52.2.2", "maps the regulatory landscape for financial"),
 ]
 
 
 def category_c_broken_figures(section_index: dict[str, list[Path]]) -> Tuple[int, int, List[str]]:
-    """Mark broken refs with TODO markers (avoiding bad rewrites)."""
+    """Mark broken figure refs with TODO HTML comments.
+
+    The 7 broken figure citations all follow the same template: prose cites a
+    Figure X.Y.Z immediately followed by a `<p class="figure-replaced"><em>...
+    </em></p>` placeholder. The right action is to flag each with an HTML
+    comment for later authoring -- removing the prose would lose editorial
+    intent, and guessing at content would be worse.
+    """
+    from bs4 import Comment
+
     fixed = 0
     skipped = 0
     reasons: List[str] = []
 
-    # Process drift case: Code Fragment 30.3.4
-    for audit_rel, _line, citation, action in CATEGORY_C_DRIFT_FIXES:
-        path = _resolve_audit_path(audit_rel, section_index)
-        if path is None:
-            skipped += 1
-            reasons.append(f"C: cannot resolve {audit_rel}")
+    # Build file index keyed by citation.
+    file_index: list[tuple[Path, str]] = []
+    for p in ROOT.rglob("*.html"):
+        parts = set(p.relative_to(ROOT).parts[:1])
+        if parts & EXCLUDE_PARTS:
             continue
-        html = _read(path)
-        # Idempotent: if a TODO marker for this citation already exists, skip.
-        marker = f"<!-- TODO(audit): broken ref \"{citation}\" -->"
-        if marker in html:
-            continue  # already marked, no-op
-        # Find the literal citation in the prose and inject the TODO marker
-        # next to it. Use BeautifulSoup to keep markup valid.
-        soup = BeautifulSoup(html, "html.parser")
-        changed = False
-        for text_node in list(soup.find_all(string=lambda s: citation in s if isinstance(s, str) else False)):
-            parent = text_node.parent
-            if parent is None:
-                continue
-            # Insert comment as previous sibling
-            comment_tag = soup.new_string(marker, type=type(soup.new_tag("x")).__bases__[0] if False else None)
-            # BeautifulSoup uses Comment for HTML comments
-            from bs4 import Comment
-            comment = Comment(f' TODO(audit): broken ref "{citation}" - target does not exist; rewrite or remove ')
-            text_node.insert_before(comment)
-            changed = True
-            break  # one per file
-        if changed:
-            _write(path, str(soup))
-            fixed += 1
-        else:
-            skipped += 1
-            reasons.append(f"C: citation '{citation}' not found in {path.name}")
+        if any(seg.startswith("temp_") or "backup" in seg.lower() for seg in p.parts):
+            continue
+        try:
+            file_index.append((p, p.read_text(encoding="utf-8")))
+        except Exception:
+            continue
 
-    # Process phantom appendix refs (limit to 5 in scope based on task description; here we do 5)
-    # Task said "5 broken figure references" -- we handle 5 phantom refs (the
-    # nearest cousin in the audit set; figures-as-such have zero phantoms).
-    for audit_rel, _line, citation in CATEGORY_C_PHANTOM_APPENDIX:
-        path = _resolve_audit_path(audit_rel, section_index)
-        if path is None:
+    for citation, context_marker in CATEGORY_C_BROKEN_FIGURE_REFS:
+        marker_text = f'TODO(audit): broken figure ref "{citation}"'
+
+        candidates = [(p, h) for p, h in file_index if context_marker in h and citation in h]
+        if not candidates:
             skipped += 1
-            reasons.append(f"C: cannot resolve {audit_rel}")
+            reasons.append(f"C: cannot find broken ref '{citation}' (context: '{context_marker[:30]}')")
             continue
-        html = _read(path)
-        marker_text = f'TODO(audit): broken ref "{citation}"'
+        path, html = candidates[0]
+
+        # Idempotent: if already marked, skip.
         if marker_text in html:
             continue
-        # Find first occurrence and insert HTML comment before it
-        from bs4 import Comment
+
         soup = BeautifulSoup(html, "html.parser")
         changed = False
-        for text_node in list(soup.find_all(string=lambda s: citation in s if isinstance(s, str) else False)):
-            comment = Comment(f' {marker_text} - target does not exist; rewrite or remove ')
-            text_node.insert_before(comment)
-            changed = True
-            break
+        # Find the <p> that contains both the citation and the context.
+        for p_tag in soup.find_all("p"):
+            text = p_tag.get_text()
+            if citation in text and context_marker in text:
+                comment = Comment(f' {marker_text}: target figure does not exist; either author the diagram or remove this sentence and the following figure-replaced placeholder ')
+                p_tag.insert_before(comment)
+                changed = True
+                break
         if changed:
             _write(path, str(soup))
             fixed += 1
         else:
             skipped += 1
-            reasons.append(f"C: citation '{citation}' not found in {path.name}")
+            reasons.append(f"C: citation '{citation}' not located in expected context in {path.name}")
 
     return fixed, skipped, reasons
 
@@ -576,6 +546,95 @@ def _renumber_steps(pre_tag: Tag) -> Tuple[bool, str]:
     return True, "ok"
 
 
+def _fix_broken_interspersed_numbering(pre_tag: Tag) -> bool:
+    """Strip bogus top-level numbers off lines that are continuations.
+
+    RLVR block has:
+        1. for iteration = 1 to T:
+        a. Sample ...
+        b. for each problem ...
+            3. Generate solution ...     <-- bogus, should be unnumbered continuation
+        c. for each solution ...
+            4. r_i = V(...) ...           <-- bogus
+            5. (e.g., ...)                <-- bogus
+        d. ...
+        e. Update ...
+            6. expected reward ...        <-- bogus
+        2. return pi*
+
+    The top-level sequence is "1. ... 2." with sub-step letters a-e under step 1.
+    The "3.", "4.", "5.", "6." labels are interspersed mid-substep and should
+    be removed (the lines become continuation lines, sometimes joined to the
+    preceding sub-step).
+    """
+    code = pre_tag.find("code")
+    if code is None:
+        return False
+    raw = code.get_text()
+    lines = raw.split("\n")
+
+    # Identify top-level numbered steps and sub-step letters.
+    # Top level: zero or one leading space + N. + space
+    # Sub-step:  one or more leading spaces + [a-z]. + space
+    top_re = re.compile(r"^( {0,1})(\d+)\.\s")
+    sub_re = re.compile(r"^( +)[a-z]\.\s")
+
+    # Find legitimate top-level numbers: those preceded by content that suggests
+    # a new top-level step.
+    # Strategy: keep the FIRST top-level (1.) and the LAST one (which is the
+    # max number, but seen out-of-sequence). Strip the rest.
+    # The audit pattern: top-level "1." appears once, then "2." appears at the
+    # very end. Numbers 3+ in between are wrong.
+    top_locs: list[tuple[int, int]] = []  # (line_idx, num)
+    for i, line in enumerate(lines):
+        m = top_re.match(line)
+        if m:
+            top_locs.append((i, int(m.group(2))))
+
+    if len(top_locs) < 3:
+        return False  # not the broken pattern
+
+    # Identify "good" top-level numbers: 1 (first) and 2 (last sequential).
+    # The pattern here is 1 (at top), 3, 4, 5, 6 (interspersed), 2 (at end).
+    # Mark for stripping: numbers that are out of sequence (i.e., greater than
+    # the next legitimate step).
+    # A simpler heuristic: the first "1." is good; everything else with a number
+    # >= 3 interspersed before "2." is bad and should be stripped.
+    first_line_of_one = top_locs[0]
+    last_line_of_two = next((loc for loc in reversed(top_locs) if loc[1] == 2), None)
+    if last_line_of_two is None:
+        return False
+
+    # Lines to strip: those with top number in [3, last_line_of_two[0])
+    strip_indices: set[int] = set()
+    for idx, num in top_locs:
+        if idx == first_line_of_one[0]:
+            continue
+        if idx == last_line_of_two[0]:
+            continue
+        if first_line_of_one[0] < idx < last_line_of_two[0]:
+            strip_indices.add(idx)
+
+    if not strip_indices:
+        return False
+
+    new_lines: list[str] = []
+    for i, line in enumerate(lines):
+        if i in strip_indices:
+            # Strip the "N. " prefix; keep the rest.
+            stripped = top_re.sub(r"\1", line)
+            new_lines.append(stripped)
+        else:
+            new_lines.append(line)
+
+    new_text = "\n".join(new_lines)
+    if new_text == raw:
+        return False
+    code.clear()
+    code.append(NavigableString(new_text))
+    return True
+
+
 def _standardize_substep_indent(pre_tag: Tag) -> bool:
     """Standardize a/b/c sub-step indent to 2 spaces.
 
@@ -612,42 +671,43 @@ def _standardize_substep_indent(pre_tag: Tag) -> bool:
 # Tuple: (anchor_marker_substring, action)
 #   action in {"keyword", "renumber", "indent"} or combinations as list.
 CATEGORY_D_TARGETS = [
-    # 4 keyword-conversion blocks
+    # 4 keyword-conversion blocks (covert pyg-text-bad / bold to algo-helper).
     {
-        "marker": "Pseudocode 35.1.1",  # Debate
+        # Debate algorithm; current label "Pseudocode 48.1.1" in section-20.5.html.
+        "marker": "AI Safety via Debate algorithm",
         "actions": ["keyword"],
     },
     {
-        "marker": "MCP initialization handshake",  # Pseudocode 22.2.1
+        # MCP handshake; current label "Pseudocode 22.2.1" (kept).
+        "marker": "MCP initialization handshake",
         "actions": ["keyword"],
     },
     {
-        "marker": "PPO training loop for RLHF",  # Pseudocode 16.1.3
+        # PPO training loop; current label "Pseudocode 16.1.3" (kept).
+        "marker": "PPO training loop for RLHF",
         "actions": ["keyword"],
     },
     {
-        "marker": "formalizes the ReAct agent loop",  # Pseudocode 21.1.2 (now 26.1.2)
-        "actions": ["keyword"],
+        # ReAct loop; current label "Pseudocode 26.1.2".
+        "marker": "formalizes the ReAct agent loop",
+        "actions": ["keyword", "indent"],
     },
-    # 3 step-numbering blocks
+    # 3 step-numbering blocks (complete the partial top-level numbering).
     {
-        "marker": "Mamba selective scan",  # Pseudocode 32.3.5
+        "marker": "Mamba selective scan algorithm",  # Pseudocode 61.3.X (post-restructure)
         "actions": ["renumber"],
     },
     {
-        "marker": "RLVR training loop",  # Pseudocode 8.3.4
-        "actions": ["renumber"],
+        "marker": "RLVR training loop generates",  # Pseudocode 9.3.4
+        "actions": ["renumber_fix"],
     },
     {
-        "marker": "Token bucket rate limiting",  # Pseudocode 28.3.1
+        "marker": "bucket rate limiting algorithm",  # Pseudocode 34.3.1
         "actions": ["renumber", "indent"],
     },
-    # 5 indent-standardization blocks. The audit flagged 6 surprising-indent
-    # blocks; we target 5 here (subset that needs only the a/b/c sub-step
-    # indent fix; FlashAttention is dense Python and is excluded as it has
-    # different formatting needs).
+    # Indent-standardization blocks (1-space -> 2-space sub-step indent).
     {
-        "marker": "Pseudocode 21.1.1",  # function calling loop
+        "marker": "Function calling loop",  # Pseudocode 26.1.1
         "actions": ["indent"],
     },
     {
@@ -655,7 +715,7 @@ CATEGORY_D_TARGETS = [
         "actions": ["indent"],
     },
     {
-        "marker": "supervisor (hub-and-spoke)",  # already algo-helper? indent
+        "marker": "supervisor (hub-and-spoke) pattern",  # Pseudocode 28.2.X
         "actions": ["indent"],
     },
 ]
@@ -714,6 +774,13 @@ def category_d_pseudocode(section_index: dict[str, list[Path]]) -> Tuple[int, in
             elif action == "renumber":
                 changed, _ = _renumber_steps(pre_to_fix)
                 if changed:
+                    block_changed = True
+            elif action == "renumber_fix":
+                # Special case: block has interspersed bogus top-level numbers
+                # mixed with sub-step letters. Strip incorrect top-level numbers
+                # off lines that are clearly continuations of the letter-prefixed
+                # sub-steps.
+                if _fix_broken_interspersed_numbering(pre_to_fix):
                     block_changed = True
             elif action == "indent":
                 if _standardize_substep_indent(pre_to_fix):
