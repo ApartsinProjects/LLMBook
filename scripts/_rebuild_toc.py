@@ -170,7 +170,7 @@ def render_front_matter(items: list[dict]) -> str:
     )
     out.append('</header>')
     out.append('<ol class="toc-chapter-list">')
-    for i, item in enumerate(items):
+    for i, item in enumerate(items, start=1):
         href = f"front-matter/{item['slug']}.html"
         title = _esc(item["title"])
         out.append('<li class="toc-chapter">')
@@ -185,9 +185,12 @@ def render_front_matter(items: list[dict]) -> str:
 
 
 def render_glossary_section(glossary: dict) -> str:
-    """Glossary as a top-level TOC section (not nested under Appendices)."""
+    """Glossary as a top-level TOC section (not nested under Appendices).
+    Uses the SAME shape as a Part section: header + chapter-list with chip
+    per glossary section so it's visually consistent with everything else."""
     if not glossary:
         return ""
+    sections = glossary.get("sections", [])
     title = _esc(glossary.get("title", "Glossary"))
     subtitle = _esc(glossary.get("subtitle", ""))
     out: list[str] = []
@@ -199,10 +202,23 @@ def render_glossary_section(glossary: dict) -> str:
         f' <span class="toc-part-sep">·</span> '
         f'<a href="appendices/glossary/index.html">{title}</a>'
         f'</h2>'
+        f'<span class="toc-part-count">{len(sections)} sections</span>'
     )
     if subtitle:
         out.append(f'<p class="toc-part-subtitle">{subtitle}</p>')
     out.append('</header>')
+    out.append('<ol class="toc-chapter-list">')
+    for i, s in enumerate(sections, start=1):
+        snum = s.get("num", f"G{i}")
+        sslug = s.get("slug", f"section-f.{i}")
+        stitle = _esc(s.get("title", ""))
+        out.append('<li class="toc-chapter">')
+        out.append(f'<a href="appendices/glossary/{sslug}.html">')
+        out.append(f'<span class="toc-chapter-num" aria-label="Glossary {snum}">G{i}</span>')
+        out.append(f'<span class="toc-chapter-title">{stitle}</span>')
+        out.append('</a>')
+        out.append('</li>')
+    out.append('</ol>')
     out.append('</section>')
     return "\n".join(out)
 
