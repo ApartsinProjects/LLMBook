@@ -85,7 +85,8 @@ def _render_chapter(part: dict, chap: dict) -> str:
     out: list[str] = []
     out.append('<li class="toc-chapter">')
     out.append(f'<a href="{href}">')
-    out.append(f'<span class="toc-chapter-num">Chapter {cnum}</span>')
+    # Number-only chip instead of "Chapter N" prefix.
+    out.append(f'<span class="toc-chapter-num" aria-label="Chapter {cnum}">{cnum}</span>')
     out.append(f'<span class="toc-chapter-title">{ctitle}</span>')
     if csubtitle:
         out.append(f'<span class="toc-chapter-subtitle">{csubtitle}</span>')
@@ -125,7 +126,7 @@ def render_appendices(appendices: list[dict], glossary: dict | None) -> str:
             href = f"appendices/appendix-{letter.lower()}-{app['slug']}/index.html"
             out.append('<li class="toc-chapter toc-appendix">')
             out.append(f'<a href="{href}">')
-            out.append(f'<span class="toc-chapter-num">Appendix {letter}</span>')
+            out.append(f'<span class="toc-chapter-num" aria-label="Appendix {letter}">{letter}</span>')
             out.append(f'<span class="toc-chapter-title">{title}</span>')
             if subtitle:
                 out.append(f'<span class="toc-chapter-subtitle">{subtitle}</span>')
