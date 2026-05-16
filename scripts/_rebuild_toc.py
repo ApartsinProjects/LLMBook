@@ -59,8 +59,15 @@ def render_part(part: dict) -> str:
     out: list[str] = []
     out.append(f'<section class="toc-part" id="part-{num}" data-part-num="{num}">')
     out.append('<header class="toc-part-header">')
-    out.append(f'<div class="toc-part-num">Part {roman}<span class="toc-part-count">{chap_count} chapter{"s" if chap_count != 1 else ""} · {sec_count} section{"s" if sec_count != 1 else ""}</span></div>')
-    out.append(f'<h2 class="toc-part-title"><a href="part-{num}-{slug}/index.html">{title}</a></h2>')
+    # Single-line "Part X · Title" header with count badge on the right.
+    out.append(
+        f'<h2 class="toc-part-title">'
+        f'<span class="toc-part-prefix">Part {roman}</span>'
+        f' <span class="toc-part-sep">·</span> '
+        f'<a href="part-{num}-{slug}/index.html">{title}</a>'
+        f'</h2>'
+        f'<span class="toc-part-count">{chap_count} chapters · {sec_count} sections</span>'
+    )
     if subtitle:
         out.append(f'<p class="toc-part-subtitle">{subtitle}</p>')
     out.append('</header>')
@@ -96,13 +103,20 @@ def _render_chapter(part: dict, chap: dict) -> str:
 
 
 def render_appendices(appendices: list[dict], glossary: dict | None) -> str:
-    """Render the Appendices block. Glossary is rendered as a special card
-    inside the same section."""
+    """Render the Appendices block. Glossary is rendered as a separate
+    top-level section (render_glossary_section) — NOT inside this block."""
     out: list[str] = []
+    n = len(appendices)
     out.append('<section class="toc-part toc-appendices" id="appendices">')
     out.append('<header class="toc-part-header">')
-    out.append('<div class="toc-part-num">Appendices</div>')
-    out.append('<h2 class="toc-part-title"><a href="appendices/index.html">Reference, Frameworks, MLOps &amp; Pedagogy</a></h2>')
+    out.append(
+        f'<h2 class="toc-part-title">'
+        f'<span class="toc-part-prefix">Appendices</span>'
+        f' <span class="toc-part-sep">·</span> '
+        f'<a href="appendices/index.html">Reference, Frameworks, Infrastructure &amp; Pedagogy</a>'
+        f'</h2>'
+        f'<span class="toc-part-count">{n} appendices</span>'
+    )
     out.append('</header>')
     out.append('<ol class="toc-chapter-list">')
 
@@ -133,41 +147,62 @@ def render_appendices(appendices: list[dict], glossary: dict | None) -> str:
             out.append('</a>')
             out.append('</li>')
 
-    # Glossary card (special, no letter)
-    if glossary:
-        out.append('<li class="toc-chapter toc-glossary">')
-        out.append('<a href="appendices/glossary/index.html">')
-        out.append('<span class="toc-chapter-num">Glossary</span>')
-        out.append(f'<span class="toc-chapter-title">{_esc(glossary["title"])}</span>')
-        if glossary.get("subtitle"):
-            out.append(f'<span class="toc-chapter-subtitle">{_esc(glossary["subtitle"])}</span>')
-        out.append('</a>')
-        out.append('</li>')
-
     out.append('</ol>')
     out.append('</section>')
     return "\n".join(out)
 
 
 def render_front_matter(items: list[dict]) -> str:
+    """Render Front Matter as a Part-shaped section with F0/F1/F2 chips,
+    matching the visual rhythm of the numbered Parts."""
     if not items:
         return ""
     out: list[str] = []
     out.append('<section class="toc-part toc-front-matter" id="front-matter">')
     out.append('<header class="toc-part-header">')
-    out.append('<div class="toc-part-num">Front Matter</div>')
-    out.append('<h2 class="toc-part-title"><a href="front-matter/index.html">Welcome, Authors, How to Read</a></h2>')
+    out.append(
+        f'<h2 class="toc-part-title">'
+        f'<span class="toc-part-prefix">Front Matter</span>'
+        f' <span class="toc-part-sep">·</span> '
+        f'<a href="front-matter/index.html">Welcome, Authors, How to Read</a>'
+        f'</h2>'
+        f'<span class="toc-part-count">{len(items)} entries</span>'
+    )
     out.append('</header>')
     out.append('<ol class="toc-chapter-list">')
-    for item in items:
+    for i, item in enumerate(items):
         href = f"front-matter/{item['slug']}.html"
         title = _esc(item["title"])
         out.append('<li class="toc-chapter">')
         out.append(f'<a href="{href}">')
+        out.append(f'<span class="toc-chapter-num" aria-label="Front Matter {i}">F{i}</span>')
         out.append(f'<span class="toc-chapter-title">{title}</span>')
         out.append('</a>')
         out.append('</li>')
     out.append('</ol>')
+    out.append('</section>')
+    return "\n".join(out)
+
+
+def render_glossary_section(glossary: dict) -> str:
+    """Glossary as a top-level TOC section (not nested under Appendices)."""
+    if not glossary:
+        return ""
+    title = _esc(glossary.get("title", "Glossary"))
+    subtitle = _esc(glossary.get("subtitle", ""))
+    out: list[str] = []
+    out.append('<section class="toc-part toc-glossary-section" id="glossary">')
+    out.append('<header class="toc-part-header">')
+    out.append(
+        f'<h2 class="toc-part-title">'
+        f'<span class="toc-part-prefix">Glossary</span>'
+        f' <span class="toc-part-sep">·</span> '
+        f'<a href="appendices/glossary/index.html">{title}</a>'
+        f'</h2>'
+    )
+    if subtitle:
+        out.append(f'<p class="toc-part-subtitle">{subtitle}</p>')
+    out.append('</header>')
     out.append('</section>')
     return "\n".join(out)
 
@@ -237,14 +272,18 @@ def build_toc(struct: dict) -> str:
     parts_html = "\n\n".join(render_part(p) for p in struct.get("parts", []))
     appendices_html = render_appendices(struct.get("appendices", []),
                                           struct.get("glossary"))
+    glossary_html = render_glossary_section(struct.get("glossary"))
     front_matter_html = render_front_matter(struct.get("front_matter", []))
 
+    # Layout order: Front Matter -> Parts -> Appendices -> Glossary
+    # (Glossary is top-level, sits after Appendices since it's a definition
+    # reference that readers consult mid-read, not at the end.)
     return HTML_TEMPLATE.format(
         title=title,
         edition=edition,
         front_matter=front_matter_html,
         parts=parts_html,
-        appendices=appendices_html,
+        appendices=appendices_html + "\n\n" + glossary_html,
     )
 
 
