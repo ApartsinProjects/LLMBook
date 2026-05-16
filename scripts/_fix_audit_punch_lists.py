@@ -224,10 +224,33 @@ def category_b_orphan_outputs(section_index: dict[str, list[Path]]) -> Tuple[int
             continue
 
     # Group markers by file for one-pass editing.
+    # Prefer files where the marker appears inside an ORPHAN code-output div
+    # (one whose previous element-sibling is not a <pre>).
     file_to_markers: dict[Path, list[tuple[str, str]]] = {}
     for marker, decision in markers:
-        # Find files containing this marker.
-        cand_files = [p for p, h in file_index if marker in h]
+        cand_orphan = []
+        cand_anywhere = []
+        for p, h in file_index:
+            if marker not in h:
+                continue
+            cand_anywhere.append(p)
+            # Parse and check if marker is in an orphan code-output.
+            try:
+                soup_check = BeautifulSoup(h, "html.parser")
+            except Exception:
+                continue
+            for div in soup_check.select("div.code-output"):
+                if marker not in div.get_text():
+                    continue
+                prev = div.find_previous_sibling()
+                if isinstance(prev, Tag):
+                    if prev.name == "pre":
+                        continue  # paired, not orphan
+                    if prev.name == "div" and "code-block-wrapper" in (prev.get("class") or []):
+                        continue
+                cand_orphan.append(p)
+                break
+        cand_files = cand_orphan if cand_orphan else cand_anywhere
         if not cand_files:
             skipped += 1
             reasons.append(f"B: marker not found: '{marker}'")
@@ -846,7 +869,7 @@ CATEGORY_E_MARKERS = [
     "considers tokens whose cumulative probability reaches",
     "Scales weights by",
     "Weight initialization, noise in diffusion models",
-    "R1 is the first open-weights reasoning model",
+    "R1 is the first open-weights",
     "Cost-competitive training; integrated in Intel cloud partners",
     "Standardizes how streaming agent events are surfaced",
     "Multiple evaluation methods; statistical analysis; honest reporting",
