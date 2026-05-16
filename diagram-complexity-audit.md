@@ -1,32 +1,31 @@
 # Diagram complexity audit
 
-Round 2 update. Box-diagram score combines size, line count, rect count, text
-count, long-text count, and canvas size. Score >= 4 flags as overly complex.
+Round 3 update. Box-diagram score combines size, line count, rect count, text
+count, long-text count, canvas size, and group count. Score >= 4 flags as
+overly complex.
 
-Round 1 (commit `6da1b83e`) simplified 11. Round 2 simplified 20 more.
+Round 1 (commit `6da1b83e`) simplified 11. Round 2 (commit `12878e0f`)
+simplified 20 more. Round 3 simplifies the next 20 worst-offenders.
 
-Re-audit: **box diagrams over-complex 114 -> 96** (matplotlib charts excluded).
-The four grid-signature diagrams correctly remain (intentional grid is the
-visual point: pos-encoding heatmap, 2:4 sparsity, attention-head matrices,
-attention variants).
+Grid-signature diagrams correctly remain unchanged (the grid IS the visual
+message): positional-encoding heatmap, 2:4 sparsity, attention-head
+matrices, attention variants, quantization granularity. Hand-drawn charts
+also remain (param-growth log/linear, encoder-timeline lineage matrix).
 
-## Top 10 over-complex remaining (post-round-2)
+## Top 10 over-complex remaining (post-round-3)
 
 | Rank | Score | Path | Notes |
 |---:|---:|---|---|
-| 1 | 9 | `module-04/fig-4.1.4-pos-encoding.svg` | SKIP: positional encoding heatmap |
-| 2 | 9 | `module-10/fig-9.5.1-2-4-structured-sparsity.svg` | SKIP: sparsity grid |
-| 3 | 8 | `module-11/fig-10.1.2-attention-head-types.svg` | SKIP: attention matrices |
-| 4 | 7 | `module-10/fig-9.2.4-attention-variants.svg` | SKIP: per-variant grids |
-| 5 | 7 | `module-07/fig-6.6.4-pipeline.svg` | already simplified in round 1; grid stays |
-| 6 | 7 | `module-02/fig-2.3.3-multimodal-tokens.svg` | candidate for round 3 |
-| 7 | 7 | `module-10/fig-9.1.2-quantization-granularity.svg` | candidate for round 3 |
-| 8 | 7 | `module-11/fig-10.3.2-debugging-workflow.svg` | candidate for round 3 |
-| 9 | 7 | `module-64/diagram-frontier-augmentation-vs-automation.svg` | candidate for round 3 |
-| 10 | 7 | `module-05/fig-5.3.2-contrastive.svg` | candidate for round 3 |
-
-Score-6 box diagrams (~17 remaining) are mostly borderline. Score-5 (~30) are
-already close to the rules.
+| 1 | 6 | `module-07/fig-6.6.4-pipeline.svg` | already simplified r1; grid stays |
+| 2 | 6 | `module-09/fig-8.2.1-three-patterns-reasoning.svg` | candidate for round 4 |
+| 3 | 6 | `module-08/bolt-on-vs-native-multimodal.svg` | candidate for round 4 |
+| 4 | 6 | `module-07/fig-6.7.2-bayesian.svg` | candidate for round 4 |
+| 5 | 6 | `module-07/fig-6.5.3-grokking.svg` | candidate for round 4 |
+| 6 | 6 | `module-03/fig-3.1.6-seq2seq.svg` | candidate for round 4 |
+| 7 | 6 | `module-64/diagram-frontier-alignment-tax.svg` | candidate for round 4 |
+| 8 | 6 | `module-14/section-11.2-svg3.svg` | candidate for round 4 |
+| 9 | 6 | `module-10/fig-9.1.3-gptq-compensation.svg` | candidate for round 4 |
+| 10 | 6 | (other score-6 items) | borderline |
 
 ## Simplified round 1 (11)
 
@@ -60,8 +59,39 @@ already close to the rules.
 | 19 | `module-35/fig-29.6.1-durable-execution-recovery.svg` | new | 7 |
 | 20 | `module-04/diagram-transformer-anatomy.svg` | 9 | 9 |
 
-All canvas <= 1100x650; <= 8 primary boxes; <= 3-word labels in boxes;
-single directional flow; takeaways moved to bottom strips. Filenames + titles
-preserved so all existing img-src refs and captions still resolve.
+## Simplified round 3 (20)
+
+| # | File | Pre score | Post score |
+|---:|---|---:|---:|
+| 1 | `module-02/fig-2.3.3-multimodal-tokens.svg` | 8 | 0 |
+| 2 | `module-00/fig-0.4.4-rl-to-llm-rlhf.svg` | 7 | 2 |
+| 3 | `module-05/fig-5.3.2-contrastive.svg` | 7 | 2 |
+| 4 | `module-35/fig-29.9.1-k8s-llm-stack.svg` | 7 | 2 |
+| 5 | `module-24/fig-20.6.1-voice-agent-architecture.svg` | 7 | 1 |
+| 6 | `module-07/fig-6.2.2-clm-mlm.svg` | 7 | 3 |
+| 7 | `module-08/fig-7.3.3-orms-prms.svg` | 7 | 4 |
+| 8 | `module-37/fig-30.9.2-gpai-obligations.svg` | 7 | 2 |
+| 9 | `module-10/fig-9.4.2-llm-serving-stack.svg` | 7 | 1 |
+| 10 | `module-11/fig-10.3.2-debugging-workflow.svg` | 6 | 2 |
+| 11 | `module-23/fig-19.7.1-graphrag-pipeline.svg` | 6 | 3 |
+| 12 | `module-04/fig-4.3.4-pos-strategies.svg` | 6 | 1 |
+| 13 | `module-64/diagram-frontier-augmentation-vs-automation.svg` | 6 | 3 |
+| 14 | `module-63/diagram-demo-sparse-gradient.svg` | 6 | 3 |
+| 15 | `module-10/fig-9.3.3-tree-structured-verification.svg` | 6 | 3 |
+| 16 | `module-13/fig-11.1.2-llm-api-ecosystem.svg` | 6 | 3 |
+| 17 | `module-03/fig-3.2.4-gradient-attention.svg` | 6 | 2 |
+| 18 | `module-04/fig-4.3-s4-three-views.svg` | 6 | 3 |
+| 19 | `module-05/fig-5.3.3-speculative.svg` | 6 | 4 |
+| 20 | `module-35/fig-29.6.3-saga-compensation.svg` | 6 | 3 |
+
+All canvases <= 1100x620; <= 8 primary boxes; <= 3-word labels in boxes;
+single directional flow; takeaways moved to bottom strips. Filenames +
+titles preserved so all existing img-src refs and captions still resolve.
+
+Two files retain score 4 (post-simplification) because they need many small
+decorative rects to convey their content (token strips for speculative
+decoding; per-step PRM scores). Primary-box count and 3-word-label rules
+still hold; the 4-score is driven by long-text and rect-count proxies, not
+genuine visual clutter.
 
 PNG sidecars to be regenerated by the next build pass.
