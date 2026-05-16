@@ -257,8 +257,8 @@ def destination_identity(target: Path) -> dict:
 
 def noun_words(text: str) -> set[str]:
     """Extract content words (lowercase, no stopwords, no digits-only).
-    Hyphenated compounds are kept whole AND split into sub-words so that
-    'evaluation-first' overlaps with 'evaluation'."""
+    Hyphenated compounds are kept whole, split into sub-words, AND emitted
+    as their concatenated form so 'pre-training' overlaps with 'pretraining'."""
     text = text.replace("&amp;", " ").replace("&#x2014;", " ").replace("&mdash;", " ")
     # Remove parenthetical chapter numbers
     text = re.sub(r"\([^)]*\)", " ", text)
@@ -272,10 +272,14 @@ def noun_words(text: str) -> set[str]:
             out.add(wl)
         # Also split compound words on hyphen
         if "-" in wl:
-            for part in wl.split("-"):
-                part = part.strip().rstrip("s")
+            parts = [p.strip().rstrip("s") for p in wl.split("-") if p.strip()]
+            for part in parts:
                 if part and len(part) >= 3 and part not in STOPWORDS:
                     out.add(part)
+            # Also add concatenated form ('pre-training' -> 'pretraining')
+            concat = "".join(parts).rstrip("s")
+            if len(concat) >= 3 and concat not in STOPWORDS:
+                out.add(concat)
     return out
 
 
