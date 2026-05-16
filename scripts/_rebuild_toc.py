@@ -57,7 +57,7 @@ def render_part(part: dict) -> str:
     sec_count = sum(len(c.get("sections", [])) for c in part.get("chapters", []))
 
     out: list[str] = []
-    out.append(f'<section class="toc-part" id="part-{num}">')
+    out.append(f'<section class="toc-part" id="part-{num}" data-part-num="{num}">')
     out.append('<header class="toc-part-header">')
     out.append(f'<div class="toc-part-num">Part {roman}<span class="toc-part-count">{chap_count} chapter{"s" if chap_count != 1 else ""} · {sec_count} section{"s" if sec_count != 1 else ""}</span></div>')
     out.append(f'<h2 class="toc-part-title"><a href="part-{num}-{slug}/index.html">{title}</a></h2>')

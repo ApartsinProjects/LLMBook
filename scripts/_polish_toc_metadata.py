@@ -98,15 +98,32 @@ def main() -> int:
                     c["subtitle"] = TOOLS_SUBTITLES[pnum]
                     n_tools += 1
 
-    # 2. Appendix subtitles
+    # 2. Appendix subtitles + group assignment
+    APPENDIX_GROUPS = {
+        # Foundations: A-E
+        "A": "Foundations", "B": "Foundations", "C": "Foundations",
+        "D": "Foundations", "E": "Foundations",
+        # Framework Guides: F-H
+        "F": "Framework Guides", "G": "Framework Guides", "H": "Framework Guides",
+        # Infrastructure & MLOps: I-O
+        "I": "Infrastructure & MLOps", "J": "Infrastructure & MLOps",
+        "K": "Infrastructure & MLOps", "L": "Infrastructure & MLOps",
+        "M": "Infrastructure & MLOps", "N": "Infrastructure & MLOps",
+        "O": "Infrastructure & MLOps",
+        # Pedagogical Kit: P-R
+        "P": "Pedagogical Kit", "Q": "Pedagogical Kit", "R": "Pedagogical Kit",
+    }
     n_app = 0
     for app in struct.get("appendices", []):
         slug = app.get("slug", "")
+        letter = app.get("letter", "")
         if slug in APPENDIX_SUBTITLES:
             new_sub = APPENDIX_SUBTITLES[slug]
             if app.get("subtitle") != new_sub:
                 app["subtitle"] = new_sub
                 n_app += 1
+        if letter in APPENDIX_GROUPS:
+            app["group"] = APPENDIX_GROUPS[letter]
 
     # 3. Reorder front-matter
     fm = struct.get("front_matter", [])
