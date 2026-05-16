@@ -22,9 +22,9 @@ The "Tools of the Trade" chapter-index pages (modules 06, 12, 21, 25, 30, 33, 36
 - Part 6 (Agentic AI): 0 placeholders
 - Part 7 (Multimodal & Generation): 0 placeholders (32.x stubs were just authored; modules 31/32 sections all 13-81 KB)
 - Part 8 (Evaluation & Production): 0 placeholders
-- Part 9 (Safety, Security & Ethics): 0 placeholders
-- Part 10 (Idea to Product): 8 placeholders, all are chapter-index stubs for modules 40, 41, 42, 43, 44, 46, 47, 49 (modules 45, 48, 50 are properly authored; the underlying section files themselves are substantial, the index pages are the stubs)
-- Part 11 (Applications Across Industries): 0 placeholders (modules 51-57 use a monolithic single-file layout with 0 child sections, file sizes 16-24 KB; modules 58-60 use split layout, all substantive)
+- Part 9 (LLM Safety, Security, and Ethics): 0 placeholders
+- Part 10 (Building LLM and Agent Products): 8 placeholders, all are chapter-index stubs for modules 40, 41, 42, 43, 44, 46, 47, 49 (modules 45, 48, 50 are properly authored; the underlying section files themselves are substantial, the index pages are the stubs)
+- Part 11 (LLM Applications Across Industries): 0 placeholders (modules 51-57 use a monolithic single-file layout with 0 child sections, file sizes 16-24 KB; modules 58-60 use split layout, all substantive)
 - Part 12 (Frontiers): 0 placeholders
 - Front-matter: 0 placeholders
 - Appendices: 3 placeholders

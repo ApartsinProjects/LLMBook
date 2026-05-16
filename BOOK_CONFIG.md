@@ -73,7 +73,7 @@ Part 6: Agentic AI (part-6-agentic-ai/)
 
 Part 7: Multimodal & Applications (part-7-multimodal-applications/)
   Ch 26: Multimodal Generation                      module-26-multimodal
-  Ch 27: LLM Applications Across Industries         module-27-llm-applications
+  Ch 27: LLM LLM Applications Across Industries         module-27-llm-applications
 
 Part 8: Evaluation & Production (part-8-evaluation-production/)
   Ch 28: LLM Evaluation & Quality Metrics           module-28-evaluation-observability

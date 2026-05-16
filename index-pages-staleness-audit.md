@@ -24,7 +24,7 @@ Other recurring patterns:
 - **Part Overview**: WRONG. Describes "in-depth treatment of LLM applications in software engineering, finance, healthcare, cybersecurity, education, and scientific discovery." That content now lives in Part 11.
 - **Chapter count**: WRONG. "Chapters: 2 (Chapters 27 and 28)". Actual: 3 (modules 31, 32, 33).
 - **Big-Picture callout**: WRONG. "surveys the rich landscape of LLM-powered applications from code generation to healthcare" - that's Part 11 content.
-- **Chapter cards**: MISSING Ch 32 (Embodied AI, World Models & Multimodal Reasoning), MISSING Ch 33 (Tools of the Trade). HAS a stale "Chapter 27 LLM Applications Across Industries" card with links to non-existent `module-27-llm-applications/section-27.1.html` through `section-27.7.html`.
+- **Chapter cards**: MISSING Ch 32 (Embodied AI, World Models & Multimodal Reasoning), MISSING Ch 33 (Tools of the Trade). HAS a stale "Chapter 27 LLM LLM Applications Across Industries" card with links to non-existent `module-27-llm-applications/section-27.1.html` through `section-27.7.html`.
 - **Section numbering in Ch 31 card**: STALE. Lists `26.1` through `26.7`; should be `31.1` through `31.7`.
 - **Next nav target**: Correct (`module-31-multimodal/index.html`).
 - **ACTION**: full rewrite needed.
@@ -71,7 +71,7 @@ Other recurring patterns:
 - **Missing card**: Ch 36 (Tools of the Trade: Eval & Production Stack).
 - **Chapter 35 card description**: WRONG. Body text says "Production observability with tracing tools, monitoring for drift, experiment reproducibility, and arena-style evaluation at scale." That's Ch 34 content; actual Ch 35 = LLMOps & Deployment Engineering.
 - **Nav prev title**: STALE. "Part VII AI Applications" - Part 7 is now Multimodal Generation.
-- **What Comes Next prose**: "Part IX: Safety and Strategy" - Part 9 is now "Safety, Security & Ethics".
+- **What Comes Next prose**: "Part IX: Safety and Strategy" - Part 9 is now "LLM Safety, Security, and Ethics".
 - **ACTION**: full rewrite needed.
 
 ### part-9-safety-security-ethics/index.html
@@ -79,11 +79,11 @@ Other recurring patterns:
 - **Chapter cards**: HAS Ch 37 with correct number, but section numbers `30.x` inside are STALE (should be `37.x`).
 - **Bad chapter card**: HAS "Chapter 31 LLM Strategy, Product Management & ROI" with links to non-existent `module-31-strategy-product-roi/` (that content moved to Part 10).
 - **Missing cards**: Ch 38 (Agent Safety & Security), Ch 39 (Tools of the Trade: Safety & Guardrails Stack).
-- **What Comes Next**: WRONG. Links to "Part X Frontiers" via `../part-12-frontiers/`. Should link to Part 10: Idea to Product.
+- **What Comes Next**: WRONG. Links to "Part X Frontiers" via `../part-12-frontiers/`. Should link to Part 10: Building LLM and Agent Products.
 - **ACTION**: full rewrite needed.
 
 ### part-10-idea-to-product/index.html
-- **`<title>` tag**: STALE. Says "Part XI: From Idea to AI Product" - this is Part X (10), title was renamed to "Idea to Product".
+- **`<title>` tag**: STALE. Says "Part XI: From Idea to AI Product" - this is Part X (10), title was renamed to "Building LLM and Agent Products".
 - **Meta description**: STALE. Says "Part XI: From Idea to AI Product".
 - **Part Overview prose**: Mentions only two chapters (45 and 48). Actual: 11 chapters (40-50).
 - **Chapter cards**: Only 2 cards; need 11.
@@ -94,8 +94,8 @@ Other recurring patterns:
 - **ACTION**: full rewrite needed.
 
 ### part-11-applications-across-industries/index.html
-- **`<title>` tag**: STALE. Says "Part XII: LLM Applications Across Industries" - this is Part XI (11).
-- **Meta description**: STALE. Says "Part XII: LLM Applications Across Industries".
+- **`<title>` tag**: STALE. Says "Part XII: LLM LLM Applications Across Industries" - this is Part XI (11).
+- **Meta description**: STALE. Says "Part XII: LLM LLM Applications Across Industries".
 - **Part Overview**: WRONG. Opens with "Part XII takes the techniques..." - should be Part XI.
 - **Chapter cards**: 7 cards present (51-57), MISSING cards for Ch 58 (Creative Industries), Ch 59 (Recommendation & Search), Ch 60 (Tools of the Trade: Industry Solution Stack).
 - **What Comes Next**: Stale. Self-links to "Part XII" via `index.html` (this IS Part XI), references dropped "2026 freshness index" resource.
@@ -107,7 +107,7 @@ Other recurring patterns:
 - **Chapter card**: SINGLE card "Chapter 33 Emerging Architectures & Scaling Frontiers" with links to non-existent `module-33-emerging-architectures/section-33.1.html` through `section-33.11.html`. This is the OLD monolithic Part 10 Chapter 33; it has since been split into 5 chapters (61-65).
 - **Missing cards**: Ch 61 (Frontier Architectures), Ch 62 (Frontier Theory), Ch 63 (Frontier Systems & Hardware), Ch 64 (AGI Trajectories), Ch 65 (Tools of the Trade: Frontier Research Stack).
 - **What Comes Next**: WRONG. Says "continue to Part XI: From Idea to AI Product" - Part 12 is the last part; nothing comes next (Appendices follow).
-- **Nav prev**: WRONG. Says "Part IX Safety and Strategy" - Part 9 is now "Safety, Security & Ethics".
+- **Nav prev**: WRONG. Says "Part IX Safety and Strategy" - Part 9 is now "LLM Safety, Security, and Ethics".
 - **Next nav target**: BROKEN. Points to `module-33-emerging-architectures/index.html`.
 - **ACTION**: full rewrite needed.
 
@@ -197,7 +197,7 @@ Each entry follows the pattern: **current chapter / stale displayed prefix**.
 - **Looking Back**: References Chapters III-VIII (acceptable).
 - **Chapter Overview prose**: "preparing the ground for the strategic and ROI considerations in Chapter 31". Chapter 31 dissolved; that content is now Part 10.
 - **What's Next**: Links to non-existent `../module-31-strategy-product-roi/`.
-- **Nav prev/up nav-title**: "Safety and Strategy" - Part 9 = "Safety, Security & Ethics".
+- **Nav prev/up nav-title**: "Safety and Strategy" - Part 9 = "LLM Safety, Security, and Ethics".
 
 ### part-12-frontiers/module-61-frontier-architectures/index.html
 - **Title meta and `<title>`**: STALE "Chapter 33: Emerging Architectures & Scaling Frontiers". Now Chapter 61, title "Frontier Architectures & Scaling".
@@ -276,7 +276,7 @@ Each entry follows the pattern: **current chapter / stale displayed prefix**.
 - Already covered above.
 
 ### part-10-idea-to-product/index.html (also P0)
-- `<title>`: "Part XI: From Idea to AI Product" - should be "Part X: Idea to Product".
+- `<title>`: "Part XI: From Idea to AI Product" - should be "Part X: Building LLM and Agent Products".
 - meta description: same.
 
 ### part-11-applications-across-industries/index.html (also P0)

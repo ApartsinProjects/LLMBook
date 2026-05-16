@@ -323,21 +323,21 @@ None.
   - `part-9-safety-security-ethics/index.html` — no pagefind-meta-injected span for part
 
 ### `PAGEFIND_WRONG_PART` — 14 files
-- example: _part:'Part XI: From Idea to Product' but path suggests 'Part X'_
+- example: _part:'Part XI: From Building LLM and Agent Products' but path suggests 'Part X'_
 - example: _part:'Part XII: Frontiers' but path suggests 'Part VI'_
-  - `part-10-idea-to-product/module-45-prototype-to-production/index.html` — part:'Part XI: From Idea to Product' but path suggests 'Part X'
-  - `part-10-idea-to-product/module-45-prototype-to-production/section-45.1.html` — part:'Part XI: From Idea to Product' but path suggests 'Part X'
-  - `part-10-idea-to-product/module-45-prototype-to-production/section-45.2.html` — part:'Part XI: From Idea to Product' but path suggests 'Part X'
-  - `part-10-idea-to-product/module-45-prototype-to-production/section-45.3.html` — part:'Part XI: From Idea to Product' but path suggests 'Part X'
-  - `part-10-idea-to-product/module-45-prototype-to-production/section-45.4.html` — part:'Part XI: From Idea to Product' but path suggests 'Part X'
-  - `part-10-idea-to-product/module-45-prototype-to-production/section-45.5.html` — part:'Part XI: From Idea to Product' but path suggests 'Part X'
-  - `part-10-idea-to-product/module-45-prototype-to-production/section-45.6.html` — part:'Part XI: From Idea to Product' but path suggests 'Part X'
-  - `part-10-idea-to-product/module-45-prototype-to-production/section-45.7.html` — part:'Part XI: From Idea to Product' but path suggests 'Part X'
-  - `part-10-idea-to-product/module-48-shipping-deploying/index.html` — part:'Part XI: From Idea to Product' but path suggests 'Part X'
-  - `part-10-idea-to-product/module-48-shipping-deploying/section-48.1.html` — part:'Part XI: From Idea to Product' but path suggests 'Part X'
-  - `part-10-idea-to-product/module-48-shipping-deploying/section-48.2.html` — part:'Part XI: From Idea to Product' but path suggests 'Part X'
-  - `part-10-idea-to-product/module-48-shipping-deploying/section-48.3.html` — part:'Part XI: From Idea to Product' but path suggests 'Part X'
-  - `part-10-idea-to-product/module-48-shipping-deploying/section-48.4.html` — part:'Part XI: From Idea to Product' but path suggests 'Part X'
+  - `part-10-idea-to-product/module-45-prototype-to-production/index.html` — part:'Part XI: From Building LLM and Agent Products' but path suggests 'Part X'
+  - `part-10-idea-to-product/module-45-prototype-to-production/section-45.1.html` — part:'Part XI: From Building LLM and Agent Products' but path suggests 'Part X'
+  - `part-10-idea-to-product/module-45-prototype-to-production/section-45.2.html` — part:'Part XI: From Building LLM and Agent Products' but path suggests 'Part X'
+  - `part-10-idea-to-product/module-45-prototype-to-production/section-45.3.html` — part:'Part XI: From Building LLM and Agent Products' but path suggests 'Part X'
+  - `part-10-idea-to-product/module-45-prototype-to-production/section-45.4.html` — part:'Part XI: From Building LLM and Agent Products' but path suggests 'Part X'
+  - `part-10-idea-to-product/module-45-prototype-to-production/section-45.5.html` — part:'Part XI: From Building LLM and Agent Products' but path suggests 'Part X'
+  - `part-10-idea-to-product/module-45-prototype-to-production/section-45.6.html` — part:'Part XI: From Building LLM and Agent Products' but path suggests 'Part X'
+  - `part-10-idea-to-product/module-45-prototype-to-production/section-45.7.html` — part:'Part XI: From Building LLM and Agent Products' but path suggests 'Part X'
+  - `part-10-idea-to-product/module-48-shipping-deploying/index.html` — part:'Part XI: From Building LLM and Agent Products' but path suggests 'Part X'
+  - `part-10-idea-to-product/module-48-shipping-deploying/section-48.1.html` — part:'Part XI: From Building LLM and Agent Products' but path suggests 'Part X'
+  - `part-10-idea-to-product/module-48-shipping-deploying/section-48.2.html` — part:'Part XI: From Building LLM and Agent Products' but path suggests 'Part X'
+  - `part-10-idea-to-product/module-48-shipping-deploying/section-48.3.html` — part:'Part XI: From Building LLM and Agent Products' but path suggests 'Part X'
+  - `part-10-idea-to-product/module-48-shipping-deploying/section-48.4.html` — part:'Part XI: From Building LLM and Agent Products' but path suggests 'Part X'
   - `part-6-agentic-ai/module-27-tool-use-protocols/section-27.6.html` — part:'Part XII: Frontiers' but path suggests 'Part VI'
 
 ## Per-group findings
