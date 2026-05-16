@@ -250,8 +250,14 @@ document.addEventListener('DOMContentLoaded', function () {
     // Skip if already inside a details
     if (bib.closest('details.bib-collapse')) return;
 
-    // Find the heading: h2, or .bibliography-title div
-    var heading = bib.querySelector('h2') || bib.querySelector('.bibliography-title');
+    // Find the heading: h2, h3, or .bibliography-title div. Book HTML uses
+    // <h3>Bibliography and Further Reading</h3>; an earlier version only
+    // queried for h2, so the heading-removal below silently did nothing and
+    // every section rendered the summary AND the h3 (the "double bibliography
+    // header" bug).
+    var heading = bib.querySelector('h2') ||
+                  bib.querySelector('h3') ||
+                  bib.querySelector('.bibliography-title');
     var bibTitle = heading ? heading.textContent.trim() : 'References and Further Reading';
 
     var details = document.createElement('details');
