@@ -194,9 +194,9 @@ def rebuild_part_index(part_slug, roman, title, chs, dry_run):
         if nt != text:
             new_text = nt
             break
-    if new_text == text:
-        # Try locating any existing chapter-card section then replace all chapter-card divs
-        new_text = re.sub(r'(<div class="chapter-card">[\s\S]*?</div>\s*)+', cards_html + '\n', text)
+    # Catastrophic-backtracking fallback removed — the prior regex
+    # `(<div class="chapter-card">[\s\S]*?</div>\s*)+` exploded files to multi-GB
+    # via runaway repetition on nested HTML. If no clean wrapper found, skip.
     if new_text != text and not dry_run:
         idx.write_text(new_text, encoding='utf-8')
     return new_text != text
