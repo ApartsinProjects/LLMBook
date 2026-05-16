@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<meta content="Section 23.8: RAG Ingestion Pipelines and Connectors. A comprehensive chapter from the Building Conversational AI textbook." name="description"/>
+<title>Section 23.8: RAG Ingestion Pipelines and Connectors</title>
+<link href="../../styles/book.css" rel="stylesheet"/>
+<link href="../../styles/pygments.css" rel="stylesheet"/>
+<link href="../../vendor/prism/prism-theme.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/prism/prism-bundle.min.js"></script>
+<script defer="" src="../../scripts/book.js"></script>
+<link href="../../pagefind/pagefind-ui.css" rel="stylesheet"/>
+<script defer="" src="../../pagefind/pagefind-ui.js"></script>
+</head>
+<body>
+<header class="chapter-header">
+<nav class="header-nav">
+<a class="book-title-link" href="../../index.html">Building Conversational AI with LLMs and Agents</a>
+<a class="toc-link" href="../../toc.html" title="Table of Contents"><span class="toc-icon">☰</span> Contents</a>
+</nav>
+<div class="header-search">
+<div id="search"></div>
+</div>
+<div class="page-breadcrumb" data-pagefind-meta="chapter"><a href="../index.html">Part V: Retrieval and Conversation</a><span class="bc-sep">›</span><a href="index.html">Chapter 28: Retrieval-Augmented Generation (RAG)</a></div>
+<h1>RAG Ingestion Pipelines and Connectors</h1><div class="page-current">Section 23.8</div>
+</header>
+<main class="content"><span class="pagefind-meta-injected" data-pagefind-meta="part:Part V: Retrieval and Conversation" hidden=""></span><span class="pagefind-meta-injected" data-pagefind-meta="chapter:Chapter 28: Retrieval-Augmented Generation (RAG)" hidden=""></span>
+<blockquote class="epigraph">
+<p>"The pipeline that runs while you sleep is worth more than the one that runs while you watch."</p>
+<span class="agent-avatar-inline" style="background-color: #2980b9;"><img alt="RAG" height="28" src="../../front-matter/images/agents/rag.png" width="28"/></span><cite>RAG, <span class="agent-desc">Battle-Tested AI Agent</span></cite>
+</blockquote>
+<div class="callout big-picture">
+<div class="callout-title">Big Picture</div>
+<p><strong>Retrieval quality is bounded by ingestion quality.</strong> The most sophisticated re-ranking model and the most carefully tuned <a class="glossary-link" href="../../appendices/glossary/section-f.4.html#gl-embedding" title="Glossary: Embedding">embedding</a> space cannot compensate for documents that were parsed incorrectly, chunked carelessly, or never ingested at all. This section covers the connectors, parsers, <a class="glossary-link" href="../../appendices/glossary/section-f.4.html#gl-chunking" title="Glossary: Chunking">chunking</a> strategies, and orchestration patterns that form the foundation of every production RAG system. If RAG explained what a RAG pipeline looks like, this section explains how to build one that runs reliably every night without human intervention.</p>
+</div>
+<div class="prerequisites">
+<h3>Prerequisites</h3>
+<p>This section builds on the RAG architecture fundamentals from <a href="section-23.1.html">Section 23.1</a> and the chunking strategies introduced there. Familiarity with <a href="../module-22-embeddings-vector-db/section-22.3.html">vector databases</a> from <a class="prereq-link" href="../../part-5-retrieval-conversation/module-22-embeddings-vector-db/index.html">Chapter 22</a> is assumed. Experience with Docker, REST APIs, and scheduled job runners (cron, Airflow) will be helpful but is not required.</p>
+</div>
+<h2>19.8.1 Why Ingestion Quality Dominates Retrieval Quality</h2>
+<div class="callout key-insight">
+<div class="callout-title">Why: Why 512 tokens is the default chunk size</div>
+<p>The 512-token default is downstream of two unrelated constraints that happen to collide. First, most production embedding models (E5, BGE, OpenAI text-embedding-3) were trained with max sequence length 512, so longer chunks get silently truncated. Second, average-pooled embeddings exhibit the "lost-in-the-middle" effect: the longer the chunk, the more averaged-out the semantic signal. Both push toward small chunks. The opposing force is the granularity penalty: a single sentence rarely carries enough context to answer a real question, so retrieval drags in the wrong neighbors. 512 is the empirical sweet spot only because that is where the two failure modes cross. With long-context embedders the right answer shifts toward 1024-2048.</p>
+</div>
+<p>Every RAG system operates under a simple constraint: the retriever can only return documents that exist in the index, and the generator can only cite content that the retriever surfaces. If a PDF was parsed with mangled tables, the retriever will return mangled tables. If a Confluence page was never synced, the retriever cannot find it. If a 200-page document was split into 50-token fragments with no overlap, the retriever will return context-free snippets that confuse the generator. The principle is straightforward: garbage in, garbage out.
+ </p>
+<p>Production RAG failures are disproportionately caused by ingestion problems rather than retrieval or generation problems. A survey of deployed RAG systems by LlamaIndex (2024) found that roughly 60% of "wrong answer" failures traced back to either missing documents (never ingested), corrupted content (bad parsing), or poor chunk boundaries (relevant information split across chunks). Fixing ingestion is the highest-leverage improvement you can make to a RAG system.
+ </p>
+<div class="callout key-insight">
+<div class="callout-title">Key Insight</div>
+<p>Think of ingestion as the "data engineering" layer of RAG. Just as a machine learning model is only as good as its training data, a RAG system is only as good as its indexed corpus. Investing in robust connectors, careful parsing, and thoughtful chunking pays dividends across every downstream query. The best retrieval algorithm in the world cannot find a document that was never ingested, and the best LLM cannot synthesize an answer from garbled text.</p>
+</div>
+<div class="diagram-container">
+<img alt="RAG ingestion pipeline showing data sources (Confluence, Google Drive, Slack, PostgreSQL, SharePoint) flowing through connectors with authentication and change tracking, then document parsing, chunking with strategy selection, and finally embedding and indexing in a vector database, with a scheduled orchestration layer triggering the pipeline" src="images/fig-19.8.1-rag-ingestion-pipeline.png"/>
+<div class="diagram-caption"><strong>Figure 23.8.1</strong>: The RAG ingestion pipeline. Data flows from diverse enterprise sources through authenticated connectors, document parsers, chunking strategies, and embedding models into the <a class="glossary-link" href="../../appendices/glossary/section-f.1.html#gl-vector-database" title="Glossary: Vector Database">vector database</a>. A scheduled orchestration layer triggers nightly batch syncs and incremental updates.</div>
+</div>
+<h2>19.8.2 Connectors: Pulling Data from Everywhere</h2>
+<p>Enterprise knowledge lives in dozens of systems: wikis (Confluence, Notion), document stores (Google Drive, SharePoint), databases (PostgreSQL, MongoDB), ticketing systems (Jira, Linear), communication platforms (Slack, Teams), and SaaS applications (Salesforce, HubSpot). A production RAG system needs connectors that can authenticate with each source, extract content, track changes, and handle rate limits.
+ </p>
+<p>
+<strong>Airbyte</strong> is an open-source data integration platform with over 350 pre-built connectors. Originally designed for ELT (Extract, Load, Transform) workloads, Airbyte works equally well as a RAG ingestion frontend. Each connector handles authentication, pagination, rate limiting, and schema mapping for its source. Airbyte supports <strong>incremental sync</strong>, meaning it tracks a cursor (such as a last-modified timestamp) and only fetches records that changed since the last sync. This is essential for RAG systems that need nightly refreshes without re-ingesting the entire corpus.
+ </p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-yaml"><span class="c1"># airbyte-connection.yaml</span>
+<span class="c1"># Airbyte connection config: Confluence to local JSON staging</span>
+<span class="nt">source</span><span class="p">:</span>
+<span class="w"> </span><span class="nt">sourceDefinitionId</span><span class="p">:</span><span class="w"> </span><span class="s">"confluence-source-v2"</span>
+<span class="w"> </span><span class="nt">connectionConfiguration</span><span class="p">:</span>
+<span class="w"> </span><span class="nt">domain</span><span class="p">:</span><span class="w"> </span><span class="s">"yourcompany.atlassian.net"</span>
+<span class="w"> </span><span class="nt">email</span><span class="p">:</span><span class="w"> </span><span class="s">"${CONFLUENCE_EMAIL}"</span>
+<span class="w"> </span><span class="nt">api_token</span><span class="p">:</span><span class="w"> </span><span class="s">"${CONFLUENCE_API_TOKEN}"</span>
+<span class="w"> </span><span class="nt">space_keys</span><span class="p">:</span>
+<span class="w"> </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">"ENG"</span>
+<span class="w"> </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">"PRODUCT"</span>
+<span class="w"> </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">"OPS"</span>
+<span class="nt">destination</span><span class="p">:</span>
+<span class="w"> </span><span class="nt">destinationDefinitionId</span><span class="p">:</span><span class="w"> </span><span class="s">"local-json"</span>
+<span class="w"> </span><span class="nt">connectionConfiguration</span><span class="p">:</span>
+<span class="w"> </span><span class="nt">destination_path</span><span class="p">:</span><span class="w"> </span><span class="s">"/data/staging/confluence"</span>
+<span class="nt">sync</span><span class="p">:</span>
+<span class="w"> </span><span class="nt">schedule</span><span class="p">:</span>
+<span class="w"> </span><span class="nt">units</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">24</span>
+<span class="w"> </span><span class="nt">timeUnit</span><span class="p">:</span><span class="w"> </span><span class="s">"hours"</span>
+<span class="w"> </span><span class="nt">syncMode</span><span class="p">:</span><span class="w"> </span><span class="s">"incremental"</span>
+<span class="w"> </span><span class="nt">cursorField</span><span class="p">:</span><span class="w"> </span><span class="s">"lastModified"</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> 
+[Title] Quarterly Financial Report Q3 2024...
+ Page: 1
+ Coordinates: ((72, 85), (540, 85), (540, 110), (72, 110))
+[NarrativeText] Revenue increased 12% year-over-year to $4.2B, driven primarily by...
+ Page: 1
+ Coordinates: ((72, 130), (540, 130), (540, 280), (72, 280))
+[Table] Product | Revenue | Growth
+Enterprise | $2.1B | +15%
+Consumer | $1.4B | +8%...
+ Page: 2
+ Coordinates: ((72, 200), (540, 200), (540, 380), (72, 380))
+...
+ 
+
+</div>
+<div class="code-caption"><strong>Code Fragment 23.8.1:</strong> airbyte-connection.yaml</div>
+</div>
+<p>For simpler setups, <strong>LlamaIndex data connectors</strong> (formerly LlamaHub) provide lightweight Python classes for common sources. These are easier to integrate into a custom pipeline but lack Airbyte's built-in scheduling, monitoring, and incremental sync tracking. A practical middle ground is to use Airbyte for high-volume, frequently-changing sources (wikis, databases) and LlamaIndex connectors for static or infrequently-updated sources (local file directories, one-time PDF batches).
+ </p>
+<div class="callout fun-note">
+<div class="callout-title">Fun Fact</div>
+<p>The Airbyte connector catalog has grown so fast that there are now more pre-built data connectors (350+) than there are countries on Earth (195). The irony is that most enterprise RAG teams still end up writing at least one custom connector for that one internal system nobody else uses.</p>
+</div>
+<h2>19.8.3 Document Parsing: Extracting Clean Text from Messy Formats</h2>
+<p>Raw documents arrive in diverse formats: PDF, HTML, DOCX, PPTX, XLSX, Markdown, images with embedded text, and scanned documents. Each format requires a different extraction strategy. The <strong>Unstructured</strong> library provides a unified API for parsing all of these formats. Its <code>partition</code> function automatically detects the file type and applies the appropriate extraction strategy, returning a list of <code>Element</code> objects (titles, narrative text, tables, list items, images) with metadata.
+ </p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="kn">from</span><span class="w"> </span><span class="nn">unstructured.partition.auto</span><span class="w"> </span><span class="kn">import</span> <span class="n">partition</span>
+<span class="c1"># Parse a PDF with OCR fallback for scanned pages</span>
+<span class="n">elements</span> <span class="o">=</span> <span class="n">partition</span><span class="p">(</span>
+    <span class="n">filename</span><span class="o">=</span><span class="s2">"quarterly_report.pdf"</span><span class="p">,</span>
+    <span class="n">strategy</span><span class="o">=</span><span class="s2">"hi_res"</span><span class="p">,</span> <span class="c1"># Use layout detection model</span>
+    <span class="n">pdf_infer_table_structure</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="c1"># Extract tables as HTML</span>
+    <span class="n">languages</span><span class="o">=</span><span class="p">[</span><span class="s2">"eng"</span><span class="p">],</span>
+    <span class="n">extract_image_block_types</span><span class="o">=</span><span class="p">[</span><span class="s2">"Image"</span><span class="p">,</span> <span class="s2">"Table"</span><span class="p">],</span>
+    <span class="p">)</span>
+<span class="c1"># Each element carries type, text, and metadata</span>
+<span class="k">for</span> <span class="n">el</span> <span class="ow">in</span> <span class="n">elements</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"[</span><span class="si">{</span><span class="n">el</span><span class="o">.</span><span class="n">category</span><span class="si">}</span><span class="s2">] </span><span class="si">{</span><span class="n">el</span><span class="o">.</span><span class="n">text</span><span class="p">[:</span><span class="mi">80</span><span class="p">]</span><span class="si">}</span><span class="s2">..."</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">" Page: </span><span class="si">{</span><span class="n">el</span><span class="o">.</span><span class="n">metadata</span><span class="o">.</span><span class="n">page_number</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">" Coordinates: </span><span class="si">{</span><span class="n">el</span><span class="o">.</span><span class="n">metadata</span><span class="o">.</span><span class="n">coordinates</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+    <span class="c1"># Filter to only narrative content and tables</span>
+    <span class="n">content_elements</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="n">el</span> <span class="k">for</span> <span class="n">el</span> <span class="ow">in</span> <span class="n">elements</span>
+        <span class="k">if</span> <span class="n">el</span><span class="o">.</span><span class="n">category</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">"NarrativeText"</span><span class="p">,</span> <span class="s2">"Title"</span><span class="p">,</span> <span class="s2">"Table"</span><span class="p">,</span> <span class="s2">"ListItem"</span><span class="p">)</span>
+        <span class="p">]</span></code></pre>
+<div class="code-caption"><strong>Code Fragment 23.8.2:</strong> Parse a PDF with OCR fallback for scanned pages</div>
+</div>
+<div class="callout tip">
+<div class="callout-title">Tip</div>
+<p>Run your ingestion pipeline on a 50-document sample before scaling to the full corpus. Parse each document, spot-check 5 chunks per document, and compute a "parse quality score" (percentage of chunks with clean, readable text). If your score is below 90%, fix the parser before indexing everything. Re-indexing a million documents because of a parsing bug is expensive and demoralizing.</p>
+</div>
+<p>Unstructured offers three partition strategies. The <strong>fast</strong> strategy uses rule-based text extraction and works well for clean, text-native PDFs. The <strong>ocr_only</strong> strategy runs Tesseract OCR on every page, suitable for scanned documents. The <strong>hi_res</strong> strategy combines a layout detection model with OCR, providing the best quality for mixed documents (some pages text-native, some scanned) at the cost of higher latency. For most production workloads, <code>hi_res</code> is worth the extra processing time because it correctly identifies document structure (headers, paragraphs, tables, figures) rather than treating every page as a flat stream of text.
+ </p>
+<p>
+<strong>Apache Tika</strong> is an alternative for organizations that prefer a Java-based, server-mode parser. Tika supports over 1,000 file formats and runs as a REST service, making it easy to integrate with any language. It excels at metadata extraction (author, creation date, language) and handles edge cases like password-protected Office documents. However, Tika's table extraction and layout detection are less sophisticated than Unstructured's hi_res strategy. Many production systems use both: Tika for metadata extraction and format detection, Unstructured for content extraction.
+ </p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="kn">import</span><span class="w"> </span><span class="nn">requests</span>
+<span class="c1"># Apache Tika running as a REST service on localhost:9998</span>
+<span class="n">TIKA_URL</span> <span class="o">=</span> <span class="s2">"http://localhost:9998"</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">extract_with_tika</span><span class="p">(</span><span class="n">filepath</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Extract text and metadata using Apache Tika server."""</span>
+    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">filepath</span><span class="p">,</span> <span class="s2">"rb"</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+        <span class="c1"># Get parsed text</span>
+        <span class="n">text_resp</span> <span class="o">=</span> <span class="n">requests</span><span class="o">.</span><span class="n">put</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">TIKA_URL</span><span class="si">}</span><span class="s2">/tika"</span><span class="p">,</span>
+            <span class="n">data</span><span class="o">=</span><span class="n">f</span><span class="p">,</span>
+            <span class="n">headers</span><span class="o">=</span><span class="p">{</span><span class="s2">"Accept"</span><span class="p">:</span> <span class="s2">"text/plain"</span><span class="p">},</span>
+            <span class="p">)</span>
+        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">filepath</span><span class="p">,</span> <span class="s2">"rb"</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+            <span class="c1"># Get metadata separately</span>
+            <span class="n">meta_resp</span> <span class="o">=</span> <span class="n">requests</span><span class="o">.</span><span class="n">put</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">TIKA_URL</span><span class="si">}</span><span class="s2">/meta"</span><span class="p">,</span>
+                <span class="n">data</span><span class="o">=</span><span class="n">f</span><span class="p">,</span>
+                <span class="n">headers</span><span class="o">=</span><span class="p">{</span><span class="s2">"Accept"</span><span class="p">:</span> <span class="s2">"application/json"</span><span class="p">},</span>
+                <span class="p">)</span>
+            <span class="k">return</span> <span class="p">{</span>
+                <span class="s2">"text"</span><span class="p">:</span> <span class="n">text_resp</span><span class="o">.</span><span class="n">text</span><span class="p">,</span>
+                <span class="s2">"metadata"</span><span class="p">:</span> <span class="n">meta_resp</span><span class="o">.</span><span class="n">json</span><span class="p">(),</span>
+                <span class="s2">"content_type"</span><span class="p">:</span> <span class="n">meta_resp</span><span class="o">.</span><span class="n">json</span><span class="p">()</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"Content-Type"</span><span class="p">,</span> <span class="s2">"unknown"</span><span class="p">),</span>
+                <span class="p">}</span>
+            <span class="n">result</span> <span class="o">=</span> <span class="n">extract_with_tika</span><span class="p">(</span><span class="s2">"contract.docx"</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Type: </span><span class="si">{</span><span class="n">result</span><span class="p">[</span><span class="s1">'content_type'</span><span class="p">]</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Author: </span><span class="si">{</span><span class="n">result</span><span class="p">[</span><span class="s1">'metadata'</span><span class="p">]</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">'Author'</span><span class="p">,</span><span class="w"> </span><span class="s1">'unknown'</span><span class="p">)</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Text length: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">result</span><span class="p">[</span><span class="s1">'text'</span><span class="p">])</span><span class="si">}</span><span class="s2"> chars"</span><span class="p">)</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> 
+Type: application/vnd.openxmlformats-officedocument.wordprocessingml.document
+Author: Jane Smith
+Text length: 24731 chars
+ 
+
+</div>
+<div class="code-caption"><strong>Code Fragment 23.8.3:</strong> Apache Tika running as a REST service on localhost:9998</div>
+</div>
+<h2>19.8.4 Chunking at Ingestion Time</h2>
+<p>Once documents are parsed into clean text elements, the next step is chunking: splitting content into pieces sized appropriately for embedding and retrieval. The chunking strategy directly affects retrieval precision and recall. Chunks that are too small lose context; chunks that are too large dilute relevance signals and waste <a class="glossary-link" href="../../appendices/glossary/section-f.4.html#gl-context-window" title="Glossary: Context Window">context window</a> budget. There is no universally optimal chunk size, but the choice should be deliberate and informed by the content type and the downstream use case.
+ </p>
+<h3>19.8.4.1 Fixed-Window and Sliding-Window Chunking</h3>
+<p>The simplest approach splits text into fixed-size windows (e.g., 512 tokens) with a configurable overlap (e.g., 64 tokens). Overlap ensures that sentences near chunk boundaries appear in at least two chunks, reducing the chance that relevant information is split across a boundary. This method is fast and predictable but blind to document structure: a chunk boundary can fall in the middle of a paragraph, a code block, or a table.
+ </p>
+<h3>19.8.4.2 Semantic Chunking</h3>
+<p>Semantic chunking uses embedding similarity to find natural breakpoints. The algorithm computes embeddings for each sentence (or small segment), then places a chunk boundary wherever the <a class="glossary-link" href="../../appendices/glossary/section-f.4.html#gl-cosine-similarity" title="Glossary: Cosine Similarity">cosine similarity</a> between consecutive segments drops below a threshold. This produces chunks that are internally coherent: each chunk covers a single topic or idea. The trade-off is that chunk sizes become variable, and the embedding computation adds latency to the ingestion pipeline.
+ </p>
+<h3>19.8.4.3 Document-Structure-Aware Splitting</h3>
+<p>The most effective approach for structured documents (technical documentation, legal contracts, research papers) is to split along document structure boundaries. Use section headers as primary split points. Keep tables, code blocks, and figures as atomic units (never split a table across two chunks). Attach parent section titles as metadata so the retriever can use hierarchical context. Unstructured's <code>Element</code> types make this straightforward: group consecutive <code>NarrativeText</code> elements under their preceding <code>Title</code> element, and treat each <code>Table</code> as its own chunk with the parent section title prepended.
+ </p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="kn">from</span><span class="w"> </span><span class="nn">langchain.text_splitter</span><span class="w"> </span><span class="kn">import</span> <span class="n">RecursiveCharacterTextSplitter</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">unstructured.partition.auto</span><span class="w"> </span><span class="kn">import</span> <span class="n">partition</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">structure_aware_chunk</span><span class="p">(</span><span class="n">filepath</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">max_chunk_tokens</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">512</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">"""Chunk a document respecting its structural boundaries."""</span>
+    <span class="n">elements</span> <span class="o">=</span> <span class="n">partition</span><span class="p">(</span><span class="n">filename</span><span class="o">=</span><span class="n">filepath</span><span class="p">,</span> <span class="n">strategy</span><span class="o">=</span><span class="s2">"hi_res"</span><span class="p">)</span>
+    <span class="n">chunks</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">current_section</span> <span class="o">=</span> <span class="s2">"Introduction"</span>
+    <span class="n">buffer</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">buffer_len</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="k">for</span> <span class="n">el</span> <span class="ow">in</span> <span class="n">elements</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">el</span><span class="o">.</span><span class="n">category</span> <span class="o">==</span> <span class="s2">"Title"</span><span class="p">:</span>
+            <span class="c1"># Flush buffer as a chunk when we hit a new section</span>
+            <span class="k">if</span> <span class="n">buffer</span><span class="p">:</span>
+                <span class="n">chunks</span><span class="o">.</span><span class="n">append</span><span class="p">({</span>
+                    <span class="s2">"text"</span><span class="p">:</span> <span class="s2">"</span><span class="se">\n</span><span class="s2">"</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">buffer</span><span class="p">),</span>
+                    <span class="s2">"section"</span><span class="p">:</span> <span class="n">current_section</span><span class="p">,</span>
+                    <span class="s2">"page"</span><span class="p">:</span> <span class="n">el</span><span class="o">.</span><span class="n">metadata</span><span class="o">.</span><span class="n">page_number</span><span class="p">,</span>
+                    <span class="p">})</span>
+                <span class="n">current_section</span> <span class="o">=</span> <span class="n">el</span><span class="o">.</span><span class="n">text</span>
+                <span class="n">buffer</span> <span class="o">=</span> <span class="p">[]</span>
+                <span class="n">buffer_len</span> <span class="o">=</span> <span class="mi">0</span>
+            <span class="k">elif</span> <span class="n">el</span><span class="o">.</span><span class="n">category</span> <span class="o">==</span> <span class="s2">"Table"</span><span class="p">:</span>
+                <span class="c1"># Tables are always their own chunk</span>
+                <span class="k">if</span> <span class="n">buffer</span><span class="p">:</span>
+                    <span class="n">chunks</span><span class="o">.</span><span class="n">append</span><span class="p">({</span>
+                        <span class="s2">"text"</span><span class="p">:</span> <span class="s2">"</span><span class="se">\n</span><span class="s2">"</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">buffer</span><span class="p">),</span>
+                        <span class="s2">"section"</span><span class="p">:</span> <span class="n">current_section</span><span class="p">,</span>
+                        <span class="s2">"page"</span><span class="p">:</span> <span class="n">el</span><span class="o">.</span><span class="n">metadata</span><span class="o">.</span><span class="n">page_number</span><span class="p">,</span>
+                        <span class="p">})</span>
+                    <span class="n">buffer</span> <span class="o">=</span> <span class="p">[]</span>
+                    <span class="n">buffer_len</span> <span class="o">=</span> <span class="mi">0</span>
+                    <span class="n">chunks</span><span class="o">.</span><span class="n">append</span><span class="p">({</span>
+                        <span class="s2">"text"</span><span class="p">:</span> <span class="sa">f</span><span class="s2">"[Table in </span><span class="si">{</span><span class="n">current_section</span><span class="si">}</span><span class="s2">]</span><span class="se">\n</span><span class="si">{</span><span class="n">el</span><span class="o">.</span><span class="n">text</span><span class="si">}</span><span class="s2">"</span><span class="p">,</span>
+                        <span class="s2">"section"</span><span class="p">:</span> <span class="n">current_section</span><span class="p">,</span>
+                        <span class="s2">"page"</span><span class="p">:</span> <span class="n">el</span><span class="o">.</span><span class="n">metadata</span><span class="o">.</span><span class="n">page_number</span><span class="p">,</span>
+                        <span class="s2">"is_table"</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+                        <span class="p">})</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="c1"># Accumulate narrative text, flush at size limit</span>
+                    <span class="n">token_est</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">el</span><span class="o">.</span><span class="n">text</span><span class="o">.</span><span class="n">split</span><span class="p">())</span>
+                    <span class="k">if</span> <span class="n">buffer_len</span> <span class="o">+</span> <span class="n">token_est</span> <span class="o">&gt;</span> <span class="n">max_chunk_tokens</span><span class="p">:</span>
+                        <span class="n">chunks</span><span class="o">.</span><span class="n">append</span><span class="p">({</span>
+                            <span class="s2">"text"</span><span class="p">:</span> <span class="s2">"</span><span class="se">\n</span><span class="s2">"</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">buffer</span><span class="p">),</span>
+                            <span class="s2">"section"</span><span class="p">:</span> <span class="n">current_section</span><span class="p">,</span>
+                            <span class="s2">"page"</span><span class="p">:</span> <span class="n">el</span><span class="o">.</span><span class="n">metadata</span><span class="o">.</span><span class="n">page_number</span><span class="p">,</span>
+                            <span class="p">})</span>
+                        <span class="n">buffer</span> <span class="o">=</span> <span class="p">[]</span>
+                        <span class="n">buffer_len</span> <span class="o">=</span> <span class="mi">0</span>
+                        <span class="n">buffer</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">el</span><span class="o">.</span><span class="n">text</span><span class="p">)</span>
+                        <span class="n">buffer_len</span> <span class="o">+=</span> <span class="n">token_est</span>
+                        <span class="c1"># Flush remaining buffer</span>
+                        <span class="k">if</span> <span class="n">buffer</span><span class="p">:</span>
+                            <span class="n">chunks</span><span class="o">.</span><span class="n">append</span><span class="p">({</span><span class="s2">"text"</span><span class="p">:</span> <span class="s2">"</span><span class="se">\n</span><span class="s2">"</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">buffer</span><span class="p">),</span> <span class="s2">"section"</span><span class="p">:</span> <span class="n">current_section</span><span class="p">})</span>
+                            <span class="k">return</span> <span class="n">chunks</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> 
+[ENG] Ingested 342 chunks
+[PRODUCT] Ingested 187 chunks
+[OPS] Ingested 95 chunks
+Total chunks ingested: 624
+ 
+
+</div>
+<div class="code-caption"><strong>Code Fragment 23.8.4:</strong> Implementation of structure_aware_chunk</div>
+</div>
+<div class="callout practical-example">
+<div class="callout-title">Real-World Scenario: Choosing a Chunking Strategy</div>
+<p><strong>Who:</strong> Ravi, a data engineer at a legal technology company.</p>
+<p><strong>Situation:</strong> He was building a RAG system that ingested four distinct document types: API documentation, legal contracts, customer support tickets, and research papers. The initial prototype used a single fixed-size chunking strategy (512 tokens with 50-token overlap) for all document types.</p>
+<p><strong>Problem:</strong> Retrieval quality varied wildly across document types. Legal contract queries often returned chunks that split a clause in half, losing critical context. Support ticket chunks merged unrelated conversation turns, confusing the LLM. Research paper chunks blended methods and results sections, producing contradictory retrieved passages.</p>
+<p><strong>Decision:</strong> Ravi implemented document-type-aware chunking: structure-aware splitting by headers for API docs (300 to 600 tokens), clause-level splitting for legal contracts with intact definitions sections (400 to 800 tokens), per-turn splitting for support tickets (100 to 300 tokens), and section-level splitting for research papers with figures as separate chunks (400 to 600 tokens).</p>
+<p><strong>Result:</strong> Answer relevance scores (measured by LLM-as-judge <a class="glossary-link" href="../../appendices/glossary/section-f.4.html#gl-eval" title="Glossary: Evaluation">evaluation</a>) improved from 0.67 to 0.84 across the corpus. Legal contract queries saw the largest gain (+0.23), because preserving clause boundaries eliminated the most common retrieval failure mode.</p>
+<p><strong>Lesson:</strong> A single chunking strategy rarely works across diverse document types. Match the chunk boundaries to the natural structure of each document type, and let the domain's smallest meaningful unit of information define your chunk size.</p>
+</div>
+<h2>19.8.5 Incremental Refresh: Keeping the Index Current</h2>
+<p>A production RAG system must keep its vector index synchronized with the source documents. Full re-ingestion (parsing, chunking, embedding, and upserting every document on every sync) works for small corpora but becomes prohibitively expensive at scale. A corpus of 100,000 documents with an average embedding cost of $0.0001 per chunk and 10 chunks per document costs $100 per full re-index. If only 2% of documents changed since the last sync, incremental refresh reduces that cost to $2.
+ </p>
+<h3>19.8.5.1 Change Detection</h3>
+<p>Track a content hash (SHA-256 of the raw document bytes) and a last-modified timestamp for every ingested document. On each sync run, compare the current hash against the stored hash. If the hash matches, skip the document entirely. If the hash differs, re-parse, re-chunk, and re-embed only that document. Store these hashes in a metadata table alongside the vector IDs so you can locate and replace the affected vectors.
+ </p>
+<h3>19.8.5.2 Tombstone Handling</h3>
+<p>When a source document is deleted or archived, the corresponding vectors must be removed from the index. Otherwise, the retriever will continue surfacing content from documents that no longer exist, leading to stale or contradictory answers. Implement a <strong>tombstone pass</strong> at the end of each sync: compare the set of document IDs in the source against the set of document IDs in the vector store. Any ID present in the vector store but absent from the source is a candidate for deletion. Log tombstoned documents before deleting their vectors, and consider a grace period (e.g., 7 days) before permanent deletion to handle temporary source outages.
+ </p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="kn">import</span><span class="w"> </span><span class="nn">hashlib</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">datetime</span><span class="w"> </span><span class="kn">import</span> <span class="n">datetime</span><span class="p">,</span> <span class="n">timedelta</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">IncrementalSyncTracker</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Track document versions for incremental RAG index updates."""</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">metadata_store</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">store</span> <span class="o">=</span> <span class="n">metadata_store</span> <span class="c1"># e.g., SQLite or PostgreSQL table</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">compute_hash</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">content</span><span class="p">:</span> <span class="nb">bytes</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">hashlib</span><span class="o">.</span><span class="n">sha256</span><span class="p">(</span><span class="n">content</span><span class="p">)</span><span class="o">.</span><span class="n">hexdigest</span><span class="p">()</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">needs_update</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">doc_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">content</span><span class="p">:</span> <span class="nb">bytes</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">"""Check whether a document needs re-ingestion."""</span>
+        <span class="n">new_hash</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">compute_hash</span><span class="p">(</span><span class="n">content</span><span class="p">)</span>
+        <span class="n">record</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">store</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">doc_id</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">record</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">True</span> <span class="c1"># New document</span>
+            <span class="k">return</span> <span class="n">record</span><span class="p">[</span><span class="s2">"content_hash"</span><span class="p">]</span> <span class="o">!=</span> <span class="n">new_hash</span>
+            <span class="k">def</span><span class="w"> </span><span class="nf">record_ingestion</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">doc_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">content</span><span class="p">:</span> <span class="nb">bytes</span><span class="p">,</span> <span class="n">vector_ids</span><span class="p">:</span> <span class="nb">list</span><span class="p">):</span>
+<span class="w">                </span><span class="sd">"""Record successful ingestion for future change detection."""</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">store</span><span class="o">.</span><span class="n">upsert</span><span class="p">({</span>
+                    <span class="s2">"doc_id"</span><span class="p">:</span> <span class="n">doc_id</span><span class="p">,</span>
+                    <span class="s2">"content_hash"</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">compute_hash</span><span class="p">(</span><span class="n">content</span><span class="p">),</span>
+                    <span class="s2">"vector_ids"</span><span class="p">:</span> <span class="n">vector_ids</span><span class="p">,</span>
+                    <span class="s2">"ingested_at"</span><span class="p">:</span> <span class="n">datetime</span><span class="o">.</span><span class="n">utcnow</span><span class="p">()</span><span class="o">.</span><span class="n">isoformat</span><span class="p">(),</span>
+                    <span class="p">})</span>
+            <span class="k">def</span><span class="w"> </span><span class="nf">find_tombstones</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">active_doc_ids</span><span class="p">:</span> <span class="nb">set</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">:</span>
+<span class="w">                </span><span class="sd">"""Find documents in the index that no longer exist in the source."""</span>
+                <span class="n">indexed_ids</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">store</span><span class="o">.</span><span class="n">all_doc_ids</span><span class="p">())</span>
+                <span class="n">tombstoned</span> <span class="o">=</span> <span class="n">indexed_ids</span> <span class="o">-</span> <span class="n">active_doc_ids</span>
+                <span class="k">return</span> <span class="p">[</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">store</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">doc_id</span><span class="p">)</span>
+                    <span class="k">for</span> <span class="n">doc_id</span> <span class="ow">in</span> <span class="n">tombstoned</span>
+                    <span class="p">]</span>
+            <span class="k">def</span><span class="w"> </span><span class="nf">apply_tombstones</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">vector_store</span><span class="p">,</span> <span class="n">grace_days</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">7</span><span class="p">):</span>
+<span class="w">                </span><span class="sd">"""Delete vectors for documents removed more than grace_days ago."""</span>
+                <span class="n">cutoff</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">utcnow</span><span class="p">()</span> <span class="o">-</span> <span class="n">timedelta</span><span class="p">(</span><span class="n">days</span><span class="o">=</span><span class="n">grace_days</span><span class="p">)</span>
+                <span class="k">for</span> <span class="n">record</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">store</span><span class="o">.</span><span class="n">get_tombstoned_before</span><span class="p">(</span><span class="n">cutoff</span><span class="p">):</span>
+                    <span class="n">vector_store</span><span class="o">.</span><span class="n">delete</span><span class="p">(</span><span class="n">ids</span><span class="o">=</span><span class="n">record</span><span class="p">[</span><span class="s2">"vector_ids"</span><span class="p">])</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">store</span><span class="o">.</span><span class="n">delete</span><span class="p">(</span><span class="n">record</span><span class="p">[</span><span class="s2">"doc_id"</span><span class="p">])</span>
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 23.8.5:</strong> Incremental sync tracker using content hashes for change detection and a grace period for tombstone handling. The needs_update method skips unchanged documents, and find_tombstones identifies deleted source documents whose vectors should be removed.</div>
+</div>
+<h2>19.8.6 Data Quality Checks</h2>
+<p>Ingestion pipelines should validate data quality before writing vectors to the index. Without validation, the index accumulates duplicates, empty documents, malformed content, and off-topic material that degrades retrieval quality over time.
+ </p>
+<h3>19.8.6.1 Deduplication with MinHash</h3>
+<p>Near-duplicate documents are common in enterprise corpora: the same policy document saved in three locations, multiple drafts of the same report, wiki pages copied across spaces. Exact deduplication (hash matching) catches identical copies, but near-duplicates require fuzzy matching. <strong>MinHash with Locality-Sensitive Hashing (LSH)</strong> estimates Jaccard similarity between document shingle sets in sublinear time. Documents with similarity above a threshold (commonly 0.8) are flagged as duplicates; only the most recent version is indexed.
+ </p>
+<h3>19.8.6.2 Format Validation and Schema Enforcement</h3>
+<p>Define a minimum quality schema for ingested chunks. At minimum, validate that: (1) the chunk text is not empty or whitespace-only, (2) the chunk text contains at least 20 tokens (very short chunks are usually parsing artifacts), (3) required metadata fields (source URL, document ID, ingestion timestamp) are present, and (4) the text encoding is valid UTF-8 without control characters. Chunks that fail validation are logged for review rather than silently dropped, because a spike in validation failures often signals a connector or parser bug.
+ </p>
+<div class="callout key-insight">
+<div class="callout-title">Key Insight</div>
+<p>Data quality checks at ingestion time serve the same purpose as unit tests in software engineering: they catch regressions early, before they propagate to users. A parser upgrade that silently breaks table extraction will show up as a spike in "empty chunk" validation failures long before a user notices that the RAG system can no longer answer questions about tabular data. Treat validation failure rates as a key health metric for the ingestion pipeline.</p>
+</div>
+<h2>19.8.7 Orchestration: Scheduling and Monitoring Pipelines</h2>
+<p>A complete ingestion pipeline involves multiple steps: connector sync, parsing, chunking, validation, embedding, upserting to the vector store, and tombstone cleanup. Each step can fail independently. A robust pipeline orchestrator handles scheduling, retries, dependency management, and lineage tracking. Two popular choices for Python-based pipelines are <strong>Dagster</strong> and <strong>Prefect</strong>.
+ </p>
+<p>
+<strong>Dagster</strong> models pipelines as directed acyclic graphs of "assets." Each asset represents a materialized data product (e.g., the set of parsed elements, the set of validated chunks, the updated vector index). Dagster tracks dependencies between assets, supports incremental materialization (only re-run assets whose upstream inputs changed), and provides a web UI for monitoring and debugging. Its "software-defined assets" paradigm maps naturally onto ingestion pipeline stages.
+ </p>
+<p>
+<strong>Prefect</strong> takes a more imperative approach: decorate Python functions with <code>@task</code> and <code>@flow</code> to get automatic retries, logging, and scheduling. Prefect is often easier to adopt for teams already writing ingestion logic as Python scripts, because the migration path is to add decorators to existing functions. Both tools support cron-based scheduling, webhook triggers, and integration with alerting systems (Slack, PagerDuty).
+ </p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="kn">from</span><span class="w"> </span><span class="nn">prefect</span><span class="w"> </span><span class="kn">import</span> <span class="n">flow</span><span class="p">,</span> <span class="n">task</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">prefect.tasks</span><span class="w"> </span><span class="kn">import</span> <span class="n">task_input_hash</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">datetime</span><span class="w"> </span><span class="kn">import</span> <span class="n">timedelta</span>
+<span class="nd">@task</span><span class="p">(</span><span class="n">retries</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">retry_delay_seconds</span><span class="o">=</span><span class="mi">60</span><span class="p">,</span>
+    <span class="n">cache_key_fn</span><span class="o">=</span><span class="n">task_input_hash</span><span class="p">,</span>
+    <span class="n">cache_expiration</span><span class="o">=</span><span class="n">timedelta</span><span class="p">(</span><span class="n">hours</span><span class="o">=</span><span class="mi">24</span><span class="p">))</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">sync_confluence</span><span class="p">(</span><span class="n">space_key</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">"""Pull changed pages from Confluence since last sync."""</span>
+    <span class="n">connector</span> <span class="o">=</span> <span class="n">ConfluenceConnector</span><span class="p">(</span><span class="n">space_key</span><span class="o">=</span><span class="n">space_key</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">connector</span><span class="o">.</span><span class="n">fetch_incremental</span><span class="p">()</span>
+<span class="nd">@task</span><span class="p">(</span><span class="n">retries</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">retry_delay_seconds</span><span class="o">=</span><span class="mi">30</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">parse_documents</span><span class="p">(</span><span class="n">raw_docs</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">"""Parse raw documents into structured elements."""</span>
+    <span class="n">parsed</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">doc</span> <span class="ow">in</span> <span class="n">raw_docs</span><span class="p">:</span>
+        <span class="n">elements</span> <span class="o">=</span> <span class="n">partition</span><span class="p">(</span><span class="n">file</span><span class="o">=</span><span class="n">doc</span><span class="p">[</span><span class="s2">"content"</span><span class="p">],</span> <span class="n">strategy</span><span class="o">=</span><span class="s2">"hi_res"</span><span class="p">)</span>
+        <span class="n">parsed</span><span class="o">.</span><span class="n">append</span><span class="p">({</span><span class="s2">"doc_id"</span><span class="p">:</span> <span class="n">doc</span><span class="p">[</span><span class="s2">"id"</span><span class="p">],</span> <span class="s2">"elements"</span><span class="p">:</span> <span class="n">elements</span><span class="p">})</span>
+        <span class="k">return</span> <span class="n">parsed</span>
+<span class="nd">@task</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">chunk_and_validate</span><span class="p">(</span><span class="n">parsed</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">"""Chunk parsed elements and validate quality."""</span>
+    <span class="n">chunks</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">doc</span> <span class="ow">in</span> <span class="n">parsed</span><span class="p">:</span>
+        <span class="n">doc_chunks</span> <span class="o">=</span> <span class="n">structure_aware_chunk</span><span class="p">(</span><span class="n">doc</span><span class="p">[</span><span class="s2">"elements"</span><span class="p">])</span>
+        <span class="k">for</span> <span class="n">chunk</span> <span class="ow">in</span> <span class="n">doc_chunks</span><span class="p">:</span>
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">chunk</span><span class="p">[</span><span class="s2">"text"</span><span class="p">]</span><span class="o">.</span><span class="n">split</span><span class="p">())</span> <span class="o">&gt;=</span> <span class="mi">20</span><span class="p">:</span>
+                <span class="n">chunk</span><span class="p">[</span><span class="s2">"doc_id"</span><span class="p">]</span> <span class="o">=</span> <span class="n">doc</span><span class="p">[</span><span class="s2">"doc_id"</span><span class="p">]</span>
+                <span class="n">chunks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">chunk</span><span class="p">)</span>
+                <span class="k">return</span> <span class="n">chunks</span>
+<span class="nd">@task</span><span class="p">(</span><span class="n">retries</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">retry_delay_seconds</span><span class="o">=</span><span class="mi">10</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">embed_and_upsert</span><span class="p">(</span><span class="n">chunks</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Embed chunks and upsert to the vector store."""</span>
+    <span class="n">embeddings</span> <span class="o">=</span> <span class="n">embed_batch</span><span class="p">([</span><span class="n">c</span><span class="p">[</span><span class="s2">"text"</span><span class="p">]</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">chunks</span><span class="p">])</span>
+    <span class="n">vector_store</span><span class="o">.</span><span class="n">upsert</span><span class="p">(</span><span class="n">vectors</span><span class="o">=</span><span class="n">embeddings</span><span class="p">,</span> <span class="n">metadata</span><span class="o">=</span><span class="n">chunks</span><span class="p">)</span>
+    <span class="k">return</span> <span class="nb">len</span><span class="p">(</span><span class="n">chunks</span><span class="p">)</span>
+<span class="nd">@flow</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">"nightly-rag-ingestion"</span><span class="p">,</span> <span class="n">log_prints</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">nightly_ingestion</span><span class="p">():</span>
+<span class="w">    </span><span class="sd">"""Orchestrate the full nightly RAG ingestion pipeline."""</span>
+    <span class="n">spaces</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"ENG"</span><span class="p">,</span> <span class="s2">"PRODUCT"</span><span class="p">,</span> <span class="s2">"OPS"</span><span class="p">]</span>
+    <span class="n">total</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="k">for</span> <span class="n">space</span> <span class="ow">in</span> <span class="n">spaces</span><span class="p">:</span>
+        <span class="n">raw</span> <span class="o">=</span> <span class="n">sync_confluence</span><span class="p">(</span><span class="n">space</span><span class="p">)</span>
+        <span class="n">parsed</span> <span class="o">=</span> <span class="n">parse_documents</span><span class="p">(</span><span class="n">raw</span><span class="p">)</span>
+        <span class="n">chunks</span> <span class="o">=</span> <span class="n">chunk_and_validate</span><span class="p">(</span><span class="n">parsed</span><span class="p">)</span>
+        <span class="n">count</span> <span class="o">=</span> <span class="n">embed_and_upsert</span><span class="p">(</span><span class="n">chunks</span><span class="p">)</span>
+        <span class="n">total</span> <span class="o">+=</span> <span class="n">count</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"[</span><span class="si">{</span><span class="n">space</span><span class="si">}</span><span class="s2">] Ingested </span><span class="si">{</span><span class="n">count</span><span class="si">}</span><span class="s2"> chunks"</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Total chunks ingested: </span><span class="si">{</span><span class="n">total</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+                                        <span class="c1"># Schedule: run every night at 2 AM UTC</span>
+                                        <span class="c1"># prefect deployment build nightly_ingestion.py:nightly_ingestion \</span>
+                                        <span class="c1"># --name "nightly-rag" --cron "0 2 * * *"</span></code></pre>
+<div class="code-caption"><strong>Code Fragment 23.8.6:</strong> Defines sync_confluence and parse_documents </div>
+</div>
+<div class="callout practical-example">
+<div class="callout-title">Real-World Scenario: Lineage Tracking for Debugging</div>
+<p><strong>Who:</strong> Fatima, a platform engineer at a healthcare information company.</p>
+<p><strong>Situation:</strong> Her team operated a RAG system with 500,000 indexed chunks sourced from medical guidelines, drug databases, and clinical trial summaries. A clinician reported that the system had returned outdated dosage information for a commonly prescribed medication.</p>
+<p><strong>Problem:</strong> Without lineage tracking, Fatima had no way to determine whether the error originated from a stale source document, a parsing failure that corrupted the chunk text, or a chunking boundary that separated the dosage from its qualifying conditions. The system had no record linking the generated answer back through the retrieval and ingestion pipeline.</p>
+<p><strong>Decision:</strong> She instrumented the pipeline with Dagster's asset lineage graph, tagging each chunk with its source document ID, ingestion timestamp, parser version, and chunking parameters. Every retrieval event logged the chunk IDs used and their lineage metadata.</p>
+<p><strong>Result:</strong> Tracing the reported error took 4 minutes instead of the previous average of 3 hours. The root cause was a PDF parser upgrade that had silently dropped table rows from drug monographs. Fatima identified 127 other affected chunks from the same parser run and re-ingested them within the hour.</p>
+<p><strong>Lesson:</strong> Lineage tracking transforms RAG debugging from "needle in a haystack" to a deterministic trace. The investment in metadata tagging at each pipeline stage pays for itself the first time a wrong answer needs root-cause analysis.</p>
+</div>
+<h3 class="lab-title">Lab: Building a Living Knowledge Base</h3>
+<div class="lab">
+<p>This lab walks through building a "living knowledge base" that ingests from three sources (a wiki, a shared drive, and CSV data files) on a nightly schedule and keeps a vector index synchronized with the latest content.
+ </p>
+<p><strong>Architecture overview:</strong></p>
+<ul>
+<li><strong>Source 1 (Wiki):</strong> Confluence pages synced via Airbyte with incremental cursor on lastModified.</li>
+<li><strong>Source 2 (Drive):</strong> Google Drive folder monitored via the Drive API changes endpoint. New and modified files are downloaded and parsed with Unstructured.</li>
+<li><strong>Source 3 (CSV):</strong> Product catalog CSV exported nightly from an internal database. Each row becomes a chunk with structured metadata (product ID, category, price).</li>
+<li><strong>Vector store:</strong> Qdrant collection with cosine similarity, configured for 1536-dimensional OpenAI embeddings.</li>
+<li><strong>Orchestrator:</strong> Prefect flow scheduled via cron at 2 AM UTC, with Slack notifications on failure.</li>
+</ul>
+<p><strong>Key implementation decisions:</strong></p>
+<ol>
+<li>Use SHA-256 content hashes for change detection across all three sources.</li>
+<li>Apply document-structure-aware chunking for wiki and drive documents; row-level chunking for CSV data.</li>
+<li>Run MinHash deduplication across all sources to catch documents that exist in both the wiki and the drive.</li>
+<li>Maintain a tombstone grace period of 3 days to handle temporary source outages (Drive API downtime, Confluence maintenance windows).</li>
+<li>Log all validation failures to a dedicated table for weekly review.</li>
+</ol>
+<p>The complete lab code, including Airbyte configuration files, Prefect flow definitions, and a Docker Compose setup for local development, is available in the companion repository under <code>labs/chapter-20/living-knowledge-base/</code>.
+ </p>
+</div>
+<h2>Exercises</h2>
+<div class="callout exercise">
+<div class="callout-title">Exercise 18.8.1: Connector Trade-offs <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+<p>Compare Airbyte and LlamaIndex data connectors along three dimensions: setup complexity, incremental sync support, and monitoring capabilities. When would you choose each?</p>
+<details open="">
+<summary>Answer Sketch</summary>
+<p>Airbyte provides built-in scheduling, incremental sync with cursor tracking, a web UI for monitoring, and 350+ pre-built connectors. Setup requires running the Airbyte server (Docker Compose). LlamaIndex connectors are lightweight Python classes that require no infrastructure but lack built-in scheduling, incremental sync, and monitoring. Choose Airbyte for production systems with multiple sources and frequent syncs. Choose LlamaIndex connectors for prototyping, one-time ingestion jobs, or sources that change infrequently.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 18.8.2: Parsing Strategy Selection <span class="exercise-type analysis" title="Analysis">Analysis</span></div>
+<p>You have a corpus of 10,000 PDFs: 70% are text-native (generated from Word), 20% are scanned documents, and 10% are mixed (some pages text, some scanned). Design a parsing strategy that balances quality and cost. Which Unstructured strategy would you use, and why?</p>
+<details open="">
+<summary>Answer Sketch</summary>
+<p>Use the hi_res strategy for the entire corpus. Although the fast strategy would suffice for the 70% text-native PDFs, the hi_res strategy handles all three categories correctly and the cost difference is manageable at 10,000 documents. Alternatively, use a two-pass approach: run fast first, then re-process documents where the extracted text length is suspiciously short (indicating failed extraction from scanned pages) with hi_res. This reduces compute costs by approximately 60% while still catching the scanned and mixed documents.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 18.8.3: Incremental Sync Design <span class="exercise-type coding" title="Coding">Coding</span></div>
+<p>Implement a function <code>sync_and_update(source, vector_store, tracker)</code> that performs incremental ingestion: fetch changed documents from the source, re-ingest only those that changed, and handle tombstones for deleted documents.</p>
+<details open="">
+<summary>Answer Sketch</summary>
+<p>Fetch all current document IDs and content hashes from the source. For each document, call tracker.needs_update() to check whether re-ingestion is needed. For documents that need updating, parse, chunk, embed, and upsert; then call tracker.record_ingestion() with the new vector IDs. After processing all documents, call tracker.find_tombstones() with the set of active document IDs and delete the corresponding vectors. Log summary statistics: documents checked, updated, skipped, and tombstoned.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 18.8.4: Pipeline Failure Recovery <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+<p>Your nightly ingestion pipeline fails halfway through the embedding step due to an API rate limit. 500 of 1,000 chunks were embedded and upserted; 500 remain unprocessed. Design a recovery strategy that avoids duplicate vectors and completes the remaining work.</p>
+<details open="">
+<summary>Answer Sketch</summary>
+<p>Use deterministic vector IDs derived from the content hash (e.g., SHA-256 of the chunk text). This makes upsert operations idempotent: re-upserting an already-processed chunk overwrites the existing vector with an identical copy rather than creating a duplicate. On retry, the pipeline can safely re-process all 1,000 chunks; the 500 already upserted will be overwritten harmlessly, and the remaining 500 will be inserted. Alternatively, track which chunks were successfully upserted in the metadata store and only retry the unprocessed ones. The idempotent approach is simpler and more robust.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 18.8.5: Deduplication at Scale <span class="exercise-type coding" title="Coding">Coding</span></div>
+<p>Implement MinHash-based near-duplicate detection for a corpus of 100,000 chunks. Use 128 hash functions and a Jaccard similarity threshold of 0.8. How would you integrate this into the ingestion pipeline?</p>
+<details open="">
+<summary>Answer Sketch</summary>
+<p>Use the datasketch library's MinHash and MinHashLSH classes. For each chunk, create shingles (e.g., character 5-grams), compute the MinHash signature with 128 permutations, and insert into an LSH index with a threshold of 0.8. Before inserting a new chunk, query the LSH index for near-duplicates. If a match is found, compare the full shingle sets to confirm (LSH can produce false positives). Keep the newer version and skip the duplicate. Run deduplication after chunking but before embedding, since embedding is the most expensive step. The LSH index can be persisted between pipeline runs to detect cross-batch duplicates.</p>
+</details>
+</div>
+<div class="callout key-insight">
+<div class="callout-title">Key Takeaways</div>
+<ul>
+<li>Ingestion quality is the single largest determinant of RAG retrieval performance; invest in chunking strategy before tuning retrieval.</li>
+<li>Semantic chunking produces more coherent chunks than fixed-window approaches by detecting natural topic boundaries via embedding similarity.</li>
+<li>Incremental ingestion with change detection and tombstone handling prevents index staleness and keeps retrieval results current.</li>
+<li>Deduplication (using MinHash or similar techniques) and format validation are essential preprocessing steps that prevent index corruption.</li>
+</ul>
+</div>
+<div class="callout self-check">
+<div class="callout-title">Self-Check</div>
+<div class="quiz-question"><strong>Q1:</strong> Why does ingestion quality have a larger impact on RAG performance than retrieval algorithm choice?</div>
+<details><summary>Show Answer</summary><div class="answer">
+<p>Even the best retrieval algorithm cannot surface relevant information if the documents were poorly chunked, stripped of metadata, or corrupted during ingestion. Garbage in, garbage out applies directly to RAG pipelines.</p>
+</div></details>
+<div class="quiz-question"><strong>Q2:</strong> What is the key difference between fixed-window chunking and semantic chunking?</div>
+<details><summary>Show Answer</summary><div class="answer">
+<p>Fixed-window chunking splits text at a predetermined <a class="glossary-link" href="../../appendices/glossary/section-f.3.html#gl-token" title="Glossary: Token">token</a> count regardless of content boundaries, while semantic chunking uses embedding similarity between consecutive sentences to find natural topic boundaries, producing more coherent chunks.</p>
+</div></details>
+<div class="quiz-question"><strong>Q3:</strong> Why is deduplication with MinHash important in a RAG ingestion pipeline?</div>
+<details><summary>Show Answer</summary><div class="answer">
+<p>Without deduplication, near-duplicate documents inflate the index, waste storage, and cause the retriever to return redundant results. MinHash provides an efficient approximate method to detect near-duplicates at scale without pairwise comparisons.</p>
+</div></details>
+</div>
+<div class="callout research-frontier">
+<div class="callout-title">Research Frontier</div>
+<p><strong>Multimodal ingestion</strong> pipelines are extending beyond text to process images, tables, and diagrams as first-class content, using vision-language models for extraction. <strong>Agentic ingestion</strong> systems use LLM agents to decide chunking strategy per document, adapting chunk boundaries and metadata enrichment to document structure. Research into <strong>streaming ingestion</strong> explores real-time index updates from event streams (Kafka, Pub/Sub), enabling RAG systems that reflect changes within seconds rather than batch cycles. <strong>Self-healing pipelines</strong> that detect and correct ingestion errors (corrupted embeddings, malformed chunks) without human intervention are an active area of development.</p>
+</div>
+<div class="whats-next">
+<h2>What Comes Next</h2>
+<p>This section completes the RAG chapter's coverage of ingestion pipelines. For advanced retrieval techniques that operate over the indexed content, see <a href="section-23.9.html">Section 23.9: Source Attribution and Citation in RAG</a>. For evaluation of RAG systems, see <a href="../../part-8-evaluation-production/module-34-evaluation-observability/section-34.1.html">Section 34.1: RAG &amp; Agent Evaluation</a>.</p>
+</div><section class="bibliography">
+<h3>Bibliography and Further Reading</h3>
+<div class="bib-entry-card">
+<p class="bib-ref"><a href="https://docs.airbyte.com/" rel="noopener" target="_blank">Airbyte Documentation.</a></p>
+<p class="bib-annotation">Official documentation for the Airbyte open-source data integration platform, covering connector configuration, incremental sync modes, and deployment options. The reference for setting up source connectors for RAG ingestion.</p>
+<span class="bib-meta">Tool</span>
+</div>
+<div class="bib-entry-card">
+<p class="bib-ref"><a href="https://github.com/Unstructured-IO/unstructured" rel="noopener" target="_blank">Unstructured: Open-Source Document Parsing.</a></p>
+<p class="bib-annotation">The Unstructured library for extracting structured content from PDFs, HTML, DOCX, images, and other formats. Supports multiple partition strategies (fast, ocr_only, hi_res) and integrates with <a href="../../part-6-agentic-ai/module-26-ai-agents/section-26.4.html">LangChain</a> and LlamaIndex.</p>
+<span class="bib-meta">Tool</span>
+</div>
+<div class="bib-entry-card">
+<p class="bib-ref"><a href="https://tika.apache.org/" rel="noopener" target="_blank">Apache Tika: Content Detection and Analysis Framework.</a></p>
+<p class="bib-annotation">Java-based toolkit for detecting and extracting metadata and text from over 1,000 file formats. Runs as a REST server for language-agnostic integration. Strong metadata extraction complements Unstructured's layout detection.</p>
+<span class="bib-meta">Tool</span>
+</div>
+<div class="bib-entry-card">
+<p class="bib-ref"><a href="https://docs.dagster.io/" rel="noopener" target="_blank">Dagster Documentation.</a></p>
+<p class="bib-annotation">Dagster is a data orchestrator built around the concept of software-defined assets. Its dependency tracking, incremental materialization, and web UI make it well-suited for managing multi-stage RAG ingestion pipelines.</p>
+<span class="bib-meta">Tool</span>
+</div>
+<div class="bib-entry-card">
+<p class="bib-ref"><a href="https://docs.prefect.io/" rel="noopener" target="_blank">Prefect Documentation.</a></p>
+<p class="bib-annotation">Prefect provides workflow orchestration with automatic retries, caching, scheduling, and <a class="glossary-link" href="../../appendices/glossary/section-f.4.html#gl-observability" title="Glossary: Observability">observability</a>. Its decorator-based API makes it easy to convert existing Python scripts into managed pipelines.</p>
+<span class="bib-meta">Tool</span>
+</div>
+<div class="bib-entry-card">
+<p class="bib-ref"><a href="https://ekzhu.com/datasketch/minhash.html" rel="noopener" target="_blank">datasketch: MinHash and LSH for Near-Duplicate Detection.</a></p>
+<p class="bib-annotation">Python library implementing MinHash, Locality-Sensitive Hashing, and other probabilistic data structures for large-scale similarity estimation. The standard tool for near-duplicate detection in document ingestion pipelines.</p>
+<span class="bib-meta">Tool</span>
+</div>
+<div class="bib-entry-card">
+<p class="bib-ref"><a href="https://arxiv.org/abs/2312.10997" rel="noopener" target="_blank">Barnett, S. et al. (2024). "Seven Failure Points When Engineering a Retrieval Augmented Generation System."</a></p>
+<p class="bib-annotation">Identifies and categorizes common RAG failure modes, with ingestion and indexing failures accounting for the majority. Essential reading for understanding why ingestion quality is the dominant factor in RAG system performance.</p>
+<span class="bib-meta">Paper</span>
+</div>
+</section>
+<nav class="chapter-nav">
+<a class="prev" href="section-23.7.html"><span class="nav-label">Previous</span><span class="nav-num">Section 23.7</span><span class="nav-title">GraphRAG: Knowledge Graph-Augmented Retrieval</span></a>
+<a class="up" href="index.html"><span class="nav-label">In Chapter</span><span class="nav-num">Chapter 23</span><span class="nav-title">Retrieval-Augmented Generation (RAG)</span></a>
+<a class="next" href="section-23.9.html"><span class="nav-label">Next</span><span class="nav-num">Section 23.9</span><span class="nav-title">Source Attribution and Citation in RAG</span></a>
+</nav>
+<footer><p>Fifteenth Edition, 2026 · <a href="../../toc.html">Contents</a></p></footer>
+</main>
+<script>
+window.addEventListener("DOMContentLoaded", function() {
+  if (window.PagefindUI) {
+    new PagefindUI({
+      element: "#search",
+      showSubResults: true,
+      showImages: false,
+      resetStyles: false,
+      pageSize: 8,
+      autofocus: false,
+      translations: {
+        placeholder: "Search the book\u2026",
+      },
+      processResult: function (result) {
+        try {
+          var part = (result && result.meta && result.meta.part) ? result.meta.part : "";
+          var chap = (result && result.meta && result.meta.chapter) ? result.meta.chapter : "";
+          var partShort = part.split(":")[0].trim();
+          var chapShort = chap.split(":")[0].trim();
+          var crumb = [partShort, chapShort].filter(Boolean).join(" \u203a ");
+          if (crumb && result.meta && result.meta.title
+              && result.meta.title.indexOf("[" + partShort) !== 0) {
+            result.meta.title = "[" + crumb + "]  " + result.meta.title;
+          }
+        } catch (e) { /* fall through */ }
+        return result;
+      },
+    });
+  }
+});
+</script>
+</body>
+</html>

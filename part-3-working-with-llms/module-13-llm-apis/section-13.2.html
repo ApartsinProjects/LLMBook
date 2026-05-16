@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<meta content="Section 13.2: Structured Output &amp; Tool Integration. A comprehensive chapter from the Building Conversational AI textbook." name="description"/>
+<title>Section 13.2: Structured Output &amp; Tool Integration</title>
+<link href="../../styles/book.css" rel="stylesheet"/>
+<link href="../../styles/pygments.css" rel="stylesheet"/>
+<link href="../../vendor/prism/prism-theme.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/prism/prism-bundle.min.js"></script>
+<script defer="" src="../../scripts/book.js"></script>
+<link href="../../pagefind/pagefind-ui.css" rel="stylesheet"/>
+<script defer="" src="../../pagefind/pagefind-ui.js"></script>
+</head>
+<body>
+<header class="chapter-header">
+<nav class="header-nav">
+<a class="book-title-link" href="../../index.html">Building Conversational AI with LLMs and Agents</a>
+<a class="toc-link" href="../../toc.html" title="Table of Contents"><span class="toc-icon">☰</span> Contents</a>
+</nav>
+<div class="header-search">
+<div id="search"></div>
+</div>
+<div class="page-breadcrumb" data-pagefind-meta="chapter"><a href="../index.html">Part III: Working with LLMs</a><span class="bc-sep">›</span><a href="index.html">Chapter 15: Working with LLM APIs</a></div>
+<h1>Structured Output &amp; Tool Integration</h1><div class="page-current">Section 13.2</div>
+</header>
+<main class="content"><span class="pagefind-meta-injected" data-pagefind-meta="part:Part III: Working with LLMs" hidden=""></span><span class="pagefind-meta-injected" data-pagefind-meta="chapter:Chapter 15: Working with LLM APIs" hidden=""></span>
+<blockquote class="epigraph">
+<p>The difference between a demo and a product is parsing the output.</p>
+<span class="agent-avatar-inline" style="background-color: #3498db;"><img alt="Pip" height="28" src="../../front-matter/images/agents/pip.png" width="28"/></span><cite>Pip, <span class="agent-desc">Parse-Obsessed AI Agent</span></cite>
+</blockquote>
+<div class="callout big-picture">
+<div class="callout-title">Big Picture</div>
+<p><strong>Why structured output matters:</strong> LLMs generate free-form text by default, but production applications need predictable, parseable data. Whether you are extracting entities from documents, generating API parameters, or building agent pipelines, you need the model's output to conform to a specific schema. This section covers two complementary approaches: constrained output formats (<a class="glossary-link" href="../../appendices/glossary/section-f.5.html#gl-json-mode" title="Glossary: JSON Mode">JSON mode</a>, response schemas) that guarantee structural validity, and tool/<a class="glossary-link" href="../../appendices/glossary/section-f.5.html#gl-function-calling" title="Glossary: Function Calling">function calling</a> that lets models invoke external systems as part of their reasoning process. The <a class="glossary-link" href="../../appendices/glossary/section-f.3.html#gl-decoding" title="Glossary: Decoding">decoding</a> strategies from <a href="../../part-1-foundations/module-05-decoding-text-generation/section-5.3.html">Section 5.3</a> (grammar-constrained generation) provide the theoretical foundation for how structured output is enforced.</p>
+</div>
+<div class="prerequisites">
+<h3>Prerequisites</h3>
+<p>This section builds directly on the API landscape and authentication patterns from <a href="section-13.1.html">Section 13.1</a>. Familiarity with JSON Schema basics is helpful. The constrained decoding techniques from <a href="../../part-1-foundations/module-05-decoding-text-generation/section-5.3.html">Section 5.3</a> explain the underlying mechanism that providers use to guarantee valid structured output.</p>
+</div>
+<h2>11.2.1 The Structured Output Problem</h2>
+<div class="callout production-pattern">
+<div class="callout-title">Production Pattern: Retry Budget with Backoff + Jitter</div>
+<p><strong>When:</strong> any provider call that may transiently fail (rate limits, 5xx, network blips). <strong>How:</strong> wrap calls in <code>tenacity</code> (or equivalent) with exponential backoff (base 2s, cap 30s) <em>plus full jitter</em>, and a hard cap of 4 retries. Track total retries per request as a metric; if a single request retries more than 2 times, you have an upstream incident, not a flake. <strong>Watch for:</strong> the thundering-herd problem when many clients retry in lockstep, jitter is non-negotiable. Also: idempotency. Retrying a non-idempotent tool call (charge a card, send an email) twice is worse than failing once. <strong>Library:</strong> <code>tenacity</code> for Python; OpenAI SDK has built-in retry but no jitter as of mid-2025.</p>
+</div>
+<div class="callout production-pattern">
+<div class="callout-title">Production Pattern P8: Aggressive Prompt-Caching for Static System Prompts</div>
+<p><strong>What it is:</strong> Use provider-side prompt caching (Anthropic, OpenAI) for system prompts that don't change between requests. The first request pays full price; subsequent requests with the same prefix pay 10-90% less. Saves both cost and TTFT. Tag long static prefixes (system instructions, few-shot examples, retrieved context) with cache-control breakpoints.</p>
+<p><strong>When not to use it:</strong> Highly variable prompts where the cacheable prefix is short relative to the variable suffix. The cache hit rate must exceed ~30% to break even on the cache-write overhead.</p>
+</div>
+<div class="callout production-pattern">
+<div class="callout-title">Production Pattern P4: Retry Budget with Exponential Backoff + Jitter</div>
+<p><strong>What it is:</strong> Every external API call (LLM provider, vector DB, tool) is wrapped with a retry policy that has a fixed budget (typically 3-5 retries), exponential backoff (e.g., 250 ms * 2^n), and per-retry jitter to avoid thundering-herd retries that hit the provider at the same moment.</p>
+<p><strong>When not to use it:</strong> Low-stakes interactive requests where a user is watching: surface the failure rather than retry. Long waits with no feedback are worse than a clear error.</p>
+<p><strong>Catalogue:</strong> See the full discussion + variants in <a href="../../appendices/appendix-r-production-patterns/index.html">Appendix AE: Production Patterns Reference</a> (Pattern P4).</p>
+</div>
+<div class="callout cross-ref">
+<div class="callout-title">Canonical reference</div>
+<p>The deep treatment of the function-calling loop lives in <a href="../../part-6-agentic-ai/module-27-tool-use-protocols/section-27.1.html">Section 27.1</a>. The discussion below focuses on the JSON-schema mechanics that providers expose.</p>
+</div>
+<figure class="illustration">
+<img alt="A mold or template forcing LLM output into a specific JSON schema shape" src="images/structured-output-mold.png"/>
+<figcaption><strong>Figure 13.2.1</strong>: Structured output is like pouring liquid model output into a JSON-shaped mold: you get exactly the shape you asked for, every time.</figcaption>
+</figure>
+<p>Consider a simple task: extract the name, email, and sentiment from a customer support message. This type of <a href="../module-15-hybrid-ml-llm/section-15.5.html">structured information extraction</a> is one of the most common LLM use cases in production. If you ask an LLM to do this with a plain text prompt, you might get the information scattered across prose, formatted inconsistently, or wrapped in unnecessary explanation. To build reliable pipelines, you need the model to return a specific JSON structure, every time, without deviation.</p>
+<div class="callout warning">
+<div class="callout-title">Warning</div>
+<p>Without enforcement, an LLM asked for JSON might return: <code>Here is the JSON: {"name": "Alice"...</code> (wrapped in prose), or <code>{"name": "Alice", "sentiment": "frustrated"}</code> (missing required fields), or sometimes valid JSON with trailing commas that crash <code>json.loads()</code>. Teams that skip structured output enforcement spend significant engineering time writing parsing heuristics, handling edge cases, and retrying failures. The patterns in this section eliminate that entire category of bugs.</p>
+</div>
+<p><strong>Why does JSON mode fail without schema enforcement?</strong> JSON mode guarantees that the output is syntactically valid JSON, but it says nothing about which keys appear, what types the values have, or whether required fields are present. The model is free to invent any JSON structure it wants. This is because JSON mode works at the <a class="glossary-link" href="../../appendices/glossary/section-f.3.html#gl-token" title="Glossary: Token">token</a> level: during <a href="../../part-1-foundations/module-05-decoding-text-generation/section-5.3.html">constrained decoding</a>, the model's output logits are masked so that only tokens forming valid JSON syntax can be selected. But the decoding constraint is purely syntactic; it has no knowledge of your application's schema. Schema-constrained generation solves this by adding semantic constraints: the model must produce a JSON object that matches a specific JSON Schema, with required keys, correct types, and valid enum values.</p>
+<div class="callout key-insight">
+<div class="callout-title">Key Insight</div>
+<p>The progression from prompt-based to schema-constrained output enforcement recapitulates a fundamental distinction in formal language theory: the difference between generating strings that belong to a language (generative grammar) and filtering strings against a specification (parsing/validation). When you ask a model to "return JSON" via a prompt, you are relying on the model's implicit grammar. When you enforce a JSON Schema at the decoding level, you are applying a formal grammar as a hard constraint on the token selection process. This is precisely the approach that compiler designers have used since the 1960s: context-free grammars (CFGs) constrain what sequences of tokens constitute valid programs. Constrained decoding applies the same idea to LLM generation, intersecting the model's probability distribution with a formal automaton that accepts only valid outputs. The mathematical framework (finite-state machines, pushdown automata) was developed by Chomsky and others in the 1950s for natural language, then adopted by computer science for programming languages, and is now returning to its origins as a tool for controlling AI language generation.</p>
+</div>
+<div class="callout tip">
+<div class="callout-title">Tip</div>
+<p>If you are starting a new project and can choose any provider, default to schema-constrained structured output from day one. Retrofitting output parsing into an existing codebase that relied on prompt-based JSON extraction is painful. Teams that start with strict schemas report spending 80% less time on output parsing bugs over the first six months.</p>
+</div>
+<p>There are three levels of structured output enforcement, each with increasing reliability:</p>
+<ol>
+<li><strong>Prompt-based:</strong> You ask the model to return JSON in the <a href="../module-14-prompt-engineering/section-14.1.html">system prompt</a>. This works most of the time, but the model can still return malformed JSON or add commentary outside the JSON block.</li>
+<li><strong>JSON mode:</strong> The API guarantees the response is valid JSON, but does not enforce a specific schema. The model chooses the keys and structure.</li>
+<li><strong>Schema-constrained:</strong> The API guarantees the response matches a specific JSON Schema. This is the most reliable approach, as it enforces both validity and structure at the decoding level.</li>
+</ol>
+<p> compares these three levels of enforcement, highlighting the reliability and trade-offs of each approach.</p>
+<div class="diagram-container">
+<img alt="Three levels of structured output enforcement: prompt-based at 85% reliability, JSON mode at 98%, and schema-constrained at 100%" src="images/fig-11.2.2-structured-output-levels.png"/>
+<div class="diagram-caption"><strong>Figure 13.2.2</strong>: Three levels of structured output enforcement. Production systems should use Level 3 (schema-constrained) whenever the provider supports it.</div>
+</div>
+<h2>11.2.2 JSON Mode and Response Schemas</h2>
+<div class="callout fun-note">
+<div class="callout-title">Fun Fact</div>
+<p>Before structured output modes existed, developers resorted to prompts like "Please respond ONLY in valid JSON. I repeat, ONLY JSON. No markdown. No explanation." followed by a regex prayer and a try/except block. The introduction of schema-constrained generation was one of the most celebrated quality-of-life improvements in the LLM tooling ecosystem.</p>
+</div>
+<h3>11.2.2.1 OpenAI JSON Mode</h3>
+<p>OpenAI's simplest structured output option is JSON mode, activated by setting <code>response_format={"type": "json_object"}</code>. This guarantees the response is valid JSON but does not enforce any particular schema. You must include the word "JSON" in your prompt for this mode to work reliably. Code Fragment 13.2.5 shows the basic JSON mode approach, and Code Fragment 13.2.5 demonstrates Instructor's Pydantic-based validation for stricter enforcement.</p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># Use OpenAI structured outputs with a JSON schema constraint</span>
+<span class="c1"># The model is forced to return valid JSON matching the schema</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">openai</span><span class="w"> </span><span class="kn">import</span> <span class="n">OpenAI</span>
+<span class="n">client</span> <span class="o">=</span> <span class="n">OpenAI</span><span class="p">()</span>
+<span class="c1"># Send chat completion request to the API</span>
+<span class="n">response</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">chat</span><span class="o">.</span><span class="n">completions</span><span class="o">.</span><span class="n">create</span><span class="p">(</span>
+    <span class="n">model</span><span class="o">=</span><span class="s2">"gpt-4o"</span><span class="p">,</span>
+    <span class="n">response_format</span><span class="o">=</span><span class="p">{</span><span class="s2">"type"</span><span class="p">:</span> <span class="s2">"json_object"</span><span class="p">},</span>
+    <span class="n">messages</span><span class="o">=</span><span class="p">[</span>
+    <span class="p">{</span><span class="s2">"role"</span><span class="p">:</span> <span class="s2">"system"</span><span class="p">,</span> <span class="s2">"content"</span><span class="p">:</span> <span class="s2">"Extract contact info. Return JSON with keys: name, email, sentiment."</span><span class="p">},</span>
+    <span class="p">{</span><span class="s2">"role"</span><span class="p">:</span> <span class="s2">"user"</span><span class="p">,</span> <span class="s2">"content"</span><span class="p">:</span> <span class="s2">"Hi, I'm Sarah Chen (sarah@example.com) and I love your product!"</span><span class="p">}</span>
+    <span class="p">]</span>
+<span class="p">)</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
+<span class="c1"># Extract the generated message from the API response</span>
+<span class="n">data</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">response</span><span class="o">.</span><span class="n">choices</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">message</span><span class="o">.</span><span class="n">content</span><span class="p">)</span>
+<span class="c1"># Pretty-print for readability</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">indent</span><span class="o">=</span><span class="mi">2</span><span class="p">))</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> {
+ "name": "Sarah Chen",
+ "email": "sarah@example.com",
+ "sentiment": "positive"
+}
+
+</div>
+<div class="code-caption"><strong>Code Fragment 13.2.1:</strong> Use OpenAI structured outputs with a JSON schema constraint</div>
+</div>
+<div class="callout library-shortcut">
+<div class="callout-title">Library Shortcut: Instructor for Structured Output</div>
+<p><strong>Instructor</strong> combines LLM calls with Pydantic validation, eliminating manual JSON parsing entirely:</p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># Instructor: validate LLM output as Pydantic models automatically.</span>
+<span class="c1"># Retries on validation failure until the schema is satisfied.</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">instructor</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pydantic</span><span class="w"> </span><span class="kn">import</span> <span class="n">BaseModel</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">openai</span><span class="w"> </span><span class="kn">import</span> <span class="n">OpenAI</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">Contact</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
+    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">email</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">sentiment</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">client</span> <span class="o">=</span> <span class="n">instructor</span><span class="o">.</span><span class="n">from_openai</span><span class="p">(</span><span class="n">OpenAI</span><span class="p">())</span>
+    <span class="n">contact</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">chat</span><span class="o">.</span><span class="n">completions</span><span class="o">.</span><span class="n">create</span><span class="p">(</span>
+        <span class="n">model</span><span class="o">=</span><span class="s2">"gpt-4o"</span><span class="p">,</span> <span class="n">response_model</span><span class="o">=</span><span class="n">Contact</span><span class="p">,</span>
+        <span class="n">messages</span><span class="o">=</span><span class="p">[{</span><span class="s2">"role"</span><span class="p">:</span> <span class="s2">"user"</span><span class="p">,</span> <span class="s2">"content"</span><span class="p">:</span> <span class="s2">"Hi, I'm Sarah Chen (sarah@example.com) and I love your product!"</span><span class="p">}]</span>
+        <span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="n">contact</span><span class="o">.</span><span class="n">name</span><span class="p">)</span> <span class="c1"># "Sarah Chen" (typed, validated)</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> Score: 5 (constrained to 1-5)
+Explanation: The product received enthusiastic praise, warranting the highest rating within the allowed range.
+
+</div>
+</div>
+<p><code>pip install instructor</code></p>
+</div>
+<p>Code Fragment 13.2.5 demonstrates strict validation with Instructor.</p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># Use Instructor to extract structured Pydantic objects from LLM responses</span>
+<span class="c1"># Instructor patches the OpenAI client to return validated models</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">instructor</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pydantic</span><span class="w"> </span><span class="kn">import</span> <span class="n">BaseModel</span><span class="p">,</span> <span class="n">Field</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">openai</span><span class="w"> </span><span class="kn">import</span> <span class="n">OpenAI</span>
+<span class="n">client</span> <span class="o">=</span> <span class="n">instructor</span><span class="o">.</span><span class="n">from_openai</span><span class="p">(</span><span class="n">OpenAI</span><span class="p">())</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">StrictRating</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
+    <span class="n">score</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">ge</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">le</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">description</span><span class="o">=</span><span class="s2">"Rating from 1 to 5 only"</span><span class="p">)</span>
+    <span class="n">explanation</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="c1"># Instructor retries automatically if the model returns score=6 or score=0</span>
+    <span class="n">rating</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">chat</span><span class="o">.</span><span class="n">completions</span><span class="o">.</span><span class="n">create</span><span class="p">(</span>
+        <span class="n">model</span><span class="o">=</span><span class="s2">"gpt-4o"</span><span class="p">,</span>
+        <span class="n">response_model</span><span class="o">=</span><span class="n">StrictRating</span><span class="p">,</span>
+        <span class="n">max_retries</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="c1"># Retry up to 3 times on validation failure</span>
+        <span class="n">messages</span><span class="o">=</span><span class="p">[</span>
+        <span class="p">{</span><span class="s2">"role"</span><span class="p">:</span> <span class="s2">"user"</span><span class="p">,</span> <span class="s2">"content"</span><span class="p">:</span> <span class="s2">"Rate this product on a scale of 1-10: Amazing!"</span><span class="p">}</span>
+        <span class="p">]</span>
+        <span class="p">)</span>
+    <span class="c1"># Even though the prompt says "1-10", Pydantic enforces 1-5 via retries</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Score: </span><span class="si">{</span><span class="n">rating</span><span class="o">.</span><span class="n">score</span><span class="si">}</span><span class="s2"> (constrained to 1-5)"</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Explanation: </span><span class="si">{</span><span class="n">rating</span><span class="o">.</span><span class="n">explanation</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span></code></pre>
+<div class="code-caption"><strong>Code Fragment 13.2.2:</strong> Use Instructor to extract structured Pydantic objects from LLM responses</div>
+</div>
+<h2>11.2.4 Function Calling and Tool Use</h2>
+<figure class="illustration">
+<img alt="A Swiss army knife with different tools representing various API function calls available to the model" src="images/tool-use-swiss-army.png"/>
+<figcaption><strong>Figure 13.2.3</strong>: Tool use turns your LLM into a Swiss army knife: it can call functions, query databases, and use APIs instead of just generating text.</figcaption>
+</figure>
+<div class="callout key-insight">
+<div class="callout-title">Key Insight</div>
+<p><strong>Structured output</strong> and <strong>function calling</strong> serve fundamentally different purposes, even though both produce JSON. Structured output constrains the model's response <em>format</em> (data extraction, <a class="glossary-link" href="../../appendices/glossary/section-f.4.html#gl-classification" title="Glossary: Classification">classification</a>). Function calling enables the model to request <em>external actions</em> (API calls, database queries, calculations). Think of structured output as "give me data in this shape" and function calling as "do this thing for me." They are complementary: you can use structured output to validate function call arguments, and function results can be returned as structured data.</p>
+</div>
+<p>Function calling (also called "tool use") is a mechanism that lets the model indicate it wants to invoke an external function rather than produce a text response. This capability is the foundation for <a href="../../part-6-agentic-ai/module-26-ai-agents/index.html">building AI agents</a> that can take actions in the world. The model does not actually execute the function; instead, it generates a structured JSON object containing the function name and arguments. Your application code executes the function and sends the result back to the model, which then incorporates it into its response. shows this request, execute, and respond loop in detail.</p>
+<div class="diagram-container">
+<img alt="Function calling loop: user query, model decides to call tool, generates tool call JSON, your code executes, model generates final response" src="images/fig-11.2.4-function-calling-loop.png"/>
+<div class="diagram-caption"><strong>Figure 13.2.4</strong>: The function calling loop. The model proposes a tool call, your code executes it, and the result is sent back for the model to formulate a response.</div>
+</div>
+<p><strong>Why function calling </strong>is architecturally different from prompt-based JSON. When you ask a model to "return JSON with a function name and arguments," you are relying on the model's instruction-following ability. The model might return valid JSON, but there is no guarantee it will match your function signatures, and there is no mechanism for the model to signal "I need to call a function" versus "I want to respond with text." Function calling is a first-class API feature: the model's output layer is trained to produce a special <code>tool_calls</code> structure, and the API response includes a distinct <code>finish_reason</code> ("tool_calls" instead of "stop") that your code can branch on programmatically. This is the foundation for <a href="../../part-6-agentic-ai/module-26-ai-agents/section-26.2.html">agent tool use</a> in Chapter 26, where models autonomously decide which tools to invoke and in what order.</p>
+<h3>11.2.4.1 OpenAI Function Calling</h3>
+<p>In the OpenAI API, you define available tools in the <code>tools</code> parameter, each with a name, description, and a JSON Schema for its parameters. When the model decides a tool is needed, it returns a response with <code>finish_reason="tool_calls"</code> instead of producing text. Code Fragment 13.2.3 shows this approach in practice.</p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># Set up structured output extraction from the LLM</span>
+<span class="c1"># Parse the response into a typed data structure</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">openai</span><span class="w"> </span><span class="kn">import</span> <span class="n">OpenAI</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
+<span class="n">client</span> <span class="o">=</span> <span class="n">OpenAI</span><span class="p">()</span>
+<span class="c1"># Define the available tools</span>
+<span class="n">tools</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="p">{</span>
+    <span class="s2">"type"</span><span class="p">:</span> <span class="s2">"function"</span><span class="p">,</span>
+    <span class="s2">"function"</span><span class="p">:</span> <span class="p">{</span>
+    <span class="s2">"name"</span><span class="p">:</span> <span class="s2">"get_weather"</span><span class="p">,</span>
+    <span class="s2">"description"</span><span class="p">:</span> <span class="s2">"Get current weather for a city"</span><span class="p">,</span>
+    <span class="s2">"parameters"</span><span class="p">:</span> <span class="p">{</span>
+    <span class="s2">"type"</span><span class="p">:</span> <span class="s2">"object"</span><span class="p">,</span>
+    <span class="s2">"properties"</span><span class="p">:</span> <span class="p">{</span>
+    <span class="s2">"city"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"type"</span><span class="p">:</span> <span class="s2">"string"</span><span class="p">,</span> <span class="s2">"description"</span><span class="p">:</span> <span class="s2">"City name"</span><span class="p">},</span>
+    <span class="s2">"units"</span><span class="p">:</span> <span class="p">{</span>
+    <span class="s2">"type"</span><span class="p">:</span> <span class="s2">"string"</span><span class="p">,</span>
+    <span class="s2">"enum"</span><span class="p">:</span> <span class="p">[</span><span class="s2">"celsius"</span><span class="p">,</span> <span class="s2">"fahrenheit"</span><span class="p">],</span>
+    <span class="s2">"description"</span><span class="p">:</span> <span class="s2">"Temperature unit"</span>
+    <span class="p">}</span>
+    <span class="p">},</span>
+    <span class="s2">"required"</span><span class="p">:</span> <span class="p">[</span><span class="s2">"city"</span><span class="p">]</span>
+    <span class="p">}</span>
+    <span class="p">}</span>
+    <span class="p">}</span>
+    <span class="p">]</span>
+<span class="c1"># Simulated weather function</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_weather</span><span class="p">(</span><span class="n">city</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">units</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"celsius"</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+    <span class="n">data</span> <span class="o">=</span> <span class="p">{</span><span class="s2">"Paris"</span><span class="p">:</span> <span class="s2">"22C, sunny"</span><span class="p">,</span> <span class="s2">"London"</span><span class="p">:</span> <span class="s2">"15C, cloudy"</span><span class="p">,</span> <span class="s2">"Tokyo"</span><span class="p">:</span> <span class="s2">"28C, humid"</span><span class="p">}</span>
+    <span class="k">return</span> <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">city</span><span class="p">,</span> <span class="sa">f</span><span class="s2">"No data for </span><span class="si">{</span><span class="n">city</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="c1"># Step 1: Send user message with tools</span>
+<span class="n">response</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">chat</span><span class="o">.</span><span class="n">completions</span><span class="o">.</span><span class="n">create</span><span class="p">(</span>
+    <span class="n">model</span><span class="o">=</span><span class="s2">"gpt-4o"</span><span class="p">,</span>
+    <span class="n">messages</span><span class="o">=</span><span class="p">[{</span><span class="s2">"role"</span><span class="p">:</span> <span class="s2">"user"</span><span class="p">,</span> <span class="s2">"content"</span><span class="p">:</span> <span class="s2">"What's the weather in Paris?"</span><span class="p">}],</span>
+    <span class="n">tools</span><span class="o">=</span><span class="n">tools</span>
+    <span class="p">)</span>
+<span class="c1"># Step 2: Check if model wants to call a tool</span>
+<span class="n">message</span> <span class="o">=</span> <span class="n">response</span><span class="o">.</span><span class="n">choices</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">message</span>
+<span class="k">if</span> <span class="n">message</span><span class="o">.</span><span class="n">tool_calls</span><span class="p">:</span>
+    <span class="n">tool_call</span> <span class="o">=</span> <span class="n">message</span><span class="o">.</span><span class="n">tool_calls</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="n">args</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">tool_call</span><span class="o">.</span><span class="n">function</span><span class="o">.</span><span class="n">arguments</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Model wants to call: </span><span class="si">{</span><span class="n">tool_call</span><span class="o">.</span><span class="n">function</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">(</span><span class="si">{</span><span class="n">args</span><span class="si">}</span><span class="s2">)"</span><span class="p">)</span>
+    <span class="c1"># Step 3: Execute the function</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="n">get_weather</span><span class="p">(</span><span class="o">**</span><span class="n">args</span><span class="p">)</span>
+    <span class="c1"># Step 4: Send result back to model</span>
+    <span class="n">final_response</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">chat</span><span class="o">.</span><span class="n">completions</span><span class="o">.</span><span class="n">create</span><span class="p">(</span>
+        <span class="n">model</span><span class="o">=</span><span class="s2">"gpt-4o"</span><span class="p">,</span>
+        <span class="n">messages</span><span class="o">=</span><span class="p">[</span>
+        <span class="p">{</span><span class="s2">"role"</span><span class="p">:</span> <span class="s2">"user"</span><span class="p">,</span> <span class="s2">"content"</span><span class="p">:</span> <span class="s2">"What's the weather in Paris?"</span><span class="p">},</span>
+        <span class="n">message</span><span class="p">,</span> <span class="c1"># The assistant's tool_call message</span>
+        <span class="p">{</span><span class="s2">"role"</span><span class="p">:</span> <span class="s2">"tool"</span><span class="p">,</span> <span class="s2">"tool_call_id"</span><span class="p">:</span> <span class="n">tool_call</span><span class="o">.</span><span class="n">id</span><span class="p">,</span> <span class="s2">"content"</span><span class="p">:</span> <span class="n">result</span><span class="p">}</span>
+        <span class="p">],</span>
+        <span class="n">tools</span><span class="o">=</span><span class="n">tools</span>
+        <span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Final answer: </span><span class="si">{</span><span class="n">final_response</span><span class="o">.</span><span class="n">choices</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">message</span><span class="o">.</span><span class="n">content</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> Model wants to call: get_weather({'city': 'Paris'})
+Final answer: The current weather in Paris is 22°C and sunny.
+
+</div>
+<div class="code-caption"><strong>Code Fragment 13.2.3:</strong> Set up structured output extraction from the LLM</div>
+</div>
+<div class="callout library-shortcut">
+<div class="callout-title">Library Shortcut: Marvin for LLM-Powered Extraction</div>
+<p>For simple extraction tasks (no external tool calls), <strong>Marvin</strong> turns LLM calls into Python function decorators:</p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># Marvin: turn plain Python function signatures into LLM calls.</span>
+<span class="c1"># The decorator handles prompting, parsing, and type validation.</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">marvin</span>
+<span class="nd">@marvin</span><span class="o">.</span><span class="n">fn</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">sentiment</span><span class="p">(</span><span class="n">text</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Return 'positive', 'negative', or 'neutral'."""</span>
+    <span class="nd">@marvin</span><span class="o">.</span><span class="n">fn</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">extract_cities</span><span class="p">(</span><span class="n">text</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">"""Extract all city names mentioned in the text."""</span>
+        <span class="nb">print</span><span class="p">(</span><span class="n">sentiment</span><span class="p">(</span><span class="s2">"I love this product!"</span><span class="p">))</span> <span class="c1"># "positive"</span>
+        <span class="nb">print</span><span class="p">(</span><span class="n">extract_cities</span><span class="p">(</span><span class="s2">"Flights from Paris to Tokyo"</span><span class="p">))</span> <span class="c1"># ["Paris", "Tokyo"]</span></code></pre>
+</div>
+<p><code>pip install marvin</code>. Marvin handles prompt construction, parsing, and validation automatically.</p>
+</div>
+<h3>11.2.4.2 Anthropic Tool Use</h3>
+<p>Anthropic's tool use follows the same conceptual pattern but with different API conventions. Tools are defined with <code>input_schema</code> (instead of <code>parameters</code>), and the response uses content blocks with a <code>tool_use</code> type. The tool result is sent back as a <code>tool_result</code> content block. Code Fragment 13.2.4 shows this approach in practice.</p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># Define tools for function calling and handle tool_calls in the response</span>
+<span class="c1"># The model decides which function to invoke based on the user query</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">anthropic</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
+<span class="n">client</span> <span class="o">=</span> <span class="n">anthropic</span><span class="o">.</span><span class="n">Anthropic</span><span class="p">()</span>
+<span class="n">tools</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="p">{</span>
+    <span class="s2">"name"</span><span class="p">:</span> <span class="s2">"get_weather"</span><span class="p">,</span>
+    <span class="s2">"description"</span><span class="p">:</span> <span class="s2">"Get current weather for a city"</span><span class="p">,</span>
+    <span class="s2">"input_schema"</span><span class="p">:</span> <span class="p">{</span>
+    <span class="s2">"type"</span><span class="p">:</span> <span class="s2">"object"</span><span class="p">,</span>
+    <span class="s2">"properties"</span><span class="p">:</span> <span class="p">{</span>
+    <span class="s2">"city"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"type"</span><span class="p">:</span> <span class="s2">"string"</span><span class="p">,</span> <span class="s2">"description"</span><span class="p">:</span> <span class="s2">"City name"</span><span class="p">},</span>
+    <span class="s2">"units"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"type"</span><span class="p">:</span> <span class="s2">"string"</span><span class="p">,</span> <span class="s2">"enum"</span><span class="p">:</span> <span class="p">[</span><span class="s2">"celsius"</span><span class="p">,</span> <span class="s2">"fahrenheit"</span><span class="p">]}</span>
+    <span class="p">},</span>
+    <span class="s2">"required"</span><span class="p">:</span> <span class="p">[</span><span class="s2">"city"</span><span class="p">]</span>
+    <span class="p">}</span>
+    <span class="p">}</span>
+    <span class="p">]</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_weather</span><span class="p">(</span><span class="n">city</span><span class="p">,</span> <span class="n">units</span><span class="o">=</span><span class="s2">"celsius"</span><span class="p">):</span>
+    <span class="n">data</span> <span class="o">=</span> <span class="p">{</span><span class="s2">"Paris"</span><span class="p">:</span> <span class="s2">"22C, sunny"</span><span class="p">,</span> <span class="s2">"London"</span><span class="p">:</span> <span class="s2">"15C, cloudy"</span><span class="p">}</span>
+    <span class="k">return</span> <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">city</span><span class="p">,</span> <span class="sa">f</span><span class="s2">"No data for </span><span class="si">{</span><span class="n">city</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="c1"># Step 1: Send request with tools</span>
+<span class="n">response</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">messages</span><span class="o">.</span><span class="n">create</span><span class="p">(</span>
+    <span class="n">model</span><span class="o">=</span><span class="s2">"claude-sonnet-4-20250514"</span><span class="p">,</span>
+    <span class="n">max_tokens</span><span class="o">=</span><span class="mi">300</span><span class="p">,</span>
+    <span class="n">tools</span><span class="o">=</span><span class="n">tools</span><span class="p">,</span>
+    <span class="n">messages</span><span class="o">=</span><span class="p">[{</span><span class="s2">"role"</span><span class="p">:</span> <span class="s2">"user"</span><span class="p">,</span> <span class="s2">"content"</span><span class="p">:</span> <span class="s2">"What's the weather in Paris?"</span><span class="p">}]</span>
+    <span class="p">)</span>
+<span class="c1"># Step 2: Find the tool_use block</span>
+<span class="k">for</span> <span class="n">block</span> <span class="ow">in</span> <span class="n">response</span><span class="o">.</span><span class="n">content</span><span class="p">:</span>
+    <span class="k">if</span> <span class="n">block</span><span class="o">.</span><span class="n">type</span> <span class="o">==</span> <span class="s2">"tool_use"</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Tool call: </span><span class="si">{</span><span class="n">block</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">(</span><span class="si">{</span><span class="n">block</span><span class="o">.</span><span class="n">input</span><span class="si">}</span><span class="s2">)"</span><span class="p">)</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="n">get_weather</span><span class="p">(</span><span class="o">**</span><span class="n">block</span><span class="o">.</span><span class="n">input</span><span class="p">)</span>
+        <span class="c1"># Step 3: Send tool result back</span>
+        <span class="n">final</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">messages</span><span class="o">.</span><span class="n">create</span><span class="p">(</span>
+            <span class="n">model</span><span class="o">=</span><span class="s2">"claude-sonnet-4-20250514"</span><span class="p">,</span>
+            <span class="n">max_tokens</span><span class="o">=</span><span class="mi">300</span><span class="p">,</span>
+            <span class="n">tools</span><span class="o">=</span><span class="n">tools</span><span class="p">,</span>
+            <span class="n">messages</span><span class="o">=</span><span class="p">[</span>
+            <span class="p">{</span><span class="s2">"role"</span><span class="p">:</span> <span class="s2">"user"</span><span class="p">,</span> <span class="s2">"content"</span><span class="p">:</span> <span class="s2">"What's the weather in Paris?"</span><span class="p">},</span>
+            <span class="p">{</span><span class="s2">"role"</span><span class="p">:</span> <span class="s2">"assistant"</span><span class="p">,</span> <span class="s2">"content"</span><span class="p">:</span> <span class="n">response</span><span class="o">.</span><span class="n">content</span><span class="p">},</span>
+            <span class="p">{</span><span class="s2">"role"</span><span class="p">:</span> <span class="s2">"user"</span><span class="p">,</span> <span class="s2">"content"</span><span class="p">:</span> <span class="p">[</span>
+            <span class="p">{</span><span class="s2">"type"</span><span class="p">:</span> <span class="s2">"tool_result"</span><span class="p">,</span> <span class="s2">"tool_use_id"</span><span class="p">:</span> <span class="n">block</span><span class="o">.</span><span class="n">id</span><span class="p">,</span> <span class="s2">"content"</span><span class="p">:</span> <span class="n">result</span><span class="p">}</span>
+            <span class="p">]}</span>
+            <span class="p">]</span>
+            <span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Final: </span><span class="si">{</span><span class="n">final</span><span class="o">.</span><span class="n">content</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">text</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> Tool call: get_weather({'city': 'Paris'})
+Final: The current weather in Paris is 22°C and sunny.
+
+</div>
+<div class="code-caption"><strong>Code Fragment 13.2.4:</strong> Define tools for function calling and handle tool_calls in the response</div>
+</div>
+<h3>11.2.4.3 Google Gemini Function Calling</h3>
+<p>Google Gemini uses <code>function_declarations</code> for tool definitions and returns function calls as structured parts in the response. The syntax differs from both OpenAI and Anthropic, but the conceptual loop (define tools, receive a call, execute, return results) is identical. Code Fragment 13.2.5 shows this approach in practice.</p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># Use Google Gemini function calling for structured output</span>
+<span class="c1"># Gemini uses FunctionDeclaration for tool definitions</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">google</span><span class="w"> </span><span class="kn">import</span> <span class="n">genai</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">google.genai</span><span class="w"> </span><span class="kn">import</span> <span class="n">types</span>
+<span class="n">client</span> <span class="o">=</span> <span class="n">genai</span><span class="o">.</span><span class="n">Client</span><span class="p">()</span>
+<span class="c1"># Define tools using function_declarations</span>
+<span class="n">weather_tool</span> <span class="o">=</span> <span class="n">types</span><span class="o">.</span><span class="n">Tool</span><span class="p">(</span>
+    <span class="n">function_declarations</span><span class="o">=</span><span class="p">[</span>
+    <span class="n">types</span><span class="o">.</span><span class="n">FunctionDeclaration</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">"get_weather"</span><span class="p">,</span>
+    <span class="n">description</span><span class="o">=</span><span class="s2">"Get current weather for a city"</span><span class="p">,</span>
+    <span class="n">parameters</span><span class="o">=</span><span class="n">types</span><span class="o">.</span><span class="n">Schema</span><span class="p">(</span>
+    <span class="nb">type</span><span class="o">=</span><span class="s2">"OBJECT"</span><span class="p">,</span>
+    <span class="n">properties</span><span class="o">=</span><span class="p">{</span>
+    <span class="s2">"city"</span><span class="p">:</span> <span class="n">types</span><span class="o">.</span><span class="n">Schema</span><span class="p">(</span><span class="nb">type</span><span class="o">=</span><span class="s2">"STRING"</span><span class="p">,</span> <span class="n">description</span><span class="o">=</span><span class="s2">"City name"</span><span class="p">),</span>
+    <span class="p">},</span>
+    <span class="n">required</span><span class="o">=</span><span class="p">[</span><span class="s2">"city"</span><span class="p">],</span>
+    <span class="p">),</span>
+    <span class="p">)</span>
+    <span class="p">]</span>
+    <span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_weather</span><span class="p">(</span><span class="n">city</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+    <span class="n">data</span> <span class="o">=</span> <span class="p">{</span><span class="s2">"Paris"</span><span class="p">:</span> <span class="s2">"22C, sunny"</span><span class="p">,</span> <span class="s2">"Tokyo"</span><span class="p">:</span> <span class="s2">"28C, humid"</span><span class="p">}</span>
+    <span class="k">return</span> <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">city</span><span class="p">,</span> <span class="sa">f</span><span class="s2">"No data for </span><span class="si">{</span><span class="n">city</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="c1"># Step 1: Send request with tools</span>
+<span class="n">response</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">models</span><span class="o">.</span><span class="n">generate_content</span><span class="p">(</span>
+    <span class="n">model</span><span class="o">=</span><span class="s2">"gemini-2.5-flash"</span><span class="p">,</span>
+    <span class="n">contents</span><span class="o">=</span><span class="s2">"What's the weather in Paris?"</span><span class="p">,</span>
+    <span class="n">config</span><span class="o">=</span><span class="n">types</span><span class="o">.</span><span class="n">GenerateContentConfig</span><span class="p">(</span><span class="n">tools</span><span class="o">=</span><span class="p">[</span><span class="n">weather_tool</span><span class="p">]),</span>
+    <span class="p">)</span>
+<span class="c1"># Step 2: Extract the function call from the response</span>
+<span class="n">part</span> <span class="o">=</span> <span class="n">response</span><span class="o">.</span><span class="n">candidates</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">content</span><span class="o">.</span><span class="n">parts</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Function call: </span><span class="si">{</span><span class="n">part</span><span class="o">.</span><span class="n">function_call</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">(</span><span class="si">{</span><span class="nb">dict</span><span class="p">(</span><span class="n">part</span><span class="o">.</span><span class="n">function_call</span><span class="o">.</span><span class="n">args</span><span class="p">)</span><span class="si">}</span><span class="s2">)"</span><span class="p">)</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">get_weather</span><span class="p">(</span><span class="o">**</span><span class="nb">dict</span><span class="p">(</span><span class="n">part</span><span class="o">.</span><span class="n">function_call</span><span class="o">.</span><span class="n">args</span><span class="p">))</span>
+<span class="c1"># Step 3: Send function response back</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">google.genai.types</span><span class="w"> </span><span class="kn">import</span> <span class="n">Content</span><span class="p">,</span> <span class="n">Part</span>
+<span class="n">final</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">models</span><span class="o">.</span><span class="n">generate_content</span><span class="p">(</span>
+    <span class="n">model</span><span class="o">=</span><span class="s2">"gemini-2.5-flash"</span><span class="p">,</span>
+    <span class="n">contents</span><span class="o">=</span><span class="p">[</span>
+    <span class="n">Content</span><span class="p">(</span><span class="n">parts</span><span class="o">=</span><span class="p">[</span><span class="n">Part</span><span class="p">(</span><span class="n">text</span><span class="o">=</span><span class="s2">"What's the weather in Paris?"</span><span class="p">)],</span> <span class="n">role</span><span class="o">=</span><span class="s2">"user"</span><span class="p">),</span>
+    <span class="n">response</span><span class="o">.</span><span class="n">candidates</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">content</span><span class="p">,</span>
+    <span class="n">Content</span><span class="p">(</span><span class="n">parts</span><span class="o">=</span><span class="p">[</span><span class="n">Part</span><span class="p">(</span><span class="n">function_response</span><span class="o">=</span><span class="n">types</span><span class="o">.</span><span class="n">FunctionResponse</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">"get_weather"</span><span class="p">,</span> <span class="n">response</span><span class="o">=</span><span class="p">{</span><span class="s2">"result"</span><span class="p">:</span> <span class="n">result</span><span class="p">}</span>
+    <span class="p">))],</span> <span class="n">role</span><span class="o">=</span><span class="s2">"user"</span><span class="p">),</span>
+    <span class="p">],</span>
+    <span class="n">config</span><span class="o">=</span><span class="n">types</span><span class="o">.</span><span class="n">GenerateContentConfig</span><span class="p">(</span><span class="n">tools</span><span class="o">=</span><span class="p">[</span><span class="n">weather_tool</span><span class="p">]),</span>
+    <span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Final: </span><span class="si">{</span><span class="n">final</span><span class="o">.</span><span class="n">text</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> Function call: get_weather({'city': 'Paris'})
+Final: The current weather in Paris is 22°C and sunny.
+
+</div>
+<div class="code-caption"><strong>Code Fragment 13.2.5:</strong> Use Google Gemini function calling for structured output</div>
+</div>
+<div class="callout warning">
+<div class="callout-title">Warning</div>
+<p><strong>Malformed tool call arguments:</strong> Although models are generally reliable at producing valid JSON for tool calls, they can occasionally generate malformed arguments, especially with complex schemas. Always wrap your <code>json.loads()</code> call in a try/except block and implement a retry strategy. When using Instructor with tools, this retry logic is handled automatically.</p>
+</div>
+<h2>11.2.5 Parallel and Sequential Tool Calls</h2>
+<p>Modern LLMs can request multiple tool calls in a single response. For instance, if a user asks "What is the weather in Paris and Tokyo?", the model may emit two <code>get_weather</code> calls simultaneously. Your application should detect multiple tool calls and execute them in parallel for better performance. Code Fragment 13.2.6 shows this approach in practice.</p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># Run multiple LLM calls concurrently using asyncio</span>
+<span class="c1"># Async batching reduces wall-clock time for parallel requests</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">openai</span><span class="w"> </span><span class="kn">import</span> <span class="n">OpenAI</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
+<span class="n">client</span> <span class="o">=</span> <span class="n">OpenAI</span><span class="p">()</span>
+<span class="n">tools</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="p">{</span>
+    <span class="s2">"type"</span><span class="p">:</span> <span class="s2">"function"</span><span class="p">,</span>
+    <span class="s2">"function"</span><span class="p">:</span> <span class="p">{</span>
+    <span class="s2">"name"</span><span class="p">:</span> <span class="s2">"get_weather"</span><span class="p">,</span>
+    <span class="s2">"description"</span><span class="p">:</span> <span class="s2">"Get current weather for a city"</span><span class="p">,</span>
+    <span class="s2">"parameters"</span><span class="p">:</span> <span class="p">{</span>
+    <span class="s2">"type"</span><span class="p">:</span> <span class="s2">"object"</span><span class="p">,</span>
+    <span class="s2">"properties"</span><span class="p">:</span> <span class="p">{</span>
+    <span class="s2">"city"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"type"</span><span class="p">:</span> <span class="s2">"string"</span><span class="p">}</span>
+    <span class="p">},</span>
+    <span class="s2">"required"</span><span class="p">:</span> <span class="p">[</span><span class="s2">"city"</span><span class="p">]</span>
+    <span class="p">}</span>
+    <span class="p">}</span>
+    <span class="p">}</span>
+    <span class="p">]</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_weather</span><span class="p">(</span><span class="n">city</span><span class="p">):</span>
+    <span class="n">data</span> <span class="o">=</span> <span class="p">{</span><span class="s2">"Paris"</span><span class="p">:</span> <span class="s2">"22C, sunny"</span><span class="p">,</span> <span class="s2">"Tokyo"</span><span class="p">:</span> <span class="s2">"28C, humid"</span><span class="p">,</span> <span class="s2">"London"</span><span class="p">:</span> <span class="s2">"15C, cloudy"</span><span class="p">}</span>
+    <span class="k">return</span> <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">city</span><span class="p">,</span> <span class="s2">"Unknown"</span><span class="p">)</span>
+<span class="c1"># Send chat completion request to the API</span>
+<span class="n">response</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">chat</span><span class="o">.</span><span class="n">completions</span><span class="o">.</span><span class="n">create</span><span class="p">(</span>
+    <span class="n">model</span><span class="o">=</span><span class="s2">"gpt-4o"</span><span class="p">,</span>
+    <span class="n">messages</span><span class="o">=</span><span class="p">[{</span><span class="s2">"role"</span><span class="p">:</span> <span class="s2">"user"</span><span class="p">,</span> <span class="s2">"content"</span><span class="p">:</span> <span class="s2">"Weather in Paris and Tokyo?"</span><span class="p">}],</span>
+    <span class="n">tools</span><span class="o">=</span><span class="n">tools</span>
+    <span class="p">)</span>
+<span class="c1"># Extract the generated message from the API response</span>
+<span class="n">message</span> <span class="o">=</span> <span class="n">response</span><span class="o">.</span><span class="n">choices</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">message</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Number of tool calls: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">message</span><span class="o">.</span><span class="n">tool_calls</span><span class="p">)</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="c1"># Execute all tool calls and collect results</span>
+<span class="n">tool_messages</span> <span class="o">=</span> <span class="p">[]</span>
+<span class="k">for</span> <span class="n">tc</span> <span class="ow">in</span> <span class="n">message</span><span class="o">.</span><span class="n">tool_calls</span><span class="p">:</span>
+    <span class="n">args</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">tc</span><span class="o">.</span><span class="n">function</span><span class="o">.</span><span class="n">arguments</span><span class="p">)</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="n">get_weather</span><span class="p">(</span><span class="o">**</span><span class="n">args</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">" </span><span class="si">{</span><span class="n">tc</span><span class="o">.</span><span class="n">function</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">(</span><span class="si">{</span><span class="n">args</span><span class="si">}</span><span class="s2">) = </span><span class="si">{</span><span class="n">result</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+    <span class="n">tool_messages</span><span class="o">.</span><span class="n">append</span><span class="p">({</span>
+        <span class="s2">"role"</span><span class="p">:</span> <span class="s2">"tool"</span><span class="p">,</span>
+        <span class="s2">"tool_call_id"</span><span class="p">:</span> <span class="n">tc</span><span class="o">.</span><span class="n">id</span><span class="p">,</span>
+        <span class="s2">"content"</span><span class="p">:</span> <span class="n">result</span>
+        <span class="p">})</span>
+    <span class="c1"># Send all results back at once</span>
+    <span class="n">final</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">chat</span><span class="o">.</span><span class="n">completions</span><span class="o">.</span><span class="n">create</span><span class="p">(</span>
+        <span class="n">model</span><span class="o">=</span><span class="s2">"gpt-4o"</span><span class="p">,</span>
+        <span class="n">messages</span><span class="o">=</span><span class="p">[</span>
+        <span class="p">{</span><span class="s2">"role"</span><span class="p">:</span> <span class="s2">"user"</span><span class="p">,</span> <span class="s2">"content"</span><span class="p">:</span> <span class="s2">"Weather in Paris and Tokyo?"</span><span class="p">},</span>
+        <span class="n">message</span><span class="p">,</span>
+        <span class="o">*</span><span class="n">tool_messages</span>
+        <span class="p">],</span>
+        <span class="n">tools</span><span class="o">=</span><span class="n">tools</span>
+        <span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="se">\n</span><span class="s2">Final: </span><span class="si">{</span><span class="n">final</span><span class="o">.</span><span class="n">choices</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">message</span><span class="o">.</span><span class="n">content</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> Number of tool calls: 2
+ get_weather({'city': 'Paris'}) = 22C, sunny
+ get_weather({'city': 'Tokyo'}) = 28C, humid
+
+Final: Here's the current weather:
+- Paris: 22°C and sunny
+- Tokyo: 28°C and humid
+
+</div>
+<div class="code-caption"><strong>Code Fragment 13.2.6:</strong> Run multiple LLM calls concurrently using asyncio</div>
+</div>
+<h2>11.2.6 Cross-Provider Tool Use Comparison</h2>
+<div class="comparison-table">
+<div class="comparison-table-title">Cross-Provider Tool Use Comparison (as of 2026)</div>
+<table class="complex-table">
+<tr>
+<th scope="col">Aspect</th>
+<th scope="col">OpenAI</th>
+<th scope="col">Anthropic</th>
+<th scope="col">Google Gemini</th>
+</tr>
+<tr>
+<td>Tool definition key</td>
+<td><code>tools[].function.parameters</code></td>
+<td><code>tools[].input_schema</code></td>
+<td><code>tools[].function_declarations</code></td>
+</tr>
+<tr>
+<td>Tool call in response</td>
+<td><code>message.tool_calls[]</code></td>
+<td>Content block type <code>tool_use</code></td>
+<td><code>function_call</code> part</td>
+</tr>
+<tr>
+<td>Tool result role</td>
+<td><code>"tool"</code></td>
+<td><code>"user"</code> with <code>tool_result</code> block</td>
+<td><code>"function"</code> response part</td>
+</tr>
+<tr>
+<td>Parallel calls</td>
+<td>Yes (multiple tool_calls)</td>
+<td>Yes (multiple tool_use blocks)</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>Force tool use</td>
+<td><code>tool_choice: "required"</code></td>
+<td><code>tool_choice: {"type": "any"}</code></td>
+<td><code>tool_config: {mode: "ANY"}</code></td>
+</tr>
+</table>
+</div>
+<div class="callout key-insight">
+<div class="callout-title">Key Insight</div>
+<p><strong>Tools + structured output = reliable agents:</strong> Function calling and structured output serve complementary roles. Structured output constrains what the model produces (data extraction). Tool use enables what the model can do (action execution). Combining both lets you build agent loops where the model reasons about which actions to take, invokes tools with validated parameters, and returns structured results. This combination is the foundation of the agentic architectures we will explore in later chapters.</p>
+</div>
+<div class="callout note">
+<div class="callout-title">Note</div>
+<p>The tool definitions shown in this section are provider-specific (OpenAI format, Anthropic format, Gemini format). The <strong><a href="../../part-6-agentic-ai/module-27-tool-use-protocols/section-27.2.html">Model Context Protocol</a> (<a href="../../part-6-agentic-ai/module-27-tool-use-protocols/section-27.3.html">MCP</a>)</strong> is an emerging open standard that defines a provider-agnostic way to expose tools, data sources, and prompts to LLMs. Rather than defining tools in each provider's format, you define them once in MCP format, and compatible clients handle the translation. As the agentic ecosystem matures, MCP (or a successor) is likely to become the standard interface between LLMs and external systems.</p>
+</div>
+<div class="callout note">
+<div class="callout-title">Note</div>
+<p>Try these experiments with the code examples from this section:</p>
+<ol>
+<li>In the Instructor nested model example, change the <code>severity</code> field's constraint from <code>ge=1, le=5</code> to <code>ge=1, le=3</code> and send the same customer support message. Observe whether the model respects the tighter constraint. Then set <code>max_retries=3</code> on the <code>create()</code> call and intentionally prompt for a severity of 10 to see Instructor's retry behavior.</li>
+<li>Modify the OpenAI function calling example to add a second tool (e.g., <code>get_time</code> for a city's timezone). Ask "What time is it in Paris, and what's the weather?" and observe whether the model requests both tools in a single response.</li>
+<li>Compare tool use across providers: take the same weather tool and implement it for both OpenAI and Anthropic. Note the differences in how tool results are sent back (dedicated <code>"tool"</code> role vs. <code>"user"</code> with <code>tool_result</code> block).</li>
+</ol>
+</div>
+<!-- Quiz -->
+<div class="callout self-check">
+<div class="callout-title">Self-Check</div>
+<div class="quiz-question"><strong>Q1:</strong> What is the difference between JSON mode and schema-constrained structured output?</div>
+<details>
+<summary>Show Answer</summary>
+<div class="answer">JSON mode guarantees the response is valid JSON but does not enforce any particular schema; the model chooses the keys and structure. Schema-constrained output (using <code>json_schema</code> with <code>strict: true</code>) guarantees the response matches a specific JSON Schema, including required fields, correct types, and valid enum values. Schema-constrained output modifies the decoding process itself, making it impossible for the model to produce output that violates the schema.</div>
+</details>
+<div class="quiz-question"><strong>Q2:</strong> In function calling, does the model execute the function?</div>
+<details>
+<summary>Show Answer</summary>
+<div class="answer">No. The model generates a JSON object containing the function name and arguments, but your application code is responsible for executing the function. The result is then sent back to the model in a subsequent message, and the model uses that result to formulate its final text response.</div>
+</details>
+<div class="quiz-question"><strong>Q3:</strong> What advantage does the Instructor library provide over raw JSON Schema?</div>
+<details>
+<summary>Show Answer</summary>
+<div class="answer">Instructor lets you define output schemas as Pydantic models (Python classes with typed fields), which are more readable and maintainable than raw JSON Schema dictionaries. It also provides automatic conversion to the appropriate API format for different providers, built-in retry logic when validation fails, and returns typed Python objects instead of raw JSON strings.</div>
+</details>
+<div class="quiz-question"><strong>Q4:</strong> How do you send tool results back to the Anthropic API?</div>
+<details>
+<summary>Show Answer</summary>
+<div class="answer">In the Anthropic API, tool results are sent as a message with role <code>"user"</code> containing a content block of type <code>"tool_result"</code>. The block must include the <code>tool_use_id</code> from the original tool call and the result as a string in the <code>content</code> field. This differs from OpenAI, which uses a dedicated <code>"tool"</code> role.</div>
+</details>
+<div class="quiz-question"><strong>Q5:</strong> What happens when a model wants to call multiple tools in a single response?</div>
+<details>
+<summary>Show Answer</summary>
+<div class="answer">The model returns multiple tool calls in a single response (for example, multiple entries in <code>message.tool_calls</code> for OpenAI, or multiple <code>tool_use</code> content blocks for Anthropic). Your application should execute all the tool calls (ideally in parallel for better performance), collect all results, and send them all back in the next request so the model can incorporate all the information into its final response.</div>
+</details>
+</div>
+<div class="callout tip">
+<div class="callout-title">Tip: Log Every API Request and Response</div>
+<p>In production, log the prompt hash, model name, token counts, latency, and at minimum a truncated response for every API call. This costs almost nothing but is essential for debugging quality regressions, cost audits, and building <a class="glossary-link" href="../../appendices/glossary/section-f.4.html#gl-eval" title="Glossary: Evaluation">evaluation</a> datasets.</p>
+</div>
+<!-- Key Takeaways -->
+<div class="callout key-insight">
+<div class="callout-title">Key Takeaways</div>
+<ul>
+<li><strong>Three levels of structure:</strong> Prompt-based JSON (~85% reliable), JSON mode (~98% reliable), and schema-constrained output (~100% reliable). Always use the strongest enforcement your provider supports.</li>
+<li><strong>Pydantic + Instructor simplifies everything:</strong> Define schemas as Python classes with type annotations. Instructor handles conversion to provider-specific formats, validation, and retries automatically.</li>
+<li><strong>Function calling is a proposal, not execution:</strong> The model generates structured arguments for a function call. Your code executes the function and returns the result. This separation keeps the model sandboxed.</li>
+<li><strong>Tool definitions differ across providers:</strong> OpenAI uses <code>parameters</code>, Anthropic uses <code>input_schema</code>, and Google uses <code>function_declarations</code>. The conceptual pattern is identical, but the JSON structures require provider-specific handling.</li>
+<li><strong>Parallel tool calls improve performance:</strong> Modern models can request multiple tool calls simultaneously. Execute them concurrently and return all results together.</li>
+<li><strong>Tools + structured output = reliable agents:</strong> Structured output constrains the format; tool use enables external actions. Together, they form the backbone of agentic architectures.</li>
+<li><strong>Beyond Pydantic:</strong> For teams that need compile-time type safety across multiple services, BAML offers a dedicated schema language that compiles to type-safe client code. See <a href="../module-15-hybrid-ml-llm/section-15.5.html">Section 15.5</a> for BAML in action with information extraction.</li>
+</ul>
+</div>
+<div class="callout key-insight">
+<div class="callout-title">Key Insight</div>
+<p>With structured output and tool calling in place, your LLM integration can produce reliable data and interact with external systems. The next challenge is making these calls <em>production-grade</em>: handling provider outages, managing costs, caching responses, and degrading gracefully when things go wrong. Section 13.3 covers the engineering patterns that bridge the gap between a working prototype and a system you can trust in production.</p>
+</div>
+<div class="callout practical-example">
+<div class="callout-title">Real-World Scenario: Replacing Regex Parsing with Structured Output for Invoice Processing</div>
+<p><strong>Who:</strong> A two-person ML team at an accounting automation company processing 15,000 invoices per month.</p>
+<p><strong>Situation:</strong> They used <a href="../../part-2-understanding-llms/module-08-modern-llm-landscape/section-8.1.html">GPT-4</a> to extract line items, dates, totals, and vendor details from scanned invoices, then parsed the free-text response with a complex regex pipeline to populate their database.</p>
+<p><strong>Problem:</strong> The regex pipeline broke on roughly 8% of responses due to formatting inconsistencies (extra commas, missing fields, varied date formats), requiring manual correction that consumed 20 hours per week.</p>
+<p><strong>Dilemma:</strong> They considered making the parsing regex more robust (low effort, diminishing returns), switching to function calling with a defined schema (moderate effort, provider lock-in), or adopting Pydantic with Instructor for type-safe structured output (higher initial effort, portable across providers).</p>
+<p><strong>Decision:</strong> They chose Instructor with Pydantic models, defining strict schemas for invoice data with field validators for dates, currency amounts, and required fields.</p>
+<p><strong>How:</strong> They defined a Pydantic model with nested structures (InvoiceLineItem, VendorInfo, InvoiceTotal), added field validators for date parsing and currency normalization, and used Instructor's retry mechanism to automatically re-prompt on validation failures.</p>
+<p><strong>Result:</strong> Parse failures dropped from 8% to 0.3%, manual correction time fell from 20 hours to 2 hours per week, and the team eliminated 400 lines of regex code. The Pydantic models also served as documentation for downstream services.</p>
+<p><strong>Lesson:</strong> Structured output with schema validation eliminates the fragile parsing layer between LLM responses and application logic; the upfront investment in schema definition pays for itself immediately in reliability.</p>
+</div>
+<div class="callout fun-note">
+<div class="callout-title">Fun Fact</div>
+<p>Before structured output existed, developers wrote elaborate regex parsers to extract JSON from LLM responses. Some production systems had more lines of parsing code than actual prompt logic. Instructor and Outlines made most of that parsing code obsolete overnight.</p>
+</div>
+<div class="callout research-frontier">
+<div class="callout-title">Research Frontier</div>
+<p><strong>Grammar-constrained decoding.</strong> Libraries like Outlines and Guidance enforce output schemas at the token level during generation, achieving 100% structural validity without post-hoc retries. This approach, rooted in the constrained decoding theory from <a href="../../part-1-foundations/module-05-decoding-text-generation/section-5.3.html">Section 5.3</a>, is being integrated into serving engines like <a href="../../part-2-understanding-llms/module-10-inference-optimization/section-10.4.html">vLLM</a> and SGLang for production use.</p>
+<p><strong>Tool use benchmarking.</strong> The Berkeley Function Calling Leaderboard (BFCL) tracks model accuracy across tool selection, argument extraction, and multi-step tool chains. As of early 2025, frontier models achieve 85 to 95% accuracy on complex multi-tool scenarios, but reliability on novel tool schemas remains an active challenge.</p>
+<p><strong>Structured output for agentic workflows.</strong> The convergence of structured output with agent frameworks (LangGraph, CrewAI) is enabling typed inter-agent communication, where agents exchange Pydantic models rather than free text, significantly reducing parsing errors in <a href="../../part-6-agentic-ai/module-28-multi-agent-systems/section-28.1.html">multi-agent</a> pipelines.</p>
+</div>
+<section class="exercises">
+<h2>Exercises</h2>
+<div class="callout exercise">
+<div class="callout-title">Exercise 10.2.1: Structured output levels <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+<p>Describe the three levels of structured output enforcement (prompt-based, JSON mode, schema-constrained) and the reliability tradeoff at each level.</p>
+<details><summary>Answer Sketch</summary>
+<p>Prompt-based (~85% reliable): ask the model to return JSON in instructions; it may add prose or return malformed JSON. JSON mode (~99%): the API guarantees valid JSON but does not enforce a specific schema. Schema-constrained (~100%): the API enforces a JSON Schema at the decoding level, guaranteeing both validity and structure.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 10.2.2: JSON schema definition <span class="exercise-type coding" title="Coding">Coding</span></div>
+<p>Write a Pydantic model for a customer support ticket extraction task that captures: customer name, email, issue category (enum of billing/technical/general), sentiment (positive/neutral/negative), and a summary string of at most 100 characters.</p>
+<details><summary>Answer Sketch</summary>
+<p>Define a Pydantic BaseModel with fields: <code>name: str</code>, <code>email: EmailStr</code>, <code>category: Literal['billing', 'technical', 'general']</code>, <code>sentiment: Literal['positive', 'neutral', 'negative']</code>, <code>summary: str = Field(max_length=100)</code>. Use the Instructor library to pass this model as the <code>response_model</code> parameter.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 10.2.3: Tool calling flow <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+<p>Explain the complete lifecycle of a tool/function call: from the initial API request with tool definitions, through the model's tool call response, to the application executing the tool and returning results.</p>
+<details><summary>Answer Sketch</summary>
+<p>Step 1: Send messages plus tool definitions (name, description, parameter schema) to the API. Step 2: The model returns a response with <code>tool_calls</code> containing the function name and arguments as JSON. Step 3: The application parses and validates the arguments, executes the actual function. Step 4: Append the tool result as a new message with role 'tool' and call again so the model can incorporate the result.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 10.2.4: Parallel tool calls <span class="exercise-type coding" title="Coding">Coding</span></div>
+<p>Write Python code that handles a model response containing multiple parallel tool calls. Execute all tool functions concurrently using asyncio, then return the results to the model in a single follow-up request.</p>
+<details><summary>Answer Sketch</summary>
+<p>Parse <code>response.choices[0].message.tool_calls</code> to get a list of calls. Use <code>asyncio.gather(*[execute_tool(tc.function.name, json.loads(tc.function.arguments)) for tc in tool_calls])</code> to run them concurrently. Build a list of tool result messages, each with <code>role='tool'</code> and <code>tool_call_id</code> matching the original call. Append all to messages and make a follow-up API call.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 10.2.5: Schema validation edge cases <span class="exercise-type analysis" title="Analysis">Analysis</span></div>
+<p>A production system uses schema-constrained output but occasionally receives valid JSON that passes schema validation yet contains semantically incorrect data (e.g., extracting 'New York' as a person name). What additional validation layers would you add?</p>
+<details><summary>Answer Sketch</summary>
+<p>Add post-validation layers: (1) Pydantic custom validators that check semantic constraints (e.g., regex for emails, known entity lists for names). (2) A lightweight classifier that scores extraction confidence. (3) Cross-field consistency checks (e.g., if category is 'billing' then the summary should mention payment terms). (4) Log and flag low-confidence extractions for human review.</p>
+</details>
+</div>
+</section>
+<div class="whats-next">
+<h2>What Comes Next</h2>
+<p>In the next section, <a href="section-13.3.html">Section 13.3: API Engineering Best Practices</a>, we cover API engineering best practices including error handling, rate limiting, cost management, and reliability patterns.</p>
+</div><section class="bibliography">
+<h3>Bibliography and Further Reading</h3>
+<div class="bib-category">Structured Output &amp; Schema Enforcement</div>
+<div class="bib-entry-card">
+<p class="bib-ref"><a href="https://platform.openai.com/docs/guides/function-calling" rel="noopener" target="_blank">OpenAI. (2024). Function Calling Guide.</a></p>
+<p class="bib-annotation">Official guide to OpenAI's function calling feature, covering tool definitions, parallel tool calls, and forced function selection. The starting point for anyone implementing tool use with GPT models.</p>
+<span class="bib-meta">🔧 Tool</span>
+</div>
+<div class="bib-entry-card">
+<p class="bib-ref"><a href="https://platform.openai.com/docs/guides/structured-outputs" rel="noopener" target="_blank">OpenAI. (2024). Structured Outputs Guide.</a></p>
+<p class="bib-annotation">Explains JSON mode and the stricter Structured Outputs feature that guarantees schema-valid JSON responses. Covers the subset of JSON Schema supported and best practices for schema design.</p>
+<span class="bib-meta">🔧 Tool</span>
+</div>
+<div class="bib-entry-card">
+<p class="bib-ref"><a href="https://docs.anthropic.com/en/docs/build-with-claude/tool-use" rel="noopener" target="_blank">Anthropic. (2024). Tool Use (Function Calling) Documentation.</a></p>
+<p class="bib-annotation">Documents Anthropic's approach to tool use, including how tools are defined in the API, how Claude decides when to use them, and patterns for multi-step tool chains.</p>
+<span class="bib-meta">🔧 Tool</span>
+</div>
+<div class="bib-category">Libraries &amp; Frameworks</div>
+<div class="bib-entry-card">
+<p class="bib-ref"><a href="https://github.com/jxnl/instructor" rel="noopener" target="_blank">Liu, J. (2024). Instructor: Structured Outputs for LLMs.</a></p>
+<p class="bib-annotation">Python library that patches LLM clients to return Pydantic models instead of raw text. Supports automatic retries on validation failure and works across OpenAI, Anthropic, and other providers. The most popular choice for type-safe LLM outputs.</p>
+<span class="bib-meta">🔧 Tool</span>
+</div>
+<div class="bib-entry-card">
+<p class="bib-ref"><a href="https://ai.pydantic.dev/" rel="noopener" target="_blank">Willison, S. (2024). Pydantic AI: Agent Framework with Structured Validation.</a></p>
+<p class="bib-annotation">Agent framework from the Pydantic team that builds on Pydantic's validation strengths for LLM applications. Provides type-safe agent definitions with dependency injection and structured result types.</p>
+<span class="bib-meta">🔧 Tool</span>
+</div>
+<div class="bib-entry-card">
+<p class="bib-ref"><a href="https://docs.boundaryml.com/" rel="noopener" target="_blank">Boundary ML. (2024). BAML: A Domain-Specific Language for AI Applications.</a></p>
+<p class="bib-annotation">A DSL for defining LLM function signatures with type-safe inputs and outputs. Generates client code in multiple languages and handles parsing, retries, and schema validation at the language level.</p>
+<span class="bib-meta">🔧 Tool</span>
+</div>
+</section>
+<nav class="chapter-nav">
+<a class="prev" href="section-13.1.html"><span class="nav-label">Previous</span><span class="nav-num">Section 13.1</span><span class="nav-title">API Landscape &amp; Architecture</span></a>
+<a class="up" href="index.html"><span class="nav-label">In Chapter</span><span class="nav-num">Chapter 13</span><span class="nav-title">Working with LLM APIs</span></a>
+<a class="next" href="section-13.3.html"><span class="nav-label">Next</span><span class="nav-num">Section 13.3</span><span class="nav-title">API Engineering Best Practices</span></a>
+</nav>
+<footer><p>Fifteenth Edition, 2026 · <a href="../../toc.html">Contents</a></p></footer>
+</main>
+<script>
+window.addEventListener("DOMContentLoaded", function() {
+  if (window.PagefindUI) {
+    new PagefindUI({
+      element: "#search",
+      showSubResults: true,
+      showImages: false,
+      resetStyles: false,
+      pageSize: 8,
+      autofocus: false,
+      translations: {
+        placeholder: "Search the book\u2026",
+      },
+      processResult: function (result) {
+        try {
+          var part = (result && result.meta && result.meta.part) ? result.meta.part : "";
+          var chap = (result && result.meta && result.meta.chapter) ? result.meta.chapter : "";
+          var partShort = part.split(":")[0].trim();
+          var chapShort = chap.split(":")[0].trim();
+          var crumb = [partShort, chapShort].filter(Boolean).join(" \u203a ");
+          if (crumb && result.meta && result.meta.title
+              && result.meta.title.indexOf("[" + partShort) !== 0) {
+            result.meta.title = "[" + crumb + "]  " + result.meta.title;
+          }
+        } catch (e) { /* fall through */ }
+        return result;
+      },
+    });
+  }
+});
+</script>
+</body>
+</html>
