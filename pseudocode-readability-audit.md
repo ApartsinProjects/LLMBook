@@ -11,9 +11,9 @@ Script: `scripts/_audit_pseudocode_readability.py` (Python 3.14, BeautifulSoup).
 
 | Treatment | Count | Description |
 |---|---|---|
-| `pyg-python` | 14 | Pygments `lang-python`: real Python code-fragment-style highlighting. |
-| `pyg-text-bad` | 3 | Pygments `lang-text`: plain pseudocode tokenized as code, mis-tints numbers/identifiers. |
-| `algo-helper` | 4 | Uses `.algo-line-keyword` / `.algo-line-comment` helper spans (book.css already defines them). |
+| `pyg-python` | 13 | Pygments `lang-python`: real Python code-fragment-style highlighting. |
+| `pyg-text-bad` | 0 | Pygments `lang-text`: plain pseudocode tokenized as code, mis-tints numbers/identifiers. |
+| `algo-helper` | 8 | Uses `.algo-line-keyword` / `.algo-line-comment` helper spans (book.css already defines them). |
 | `bold` | 0 | `<pre><code class="language-none">` with hand-tagged `<b>Input:</b>`, `<b>for</b>`. |
 | `mixed` | 0 | Two treatments in same block (e.g. `<b>` plus Pygments spans). |
 | `plain` | 0 | No keyword highlighting. |
@@ -26,8 +26,8 @@ Script: `scripts/_audit_pseudocode_readability.py` (Python 3.14, BeautifulSoup).
 
 | Verdict | Count |
 |---|---|
-| OK | 15 |
-| surprising | 6 |
+| OK | 20 |
+| surprising | 1 |
 | mixed | 0 |
 
 ## 3. Per-block matrix
@@ -36,27 +36,27 @@ Columns: indent / keyword / numbering / I-O / ident / length.
 
 | # | File:line | Label | Indent | Keyword | Numbering | I-O | Ident | Length | Issues |
 |---|---|---|---|---|---|---|---|---|---|
-| 1 | `part-1-foundations/module-04-transformer-architecture/section-4.4.html:266` | `4.4.6` | surprising | pyg-python | none | missing-both | plain | dense | 3 |
+| 1 | `part-1-foundations/module-04-transformer-architecture/section-4.4.html:266` | `4.4.6` | surprising | pyg-python | none | missing-both | plain | OK | 2 |
 | 2 | `part-1-foundations/module-05-decoding-text-generation/section-5.1.html:175` | `5.1.2` | OK | pyg-python | none | missing-both | plain | dense | 2 |
 | 3 | `part-12-frontiers/module-61-frontier-architectures/section-61.3.html:258` | `32.3.5` | OK | pyg-python | numbered+lettered | OK | plain | OK | 0 |
 | 4 | `part-2-understanding-llms/module-08-modern-llm-landscape/section-8.3.html:244` | `8.3.3` | OK | pyg-python | none | missing-both | plain | dense | 2 |
-| 5 | `part-2-understanding-llms/module-09-reasoning-test-time-compute/section-9.3.html:81` | `9.3.4` | OK | pyg-python | partial | OK | plain | OK | 1 |
+| 5 | `part-2-understanding-llms/module-09-reasoning-test-time-compute/section-9.3.html:81` | `9.3.4` | OK | algo-helper | partial | OK | plain | OK | 1 |
 | 6 | `part-2-understanding-llms/module-10-inference-optimization/section-10.2.html:203` | `-` | OK | pyg-python | none | missing-both | plain | OK | 1 |
 | 7 | `part-2-understanding-llms/module-10-inference-optimization/section-10.3.html:59` | `-` | OK | pyg-python | none | missing-both | plain | dense | 2 |
 | 8 | `part-4-training-adapting/module-19-peft/section-19.1.html:106` | `-` | OK | pyg-python | none | missing-both | plain | OK | 1 |
-| 9 | `part-4-training-adapting/module-20-alignment-rlhf-dpo/section-20.1.html:234` | `19.1.3` | surprising | algo-helper | numbered+lettered | OK | plain | OK | 1 |
+| 9 | `part-4-training-adapting/module-20-alignment-rlhf-dpo/section-20.1.html:234` | `19.1.3` | OK | algo-helper | numbered+lettered | OK | plain | OK | 0 |
 | 10 | `part-4-training-adapting/module-20-alignment-rlhf-dpo/section-20.5.html:84` | `48.1.1` | OK | algo-helper | numbered+lettered | OK | plain | OK | 0 |
 | 11 | `part-5-retrieval-conversation/module-23-rag/section-23.1.html:178` | `22.1.1` | OK | pyg-python | numbered | OK | plain | OK | 0 |
-| 12 | `part-6-agentic-ai/module-26-ai-agents/section-26.1.html:291` | `26.1.2` | surprising | algo-helper | numbered+lettered | OK | plain | OK | 1 |
+| 12 | `part-6-agentic-ai/module-26-ai-agents/section-26.1.html:291` | `26.1.2` | OK | algo-helper | numbered+lettered | OK | plain | OK | 0 |
 | 13 | `part-6-agentic-ai/module-26-ai-agents/section-26.2.html:65` | `24.3.1` | OK | pyg-python | numbered+lettered | OK | plain | OK | 0 |
-| 14 | `part-6-agentic-ai/module-27-tool-use-protocols/section-27.1.html:77` | `26.1.1` | surprising | pyg-text-bad | numbered+lettered | OK | plain | OK | 2 |
+| 14 | `part-6-agentic-ai/module-27-tool-use-protocols/section-27.1.html:77` | `26.1.1` | OK | algo-helper | numbered+lettered | OK | plain | OK | 0 |
 | 15 | `part-6-agentic-ai/module-27-tool-use-protocols/section-27.2.html:69` | `27.2.1` | OK | algo-helper | numbered+lettered | OK | plain | OK | 0 |
 | 16 | `part-6-agentic-ai/module-28-multi-agent-systems/section-28.2.html:79` | `27.2.1` | OK | pyg-python | numbered+lettered | OK | plain | OK | 0 |
 | 17 | `part-8-evaluation-production/module-34-evaluation-observability/section-34.1.html:62` | `-` | OK | pyg-python | none | missing-both | plain | OK | 1 |
 | 18 | `part-8-evaluation-production/module-34-evaluation-observability/section-34.2.html:91` | `27.2.1` | OK | pyg-python | numbered+lettered | OK | plain | OK | 0 |
-| 19 | `part-8-evaluation-production/module-35-production-engineering/section-35.3.html:76` | `34.3.1` | surprising | pyg-text-bad | partial | OK | plain | OK | 3 |
-| 20 | `part-9-safety-security-ethics/module-37-safety-ethics-regulation/section-37.3.html:161` | `-` | OK | pyg-python | none | missing-both | plain | dense | 2 |
-| 21 | `part-9-safety-security-ethics/module-37-safety-ethics-regulation/section-37.8.html:68` | `35.8.1` | surprising | pyg-text-bad | numbered+lettered | OK | plain | OK | 2 |
+| 19 | `part-8-evaluation-production/module-35-production-engineering/section-35.3.html:76` | `34.3.1` | OK | algo-helper | partial | OK | plain | OK | 1 |
+| 20 | `part-9-safety-security-ethics/module-37-safety-ethics-regulation/section-37.3.html:161` | `-` | OK | pyg-python | none | missing-both | plain | OK | 1 |
+| 21 | `part-9-safety-security-ethics/module-37-safety-ethics-regulation/section-37.8.html:68` | `35.8.1` | OK | algo-helper | numbered+lettered | OK | plain | OK | 0 |
 
 ## 4. Per-block detail
 
@@ -69,44 +69,21 @@ Columns: indent / keyword / numbering / I-O / ident / length.
 - Step numbering: **none** (consistent)
 - Input/Output: **missing-both** (missing both Input: and Output:)
 - Identifier styling: **plain** (consistent)
-- Length / phases: **dense** (43 body lines, no blank-line phase separators)
-- **Issues**: indent=surprising, io=missing-both, length=dense
+- Length / phases: **OK** (OK)
+- **Issues**: indent=surprising, io=missing-both
 
 Snippet (first 6 lines):
 
 ```
+# Input: queries Q, keys K, values V (each shape [N, d]), block sizes Br x Bc tuned to SRAM
+# Output: attention output O = softmax(QK^T / sqrt(d)) V (shape [N, d]) without materializing the full N x N attention matrix in HBM
 import torch
 # Triton fused softmax kernel: compute softmax in a single GPU pass
 # without materializing the full attention matrix in HBM.
 @triton.jit
-def softmax_kernel(
-output_ptr, input_ptr,
 ```
 
-### 2. Pseudocode 34.3.1: Token bucket rate limiting algorithm
-
-- File: `part-8-evaluation-production/module-35-production-engineering/section-35.3.html:76`
-- pre class=`-`  code class=`lang-text pygments-highlighted`
-- Indent: **surprising** (odd-width indent steps [1, 1])
-- Keyword treatment: **pyg-text-bad** (consistent)
-- Step numbering: **partial** (only 2 numbered steps)
-- Input/Output: **OK** (present)
-- Identifier styling: **plain** (consistent)
-- Length / phases: **OK** (OK)
-- **Issues**: indent=surprising, keyword=pyg-text-bad, numbering=partial
-
-Snippet (first 6 lines):
-
-```
-Input: capacity C, refill rate R (tokens/sec), request cost cost
-Output: allow or reject
-
-1. Initialize tokens = C, last_time = now()
-2. on each request:
-  a. elapsed = now() − last_time
-```
-
-### 3. Pseudocode 5.1.2: Each beam: (sequence_tensor, cumulative_log_prob).
+### 2. Pseudocode 5.1.2: Each beam: (sequence_tensor, cumulative_log_prob).
 
 - File: `part-1-foundations/module-05-decoding-text-generation/section-5.1.html:175`
 - pre class=`-`  code class=`pygments-highlighted lang-python`
@@ -115,21 +92,21 @@ Output: allow or reject
 - Step numbering: **none** (consistent)
 - Input/Output: **missing-both** (missing both Input: and Output:)
 - Identifier styling: **plain** (consistent)
-- Length / phases: **dense** (48 body lines, no blank-line phase separators)
+- Length / phases: **dense** (50 body lines, only 1 phase separators)
 - **Issues**: io=missing-both, length=dense
 
 Snippet (first 6 lines):
 
 ```
+# Input: model, input_ids (start tokens), beam_width, max_new_tokens, optional eos_token_id, length_penalty
+# Output: top-scoring sequence(s) after length-normalized beam search
 # Beam search: maintain beam_width candidate sequences in parallel,
 # expand each, score by cumulative log-prob, and prune at every step.
 import torch
 import torch.nn.functional as F
-def beam_search(model, input_ids, beam_width=4, max_new_tokens=50,
-    eos_token_id=None, length_penalty=1.0):
 ```
 
-### 4. Pseudocode 8.3.3: Best-of-N sampling with reward model scoring.
+### 3. Pseudocode 8.3.3: Best-of-N sampling with reward model scoring.
 
 - File: `part-2-understanding-llms/module-08-modern-llm-landscape/section-8.3.html:244`
 - pre class=`-`  code class=`pygments-highlighted lang-python`
@@ -138,21 +115,21 @@ def beam_search(model, input_ids, beam_width=4, max_new_tokens=50,
 - Step numbering: **none** (consistent)
 - Input/Output: **missing-both** (missing both Input: and Output:)
 - Identifier styling: **plain** (consistent)
-- Length / phases: **dense** (36 body lines, no blank-line phase separators)
+- Length / phases: **dense** (38 body lines, no blank-line phase separators)
 - **Issues**: io=missing-both, length=dense
 
 Snippet (first 6 lines):
 
 ```
+# Input: problem, easy_model (small/fast), hard_model (large/expensive), reward_model, difficulty_threshold
+# Output: best response selected from N candidates under the compute-optimal strategy
 # Compute-optimal inference: choosing strategy based on difficulty
 def compute_optimal_inference(
     problem,
     easy_model, # Small, fast model (e.g., 8B)
-    hard_model, # Large, expensive model (e.g., 70B)
-    reward_model, # For scoring candidate solutions
 ```
 
-### 5. Under the Hood: The Draft-Verify Loop
+### 4. Under the Hood: The Draft-Verify Loop
 
 - File: `part-2-understanding-llms/module-10-inference-optimization/section-10.3.html:59`
 - pre class=`-`  code class=`lang-python pygments-highlighted`
@@ -161,95 +138,26 @@ def compute_optimal_inference(
 - Step numbering: **none** (consistent)
 - Input/Output: **missing-both** (missing both Input: and Output:)
 - Identifier styling: **plain** (consistent)
-- Length / phases: **dense** (20 body lines, no blank-line phase separators)
+- Length / phases: **dense** (22 body lines, no blank-line phase separators)
 - **Issues**: io=missing-both, length=dense
 
 Snippet (first 6 lines):
 
 ```
+# Input: target model, draft model (smaller), token sequence ids, draft length gamma
+# Output: accepted tokens (1 to gamma+1 each step) under speculative decoding's verification rule
 def speculative_step(target, draft, ids, gamma=5):
     # 1. Draft phase: gamma tokens autoregressively
     qprobs = []
     for _ in range(gamma):
-        logits = draft(ids).logits[:,-1,:]
-        q = F.softmax(logits, -1)
 ```
 
-### 6. Pseudocode 26.1.1: Function calling loop
-
-- File: `part-6-agentic-ai/module-27-tool-use-protocols/section-27.1.html:77`
-- pre class=`-`  code class=`lang-text pygments-highlighted`
-- Indent: **surprising** (odd-width indent steps [1, 1])
-- Keyword treatment: **pyg-text-bad** (consistent)
-- Step numbering: **numbered+lettered** (consistent)
-- Input/Output: **OK** (present)
-- Identifier styling: **plain** (consistent)
-- Length / phases: **OK** (OK)
-- **Issues**: indent=surprising, keyword=pyg-text-bad
-
-Snippet (first 6 lines):
-
-```
-Input: user message M, tool schemas {T1, ..., Tn}, LLM model, max iterations K
-Output: final text response
-
-1. messages = [system_prompt, M]
-2. for i = 1 to K:
-  a. response = LLM(messages, tools={T1, ..., Tn})
-```
-
-### 7. Algorithm: Toxicity Disparity Scoring Pipeline
-
-- File: `part-9-safety-security-ethics/module-37-safety-ethics-regulation/section-37.3.html:161`
-- pre class=`-`  code class=`pygments-highlighted lang-python`
-- Indent: **OK** (uniform)
-- Keyword treatment: **pyg-python** (consistent)
-- Step numbering: **none** (consistent)
-- Input/Output: **missing-both** (missing both Input: and Output:)
-- Identifier styling: **plain** (consistent)
-- Length / phases: **dense** (21 body lines, no blank-line phase separators)
-- **Issues**: io=missing-both, length=dense
-
-Snippet (first 6 lines):
-
-```
-# implement measure_toxicity_disparity
-# See inline comments for step-by-step details.
-from transformers import pipeline
-toxicity_classifier = pipeline(
-    "text-classification",
-    model="unitary/toxic-bert",
-```
-
-### 8. Pseudocode 35.8.1: Automated red teaming pipeline
-
-- File: `part-9-safety-security-ethics/module-37-safety-ethics-regulation/section-37.8.html:68`
-- pre class=`-`  code class=`lang-text pygments-highlighted`
-- Indent: **surprising** (odd-width indent steps [1, 1])
-- Keyword treatment: **pyg-text-bad** (consistent)
-- Step numbering: **numbered+lettered** (consistent)
-- Input/Output: **OK** (present)
-- Identifier styling: **plain** (consistent)
-- Length / phases: **OK** (OK)
-- **Issues**: indent=surprising, keyword=pyg-text-bad
-
-Snippet (first 6 lines):
-
-```
-Input: target system S, attack library A = {a1, ..., am}, scorer function score(), trials N, severity threshold θ
-Output: vulnerability report V with attack success rates and severity rankings
-
-1. V = []
-2. for each attack ai in A:
-  a. successes = 0
-```
-
-### 9. Pseudocode 9.3.4: The RLVR training loop generates solutions, scores them with an automatic verifie...
+### 5. Pseudocode 9.3.4: The RLVR training loop generates solutions, scores them with an automatic verifie...
 
 - File: `part-2-understanding-llms/module-09-reasoning-test-time-compute/section-9.3.html:81`
-- pre class=`-`  code class=`lang-python pygments-highlighted`
+- pre class=`-`  code class=`language-none`
 - Indent: **OK** (uniform)
-- Keyword treatment: **pyg-python** (consistent)
+- Keyword treatment: **algo-helper** (consistent)
 - Step numbering: **partial** (only 2 numbered steps)
 - Input/Output: **OK** (present)
 - Identifier styling: **plain** (consistent)
@@ -261,13 +169,13 @@ Snippet (first 6 lines):
 ```
 Input: policy model pi, problem dataset D, verifier V, num_iterations T
 Output: trained policy pi*
+
 1. for iteration = 1 to T:
-a. Sample a batch of problems {p_1, ..., p_B} from D
-b. for each problem p_i:
-Generate solution s_i (reasoning trace + final answer) using pi
+  a. Sample a batch of problems {p_1, ..., p_B} from D
+  b. for each problem p_i:
 ```
 
-### 10. Under the Hood: vLLM's Block Table
+### 6. Under the Hood: vLLM's Block Table
 
 - File: `part-2-understanding-llms/module-10-inference-optimization/section-10.2.html:203`
 - pre class=`-`  code class=`pygments-highlighted lang-python`
@@ -282,15 +190,15 @@ Generate solution s_i (reasoning trace + final answer) using pi
 Snippet (first 6 lines):
 
 ```
+# Input: logical KV-cache blocks per sequence, physical block pool, page size
+# Output: block-table mapping logical to physical blocks with copy-on-write for shared prefixes
 from dataclasses import dataclass
 from dataclasses import field
 @dataclass
 class PhysicalBlock:
-    block_id: int
-    ref_count: int = 0 # >1 means shared, needs CoW
 ```
 
-### 11. Under the Hood: LoRA Backward Pass
+### 7. Under the Hood: LoRA Backward Pass
 
 - File: `part-4-training-adapting/module-19-peft/section-19.1.html:106`
 - pre class=`-`  code class=`pygments-highlighted lang-python`
@@ -305,61 +213,15 @@ class PhysicalBlock:
 Snippet (first 6 lines):
 
 ```
+# Input: frozen base weights W0 (d_in x d_out), trainable LoRA factors A (d_in x rank), B (rank x d_out), scaling alpha
+# Output: output y = x @ (W0 + (alpha/rank) * A @ B); gradients flow only through A and B
 from torch import nn
 import torch
 class LoRALinear(nn.Module):
     def __init__(self, d_in, d_out, rank, alpha):
-        super().__init__()
-        self.W0 = nn.Parameter(torch.randn(d_in, d_out), requires_grad=False)
 ```
 
-### 12. Pseudocode 19.1.3: PPO training loop for RLHF
-
-- File: `part-4-training-adapting/module-20-alignment-rlhf-dpo/section-20.1.html:234`
-- pre class=`-`  code class=`language-none`
-- Indent: **surprising** (odd-width indent steps [1])
-- Keyword treatment: **algo-helper** (consistent)
-- Step numbering: **numbered+lettered** (consistent)
-- Input/Output: **OK** (present)
-- Identifier styling: **plain** (consistent)
-- Length / phases: **OK** (OK)
-- **Issues**: indent=surprising
-
-Snippet (first 6 lines):
-
-```
-Input: SFT model pi_sft, reward model R, reference policy pi_ref = pi_sft, KL weight beta
-Output: aligned policy pi*
-
-1. Initialize policy pi = pi_sft, value network V (same architecture as pi)
-2. for each training iteration:
- a. Sample batch of prompts {x_1, ..., x_B}
-```
-
-### 13. Pseudocode 26.1.2: This pseudocode formalizes the ReAct agent loop: given a user task T, tool set, ...
-
-- File: `part-6-agentic-ai/module-26-ai-agents/section-26.1.html:291`
-- pre class=`-`  code class=`language-none`
-- Indent: **surprising** (odd-width indent steps [1, 1])
-- Keyword treatment: **algo-helper** (consistent)
-- Step numbering: **numbered+lettered** (consistent)
-- Input/Output: **OK** (present)
-- Identifier styling: **plain** (consistent)
-- Length / phases: **OK** (OK)
-- **Issues**: indent=surprising
-
-Snippet (first 6 lines):
-
-```
-Input: user task T, tool set {tool_1, ..., tool_n}, LLM M, max steps S
-Output: final answer or action result
-
-1. Initialize context = [system_prompt, T]
-2. for step = 1 to S:
-  a. Thought: response = M(context)
-```
-
-### 14. Under the Hood: Position Bias in LLM-as-Judge
+### 8. Under the Hood: Position Bias in LLM-as-Judge
 
 - File: `part-8-evaluation-production/module-34-evaluation-observability/section-34.1.html:62`
 - pre class=`-`  code class=`pygments-highlighted lang-python`
@@ -374,15 +236,61 @@ Output: final answer or action result
 Snippet (first 6 lines):
 
 ```
+# Input: judge LLM, question, candidate answers a and b
+# Output: winner ('a wins', 'b wins', 'tie / unreliable') after running the judge on both orderings
 def judge_with_swap(judge, question, a, b):
     v1 = judge(question, a, b)      # a first
     v2 = judge(question, b, a)      # b first
     if v1 == "first" and v2 == "second":  return "a wins"
-    if v1 == "second" and v2 == "first":  return "b wins"
-    return "tie / unreliable"   # judge disagreed with itself
 ```
 
-### 15. Pseudocode 32.3.5: The Mamba selective scan algorithm, showing how input-dependent parameters (B, C...
+### 9. Pseudocode 34.3.1: Token bucket rate limiting algorithm
+
+- File: `part-8-evaluation-production/module-35-production-engineering/section-35.3.html:76`
+- pre class=`-`  code class=`language-none`
+- Indent: **OK** (uniform)
+- Keyword treatment: **algo-helper** (consistent)
+- Step numbering: **partial** (only 2 numbered steps)
+- Input/Output: **OK** (present)
+- Identifier styling: **plain** (consistent)
+- Length / phases: **OK** (OK)
+- **Issues**: numbering=partial
+
+Snippet (first 6 lines):
+
+```
+Input: capacity C, refill rate R (tokens/sec), request cost cost
+Output: allow or reject
+
+1. Initialize tokens = C, last_time = now()
+2. on each request:
+  a. elapsed = now() − last_time
+```
+
+### 10. Algorithm: Toxicity Disparity Scoring Pipeline
+
+- File: `part-9-safety-security-ethics/module-37-safety-ethics-regulation/section-37.3.html:161`
+- pre class=`-`  code class=`pygments-highlighted lang-python`
+- Indent: **OK** (uniform)
+- Keyword treatment: **pyg-python** (consistent)
+- Step numbering: **none** (consistent)
+- Input/Output: **missing-both** (missing both Input: and Output:)
+- Identifier styling: **plain** (consistent)
+- Length / phases: **OK** (OK)
+- **Issues**: io=missing-both
+
+Snippet (first 6 lines):
+
+```
+# Input: model under test, demographic groups G, prompt template T(group), per-group sample size N
+# Output: per-group mean toxicity and pairwise disparities, flagging groups with disproportionately toxic continuations
+# implement measure_toxicity_disparity
+# See inline comments for step-by-step details.
+from transformers import pipeline
+toxicity_classifier = pipeline(
+```
+
+### 11. Pseudocode 32.3.5: The Mamba selective scan algorithm, showing how input-dependent parameters (B, C...
 
 - File: `part-12-frontiers/module-61-frontier-architectures/section-61.3.html:258`
 - pre class=`-`  code class=`lang-python pygments-highlighted`
@@ -404,7 +312,29 @@ Output: output sequence y = [y1, ..., yL]
 a. Bt = B_proj(ut) // project input to get B
 ```
 
-### 16. Pseudocode 48.1.1: The AI Safety via Debate algorithm, where two adversarial models argue opposing ...
+### 12. Pseudocode 19.1.3: PPO training loop for RLHF
+
+- File: `part-4-training-adapting/module-20-alignment-rlhf-dpo/section-20.1.html:234`
+- pre class=`-`  code class=`language-none`
+- Indent: **OK** (uniform)
+- Keyword treatment: **algo-helper** (consistent)
+- Step numbering: **numbered+lettered** (consistent)
+- Input/Output: **OK** (present)
+- Identifier styling: **plain** (consistent)
+- Length / phases: **OK** (OK)
+
+Snippet (first 6 lines):
+
+```
+Input: SFT model pi_sft, reward model R, reference policy pi_ref = pi_sft, KL weight beta
+Output: aligned policy pi*
+
+1. Initialize policy pi = pi_sft, value network V (same architecture as pi)
+2. for each training iteration:
+  a. Sample batch of prompts {x_1, ..., x_B}
+```
+
+### 13. Pseudocode 48.1.1: The AI Safety via Debate algorithm, where two adversarial models argue opposing ...
 
 - File: `part-4-training-adapting/module-20-alignment-rlhf-dpo/section-20.5.html:84`
 - pre class=`-`  code class=`language-none`
@@ -426,7 +356,7 @@ Output: verified answer with confidence score
 4. for r = 1 to R:
 ```
 
-### 17. Pseudocode 22.1.1: The naive RAG pipeline: encode the query, retrieve relevant documents, augment t...
+### 14. Pseudocode 22.1.1: The naive RAG pipeline: encode the query, retrieve relevant documents, augment t...
 
 - File: `part-5-retrieval-conversation/module-23-rag/section-23.1.html:178`
 - pre class=`-`  code class=`lang-python pygments-highlighted`
@@ -448,7 +378,29 @@ Output: grounded response with citations
 e.g., "Given the following context: {docs}\n\nAnswer: {q}"
 ```
 
-### 18. Pseudocode 24.3.1: The plan-and-execute algorithm with replanning. The LLM first decomposes a task ...
+### 15. Pseudocode 26.1.2: This pseudocode formalizes the ReAct agent loop: given a user task T, tool set, ...
+
+- File: `part-6-agentic-ai/module-26-ai-agents/section-26.1.html:291`
+- pre class=`-`  code class=`language-none`
+- Indent: **OK** (uniform)
+- Keyword treatment: **algo-helper** (consistent)
+- Step numbering: **numbered+lettered** (consistent)
+- Input/Output: **OK** (present)
+- Identifier styling: **plain** (consistent)
+- Length / phases: **OK** (OK)
+
+Snippet (first 6 lines):
+
+```
+Input: user task T, tool set {tool_1, ..., tool_n}, LLM M, max steps S
+Output: final answer or action result
+
+1. Initialize context = [system_prompt, T]
+2. for step = 1 to S:
+  a. Thought: response = M(context)
+```
+
+### 16. Pseudocode 24.3.1: The plan-and-execute algorithm with replanning. The LLM first decomposes a task ...
 
 - File: `part-6-agentic-ai/module-26-ai-agents/section-26.2.html:65`
 - pre class=`-`  code class=`lang-python pygments-highlighted`
@@ -470,7 +422,29 @@ Output: final answer
 a. result = execute_step(plan[step_idx], Tools, results)
 ```
 
-### 19. Pseudocode 27.2.1: The MCP initialization handshake, host opens a transport, exchanges initialize /...
+### 17. Pseudocode 26.1.1: Function calling loop
+
+- File: `part-6-agentic-ai/module-27-tool-use-protocols/section-27.1.html:77`
+- pre class=`-`  code class=`language-none`
+- Indent: **OK** (uniform)
+- Keyword treatment: **algo-helper** (consistent)
+- Step numbering: **numbered+lettered** (consistent)
+- Input/Output: **OK** (present)
+- Identifier styling: **plain** (consistent)
+- Length / phases: **OK** (OK)
+
+Snippet (first 6 lines):
+
+```
+Input: user message M, tool schemas {T1, ..., Tn}, LLM model, max iterations K
+Output: final text response
+
+1. messages = [system_prompt, M]
+2. for i = 1 to K:
+  a. response = LLM(messages, tools={T1, ..., Tn})
+```
+
+### 18. Pseudocode 27.2.1: The MCP initialization handshake, host opens a transport, exchanges initialize /...
 
 - File: `part-6-agentic-ai/module-27-tool-use-protocols/section-27.2.html:69`
 - pre class=`-`  code class=`language-none`
@@ -492,7 +466,7 @@ Output: established session with discovered capabilities
 3. Server responds with initialize result:
 ```
 
-### 20. Pseudocode 27.2.1: The supervisor (hub-and-spoke) pattern as a multi-round dispatch loop. At each r...
+### 19. Pseudocode 27.2.1: The supervisor (hub-and-spoke) pattern as a multi-round dispatch loop. At each r...
 
 - File: `part-6-agentic-ai/module-28-multi-agent-systems/section-28.2.html:79`
 - pre class=`-`  code class=`lang-python pygments-highlighted`
@@ -514,7 +488,7 @@ Output: synthesized result
   b. if route == DONE:
 ```
 
-### 21. Pseudocode 27.2.1: Bootstrap confidence interval using the percentile method
+### 20. Pseudocode 27.2.1: Bootstrap confidence interval using the percentile method
 
 - File: `part-8-evaluation-production/module-34-evaluation-observability/section-34.2.html:91`
 - pre class=`-`  code class=`lang-python pygments-highlighted`
@@ -534,6 +508,28 @@ Output: point estimate, (lower, upper) confidence interval
 2. for b = 1 to B:
 a. Draw S*b = sample n values from S with replacement
 b. Compute θ*b = f(S*b)
+```
+
+### 21. Pseudocode 35.8.1: Automated red teaming pipeline
+
+- File: `part-9-safety-security-ethics/module-37-safety-ethics-regulation/section-37.8.html:68`
+- pre class=`-`  code class=`language-none`
+- Indent: **OK** (uniform)
+- Keyword treatment: **algo-helper** (consistent)
+- Step numbering: **numbered+lettered** (consistent)
+- Input/Output: **OK** (present)
+- Identifier styling: **plain** (consistent)
+- Length / phases: **OK** (OK)
+
+Snippet (first 6 lines):
+
+```
+Input: target system S, attack library A = {a1, ..., am}, scorer function score(), trials N, severity threshold θ
+Output: vulnerability report V with attack success rates and severity rankings
+
+1. V = []
+2. for each attack ai in A:
+  a. successes = 0
 ```
 
 ## 5. CSS treatment for `.callout.algorithm`
@@ -591,20 +587,16 @@ Blocks ordered by issue count.
 
 | File:line | Label | Issues |
 |---|---|---|
-| `part-1-foundations/module-04-transformer-architecture/section-4.4.html:266` | `4.4.6` | indent=surprising, io=missing-both, length=dense |
-| `part-8-evaluation-production/module-35-production-engineering/section-35.3.html:76` | `34.3.1` | indent=surprising, keyword=pyg-text-bad, numbering=partial |
+| `part-1-foundations/module-04-transformer-architecture/section-4.4.html:266` | `4.4.6` | indent=surprising, io=missing-both |
 | `part-1-foundations/module-05-decoding-text-generation/section-5.1.html:175` | `5.1.2` | io=missing-both, length=dense |
 | `part-2-understanding-llms/module-08-modern-llm-landscape/section-8.3.html:244` | `8.3.3` | io=missing-both, length=dense |
 | `part-2-understanding-llms/module-10-inference-optimization/section-10.3.html:59` | `-` | io=missing-both, length=dense |
-| `part-6-agentic-ai/module-27-tool-use-protocols/section-27.1.html:77` | `26.1.1` | indent=surprising, keyword=pyg-text-bad |
-| `part-9-safety-security-ethics/module-37-safety-ethics-regulation/section-37.3.html:161` | `-` | io=missing-both, length=dense |
-| `part-9-safety-security-ethics/module-37-safety-ethics-regulation/section-37.8.html:68` | `35.8.1` | indent=surprising, keyword=pyg-text-bad |
 | `part-2-understanding-llms/module-09-reasoning-test-time-compute/section-9.3.html:81` | `9.3.4` | numbering=partial |
 | `part-2-understanding-llms/module-10-inference-optimization/section-10.2.html:203` | `-` | io=missing-both |
 | `part-4-training-adapting/module-19-peft/section-19.1.html:106` | `-` | io=missing-both |
-| `part-4-training-adapting/module-20-alignment-rlhf-dpo/section-20.1.html:234` | `19.1.3` | indent=surprising |
-| `part-6-agentic-ai/module-26-ai-agents/section-26.1.html:291` | `26.1.2` | indent=surprising |
 | `part-8-evaluation-production/module-34-evaluation-observability/section-34.1.html:62` | `-` | io=missing-both |
+| `part-8-evaluation-production/module-35-production-engineering/section-35.3.html:76` | `34.3.1` | numbering=partial |
+| `part-9-safety-security-ethics/module-37-safety-ethics-regulation/section-37.3.html:161` | `-` | io=missing-both |
 
 ### 6.2 Global CSS additions
 
