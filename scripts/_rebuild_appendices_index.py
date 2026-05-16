@@ -25,6 +25,18 @@ def _esc(s: str) -> str:
     return (s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
+def _group_slug(g: str) -> str:
+    """Slugify a group name for HTML anchors (e.g., 'Framework Guides' -> 'framework-guides')."""
+    s = g.lower()
+    out = []
+    for ch in s:
+        if ch.isalnum():
+            out.append(ch)
+        elif ch in (" ", "&"):
+            out.append("-")
+    return "".join(out).strip("-").replace("--", "-")
+
+
 def render_appendices_page(struct: dict) -> str:
     book = struct.get("book", {})
     title = _esc(book.get("title", "Book"))
@@ -44,7 +56,7 @@ def render_appendices_page(struct: dict) -> str:
 
     cards_html: list[str] = []
     for g in order:
-        cards_html.append(f'<h2>{_esc(g)}</h2>')
+        cards_html.append(f'<h2 id="group-{_group_slug(g)}">{_esc(g)}</h2>')
         for a in groups[g]:
             letter = a["letter"]
             t = _esc(a["title"])

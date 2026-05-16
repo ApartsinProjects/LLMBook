@@ -132,7 +132,11 @@ def render_appendices(appendices: list[dict], glossary: dict | None) -> str:
 
     for g in order:
         if g != "Other":
-            out.append(f'<li class="toc-group-divider">{_esc(g)}</li>')
+            out.append(
+                f'<li class="toc-group-divider">'
+                f'<a href="appendices/index.html#group-{_group_slug(g)}">'
+                f'{_esc(g)}</a></li>'
+            )
         for app in groups[g]:
             letter = app["letter"]
             title = _esc(app["title"])
@@ -228,6 +232,18 @@ def _esc(s: str) -> str:
     s = (s or "").replace("&", "&amp;").replace("&amp;amp;", "&amp;")
     s = s.replace("<", "&lt;").replace(">", "&gt;")
     return s
+
+
+def _group_slug(g: str) -> str:
+    """Slugify a group name for HTML anchors (e.g., 'Framework Guides' -> 'framework-guides')."""
+    s = g.lower()
+    out = []
+    for ch in s:
+        if ch.isalnum():
+            out.append(ch)
+        elif ch in (" ", "&"):
+            out.append("-")
+    return "".join(out).strip("-").replace("--", "-")
 
 
 HTML_TEMPLATE = """<!DOCTYPE html>
