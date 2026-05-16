@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<meta content="Section 35.6: Structured-Output Validity Testing. A comprehensive chapter from the Building Conversational AI textbook." name="description"/>
+<title>Section 35.6: Structured-Output Validity Testing</title>
+<link href="../../styles/book.css" rel="stylesheet"/>
+<link href="../../styles/pygments.css" rel="stylesheet"/>
+<link href="../../vendor/katex/katex.min.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/katex/katex.min.js"></script>
+<script defer="" onload="renderMathInElement(document.body, {
+ delimiters: [
+ {left: '$$', right: '$$', display: true},
+ {left: '$', right: '$', display: false}
+ ],
+ throwOnError: false
+ });" src="../../vendor/katex/contrib/auto-render.min.js"></script>
+<link href="../../vendor/prism/prism-theme.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/prism/prism-bundle.min.js"></script>
+<script defer="" src="../../scripts/book.js"></script>
+<link href="../../pagefind/pagefind-ui.css" rel="stylesheet"/>
+<script defer="" src="../../pagefind/pagefind-ui.js"></script>
+</head>
+<body>
+<header class="chapter-header">
+<nav class="header-nav">
+<a class="book-title-link" href="../../index.html">Building Conversational AI with LLMs and Agents</a>
+<a class="toc-link" href="../../toc.html" title="Table of Contents"><span class="toc-icon">☰</span> Contents</a>
+</nav>
+<div class="header-search">
+<div id="search"></div>
+</div>
+
+<div class="page-breadcrumb" data-pagefind-meta="chapter"><a href="../index.html">Part VIII: Evaluation of LLM-Based Systems</a><span class="bc-sep">›</span><a href="index.html">Chapter 35: Functional Eval &amp; Behavioral Testing</a></div>
+<h1>Structured-Output Validity Testing</h1><div class="page-current">Section 35.6</div>
+
+</header>
+<main class="content"><span class="pagefind-meta-injected" data-pagefind-meta="part:Part VIII: Evaluation of LLM-Based Systems" hidden=""></span><span class="pagefind-meta-injected" data-pagefind-meta="chapter:Chapter 35: Functional Eval &amp; Behavioral Testing" hidden=""></span>
+<blockquote class="epigraph">
+<p>"Your model can be eloquent, factual, and helpful. If it forgets a comma, the JSON parser doesn't care."</p> <span class="agent-avatar-inline" style="background-color: #7f8c8d;"><img alt="Eval" height="28" src="../../front-matter/images/agents/eval.png" width="28"/></span><cite>Eval, <span class="agent-desc">Schema-Strict AI Agent</span></cite>
+</blockquote>
+<div class="callout big-picture">
+<div class="callout-title">Big Picture</div>
+<p><strong>By 2026 most production LLM traffic is not free-form text, it is structured output.</strong> Tool calls, function arguments, JSON-mode responses, agent action specifications, and SQL queries are now the dominant shapes of model output. Yet eval coverage for structured output is thin: most teams measure "did we get back valid JSON?" and stop there, missing the harder failures, fields with the wrong names, types that don't match the schema, enum values outside the allowed set, refusals where the schema demands output, and the family of subtle protocol-mismatch bugs that crash downstream consumers. This section is the missing piece. We define a four-tier taxonomy of structured-output validity (syntactic, schema-compliant, semantic, behavioral), build a validator harness using the <code>jsonschema</code> library, walk through provider-specific quirks (OpenAI's JSON-mode and function-calling, Anthropic's tool-use XML), and integrate the whole thing with promptfoo for CI regression testing. The goal is a structured-output eval that catches the failures your text-only eval misses.</p>
+</div>
+<div class="prerequisites">
+<h3 id="prerequisites">Prerequisites</h3>
+<p>This section assumes familiarity with structured generation from <a href="../../part-1-foundations/module-05-decoding-text-generation/section-5.3.html">Section 5.3</a> (constrained decoding, JSON-mode), function calling from <a href="../../part-3-working-with-llms/module-13-llm-apis/section-13.2.html">Section 13.2</a>, and the eval-as-CI pattern from <a href="../module-34-evaluation-observability/section-34.1.html">Section 34.1</a>. Some familiarity with JSON Schema (Draft 2020-12 or Draft 7) helps with the validator code.</p>
+</div>
+<h2 id="35-6-1-why-structured-output-validity-matters">35.6.1 Why Structured-Output Validity Matters in 2026</h2>
+<div class="callout production-pattern">
+<div class="callout-title">Production Pattern: Schema-Validation Smoke Test in CI</div>
+<p><strong>When:</strong> any production system that consumes structured LLM output (function calls, JSON responses, tool-use blocks). <strong>How:</strong> for every tool or schema your model produces, build a fixture set of 30-100 prompts that should produce structured output. Run them on every PR; validate each output against the schema; report (a) parse rate (did we get well-formed JSON?), (b) schema-compliance rate (did it match the schema?), (c) semantic-correctness rate (did the field values make sense?). <strong>Watch for:</strong> all-pass results that hide a 5% silent-corruption rate (the parser accepted garbage values because the schema is too permissive). <strong>Result:</strong> structured-output regressions are caught at PR time, not by the downstream service that crashes on the corrupted payload.</p>
+</div>
+<p>The shift toward structured output happened gradually then suddenly. OpenAI added function calling in mid-2023, Anthropic added tool use in late 2023, JSON-mode became table-stakes across all major providers in 2024, and structured-output APIs (OpenAI's structured outputs with strict schema enforcement, Anthropic's tool use with input_schema, Google's Gemini structured output) became the recommended interaction pattern for almost any non-chatbot use case in 2024-2025. By 2026, the typical production LLM application has more structured calls than free-form completions.</p>
+<p>This shift has consequences for evaluation. The text-evaluation toolkit (BLEU, ROUGE, BERTScore, LLM-as-judge) was designed for prose, not for "did the tool call have argument_x set correctly?" When teams build new structured-output features, they often ship them with only a handful of manual smoke tests, then discover field-name typos and type mismatches in production. The eval gap is real and the cost of closing it is small relative to the cost of a single production incident.</p>
+<p>A reasonable mental model is a four-tier taxonomy of structured-output failures:</p>
+<ul>
+<li><strong>Syntactic failure:</strong> the output cannot be parsed as JSON (or as the requested format). Mismatched braces, trailing commas, unterminated strings. The cheapest to detect.</li>
+<li><strong>Schema-compliance failure:</strong> the output parses, but does not match the declared schema. Missing required fields, extra fields, wrong types, enum violations, field-name typos.</li>
+<li><strong>Semantic failure:</strong> the output is schema-compliant but the field values are wrong. "City" field contains a country name, "date" field contains "yesterday" instead of an ISO-8601 string, "user_id" is a hallucinated number.</li>
+<li><strong>Behavioral failure:</strong> the output is schema-compliant and semantically correct, but the wrong tool was called, or the call was unnecessary, or the call sequence was wrong (in a multi-call agent).</li>
+</ul>
+<div class="callout warning">
+<div class="callout-title">Warning: Don't Conflate JSON-Mode With Schema Compliance</div>
+<p>OpenAI's <code>response_format=&#123;"type": "json_object"&#125;</code> guarantees only that the output parses as JSON. It does NOT guarantee that the output matches any particular schema. The newer <code>response_format=&#123;"type": "json_schema", "json_schema": ...&#125;</code> mode does enforce schema compliance, but only when the schema is in the supported subset (no <code>anyOf</code>, no recursive schemas, no unconstrained <code>additionalProperties</code>, no patterns). Many teams discover the difference too late, after building a service that assumes schema-mode behavior on a JSON-mode-only endpoint.</p>
+</div>
+<h2 id="35-6-2-json-schema-compliance">35.6.2 JSON Schema Compliance: Syntactic vs Semantic Validity</h2>
+<p>The most common eval question is "did the model produce JSON that matches the schema?" The naive answer is to run <code>json.loads()</code> on the output and check that it didn't raise. That measures only syntactic validity. The harder question is schema compliance, and it has two flavors that production systems frequently confuse.</p>
+<p><strong>Syntactic validity</strong> asks: is the output well-formed JSON? Can <code>json.loads()</code> consume it without error? This catches missing brackets, trailing commas (which strict JSON forbids), unterminated strings, and similar parser-level mistakes. It is necessary but very far from sufficient.</p>
+<p><strong>Schema compliance</strong> asks: given that the output is well-formed JSON, does it satisfy the constraints of the declared schema? Required fields present, types correct, enum values within the allowed set, pattern constraints satisfied, numeric ranges respected. JSON Schema (Draft 2020-12) is the standard formal language for these constraints; the <code>jsonschema</code> Python library is the most widely used validator.</p>
+<p><strong>Semantic validity</strong> asks: given that the output is schema-compliant, are the field values <em>correct</em> in context? "Country" field contains a country, not a city. "Timestamp" field contains a recent date, not 1970. "Order ID" matches an existing order. This is task-specific and usually requires a domain judge (LLM-as-judge or a programmatic check against a source of truth).</p>
+<p>A useful eval reports all three rates separately: parse rate, schema-compliance rate, semantic-correctness rate. A model can have 100% parse rate, 95% schema compliance, and 70% semantic correctness, and the three numbers diagnose different failures.</p>
+<h3 id="building-a-validator">Building a validator</h3>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># Input: a raw model output string, a JSON Schema dict</span>
+<span class="c1"># Output: a triple (parse_ok, schema_ok, errors) for an eval report</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">jsonschema</span><span class="w"> </span><span class="kn">import</span> <span class="n">Draft202012Validator</span><span class="p">,</span> <span class="n">ValidationError</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">validate_structured_output</span><span class="p">(</span><span class="n">raw</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">schema</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">obj</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">raw</span><span class="p">)</span>
+    <span class="k">except</span> <span class="n">json</span><span class="o">.</span><span class="n">JSONDecodeError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">{</span><span class="s2">"parse_ok"</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span> <span class="s2">"schema_ok"</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span> <span class="s2">"errors"</span><span class="p">:</span> <span class="p">[</span><span class="sa">f</span><span class="s2">"parse: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">"</span><span class="p">]}</span>
+    <span class="n">validator</span> <span class="o">=</span> <span class="n">Draft202012Validator</span><span class="p">(</span><span class="n">schema</span><span class="p">)</span>
+    <span class="n">errors</span> <span class="o">=</span> <span class="p">[</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="nb">list</span><span class="p">(</span><span class="n">e</span><span class="o">.</span><span class="n">absolute_path</span><span class="p">)</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">e</span><span class="o">.</span><span class="n">message</span><span class="si">}</span><span class="s2">"</span>
+              <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">validator</span><span class="o">.</span><span class="n">iter_errors</span><span class="p">(</span><span class="n">obj</span><span class="p">)]</span>
+    <span class="k">return</span> <span class="p">{</span><span class="s2">"parse_ok"</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span> <span class="s2">"schema_ok"</span><span class="p">:</span> <span class="ow">not</span> <span class="n">errors</span><span class="p">,</span> <span class="s2">"errors"</span><span class="p">:</span> <span class="n">errors</span><span class="p">}</span>
+
+<span class="n">schema</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">"type"</span><span class="p">:</span> <span class="s2">"object"</span><span class="p">,</span>
+    <span class="s2">"required"</span><span class="p">:</span> <span class="p">[</span><span class="s2">"city"</span><span class="p">,</span> <span class="s2">"temperature_c"</span><span class="p">,</span> <span class="s2">"conditions"</span><span class="p">],</span>
+    <span class="s2">"properties"</span><span class="p">:</span> <span class="p">{</span>
+        <span class="s2">"city"</span><span class="p">:</span>          <span class="p">{</span><span class="s2">"type"</span><span class="p">:</span> <span class="s2">"string"</span><span class="p">},</span>
+        <span class="s2">"temperature_c"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"type"</span><span class="p">:</span> <span class="s2">"number"</span><span class="p">,</span> <span class="s2">"minimum"</span><span class="p">:</span> <span class="o">-</span><span class="mi">100</span><span class="p">,</span> <span class="s2">"maximum"</span><span class="p">:</span> <span class="mi">60</span><span class="p">},</span>
+        <span class="s2">"conditions"</span><span class="p">:</span>    <span class="p">{</span><span class="s2">"enum"</span><span class="p">:</span> <span class="p">[</span><span class="s2">"sunny"</span><span class="p">,</span> <span class="s2">"cloudy"</span><span class="p">,</span> <span class="s2">"rainy"</span><span class="p">,</span> <span class="s2">"snowy"</span><span class="p">]},</span>
+    <span class="p">},</span>
+    <span class="s2">"additionalProperties"</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
+<span class="p">}</span>
+
+<span class="n">raw</span> <span class="o">=</span> <span class="s1">'{"city": "Paris", "temperature_c": 18.2, "conditions": "drizzling"}'</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">validate_structured_output</span><span class="p">(</span><span class="n">raw</span><span class="p">,</span> <span class="n">schema</span><span class="p">))</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> {'parse_ok': True, 'schema_ok': False, 'errors': ["['conditions']: 'drizzling' is not one of ['sunny', 'cloudy', 'rainy', 'snowy']"]}
+</div>
+<div class="code-caption"><strong>Code Fragment 35.6.1:</strong> A minimal validator that distinguishes parse failures (the model produced invalid JSON) from schema failures (the JSON is well-formed but violates the schema). Aggregating both rates across an eval set surfaces the two failure modes separately.</div>
+</div>
+<p>The validator above is small but it captures the operational core. In a real harness you would add: (a) an output normalizer that strips Markdown code fences before parsing (a frequent source of "parse failures" that are not really failures), (b) per-field error categorization to track which fields fail most often, and (c) a sampling layer that logs full failure cases for manual review.</p>
+<h2 id="35-6-3-function-calling-spec-compliance">35.6.3 Function-Calling Spec Compliance</h2>
+<p>Function-calling has its own protocol layer on top of JSON: the model emits a function name plus an arguments JSON, and downstream code dispatches to a registered handler. The eval question is whether the model's emitted call conforms to the function specification.</p>
+<p>The most common failure modes, in rough descending order of frequency in 2025-2026 production data:</p>
+<ul>
+<li><strong>Argument-name typos.</strong> The function declares <code>user_id</code> but the model emits <code>userId</code> or <code>id</code>. Strict schema-mode prevents this; permissive schemas pass it silently.</li>
+<li><strong>Missing required fields.</strong> The model emits some arguments and omits others, often because it inferred the rest from context but did not include them in the call.</li>
+<li><strong>Type mismatches.</strong> A number field receives a string ("42" instead of 42), a boolean field receives a string ("true" instead of true), or a string field receives a number.</li>
+<li><strong>Enum violations.</strong> The function declares <code>severity</code> as enum [low, medium, high]; the model emits <code>"critical"</code>.</li>
+<li><strong>Spurious calls.</strong> The model invokes a function when no function call was needed; it should have answered in text.</li>
+<li><strong>Missed calls.</strong> The model answers in text when it should have invoked a function (often happens when a function's description is ambiguous about when to use it).</li>
+</ul>
+<p>The eval harness should report each failure type separately. Aggregating them into a single "tool-call accuracy" number is convenient for dashboards but hides the diagnostic signal. When the typo rate goes up, the fix is usually in the function description (the model's confused about field naming); when the missing-required rate goes up, the fix is usually in the system prompt (the model's getting lazy about including all required fields).</p>
+<div class="callout algorithm">
+<div class="callout-title">Under the Hood: The Provider Matrix for Structured Output</div>
+<p>The structured-output guarantees vary by provider, by model, and by endpoint. As of early 2026:</p>
+<ul>
+<li><strong>OpenAI JSON-mode</strong> (<code>response_format=&#123;"type":"json_object"&#125;</code>): guarantees parseable JSON, no schema constraint.</li>
+<li><strong>OpenAI Structured Outputs</strong> (<code>response_format=&#123;"type":"json_schema", "strict": true&#125;</code>): guarantees schema compliance, but only for a subset of JSON Schema features. Requires <code>"additionalProperties": false</code> on every object.</li>
+<li><strong>OpenAI Function Calling</strong> (<code>tools=[...]</code> with strict mode): equivalent to Structured Outputs for the tool's argument JSON.</li>
+<li><strong>Anthropic Tool Use</strong> (<code>tools=[...]</code> with <code>input_schema</code>): no strict mode in the same sense; the model is steered by the schema but not constrained. Production teams add a validator pass and either reject or retry on schema failure.</li>
+<li><strong>Google Gemini Structured Output</strong> (<code>response_schema=...</code>): grammar-constrained generation, similar guarantee to OpenAI's strict mode but with a different supported schema subset.</li>
+</ul>
+<p>The Pareto-correct production stance: always run a validator pass downstream, regardless of which provider you use. The strict-mode guarantees are good but not absolute (edge cases involve very long outputs, unusual unicode, or schema features outside the strict subset). The validator catches what the model missed.</p>
+</div>
+<h2 id="35-6-4-tool-use-xml-validity">35.6.4 Tool-Use Protocol Eval: XML, JSON, and the Provider Matrix</h2>
+<p>Anthropic's tool use emits XML-flavored blocks (<code>&lt;tool_use&gt;...&lt;/tool_use&gt;</code>) with a JSON arguments payload inside; OpenAI's emits a flat JSON object. Both have edge cases worth testing.</p>
+<p>For Anthropic tool use, the eval needs to verify:</p>
+<ul>
+<li><strong>Block well-formedness:</strong> matching open and close tags, no nested unescaped angle brackets inside text values, no broken XML.</li>
+<li><strong>JSON-inside-XML validity:</strong> the arguments payload is itself parseable as JSON, then schema-validatable against the tool's <code>input_schema</code>.</li>
+<li><strong>Tool-name correctness:</strong> the emitted tool name matches a registered tool.</li>
+<li><strong>Stop-reason consistency:</strong> the stop reason is <code>tool_use</code> when a tool was called, not <code>end_turn</code> with text-embedded tool-use that downstream code might miss.</li>
+</ul>
+<p>For OpenAI function calls, the eval is simpler (no XML layer), but the same content checks apply: well-formed JSON arguments, schema compliance, registered tool name. The <code>finish_reason</code> field plays the role of the stop reason; <code>"tool_calls"</code> indicates a function call.</p>
+<p>For both providers, multi-tool-call eval is its own challenge: the model can emit multiple tool calls in a single response, and the eval has to verify each one individually plus their joint structure (no duplicate tool names where duplicates would be wrong, dependencies respected if some calls depend on others).</p>
+<h2 id="35-6-5-the-good-output-wrong-schema-problem">35.6.5 The "Good Output, Wrong Schema" Problem</h2>
+<p>One of the trickier failure modes is the case where the model produces something useful and well-formed, but does not match the declared schema. Examples:</p>
+<ul>
+<li>Schema requires <code>&#123;"first_name": str, "last_name": str&#125;</code>; model emits <code>&#123;"name": "Jane Doe"&#125;</code>. The output is reasonable English, just not the right shape.</li>
+<li>Schema requires a flat list of strings; model emits a list of objects each with a "value" field. Again, reasonable but wrong shape.</li>
+<li>Schema requires ISO-8601 dates; model emits "March 15th, 2026". Same data, wrong format.</li>
+</ul>
+<p>These cases are diagnostically different from "the model couldn't parse the schema at all" (where outputs are random shapes) or "the model didn't try" (where outputs are free-form prose). A good eval distinguishes them and reports each separately.</p>
+<p>One practical approach: when a schema violation occurs, run an LLM-as-judge pass that classifies the failure into categories: (a) wrong field names but correct semantic content, (b) wrong field types but correct semantic content, (c) wrong shape entirely, (d) partial output with missing semantic content, (e) refusal-style response (the model returned text instead of structured output). The category mix tells you what to fix: a high (a) rate suggests the schema descriptions are unclear; a high (e) rate suggests the system prompt is letting the model bail out too easily.</p>
+<div class="callout note">
+<div class="callout-title">Note: Pydantic and Instructor as Validators</div>
+<p>Many production teams use Pydantic models or the <a href="https://github.com/instructor-ai/instructor">Instructor</a> library instead of raw <code>jsonschema</code>. The eval logic is the same: parse the output, validate against the schema, classify failures. Pydantic's <code>ValidationError</code> gives more user-friendly error messages but the same coverage; Instructor adds automatic retries on schema failure, which is useful in production but should be turned off in eval (you want to measure the raw success rate, not the post-retry rate). Configure your eval harness to disable retries explicitly.</p>
+</div>
+<h2 id="35-6-6-refusal-vs-fallback">35.6.6 Refusal vs Fallback: When the Model Says No</h2>
+<p>A subtle case worth its own treatment: what happens when the model refuses to produce output, but the schema requires output? Three sub-cases, each scored differently in a well-designed eval:</p>
+<p><strong>(a) Pass-with-refusal.</strong> The model recognizes that the request is unsafe, off-topic, or impossible, and emits a structured refusal response (often a dedicated <code>"refusal"</code> field in the schema, or a special enum value). This is the desired behavior when a refusal is appropriate; the eval should score it as a pass.</p>
+<p><strong>(b) Fail-with-schema-violation.</strong> The model refuses by emitting free-form text ("I cannot help with that request") instead of using the schema's refusal mechanism. The downstream consumer sees a parse failure, not a refusal. This is a behavioral bug; the eval should score it as a fail and categorize it as a refusal-protocol violation.</p>
+<p><strong>(c) Fail-with-fabrication.</strong> The model produces schema-compliant output but the content is hallucinated to avoid acknowledging that it doesn't know. The eval cannot detect this from schema validation alone; it requires a semantic check or human review. This is the most dangerous of the three because the downstream system has no signal that anything went wrong.</p>
+<p>A well-designed structured-output eval should report all three categories. The pass-vs-fail distinction is not enough; the <em>kind</em> of failure determines the fix. Conflating (b) and (c) into a single "fail" bucket loses diagnostic value.</p>
+<div class="callout postmortem">
+<div class="callout-title">Postmortem: The 0.3% That Wasn't Refusal</div>
+<p>A customer-support team deployed a structured-output classifier that emitted one of five intent labels. Internal eval reported 99.7% accuracy; production reported 99.7% schema-compliance. Yet customer-satisfaction scores dropped 4 points after deployment. Investigation: the 0.3% of "schema-compliant" outputs were the cases where the model couldn't classify confidently. Instead of emitting the schema's <code>"intent": "unknown"</code> value, it picked the closest plausible intent. The downstream router sent these requests to the wrong queue. <strong>Fix:</strong> changed the eval to specifically test the model's behavior on ambiguous inputs and to score "fabrication on uncertain input" as a fail, even though it was schema-compliant. <strong>Lesson:</strong> schema compliance is necessary but not sufficient. Test the edge cases where the model should refuse or admit uncertainty, and verify it actually does.</p>
+</div>
+<h2 id="35-6-7-ci-integration-with-promptfoo">35.6.7 CI Integration: Structured-Output Regression Testing With Promptfoo</h2>
+<p>The eval-as-CI pattern from <a href="../module-34-evaluation-observability/section-34.1.html">Section 34.1</a> applies cleanly to structured output. Promptfoo (one of the most-adopted CI eval tools in 2025-2026) has first-class support for JSON-schema validation, which makes the integration short.</p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-yaml"><span class="c1"># promptfoo.yaml: structured-output regression suite</span>
+<span class="nt">description</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">Weather tool-call regression</span>
+
+<span class="nt">providers</span><span class="p">:</span>
+  <span class="p p-Indicator">-</span> <span class="l l-Scalar l-Scalar-Plain">openai:chat:gpt-4o-mini</span>
+  <span class="p p-Indicator">-</span> <span class="l l-Scalar l-Scalar-Plain">anthropic:messages:claude-haiku-4-5</span>
+
+<span class="nt">prompts</span><span class="p">:</span>
+  <span class="p p-Indicator">-</span> <span class="s">"Return</span><span class="nv"> </span><span class="s">a</span><span class="nv"> </span><span class="s">weather</span><span class="nv"> </span><span class="s">report</span><span class="nv"> </span><span class="s">for</span><span class="nv"> </span><span class="s">{{city}}</span><span class="nv"> </span><span class="s">as</span><span class="nv"> </span><span class="s">JSON."</span>
+
+<span class="nt">tests</span><span class="p">:</span>
+  <span class="p p-Indicator">-</span> <span class="nt">vars</span><span class="p">:</span> <span class="p p-Indicator">{</span> <span class="nv">city</span><span class="p p-Indicator">:</span> <span class="nv">Paris</span> <span class="p p-Indicator">}</span>
+    <span class="nt">assert</span><span class="p">:</span>
+      <span class="p p-Indicator">-</span> <span class="nt">type</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">is-json</span>
+      <span class="p p-Indicator">-</span> <span class="nt">type</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">is-valid-json-schema</span>
+        <span class="nt">value</span><span class="p">:</span>
+          <span class="nt">type</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">object</span>
+          <span class="nt">required</span><span class="p">:</span> <span class="p p-Indicator">[</span><span class="nv">city</span><span class="p p-Indicator">,</span> <span class="nv">temperature_c</span><span class="p p-Indicator">,</span> <span class="nv">conditions</span><span class="p p-Indicator">]</span>
+          <span class="nt">properties</span><span class="p">:</span>
+            <span class="nt">city</span><span class="p">:</span> <span class="p p-Indicator">{</span> <span class="nv">type</span><span class="p p-Indicator">:</span> <span class="nv">string</span> <span class="p p-Indicator">}</span>
+            <span class="nt">temperature_c</span><span class="p">:</span> <span class="p p-Indicator">{</span> <span class="nv">type</span><span class="p p-Indicator">:</span> <span class="nv">number</span> <span class="p p-Indicator">}</span>
+            <span class="nt">conditions</span><span class="p">:</span> <span class="p p-Indicator">{</span> <span class="nv">enum</span><span class="p p-Indicator">:</span> <span class="p p-Indicator">[</span><span class="nv">sunny</span><span class="p p-Indicator">,</span> <span class="nv">cloudy</span><span class="p p-Indicator">,</span> <span class="nv">rainy</span><span class="p p-Indicator">,</span> <span class="nv">snowy</span><span class="p p-Indicator">]</span> <span class="p p-Indicator">}</span>
+          <span class="nt">additionalProperties</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">false</span>
+      <span class="p p-Indicator">-</span> <span class="nt">type</span><span class="p">:</span> <span class="l l-Scalar l-Scalar-Plain">javascript</span>
+        <span class="nt">value</span><span class="p">:</span> <span class="s">"JSON.parse(output).city.toLowerCase()</span><span class="nv"> </span><span class="s">===</span><span class="nv"> </span><span class="s">'paris'"</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> [PASS] openai:gpt-4o-mini: 1/1 tests passed (3 asserts). [PASS] anthropic:claude-haiku-4-5: 1/1 tests passed (3 asserts). Total: 2/2 (100%).
+</div>
+<div class="code-caption"><strong>Code Fragment 35.6.2:</strong> A promptfoo configuration for a single structured-output test, with three assertions: JSON-parseable, schema-compliant, and semantically correct city echo. Run as <code>promptfoo eval</code> in CI; the YAML lives in the repo alongside the schema definition.</div>
+</div>
+<p>Wire this into your CI pipeline (GitHub Actions, GitLab CI, Buildkite, etc.) and gate merges on the test results. The typical 2026 pattern is a two-stage gate: first stage runs the structured-output suite on every PR with a 100-200 example fixture set (fast, deterministic), second stage runs a larger live-data replay (1000-5000 examples) nightly with looser thresholds. The fast stage catches obvious regressions; the slow stage catches the rare cases that only manifest on real traffic distributions.</p>
+<div class="callout tip">
+<div class="callout-title">Tip: Test the Schema, Not Just the Output</div>
+<p>When you update a schema (adding a field, tightening an enum, marking a field required), run your structured-output eval suite against the <em>previous</em> model's outputs as a sanity check. A new schema that fails to validate a body of known-good outputs probably has a bug. This is the structured-output equivalent of a database migration dry-run, and it catches the case where an over-eager schema tightening would have broken existing traffic.</p>
+</div>
+<h2 id="key-takeaways">Key Takeaways</h2>
+<div class="callout key-takeaway">
+<div class="callout-title">Key Takeaways</div>
+<ul>
+<li><strong>Distinguish four tiers of validity.</strong> Parse rate, schema compliance, semantic correctness, behavioral correctness. Report each separately.</li>
+<li><strong>JSON-mode is not schema compliance.</strong> Use structured-output mode where available; always validate downstream regardless of provider guarantees.</li>
+<li><strong>Categorize function-call failures.</strong> Typos, missing fields, type mismatches, enum violations, spurious calls, missed calls. The category determines the fix.</li>
+<li><strong>The "good output, wrong schema" case is a real failure.</strong> Don't dismiss schema violations whose content looks reasonable, they crash downstream services just as hard.</li>
+<li><strong>Refusal protocol matters.</strong> Test that the model refuses in-schema, not by reverting to free-form text.</li>
+<li><strong>Integrate validation into CI.</strong> Promptfoo, DeepEval, or a custom harness, the principle is the same: every PR gets a schema-validation pass.</li>
+</ul>
+</div>
+<h2 id="exercises">Exercises</h2>
+<div class="callout exercise">
+<div class="callout-title">Exercise 35.6.1: Parse Rate vs Schema Compliance <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+<p>A team reports their model has 99% "JSON validity" on their eval set. Their production system crashes on roughly 5% of outputs. Explain how both numbers can be correct, and propose two changes to the eval that would catch the production failures.</p>
+<details>
+<summary>Answer Sketch</summary>
+<p>"JSON validity" likely measures parse rate only, the model produces well-formed JSON 99% of the time. The 5% production crashes likely come from schema-violation failures (missing required fields, wrong types) that are still well-formed JSON. Changes to the eval: (1) add schema validation alongside parse-rate, reporting both separately; (2) test against the actual downstream consumer's schema, not a relaxed eval schema. A third option: write a contract-test fixture set where each known production crash is captured as an eval input that should fail with a specific error category, then track those over time.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 35.6.2: Provider Strict-Mode Limits <span class="exercise-type analysis" title="Analysis">Analysis</span></div>
+<p>You want to use OpenAI's strict structured-output mode, but your schema includes a recursive definition (a tree structure where each node can contain children of the same type). Strict mode doesn't support recursion. List three ways to work around this and rank them by trade-off.</p>
+<details>
+<summary>Answer Sketch</summary>
+<p>(1) Flatten the schema to a fixed maximum depth (e.g., 5 levels), declaring each level explicitly. Trade-off: depth limit, but keeps strict mode. (2) Use non-strict JSON mode and add a recursion-aware validator pass. Trade-off: no schema-mode guarantees, but full recursion. (3) Switch to a provider with grammar-constrained generation that supports recursion (Gemini's structured output, llguidance, outlines library). Trade-off: provider lock-in or extra dependency. Ranking depends on the application: option 1 for low-depth trees, option 2 for unbounded recursion with willingness to retry on failure, option 3 if grammar-constrained generation is acceptable.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 35.6.3: Function-Call Error Categorization <span class="exercise-type coding" title="Coding">Coding</span></div>
+<p>Extend the validator from Code Fragment 35.6.1 to categorize each schema-validation failure into one of six categories: missing-required, extra-field, type-mismatch, enum-violation, pattern-violation, other. Compute per-category rates over an eval set.</p>
+<details>
+<summary>Answer Sketch</summary>
+<p>The <code>jsonschema</code> library's <code>ValidationError</code> has a <code>validator</code> attribute that names the failed validator: <code>"required"</code> for missing fields, <code>"additionalProperties"</code> for extras, <code>"type"</code> for type mismatches, <code>"enum"</code> for enum violations, <code>"pattern"</code> for regex failures. Map each <code>e.validator</code> to one of the six categories (with "other" as fallback), and increment a counter per category. Aggregate across the eval set to get per-category rates. Sort by rate descending and report; the top category usually tells you the highest-leverage fix.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 35.6.4: Refusal vs Fabrication Test <span class="exercise-type analysis" title="Analysis">Analysis</span></div>
+<p>Design an eval that distinguishes three model behaviors on ambiguous inputs: (a) correct refusal via the schema's refusal mechanism, (b) free-form refusal that violates the schema, (c) fabrication of a confident-looking but incorrect answer. Specify the eval inputs, the metrics, and how you would interpret the results.</p>
+<details>
+<summary>Answer Sketch</summary>
+<p>Inputs: a labeled set of "should refuse" cases (questions for which the answer is genuinely unknown or out-of-scope) and "should answer" cases (mixed in to prevent the model from over-refusing). Metrics: per-input category (correct-refusal-in-schema, refusal-out-of-schema, correct-answer, fabrication). Compute (a) refusal precision: of refusals, what fraction were in-schema? (b) refusal recall: of cases that should have been refused, what fraction were refused? (c) fabrication rate: of should-refuse cases, what fraction got a confident wrong answer? Interpretation: high fabrication rate means the model isn't recognizing uncertainty; high out-of-schema refusal means the system prompt needs to teach the in-schema mechanism better.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 35.6.5: Promptfoo Integration <span class="exercise-type coding" title="Coding">Coding</span></div>
+<p>Take an existing function in your codebase (or a hypothetical one) that consumes LLM-generated JSON. Write a promptfoo configuration that tests at least three positive cases (correct output expected) and three negative cases (edge cases where the model has historically failed). Include schema validation and at least one semantic assertion per test.</p>
+<details>
+<summary>Answer Sketch</summary>
+<p>Structure: define one provider entry per model you care about. Define the prompt template, parameterized by test variables. For each test, declare <code>vars</code> for the inputs, then <code>assert</code> entries: <code>is-json</code> for parse-rate, <code>is-valid-json-schema</code> with the schema for compliance, and <code>javascript</code> or <code>llm-rubric</code> for semantic correctness (e.g., the city echoed matches the city requested, the date is plausible, the amount is positive). Run with <code>promptfoo eval -c promptfoo.yaml</code>; gate CI on the pass rate.</p>
+</details>
+</div>
+<div class="whats-next">
+<h2 id="what-comes-next">What Comes Next</h2>
+<p>The next section continues this chapter's tour of functional and behavioral testing patterns, picking up regression-test design, capability-coverage matrices, and the family of safety-relevant behavioral checks (jailbreak resistance, prompt-injection refusal) that complement structured-output validity.</p>
+</div>
+<details class="bibliography-collapsible" open>
+<summary><strong>Further Reading</strong></summary>
+<section class="bibliography">
+<h3 id="json-schema-and-validators">JSON Schema and Validators</h3>
+<div class="bib-entry-card">
+<div class="bib-ref">Wright, A., Andrews, H., Hutton, B., Dennis, G. (2022). "JSON Schema: A Media Type for Describing JSON Documents (Draft 2020-12)." <a href="https://json-schema.org/draft/2020-12/json-schema-core" rel="noopener" target="_blank">json-schema.org</a></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">jsonschema (Python library). (2026). "An implementation of the JSON Schema specification for Python." <a href="https://github.com/python-jsonschema/jsonschema" rel="noopener" target="_blank">github.com/python-jsonschema/jsonschema</a></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Pydantic Documentation. (2026). "Pydantic V2: Data Validation Using Python Type Hints." <a href="https://docs.pydantic.dev/latest/" rel="noopener" target="_blank">docs.pydantic.dev</a></div>
+</div>
+<h3 id="provider-structured-output-docs">Provider Structured-Output Documentation</h3>
+<div class="bib-entry-card">
+<div class="bib-ref">OpenAI. (2024-2026). "Structured Outputs." <a href="https://platform.openai.com/docs/guides/structured-outputs" rel="noopener" target="_blank">platform.openai.com/docs/guides/structured-outputs</a></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">OpenAI. (2024-2026). "Function Calling Guide." <a href="https://platform.openai.com/docs/guides/function-calling" rel="noopener" target="_blank">platform.openai.com/docs/guides/function-calling</a></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Anthropic. (2024-2026). "Tool Use with Claude." <a href="https://docs.anthropic.com/en/docs/build-with-claude/tool-use" rel="noopener" target="_blank">docs.anthropic.com/en/docs/build-with-claude/tool-use</a></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Google. (2024-2026). "Gemini API: Structured Output." <a href="https://ai.google.dev/gemini-api/docs/structured-output" rel="noopener" target="_blank">ai.google.dev/gemini-api/docs/structured-output</a></div>
+</div>
+<h3 id="constrained-generation">Constrained Generation Research</h3>
+<div class="bib-entry-card">
+<div class="bib-ref">Willard, B. T., Louf, R. (2023). "Efficient Guided Generation for Large Language Models." <a href="https://arxiv.org/abs/2307.09702" rel="noopener" target="_blank">arXiv:2307.09702</a></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Beurer-Kellner, L., Fischer, M., Vechev, M. (2024). "Guiding LLMs The Right Way: Fast, Non-Invasive Constrained Generation." <a href="https://arxiv.org/abs/2403.06988" rel="noopener" target="_blank">arXiv:2403.06988</a></div>
+</div>
+<h3 id="ci-eval-tooling">CI Eval Tooling</h3>
+<div class="bib-entry-card">
+<div class="bib-ref">Promptfoo Documentation. (2026). "Promptfoo: Test Your LLM App." <a href="https://www.promptfoo.dev/docs/intro/" rel="noopener" target="_blank">promptfoo.dev/docs</a></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Instructor Documentation. (2026). "Instructor: Structured LLM Outputs." <a href="https://python.useinstructor.com/" rel="noopener" target="_blank">python.useinstructor.com</a></div>
+</div>
+</section>
+</details>
+<nav class="chapter-nav">
+<a class="prev" href="section-35.5.html"><span class="nav-label">Previous</span><span class="nav-num">Section 35.5</span><span class="nav-title">Capability Coverage Matrices</span></a>
+<a class="up" href="index.html"><span class="nav-label">In Chapter</span><span class="nav-num">Chapter 35</span><span class="nav-title">Functional Eval &amp; Behavioral Testing</span></a>
+<a class="next" href="section-35.7.html"><span class="nav-label">Next</span><span class="nav-num">Section 35.7</span><span class="nav-title">Regression-Test Design</span></a>
+</nav>
+<footer><p>Fifteenth Edition, 2026 · <a href="../../toc.html">Contents</a></p></footer>
+</main>
+<script>
+window.addEventListener("DOMContentLoaded", function() {
+  if (window.PagefindUI) {
+    new PagefindUI({
+      element: "#search",
+      showSubResults: true,
+      showImages: false,
+      resetStyles: false,
+      pageSize: 8,
+      autofocus: false,
+      translations: {
+        placeholder: "Search the book…",
+      },
+      processResult: function (result) {
+        try {
+          var part = (result && result.meta && result.meta.part) ? result.meta.part : "";
+          var chap = (result && result.meta && result.meta.chapter) ? result.meta.chapter : "";
+          var partShort = part.split(":")[0].trim();
+          var chapShort = chap.split(":")[0].trim();
+          var crumb = [partShort, chapShort].filter(Boolean).join(" › ");
+          if (crumb && result.meta && result.meta.title
+              && result.meta.title.indexOf("[" + partShort) !== 0) {
+            result.meta.title = "[" + crumb + "]  " + result.meta.title;
+          }
+        } catch (e) { /* fall through */ }
+        return result;
+      },
+    });
+  }
+});
+</script>
+</body>
+</html>

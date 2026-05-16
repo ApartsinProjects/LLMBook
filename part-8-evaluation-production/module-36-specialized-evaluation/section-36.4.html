@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<meta content="Section 36.4: Code-Generation Evaluation. A comprehensive chapter from the Building Conversational AI textbook." name="description"/>
+<title>Section 36.4: Code-Generation Evaluation</title>
+<link href="../../styles/book.css" rel="stylesheet"/>
+<link href="../../styles/pygments.css" rel="stylesheet"/>
+<link href="../../vendor/katex/katex.min.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/katex/katex.min.js"></script>
+<script defer="" onload="renderMathInElement(document.body, {
+ delimiters: [
+ {left: '$$', right: '$$', display: true},
+ {left: '$', right: '$', display: false}
+ ],
+ throwOnError: false
+ });" src="../../vendor/katex/contrib/auto-render.min.js"></script>
+<link href="../../vendor/prism/prism-theme.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/prism/prism-bundle.min.js"></script>
+<script defer="" src="../../scripts/book.js"></script>
+<link href="../../pagefind/pagefind-ui.css" rel="stylesheet"/>
+<script defer="" src="../../pagefind/pagefind-ui.js"></script>
+</head>
+<body>
+<header class="chapter-header">
+<nav class="header-nav">
+<a class="book-title-link" href="../../index.html">Building Conversational AI with LLMs and Agents</a>
+<a class="toc-link" href="../../toc.html" title="Table of Contents"><span class="toc-icon">☰</span> Contents</a>
+</nav>
+<div class="header-search">
+<div id="search"></div>
+</div>
+
+<div class="page-breadcrumb" data-pagefind-meta="chapter"><a href="../index.html">Part VIII: Evaluation of LLM-Based Systems</a><span class="bc-sep">›</span><a href="index.html">Chapter 36: Specialized Evaluation</a></div>
+<h1>Code-Generation Evaluation</h1><div class="page-current">Section 36.4</div>
+
+</header>
+<main class="content"><span class="pagefind-meta-injected" data-pagefind-meta="part:Part VIII: Evaluation of LLM-Based Systems" hidden=""></span><span class="pagefind-meta-injected" data-pagefind-meta="chapter:Chapter 36: Specialized Evaluation" hidden=""></span>
+<blockquote class="epigraph">
+<p>"The test for code is not 'does it look like code'. The test for code is 'does it run, does it pass, and does it survive code review next Tuesday'."</p> <span class="agent-avatar-inline" style="background-color: #7f8c8d;"><img alt="Eval" height="28" src="../../front-matter/images/agents/eval.png" width="28"/></span><cite>Eval, <span class="agent-desc">Vibe-Averse AI Agent</span></cite>
+</blockquote>
+<div class="callout big-picture">
+<div class="callout-title">Big Picture</div>
+<p><strong>Code generation is the one LLM task where the ground truth is a test suite.</strong> You do not need a human judge, you do not need BERTScore, you do not need a reference model: you run the generated code against the tests and either it passes or it does not. That clarity is what made HumanEval the canonical pre-2024 benchmark and what makes SWE-Bench the canonical post-2024 benchmark. But the apparent simplicity hides three persistent problems: <strong>contamination</strong> (the answers leak into pretraining data), <strong>brittleness</strong> (small textual variations can pass tests without solving the underlying problem), and <strong>scope mismatch</strong> (acing 164 short Python problems does not predict success at editing a real repo). This section walks through pass@k as the unifying metric, the four benchmark families (HumanEval, MBPP, SWE-Bench, LiveCodeBench), the contamination scaling problem and the responses to it, and the metrics that go beyond pass rates, edit distance, build success, and lint compliance, that production code-generation systems actually track.</p>
+</div>
+<div class="prerequisites">
+<h3 id="prerequisites">Prerequisites</h3>
+<p>This section assumes familiarity with the <a href="../module-34-evaluation-observability/section-34.1.html">evaluation fundamentals</a> from Section 34.1, particularly the discussion of benchmark contamination, and with basic Python sandboxing for executing untrusted code. Familiarity with the agentic patterns from <a href="../../part-6-agentic-ai/module-25-agent-foundations/index.html">Chapter 25</a> is useful when reading about SWE-Bench.</p>
+</div>
+<h2 id="36-4-1-the-pass-at-k-metric">36.4.1 The pass@k Metric</h2>
+<p>The pass@k metric was popularized by the Codex paper (Chen et al., 2021, <a href="https://arxiv.org/abs/2107.03374" rel="noopener" target="_blank">arXiv:2107.03374</a>). For a given problem, you sample <em>k</em> candidate solutions from the model and check whether at least one of them passes the unit tests. The pass@k for a benchmark is the average of this 0/1 indicator across all problems. The intuition is operational: if a developer is willing to ask the model for <em>k</em> attempts (and is willing to skim each one), the relevant question is whether any one of them works.</p>
+<p>A naive estimator of pass@k draws exactly <em>k</em> samples per problem and reports the fraction of problems with at least one passing sample. This estimator has high variance because <em>k</em> is small. The Codex paper introduces an unbiased lower-variance estimator: draw <em>n &ge; k</em> samples, count the number <em>c</em> that pass, and compute pass@k as one minus the probability that a random <em>k</em>-subset contains zero passing samples:</p>
+<div class="math-block">
+$$\operatorname{pass}@k = \mathbb{E}_{\text{problems}}\left[ 1 - \binom{n - c}{k} \Big/ \binom{n}{k} \right]$$
+</div>
+<p>This works whenever <em>n - c &ge; k</em> (otherwise the formula returns 1 trivially, which is correct: if there are more passing samples than the size of any unlucky draw, every <em>k</em>-subset must contain a pass). Using <em>n = 200</em> with <em>k &in; {1, 10, 100}</em> is the convention; the variance is dramatically lower than the naive estimator at <em>n = k</em>.</p>
+<div class="callout algorithm">
+<div class="callout-title">Under the Hood: Why pass@10 and pass@100 Matter for Production</div>
+<p>pass@1 measures whether the model gets it right first try. pass@10 measures whether a developer who is willing to inspect ten candidates can find a working one; pass@100 measures whether an automated pipeline with a verifier (tests, type checker, build) can find a working candidate among many. The gap between pass@1 and pass@100 quantifies how much value <em>scaling test-time compute</em> can extract. Models with high pass@100 but low pass@1 (Codex-12B at release: 28.8% pass@1, 72.3% pass@100) reward verifier-guided search. Models with high pass@1 but low pass@100 gap (most 2025 frontier coders: 90%+ pass@1, 95% pass@100) leave little room for sampling to help. Tracking both numbers tells you whether to invest in better sampling or in a stronger model.</p>
+</div>
+<p>The estimator is easy to misuse. If your <em>n</em> samples are not iid (you generate them with diverse prompts, then average), the formula's variance guarantees no longer hold. If your tests are not deterministic (depend on the current time, random seeds, network state), <em>c</em> is noisy and your pass@k is noisy with it. Always run pass@k evaluation with seeded execution and an upper time budget per test invocation.</p>
+<h2 id="36-4-2-humaneval-and-humaneval-plus">36.4.2 HumanEval and HumanEval+</h2>
+<p>HumanEval (Chen et al., 2021) is the founding benchmark of modern code-generation evaluation. It is 164 Python function-completion problems, each consisting of a docstring with examples and a function signature; the model must produce the function body. A typical problem looks like: <em>"Given a list of integers, return the sum of the squares of the odd numbers."</em> Hidden unit tests verify correctness on inputs not shown in the docstring. The benchmark is small, clean, and runs in seconds; pass@1 has become a standard quick-look quality number for any new code model.</p>
+<p>By 2024, HumanEval was saturated. GPT-4 reached 67% pass@1 in early 2023; by mid-2024 GPT-4o, Claude-3.5-Sonnet, and DeepSeek-Coder-V2 all cleared 85%; by 2026, frontier models cluster between 92% and 96%. The remaining gap is partly genuine difficulty (a few problems have ambiguous specifications) and partly test-suite incompleteness: HumanEval's hidden test sets are small (median around eight test cases per problem), so a function that handles the typical case but fails edge cases will still pass.</p>
+<p><strong>HumanEval+</strong> (Liu et al., 2023, <a href="https://arxiv.org/abs/2305.01210" rel="noopener" target="_blank">arXiv:2305.01210</a>) addresses this by augmenting HumanEval's test suite roughly 80x using property-based fuzz testing. The same problems are scored against far more rigorous tests. Pass@1 scores drop substantially: a model that scored 85% on HumanEval typically scores 70-75% on HumanEval+, exposing solutions that were happy-path correct but edge-case wrong. HumanEval+ is the version any serious 2026 evaluation reports alongside the original.</p>
+<div class="callout note">
+<div class="callout-title">Note: HumanEval Has Been Contaminated for Years</div>
+<p>HumanEval problem text appears verbatim in many GitHub repositories (in StackOverflow answers, in study guides, in interview-prep collections, and in derivative repos that reproduce the benchmark). Audits over 2023-2024 found roughly 5-10% of the 164 problems with high textual overlap in common pretraining corpora. The OpenAI report on Codex acknowledged this risk; the field has since treated HumanEval as a contaminated benchmark whose absolute scores cannot be trusted, only differences between models trained on similar data.</p>
+</div>
+<h2 id="36-4-3-mbpp-mostly-basic-python-problems">36.4.3 MBPP: Mostly Basic Python Problems</h2>
+<p>MBPP (Austin et al., 2021, <a href="https://arxiv.org/abs/2108.07732" rel="noopener" target="_blank">arXiv:2108.07732</a>) was released alongside HumanEval as a larger, easier counterpart. The benchmark contains 974 short Python problems, each with a one-sentence natural-language description and three example assertions. Examples include <em>"Write a function to remove all whitespace from a string"</em> and <em>"Write a function to find the volume of a cone given radius and height"</em>. MBPP problems are crowdsourced from a pool of programmers (the "Mostly Basic" in the name is sincere) and emphasize standard-library usage more than algorithmic puzzling.</p>
+<p>MBPP's role in 2024-2026 evaluation is as a coverage signal that complements HumanEval. Where HumanEval probes algorithmic correctness on isolated functions, MBPP probes whether a model can produce idiomatic uses of common standard-library modules (<code>collections</code>, <code>itertools</code>, <code>re</code>, <code>math</code>). MBPP has a sanitized subset (MBPP-sanitized, 427 problems) that fixes ambiguous specifications and broken test cases. Modern reports cite MBPP-sanitized pass@1.</p>
+<p>The HumanEval-MBPP pair has the structural limitation that both benchmarks consist of short, isolated functions. Real software engineering requires reading existing code, understanding cross-file dependencies, and editing modules without breaking other modules. Benchmarks that capture this came later.</p>
+<h2 id="36-4-4-swe-bench-and-swe-bench-verified">36.4.4 SWE-Bench and SWE-Bench Verified</h2>
+<p>SWE-Bench (Jimenez et al., 2024, <a href="https://arxiv.org/abs/2310.06770" rel="noopener" target="_blank">arXiv:2310.06770</a>) was the benchmark that finally moved the conversation past function completion. The setup: take 2,294 real GitHub issues from twelve popular Python repositories (Django, Flask, SymPy, Matplotlib, Astropy, requests, scikit-learn, pytest, sphinx, pylint, xarray, pyramid), each with the eventual human-written fix and the test suite that confirmed the fix. The model is given the issue text and the full repo at the parent commit; it must produce a patch that, when applied, causes the previously-failing tests to pass.</p>
+<p>This is hard in ways that HumanEval is not. The model must:</p>
+<ul>
+<li><strong>Locate</strong> the right file out of hundreds and the right function within that file.</li>
+<li><strong>Understand</strong> the existing code, its conventions, and how callers depend on the function under repair.</li>
+<li><strong>Edit</strong> multiple files coherently when the fix spans modules.</li>
+<li><strong>Avoid</strong> regressions: existing passing tests must continue to pass.</li>
+</ul>
+<p>SWE-Bench's metric is <em>resolved rate</em>: the fraction of issues where the model's patch makes the failing test suite pass without breaking any previously-passing tests. Initial 2023 numbers were brutal: GPT-4 with retrieval scored 1.74%, Claude-2 scored 4.8%. The benchmark was clearly measuring something agents could not yet do.</p>
+<div class="callout production-pattern">
+<div class="callout-title">Production Pattern: SWE-Bench as an Agent Test, Not a Code-Completion Test</div>
+<p><strong>When:</strong> evaluating an agentic coding system (Aider, OpenDevin, Claude Code, Cursor's background agent, etc.) rather than a single-shot code model. <strong>How:</strong> wrap your full agent stack (retrieval, planning, multi-turn editing, test execution) and run end-to-end against SWE-Bench. Compare against the leaderboard's "agent" track, not the "pipeline" track. <strong>Watch for:</strong> tools timing out (default budget is around 200 LLM calls and 30 minutes per task); Python environment mismatches (each repo pins different dependency versions, requiring containerized execution). <strong>Result:</strong> a single number that summarizes whether your agent can do real software engineering on real codebases, not just paste algorithms.</p>
+</div>
+<p><strong>SWE-Bench Verified</strong> (OpenAI, August 2024, <a href="https://openai.com/index/introducing-swe-bench-verified/" rel="noopener" target="_blank">openai.com/swe-bench-verified</a>) released a manually-curated subset of 500 of the original 2,294 instances. The verification was done by professional software engineers, who flagged and removed instances with problems including: ambiguous issue descriptions, fix-required test cases that were too strict (rejected valid alternative fixes), under-specified requirements, and instances whose ground-truth test suite was broken at the parent commit. Verified is the gold-standard subset; 2025-2026 reports almost always cite both the full SWE-Bench and the Verified subset.</p>
+<p>The resolved rate on SWE-Bench Verified is the benchmark that has anchored the 2024-2026 coding-agent leaderboard. Initial Verified numbers were around 33% for the best system (Cognition's Devin, late 2024); by mid-2025, Claude-3.5-Sonnet with a custom agent harness reached 49%; by early 2026, the leaderboard frontier reached approximately 70-72% with extensive scaffolding. The gap between the full benchmark and Verified is informative: an agent that scores 50% on Verified and 35% on full is being penalized by problematic instances, not by its own weakness.</p>
+<div class="callout postmortem">
+<div class="callout-title">Postmortem: When SWE-Bench Numbers Got Compared Apples-to-Oranges</div>
+<p>Throughout 2024, vendors reported SWE-Bench numbers without consistent harness disclosure. One vendor's "62% on SWE-Bench" used the Verified subset; another's "35% on SWE-Bench" used the full benchmark. The numbers were directly compared in marketing decks and engineering reviews. <strong>Fix:</strong> the field standardized on a disclosure format: dataset (full/Verified/Lite), agent harness (which scaffolding), max budget (LLM calls and tokens), and pass rate. <strong>Lesson:</strong> for any code benchmark, the harness is part of the eval. A frontier model with a weak harness can underperform a mid-tier model with a strong harness. Always read the harness description before believing a number.</p>
+</div>
+<h2 id="36-4-5-livecodebench-and-the-contamination-scaling-problem">36.4.5 LiveCodeBench and the Contamination Scaling Problem</h2>
+<p>The deeper problem behind HumanEval saturation and the SWE-Bench Verified curation effort is <strong>data contamination</strong>: as more code is scraped into pretraining corpora, benchmark problems and their reference solutions are increasingly likely to have been seen during training. A model that "passes" a contaminated benchmark may simply be retrieving its training data, not solving the problem.</p>
+<p>Contamination has been measured directly. The HumanEval audit found roughly 5-10% of problems with verbatim or near-verbatim matches in The Pile, RedPajama, and StarCoder's training data. SWE-Bench's instances draw from public GitHub repositories whose contents and issue threads are routinely scraped; some fraction of the eventual human-written fixes are in training data too. As models train on ever-more-recent crawls, contamination is monotonically increasing.</p>
+<p><strong>LiveCodeBench</strong> (Jain et al., 2024, <a href="https://arxiv.org/abs/2403.07974" rel="noopener" target="_blank">arXiv:2403.07974</a>) is the field's most rigorous answer. It continuously ingests programming-contest problems from LeetCode, AtCoder, and Codeforces, time-stamping each with its release date. To evaluate a model, you select the subset of problems released <em>after</em> the model's training-data cutoff. Because contest problems are novel by construction and released at known dates, post-cutoff subsets are guaranteed contamination-free.</p>
+<div class="callout key-insight">
+<div class="callout-title">Key Insight: Date-Based Subset Selection as Contamination Defense</div>
+<p>LiveCodeBench's core trick is dead simple: <em>tag every benchmark instance with a release date, and at evaluation time take only instances released after the model's training cutoff</em>. This makes the contamination floor zero by construction (for the post-cutoff subset). The cost is that older models have shrinking eligible benchmark sizes as time passes, and benchmark-vs-benchmark comparisons require care because different models are scored on different subsets. The benefit is decisive: a frontier model with a January 2025 cutoff evaluated on April-November 2025 LiveCodeBench problems has demonstrably never seen them. Other benchmarks have copied this technique (BigCodeBench, LiveBench).</p>
+</div>
+<p>LiveCodeBench reports show frontier models performing markedly worse on the post-cutoff subset than on the pre-cutoff subset of the same benchmark, even after controlling for problem difficulty. The gap (roughly 10-25 percentage points for popular models in 2024-2025) is the field's clearest evidence that contamination has been inflating reported numbers.</p>
+<h2 id="36-4-6-a-minimal-pass-at-k-harness">36.4.6 A Minimal pass@k Harness</h2>
+<p>The conceptual machinery of pass@k evaluation is small enough to implement in a few dozen lines. The skeleton below is the evaluation loop used by HumanEval-style benchmarks: load problems, sample solutions, execute each in a sandboxed subprocess against the unit tests, collect pass counts, and apply the unbiased estimator. A production harness adds containerization, timeout enforcement, resource limits, and per-test attribution; the skeleton omits these to keep the structure visible.</p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"># Minimal pass@k harness for HumanEval-style problems.
+# WARNING: this executes untrusted code. Wrap the runner in a container in real use.
+import subprocess, tempfile, math, json
+from pathlib import Path
+
+def unbiased_pass_at_k(n: int, c: int, k: int) -> float:
+    """Codex (Chen et al., 2021) unbiased estimator of pass@k.
+    n: total samples drawn, c: number that passed, k: target k.
+    """
+    if n - c &lt; k:
+        return 1.0
+    # 1 - C(n-c, k) / C(n, k)
+    return 1.0 - math.comb(n - c, k) / math.comb(n, k)
+
+def run_single(code: str, test_code: str, timeout: float = 10.0) -&gt; bool:
+    """Execute code+tests in a subprocess; return True if all tests pass."""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+        f.write(code + "\n\n" + test_code + "\n")
+        path = f.name
+    try:
+        result = subprocess.run(
+            ["python", path], capture_output=True, timeout=timeout, text=True
+        )
+        return result.returncode == 0
+    except subprocess.TimeoutExpired:
+        return False
+    finally:
+        Path(path).unlink(missing_ok=True)
+
+def evaluate_pass_at_k(problems, generate_fn, n: int = 20, ks=(1, 10)) -&gt; dict:
+    """problems: iterable of {prompt, test} dicts.
+       generate_fn: callable(prompt) -&gt; code string."""
+    per_problem_pass_counts = []
+    for prob in problems:
+        c = 0
+        for _ in range(n):
+            candidate = generate_fn(prob["prompt"])
+            if run_single(candidate, prob["test"]):
+                c += 1
+        per_problem_pass_counts.append((n, c))
+
+    results = {}
+    for k in ks:
+        per_problem_pass_at_k = [
+            unbiased_pass_at_k(n_i, c_i, k) for n_i, c_i in per_problem_pass_counts
+        ]
+        results[f"pass@{k}"] = sum(per_problem_pass_at_k) / len(per_problem_pass_at_k)
+    return results
+
+# Example
+problems = [
+    {"prompt": "def add(a, b):\n    \"\"\"Return a + b.\"\"\"\n",
+     "test": "assert add(2, 3) == 5\nassert add(-1, 1) == 0"},
+]
+# results = evaluate_pass_at_k(problems, my_generate_fn, n=20, ks=(1, 10))
+# -&gt; {"pass@1": 0.85, "pass@10": 0.97}
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 36.4.1:</strong> A minimal pass@k harness for HumanEval-style function-completion problems. The unbiased estimator and the subprocess-based test runner are the load-bearing pieces; the rest is plumbing.</div>
+</div>
+<div class="callout warning">
+<div class="callout-title">Warning: Never Execute Untrusted Code Outside a Sandbox</div>
+<p>The harness above runs generated code in a subprocess on the host filesystem. For a teaching example this is acceptable; for any real evaluation it is dangerous. Generated code can delete files, exfiltrate API keys, or fork-bomb your machine. Production code-evaluation harnesses use Docker or Firecracker containers with no network, no host-filesystem access, capped CPU and memory, and strict timeouts. <a href="https://github.com/openai/human-eval" rel="noopener" target="_blank">OpenAI's HumanEval repository</a> ships with documented sandboxing requirements; do not run it on a machine you care about without them.</p>
+</div>
+<h2 id="36-4-7-beyond-pass-at-k-edit-rate-bertscore-build-lint">36.4.7 Beyond pass@k: Edit Rate, CodeBERTScore, Build/Lint Signals</h2>
+<p>pass@k is the headline metric for code generation, but it is not the only metric a production code-assistant team should track. Several complementary metrics capture aspects of code quality that pass/fail unit tests miss.</p>
+<p><strong>Code-edit rate</strong>: how much a human developer modifies the generated code before merging. A patch that passes tests on the first try but requires extensive renaming, refactoring, or commenting is less valuable than one a developer can merge unchanged. GitHub Copilot's internal metrics report acceptance-rate (was the suggestion accepted?) and edit-rate (how many tokens changed between acceptance and merge). Edit rates correlate with developer satisfaction more closely than raw pass rates do.</p>
+<p><strong>CodeBERTScore</strong> (Zhou et al., 2023, <a href="https://arxiv.org/abs/2302.05527" rel="noopener" target="_blank">arXiv:2302.05527</a>) is the code analog of BERTScore: compute contextual embeddings of generated code and reference code, then measure cosine similarity at the token level. It captures semantic similarity that an exact-match metric misses (rename a variable, swap equivalent constructs, get a high score), without requiring executable tests. CodeBERTScore is most useful in domains where running tests is expensive (large repositories), or where multiple valid solutions exist and you want to credit the model for finding any of them.</p>
+<p><strong>Build-passes and lint-passes</strong> are blunt but practical signals. A generated patch that fails the project's CI build, fails its type checker, or trips its linter will not be merged regardless of whether it nominally passes the unit test for the issue. Production code-assistant evaluations run the full CI pipeline (mypy, pylint, ruff, project-specific tooling) against the patch and report build-pass-rate and lint-pass-rate as separate numbers. These metrics also correlate with the contamination-resistant signal that the model has actually learned the project's conventions.</p>
+<div class="comparison-table">
+<div class="comparison-table-title"><strong>Table 36.4.1:</strong> <em>Code-Generation Benchmark Comparison.</em></div>
+<table class="complex-table">
+<thead>
+<tr>
+<th scope="col">Benchmark</th>
+<th scope="col">Size</th>
+<th scope="col">Granularity</th>
+<th scope="col">Metric</th>
+<th scope="col">Contamination Risk</th>
+<th scope="col">Best Use</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>HumanEval</strong></td>
+<td>164</td>
+<td>Function completion</td>
+<td>pass@k</td>
+<td>High (saturated)</td>
+<td>Quick-look quality check</td>
+</tr>
+<tr>
+<td><strong>HumanEval+</strong></td>
+<td>164</td>
+<td>Function completion</td>
+<td>pass@k</td>
+<td>High (prompts same as HumanEval)</td>
+<td>Stress-test edge cases</td>
+</tr>
+<tr>
+<td><strong>MBPP-sanitized</strong></td>
+<td>427</td>
+<td>Function completion</td>
+<td>pass@k</td>
+<td>Medium</td>
+<td>Standard-library coverage</td>
+</tr>
+<tr>
+<td><strong>SWE-Bench</strong></td>
+<td>2,294</td>
+<td>Multi-file repo edit</td>
+<td>resolved rate</td>
+<td>Medium (public GitHub)</td>
+<td>End-to-end agent evaluation</td>
+</tr>
+<tr>
+<td><strong>SWE-Bench Verified</strong></td>
+<td>500</td>
+<td>Multi-file repo edit</td>
+<td>resolved rate</td>
+<td>Medium (curated, but same source)</td>
+<td>Cleanest SWE-Bench signal</td>
+</tr>
+<tr>
+<td><strong>LiveCodeBench</strong></td>
+<td>500+ (growing)</td>
+<td>Algorithmic problem</td>
+<td>pass@1 on post-cutoff subset</td>
+<td>Low (date-based)</td>
+<td>Contamination-resistant capability</td>
+</tr>
+<tr>
+<td><strong>BigCodeBench</strong></td>
+<td>1,140</td>
+<td>Multi-library function</td>
+<td>pass@k</td>
+<td>Medium</td>
+<td>Realistic library usage</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>BigCodeBench</strong> (Zhuo et al., 2024, <a href="https://arxiv.org/abs/2406.15877" rel="noopener" target="_blank">arXiv:2406.15877</a>) is worth mentioning separately. It tests Python problems that require coordinated use of multiple libraries (e.g., NumPy + Pandas + Matplotlib in one solution), a closer match to real data-science and engineering work than the single-library focus of HumanEval and MBPP. It is the benchmark that has best exposed weaknesses in models that memorized common idioms but cannot compose them.</p>
+<div class="callout tip">
+<div class="callout-title">Tip: Track a Composite Code-Quality Score, Not Just pass@1</div>
+<p>For a production code-assistant project, define a composite metric that weights: pass@1 (correctness), edit-rate (human effort post-acceptance), build-pass-rate (CI compatibility), lint-pass-rate (style compliance), and median latency. Track all five over time; report the weighted composite as your headline. A model that improves pass@1 by 3% while increasing edit-rate by 15% may be a regression in practice; only a composite catches this.</p>
+</div>
+<h2 id="36-4-8-the-contamination-arms-race-in-practice">36.4.8 The Contamination Arms Race in Practice</h2>
+<p>The contamination scaling problem has changed how code-generation evaluation is run in practice. Three norms have emerged in the 2024-2026 period.</p>
+<p><strong>Norm 1: Report both contaminated and contamination-resistant numbers.</strong> A 2026 model card typically lists HumanEval, HumanEval+, MBPP, SWE-Bench Verified, and the LiveCodeBench post-cutoff subset. The first three are useful for backwards comparability; the last two are the numbers you trust.</p>
+<p><strong>Norm 2: Disclose training-data cutoff alongside benchmark scores.</strong> A LiveCodeBench number is uninterpretable without a cutoff date. Model cards now report cutoff explicitly so that readers can compute which benchmark subset was eligible.</p>
+<p><strong>Norm 3: Avoid public benchmark optimization.</strong> Teams that publish code models have begun to hold out portions of their internal evaluation suites from external dissemination, on the rationale that a fully-public benchmark is a fully-contaminated benchmark within a year of release. Anthropic's RE-Bench, OpenAI's internal code-evals, and Google DeepMind's code-eval portfolio all include private subsets reported only as aggregate numbers.</p>
+<div class="callout key-insight">
+<div class="callout-title">Key Takeaways</div>
+<ul>
+<li><strong>pass@k is the canonical code-generation metric.</strong> Use the Codex unbiased estimator with n &gt;&gt; k (typically n=200, k &in; {1, 10, 100}); the variance reduction over naive sampling is large. Report both pass@1 (first-try correctness) and pass@k for k &gt; 1 (sampling-with-verifier potential).</li>
+<li><strong>HumanEval is saturated and contaminated.</strong> Treat it as a backwards-compatible quick-look number; do not use it as the sole signal for a new model. HumanEval+ (augmented test suite) is the more rigorous variant.</li>
+<li><strong>SWE-Bench Verified is the standard for agentic coding evaluation.</strong> The 500-problem curated subset is the cleanest signal of real-repo software engineering ability. Always disclose the agent harness alongside the score; a number without a harness is meaningless.</li>
+<li><strong>LiveCodeBench's date-based subset selection is the field's clearest contamination defense.</strong> Post-cutoff subsets are contamination-free by construction. Other benchmarks (BigCodeBench, LiveBench) have adopted the same technique.</li>
+<li><strong>Always disclose training-data cutoff.</strong> Without it, contamination-resistant numbers cannot be interpreted. Modern model cards make cutoff explicit.</li>
+<li><strong>Track a composite of pass@k, edit-rate, build-rate, and lint-rate.</strong> Production usefulness depends on more than pass/fail unit tests; a model that improves pass@1 while bloating edit-rate is a regression in practice.</li>
+</ul>
+</div>
+<div class="callout research-frontier">
+<div class="callout-title">Research Frontier</div>
+<p>Open Questions in Code-Generation Evaluation (2024-2026):</p>
+<ul>
+<li><strong>Evaluation of long-horizon coding agents:</strong> SWE-Bench tasks complete in hours; real software engineering takes days or weeks of agent work. How do we evaluate agents over week-long autonomous sessions? Anthropic's preliminary work on extended-coding evaluations (2025) and the ARC-AGI v2 efforts (2026) are early answers, but the field lacks a standard.</li>
+<li><strong>Multi-language benchmarks:</strong> Most benchmarks are Python-only. MultiPL-E and CrossCodeBench extend to Java, Rust, Go, and TypeScript, but the language-specific test-runner infrastructure remains brittle.</li>
+<li><strong>Beyond unit tests:</strong> Tests check correctness but not maintainability, performance, security, or readability. Static-analysis-driven evaluation (Snyk-style security scoring, performance-regression detection) is emerging but not standardized.</li>
+<li><strong>Synthetic benchmark inflation:</strong> Models can be trained on LLM-generated coding problems that look like benchmark problems. Detecting this kind of indirect contamination (the benchmark problem was never in training, but a synthetic variant was) is an open research direction.</li>
+</ul>
+<p><strong>Explore Further:</strong> Run a frontier code model against the pre-cutoff and post-cutoff subsets of LiveCodeBench and compute the contamination-inflated gap. The size of the gap is your best in-house measure of how much you should trust the model's HumanEval and SWE-Bench scores.</p>
+</div>
+<h2 id="exercises">Exercises</h2>
+<div class="callout exercise">
+<div class="callout-title">Exercise 36.4.1: pass@k Estimator Variance <span class="exercise-type analysis" title="Analysis">Analysis</span></div>
+<p>You evaluate a model on 100 problems using n=20 samples per problem. The naive pass@10 estimator and the Codex unbiased estimator both estimate pass@10. Suppose the true pass@10 is 0.6. Compute (roughly) the standard error of each estimator and explain when the unbiased estimator is most valuable.</p>
+<details>
+<summary>Answer Sketch</summary>
+<p>The naive estimator with k=10 samples drawn fresh per problem has Bernoulli variance per problem with p=0.6, contributing sqrt(0.6*0.4/100) &asymp; 0.049 to the cross-problem mean. The Codex unbiased estimator at n=20 averages over a larger sample with the binomial-coefficient correction; for moderate per-problem pass rates the per-problem variance is roughly halved, contributing approximately 0.035 to the cross-problem mean. The unbiased estimator is most valuable when (a) sampling is expensive (each sample costs API tokens), (b) k is small relative to n, and (c) per-problem pass rates are intermediate (variance is highest at p=0.5). For pass@1 with n=20 the gain is modest; for pass@10 with n=20 the gain is substantial.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 36.4.2: Diagnosing Saturation <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+<p>Your team reports 95% pass@1 on HumanEval but only 71% on HumanEval+. List three plausible causes and propose, for each cause, a benchmark or experiment that would discriminate among them.</p>
+<details>
+<summary>Answer Sketch</summary>
+<p>(1) The model is memorizing happy-path solutions to HumanEval problems; HumanEval+'s expanded tests expose this. Discriminate: hold out a contamination-free subset (LiveCodeBench post-cutoff) and confirm the gap holds. (2) The model's solutions are genuinely correct on the typical case but fail on edge cases not covered by HumanEval's small test suites. Discriminate: hand-augment ten problems with edge-case tests, measure whether failures are correlated with edge-case coverage. (3) HumanEval+ tests are over-strict (rejecting valid alternative solutions). Discriminate: manually review 20 failures on HumanEval+ to check whether the failing solutions are actually wrong or merely different.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 36.4.3: Building a SWE-Bench Mini-Harness <span class="exercise-type coding" title="Coding">Coding</span></div>
+<p>Write Python pseudocode for a minimal SWE-Bench evaluator that takes a single SWE-Bench instance (repo, parent commit, issue text, expected test list), invokes an agent to produce a patch, applies the patch in a sandboxed clone, runs the test suite, and returns resolved/not-resolved. Identify three failure modes specific to this evaluator (different from HumanEval-style failure modes).</p>
+<details>
+<summary>Answer Sketch</summary>
+<p>Skeleton: clone repo at parent_commit into a sandbox; expose issue_text and repo-listing tools to the agent; call agent.solve() which returns a patch; apply patch via git apply; run tests via repo-specific runner (often python -m pytest path/to/test); record pass/fail for the expected test list and verify no previously-passing tests regressed. Failure modes: (1) Patch applies cleanly but introduces a regression in a test not in the expected list; the metric correctly marks this as failure but the agent will not see the regression in its trajectory unless we feed it back. (2) Repo dependency versions diverge from the parent commit; modern poetry/uv lockfiles freeze deps but legacy repos do not. Solution: use repo-specific dockerfiles from the SWE-Bench package. (3) The expected test list contains tests that depend on network or external services; these are flaky and produce non-deterministic resolved/not-resolved verdicts. Solution: detect and skip network-bound tests during evaluation.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 36.4.4: Contamination Audit <span class="exercise-type coding" title="Coding">Coding</span></div>
+<p>Sketch a contamination audit pipeline for a code benchmark of your choice. Specify the corpus you would search, the matching strategy (exact, n-gram, semantic), and how you would aggregate results into a contamination score that downstream consumers can use to adjust their interpretation of benchmark numbers.</p>
+<details>
+<summary>Answer Sketch</summary>
+<p>Corpus: the largest available web-scale crawl that overlaps the model's training cutoff (Common Crawl, GitHub-Code, StackExchange). Matching: tiered. Tier 1 (exact): for each benchmark prompt, run an exact-string search; flag matches. Tier 2 (n-gram): use 13-gram match counts as in Brown et al. (2020) GPT-3 contamination analysis; flag prompts whose 13-gram coverage in the corpus exceeds a threshold (often 50%). Tier 3 (semantic): embed prompts and corpus chunks with a code-embedding model and flag prompts whose top-k corpus matches have cosine similarity above 0.9. Aggregate: report per-benchmark contamination rates at each tier; produce a contamination-corrected benchmark score by removing flagged prompts and recomputing. Communicate both the original and the corrected score, plus the contamination rate, to downstream consumers.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 36.4.5: Composite Code-Quality Score <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+<p>Design a composite metric for evaluating a code-completion assistant in production. Choose at least four component metrics, define each, propose weights, and discuss how to validate the composite against developer satisfaction surveys.</p>
+<details>
+<summary>Answer Sketch</summary>
+<p>Components: (1) pass@1 on a curated internal benchmark (correctness, weight 0.35). (2) Edit-rate, defined as average Levenshtein distance between accepted suggestion and final merged code, normalized by suggestion length (effort, weight 0.25, lower is better, invert sign). (3) Build-pass-rate on CI for projects where suggestions were accepted (CI compatibility, weight 0.15). (4) Acceptance rate (was the suggestion accepted at all, regardless of edits, weight 0.15). (5) p50 latency (responsiveness, weight 0.10, invert and normalize). Validate: collect monthly developer-satisfaction surveys (NPS-style 0-10) and correlate the composite metric with survey scores; tune weights to maximize R^2 of survey vs composite while keeping each weight bounded so no single metric dominates. Recompute weights quarterly as developer behavior and product context evolve.</p>
+</details>
+</div>
+<div class="whats-next">
+<h2 id="what-comes-next">What Comes Next</h2>
+<p>In the next section, <a href="section-36.5.html">Section 36.5: Multi-Modal Evaluation</a>, we extend the evaluation toolkit to vision-language and audio-language models, covering MMMU, VLM-as-judge, hallucination benchmarks for grounded multi-modal generation, and the unique failure modes of cross-modal evaluation.</p>
+</div>
+<details class="bibliography-collapsible" open>
+<summary><strong>Further Reading</strong></summary>
+<section class="bibliography">
+<h3 id="foundational-code-benchmarks">Foundational Code Benchmarks</h3>
+<div class="bib-entry-card">
+<div class="bib-ref">Chen, M., Tworek, J., Jun, H., et al. (2021). "Evaluating Large Language Models Trained on Code (Codex / HumanEval)." <a href="https://arxiv.org/abs/2107.03374" rel="noopener" target="_blank">arXiv:2107.03374</a></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Austin, J., Odena, A., Nye, M., et al. (2021). "Program Synthesis with Large Language Models (MBPP)." <a href="https://arxiv.org/abs/2108.07732" rel="noopener" target="_blank">arXiv:2108.07732</a></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Liu, J., Xia, C. S., Wang, Y., Zhang, L. (2023). "Is Your Code Generated by ChatGPT Really Correct? Rigorous Evaluation of Large Language Models for Code Generation (HumanEval+)." <a href="https://arxiv.org/abs/2305.01210" rel="noopener" target="_blank">arXiv:2305.01210</a></div>
+</div>
+<h3 id="repo-scale-code-benchmarks">Repository-Scale Code Benchmarks</h3>
+<div class="bib-entry-card">
+<div class="bib-ref">Jimenez, C. E., Yang, J., Wettig, A., et al. (2024). "SWE-bench: Can Language Models Resolve Real-World GitHub Issues?" <a href="https://arxiv.org/abs/2310.06770" rel="noopener" target="_blank">arXiv:2310.06770</a></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">OpenAI (2024). "Introducing SWE-Bench Verified." <a href="https://openai.com/index/introducing-swe-bench-verified/" rel="noopener" target="_blank">openai.com/index/introducing-swe-bench-verified</a></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Zhuo, T. Y., Vu, M. C., Chim, J., et al. (2024). "BigCodeBench: Benchmarking Code Generation with Diverse Function Calls and Complex Instructions." <a href="https://arxiv.org/abs/2406.15877" rel="noopener" target="_blank">arXiv:2406.15877</a></div>
+</div>
+<h3 id="contamination-resistant-eval">Contamination-Resistant Evaluation</h3>
+<div class="bib-entry-card">
+<div class="bib-ref">Jain, N., Han, K., Gu, A., et al. (2024). "LiveCodeBench: Holistic and Contamination Free Evaluation of Large Language Models for Code." <a href="https://arxiv.org/abs/2403.07974" rel="noopener" target="_blank">arXiv:2403.07974</a></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">White, C., Dooley, S., Roberts, M., et al. (2024). "LiveBench: A Challenging, Contamination-Free LLM Benchmark." <a href="https://arxiv.org/abs/2406.19314" rel="noopener" target="_blank">arXiv:2406.19314</a></div>
+</div>
+<h3 id="beyond-pass-at-k">Beyond pass@k</h3>
+<div class="bib-entry-card">
+<div class="bib-ref">Zhou, S., Alon, U., Agarwal, S., Neubig, G. (2023). "CodeBERTScore: Evaluating Code Generation with Pretrained Models of Code." <a href="https://arxiv.org/abs/2302.05527" rel="noopener" target="_blank">arXiv:2302.05527</a></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Ren, S., Guo, D., Lu, S., et al. (2020). "CodeBLEU: A Method for Automatic Evaluation of Code Synthesis." <a href="https://arxiv.org/abs/2009.10297" rel="noopener" target="_blank">arXiv:2009.10297</a></div>
+</div>
+<h3 id="multi-language-and-frontier">Multi-Language and Frontier Code Evaluation</h3>
+<div class="bib-entry-card">
+<div class="bib-ref">Cassano, F., Gouwar, J., Nguyen, D., et al. (2023). "MultiPL-E: A Scalable and Polyglot Approach to Benchmarking Neural Code Generation." <a href="https://arxiv.org/abs/2208.08227" rel="noopener" target="_blank">arXiv:2208.08227</a></div>
+</div>
+</section>
+</details>
+<nav class="chapter-nav">
+<a class="prev" href="section-36.3.html"><span class="nav-label">Previous</span><span class="nav-num">Section 36.3</span><span class="nav-title">Simulation-Based Evaluation</span></a>
+<a class="up" href="index.html"><span class="nav-label">In Chapter</span><span class="nav-num">Chapter 36</span><span class="nav-title">Specialized Evaluation</span></a>
+<a class="next" href="section-36.5.html"><span class="nav-label">Next</span><span class="nav-num">Section 36.5</span><span class="nav-title">Multi-Modal Evaluation</span></a>
+</nav>
+<footer><p>Fifteenth Edition, 2026 · <a href="../../toc.html">Contents</a></p></footer>
+</main>
+<script>
+window.addEventListener("DOMContentLoaded", function() {
+  if (window.PagefindUI) {
+    new PagefindUI({
+      element: "#search",
+      showSubResults: true,
+      showImages: false,
+      resetStyles: false,
+      pageSize: 8,
+      autofocus: false,
+      translations: {
+        placeholder: "Search the book…",
+      },
+      processResult: function (result) {
+        try {
+          var part = (result && result.meta && result.meta.part) ? result.meta.part : "";
+          var chap = (result && result.meta && result.meta.chapter) ? result.meta.chapter : "";
+          var partShort = part.split(":")[0].trim();
+          var chapShort = chap.split(":")[0].trim();
+          var crumb = [partShort, chapShort].filter(Boolean).join(" › ");
+          if (crumb && result.meta && result.meta.title
+              && result.meta.title.indexOf("[" + partShort) !== 0) {
+            result.meta.title = "[" + crumb + "]  " + result.meta.title;
+          }
+        } catch (e) { /* fall through */ }
+        return result;
+      },
+    });
+  }
+});
+</script>
+</body>
+</html>
