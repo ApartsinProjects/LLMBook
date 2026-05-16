@@ -168,7 +168,7 @@ def render_front_matter(items: list[dict]) -> str:
         f'<h2 class="toc-part-title">'
         f'<span class="toc-part-prefix">Front Matter</span>'
         f' <span class="toc-part-sep">·</span> '
-        f'<a href="front-matter/index.html">Why This Book Exists</a>'
+        f'<a href="front-matter/foreword.html">Why This Book Exists</a>'
         f'</h2>'
         f'<span class="toc-part-count">{len(items)} entries</span>'
     )
