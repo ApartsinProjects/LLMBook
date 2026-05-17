@@ -317,7 +317,7 @@
 <p>To make all of this concrete, the canonical PyTorch DistributedDataParallel (DDP) loop fits in fewer than 40 lines. Every more advanced scheme in this chapter starts from this skeleton.</p>
 
 <div class="code-block-wrapper">
-<pre><code class="lang-python"># minimal_ddp.py — torchrun --nproc_per_node=8 minimal_ddp.py
+<pre><code class="lang-python"># minimal_ddp.py: torchrun --nproc_per_node=8 minimal_ddp.py
 import os
 import torch
 import torch.distributed as dist
@@ -372,7 +372,40 @@ if __name__ == "__main__":
 <li>The optimizer step is local but produces an identical result on every rank, because every rank applies the same averaged gradient to the same starting parameters. This invariant is the BSP contract; the rest of this chapter is about preserving it under sharding.</li>
 </ul>
 
-<h2 id="59-1-7-summary">59.1.7 Summary</h2>
+<h2 id="59-1-7-gradient-accumulation-and-effective-batch">59.1.7 Gradient Accumulation and the Effective Batch</h2>
+<p>Frontier training runs care about a quantity called the <strong>effective batch size</strong>: the number of independent samples that contribute to a single optimizer step. Effective batch determines the noise scale of the gradient estimate and, indirectly, the optimal learning rate (McCandlish et al., 2018, formalized this as the <em>gradient noise scale</em>). For a 100B+ model, the empirical sweet spot is roughly $4$M to $16$M tokens per step.</p>
+
+<p>You cannot necessarily fit that many tokens through the model at once. Two levers expand the effective batch without changing the parallelism plan:</p>
+
+<ul>
+<li><strong>Data parallelism</strong>. Each of $N$ replicas processes its own slice of the global batch; gradients are averaged before the step. Effective batch scales linearly with $N$.</li>
+<li><strong>Gradient accumulation</strong>. Within a single replica, $K$ micro-steps run forward + backward without calling <code>optimizer.step()</code>; their gradients accumulate in place. The all-reduce happens once at the end of the $K$ micro-steps. Effective batch scales by $K$ at zero communication cost.</li>
+</ul>
+
+<p>Gradient accumulation is the operational secret to running with massive effective batches on modest cluster sizes: a $256$-GPU cluster with $K=16$ accumulation steps and per-rank micro-batch $4$ achieves effective batch $256 \cdot 16 \cdot 4 = 16{,}384$ sequences without ever materializing all 16k in memory at once. PyTorch's <code>no_sync()</code> context manager (covered in Section 59.2 for FSDP) is the canonical way to implement this; in plain DDP, you simply omit the <code>optimizer.step()</code> until the final micro-step.</p>
+
+<div class="callout key-insight">
+<div class="callout-title">Key Insight: Effective batch is the only universal knob</div>
+<p>A 70B-model run that targets 4M tokens per step has many ways to get there: pure DP on a 4096-GPU cluster with batch-1 per rank; smaller cluster + accumulation; FSDP for memory; pipeline parallelism for layers. From the optimizer's perspective, every plan that produces the same effective batch and the same data ordering gives the <em>same loss curve</em>. That invariance is what lets engineering teams swap parallelism plans for the same model release without retraining; the loss is determined by data and effective batch, not by how the gradients were computed.</p>
+</div>
+
+<h2 id="59-1-8-the-cost-of-correctness">59.1.8 The Cost of Correctness: Why Synchronous Wins</h2>
+<p>To close this section, a worked example of why frontier training stayed synchronous even at thousand-GPU scale. Consider three competing patterns:</p>
+
+<div class="comparison-table">
+<div class="comparison-table-title"><strong>Table 59.1.2</strong>: <em>Patterns for distributed gradient computation, ranked by reproducibility and throughput at $N=1024$.</em></div>
+<table class="complex-table">
+<tr><th scope="col">Pattern</th><th scope="col">Bitwise reproducible</th><th scope="col">Throughput vs sync DP</th><th scope="col">Status in 2026</th></tr>
+<tr><td>Sync DP (BSP)</td><td>Yes</td><td>1.00x (baseline)</td><td>Universal default</td></tr>
+<tr><td>Async DP (parameter server)</td><td>No</td><td>1.05-1.15x</td><td>Rare (federated, edge only)</td></tr>
+<tr><td>Local SGD (k local steps + 1 sync)</td><td>No, but small drift</td><td>1.1-1.3x</td><td>Research, occasional production</td></tr>
+<tr><td>DiLoCo / OpenDiLoCo (1-2 hour sync)</td><td>No, design embraces drift</td><td>varies, depends on setup</td><td>Decentralized / cross-cluster training</td></tr>
+</table>
+</div>
+
+<p>The 5-15% throughput penalty of sync DP versus async is small compared to the engineering cost of debugging a non-deterministic loss curve. The cases where async approaches win are precisely the cases where reproducibility is already lost: cross-cluster training (DiLoCo) where you cannot make hundreds of nodes finish a step in lock-step anyway, and federated learning where the participants are heterogeneous by design. For the standard "one cluster, one frontier model" case, sync wins.</p>
+
+<h2 id="59-1-9-summary">59.1.9 Summary</h2>
 <p>This section laid the foundations the rest of Chapter 59 builds on. The vocabulary you should now own: data / pipeline / tensor parallelism as the three axes; all-reduce, all-gather, and reduce-scatter as the collectives that make parallelism work; NVLink versus InfiniBand as the bandwidth tiers that determine which parallelism strategies can cross which boundaries; and BSP versus async as the consistency model, where BSP wins for frontier pre-training and async survives only at the edges. Sections 59.2 through 59.4 each pick one of the three axes and develop it in depth: ZeRO / FSDP for data parallelism with sharded state; Megatron-LM for tensor parallelism; and 1F1B for pipeline. Section 59.5 closes the loop with the operational concerns (checkpointing, fault tolerance, observability) that turn the algorithms above into a training run that actually finishes.</p>
 
 <section class="bibliography">

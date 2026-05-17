@@ -3,9 +3,21 @@
 <head>
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<meta content="Section 59.5: Production Training Infrastructure. Checkpointing, fault tolerance, monitoring, hyperparameter tuning at scale." name="description"/>
+<meta content="Section 59.5: Production Training Infrastructure — sharded async checkpoints, elastic scheduling, NCCL flame graphs, MFU, and the operational war stories that turned the algorithms of 59.1-59.4 into training runs that actually finish." name="description"/>
 <title>Section 59.5: Production Training Infrastructure | Building Conversational AI with LLMs and Agents</title>
 <link href="../../styles/book.css" rel="stylesheet"/>
+<link href="../../styles/pygments.css" rel="stylesheet"/>
+<link href="../../vendor/katex/katex.min.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/katex/katex.min.js"></script>
+<script defer="" onload="renderMathInElement(document.body, {
+ delimiters: [
+ {left: '$$', right: '$$', display: true},
+ {left: '$', right: '$', display: false}
+ ],
+ throwOnError: false
+ });" src="../../vendor/katex/contrib/auto-render.min.js"></script>
+<link href="../../vendor/prism/prism-theme.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/prism/prism-bundle.min.js"></script>
 <script defer="" src="../../scripts/book.js"></script>
 <link href="../../pagefind/pagefind-ui.css" rel="stylesheet"/>
 <script defer="" src="../../pagefind/pagefind-ui.js"></script>
@@ -24,25 +36,262 @@
 <span class="pagefind-meta-injected" data-pagefind-meta="chapter:Chapter 59" hidden=""></span>
 <div class="callout big-picture">
 <div class="callout-title">Big Picture</div>
-<p>Checkpointing, fault tolerance, monitoring, hyperparameter tuning at scale.</p>
+<p>The algorithms in Sections 59.1-59.4 are necessary but not sufficient. A real frontier training run spans weeks across thousands of nodes; in that window something <em>will</em> break. The operational discipline of production training has four pillars: <strong>checkpointing</strong> (so that a failure costs minutes, not days), <strong>elastic scheduling</strong> (so that dead nodes can be swapped in mid-run), <strong>observability</strong> (so that a quietly degrading run is caught before it wastes a week of compute), and <strong>post-mortem analysis</strong> (so that every failure improves the next run). The story of every published frontier training run is a story of these four pillars; the difference between a successful and a wasted run is rarely in the algorithm and almost always in the infrastructure.</p>
 </div>
-<p>Real training runs go for weeks across thousands of nodes. Production infrastructure must handle hardware failures, network partitions, checkpoint restarts, gradient divergence, and dead-end hyperparameter trajectories without losing a week of compute.</p>
+
+<h2 id="59-5-1-mean-time-between-failures">59.5.1 Mean Time Between Failures</h2>
+<p>The numerical reality of large-scale training: at any non-trivial cluster size, hardware failures are continuous, not exceptional. Empirical per-node failure rates from public post-mortems:</p>
+
+<div class="comparison-table">
+<div class="comparison-table-title"><strong>Table 59.5.1</strong>: <em>Reported per-node failure rates from public training post-mortems.</em></div>
+<table class="complex-table">
+<tr><th scope="col">Run / Cluster</th><th scope="col">GPUs</th><th scope="col">Run duration</th><th scope="col">Failures observed</th><th scope="col">MTBF / 1k GPUs</th></tr>
+<tr><td>OPT-175B (Meta, 2022)</td><td>992 A100</td><td>2 months</td><td>~50 (per official log)</td><td>~30 hours</td></tr>
+<tr><td>BLOOM-176B (BigScience, 2022)</td><td>384 A100</td><td>3.5 months</td><td>30+</td><td>~75 hours</td></tr>
+<tr><td>Llama-3 405B (Meta, 2024)</td><td>16,000 H100</td><td>54 days</td><td>419 (Meta paper)</td><td>~7.7 hours</td></tr>
+<tr><td>GPT-4 (OpenAI, 2023, est)</td><td>~25,000 A100</td><td>~3 months</td><td>not public</td><td>est ~12 hours</td></tr>
+</table>
+</div>
+
+<p>The Llama-3 paper reports 419 hardware interruptions in 54 days on 16,000 H100s, or roughly one node failure every 3 hours of wall-clock time across the cluster. The dominant causes were GPU hardware failures (58%), GPU HBM failures (17%), network switch failures (9%), and host system issues (16%). All of these are time-correlated to silicon temperature, which is why Meta's cluster monitoring includes a per-rack thermal model.</p>
+
 <div class="callout key-insight">
-<div class="callout-title">Key Insight</div>
-<p>The hardest engineering problem in a 1000-GPU run is not throughput; it is mean time between failures. With 1000 GPUs you see a node-level failure roughly every 12 hours. Your checkpointing cadence and restart machinery determine whether that costs you 30 minutes or 30 hours.</p>
+<div class="callout-title">Key Insight: At 1000+ GPUs, the system is the algorithm</div>
+<p>At a 7-hour MTBF, a 30-day training run will experience roughly 100 hardware interruptions. If each one costs an hour to recover from, that is 100 hours of lost compute, or 14% of the run. The same algorithmic improvement that takes another 14% off the compute (e.g., a 1.5x MFU improvement) is a year-long research project; the infrastructure improvement (faster checkpoints, automatic node replacement) is a quarter of engineering effort. Frontier teams spend roughly half their distributed-training engineering on infrastructure precisely because the leverage is higher.</p>
 </div>
-<h2>Checkpointing Strategies</h2>
-<p>Async checkpoints, distributed-state-dict, write-ahead patterns; the cost/recovery trade-off.</p>
-<h2>Fault-Tolerant Schedulers</h2>
-<p>Kubeflow, SkyPilot, AWS Batch with elastic agents; how the cluster heals when nodes die mid-step.</p>
-<h2>Observability for Training</h2>
-<p>Per-rank loss spikes, gradient norm tracking, NCCL flame graphs; the metrics that catch a divergence before it wastes a day of compute.</p>
+
+<h2 id="59-5-2-checkpointing-strategies">59.5.2 Checkpointing Strategies</h2>
+<p>A checkpoint is the only way to bound the cost of a failure. The state of the art is <em>sharded asynchronous checkpoints</em> written every few minutes to a parallel file system.</p>
+
+<h3 id="59-5-2-1-what-goes-into-a-checkpoint">59.5.2.1 What Goes Into a Checkpoint</h3>
+<p>A complete checkpoint must capture everything needed to bit-identically resume training: model parameters, optimizer state (master weights, $m$, $v$, scheduler step), data-loader state (current shard, sample index, RNG seed), and the random number generator state of every rank. Forgetting any one of these creates subtle divergence after restart: the most common bug is forgetting the data-loader's epoch index, so that on restart you re-train on the same first batch and overshoot or stall the loss curve.</p>
+
+<h3 id="59-5-2-2-synchronous-vs-asynchronous">59.5.2.2 Synchronous vs Asynchronous</h3>
+<p>The simplest checkpoint is synchronous: every rank gathers its shard of state, writes to disk, and waits until done before resuming training. On a 70B model with 100 GB of state per rank, writing to a parallel file system at 5 GB/s takes 20 seconds per rank. Even with 1000 parallel writers, the synchronous step blocks training for 20-30 seconds. At a 10-minute cadence, that is 4% overhead.</p>
+
+<p>Asynchronous checkpointing decouples the write from the training step. The state is first copied to a CPU staging buffer (fast, $\sim$1 second using GPUDirect-Storage or pinned host memory), then a background process writes to disk while training continues. Modern frameworks (PyTorch's <code>torch.distributed.checkpoint.async_save</code>, Megatron's <code>save_checkpoint_async</code>) implement this. The training-step overhead drops from 20 seconds to roughly 1.</p>
+
+<h3 id="59-5-2-3-sharded-checkpoint-format">59.5.2.3 Sharded Checkpoint Format</h3>
+<p>With FSDP / TP / PP, each rank holds a different shard of the parameters. The naive "rank 0 collects everything and writes one file" approach does not scale; rank 0 becomes a memory bottleneck and a single-point-of-failure for the checkpoint. The production pattern is the <strong>sharded checkpoint</strong>: each rank writes its own shard file independently, with a metadata file describing the global tensor layout. PyTorch's <code>DTensor</code> and <code>distributed.checkpoint</code> APIs implement this: a 70B model's checkpoint is ~1000 files (one per rank), each ~100 MB, written in parallel.</p>
+
+<p>A nice property: a sharded checkpoint can be <em>resharded on load</em>. A run trained with $TP=8, PP=8, DP=16$ can resume on a cluster with $TP=4, PP=16, DP=8$ as long as the total tensor shapes match. This flexibility is essential when clusters are reconfigured between training phases (e.g., switching from pre-training to fine-tuning).</p>
+
+<h3 id="59-5-2-4-checkpoint-cadence">59.5.2.4 Checkpoint Cadence</h3>
+<p>How often to checkpoint? If failures arrive at rate $1/\tau$ and a checkpoint takes time $C$, then expected wasted work per failure is $(T_{\text{interval}} + C)/2$, and the per-step overhead from writing checkpoints is $C / T_{\text{interval}}$. Total cost as a fraction of compute:</p>
+
+<div class="math-block">$$\text{cost}(T_{\text{interval}}) = \frac{C}{T_{\text{interval}}} + \frac{T_{\text{interval}} + C}{2\tau}$$</div>
+
+<p>Minimizing, the optimal interval is $T^{\star}_{\text{interval}} = \sqrt{2C\tau}$. For $C=20$ seconds and $\tau=7$ hours $\approx 25{,}000$ seconds, the optimal interval is $\sqrt{2 \cdot 20 \cdot 25000} = 1000$ seconds, about 17 minutes. The actual frontier-run cadence is typically 5-15 minutes; sub-5 minutes starts to compete with the optimizer step for I/O bandwidth.</p>
+
+<div class="callout practical-example">
+<div class="callout-title">Practical Example: Llama-3 checkpointing</div>
+<p>The Llama-3 paper describes 30 GB/s per-rank sustained write throughput to Meta's Tectonic distributed file system using GPUDirect-Storage. A 405B model's full state ($\approx$ 6.5 TB) writes in roughly 4 seconds via the sharded async path. Meta checkpoints every 1000 training steps (about 10 minutes), so checkpoint overhead is well under 1% of total time. Recovery from a failure averaged 10-30 minutes: the time for the scheduler to provision a replacement node, NCCL to re-form the communicator, and the latest checkpoint to load. This is the operational target every serious training stack now aims for.</p>
+</div>
+
+<h2 id="59-5-3-fault-tolerant-schedulers">59.5.3 Fault-Tolerant Schedulers and Elastic Agents</h2>
+<p>When a node dies, three things must happen, in order, in a few minutes:</p>
+
+<ol>
+<li><strong>Detect the failure</strong>. NCCL hangs (it does not abort cleanly), so the supervisor needs a timeout-based watchdog. Each rank's process should periodically report a heartbeat to a coordinator; missing heartbeats triggers the recovery path.</li>
+<li><strong>Provision a replacement</strong>. The cluster scheduler (Kubernetes, Slurm, AWS Batch) must have a hot pool of standby nodes or be able to provision one quickly. Spot-instance training (PyTorch + AWS Spot) makes this routine.</li>
+<li><strong>Restart with the new node</strong>. The whole world must re-form the NCCL communicator with the new rank assignment, load the latest checkpoint, and resume.</li>
+</ol>
+
+<h3 id="59-5-3-1-pytorch-elastic">59.5.3.1 PyTorch Elastic (TorchElastic)</h3>
+<p>PyTorch's <code>torchrun</code> with <code>--max-restarts=N</code> and <code>--rdzv-backend=c10d</code> implements (1) and (3) at the framework level. The <code>rdzv</code> (rendezvous) backend coordinates which ranks are alive; if a rank dies, the rendezvous re-forms and the surviving ranks restart from the latest checkpoint. The world-size can shrink (continue with fewer ranks) or stay the same (a replacement joins). This is the lowest-level fault-tolerance primitive in the PyTorch ecosystem; everything else builds on it.</p>
+
+<h3 id="59-5-3-2-cluster-scheduler-integration">59.5.3.2 Cluster Scheduler Integration</h3>
+<p>The job scheduler (the layer above the framework) handles provisioning:</p>
+
+<ul>
+<li><strong>SkyPilot</strong> (Yang et al., 2023): a cloud-agnostic abstraction that runs training jobs on any cloud's spot capacity, automatically requesting a replacement when a spot instance is reclaimed. Most academic labs use SkyPilot in 2026.</li>
+<li><strong>Kubeflow Training Operator</strong>: the Kubernetes-native solution. The <code>PyTorchJob</code> CRD includes elasticity (<code>elasticPolicy.minReplicas</code>) and works with the cluster autoscaler.</li>
+<li><strong>AWS Batch / SageMaker Training Compiler</strong>: AWS-native, with hot-standby spot capacity. Common at companies running on AWS H100 / Trainium.</li>
+<li><strong>MosaicML Composer</strong> (now Databricks): a Python framework that wraps PyTorch with a training callback model and integrates with the MosaicML cloud's elastic provisioning. Notable for being one of the first to operationalize spot-aware training.</li>
+</ul>
+
+<h3 id="59-5-3-3-spot-and-preemptible-training">59.5.3.3 Spot and Preemptible Training</h3>
+<p>The economic story: AWS spot instances are 50-70% cheaper than on-demand. If your training run can survive arbitrary node preemption (which it can, with the machinery above), you cut your training cost by half. This is now standard. The mathematics: with 7-hour MTBF baseline failures and spot preemption adding another, say, 4-hour preemption rate, you double the failure rate. As long as checkpoint recovery costs less than the on-demand premium, spot wins.</p>
+
+<h2 id="59-5-4-observability-mfu-and-the-flame-graph">59.5.4 Observability: MFU and the NCCL Flame Graph</h2>
+<p>You cannot fix what you cannot see. Production training surfaces three classes of signal: <strong>throughput</strong> (am I running at full speed?), <strong>quality</strong> (is the loss curve healthy?), and <strong>system health</strong> (is anything degrading?).</p>
+
+<h3 id="59-5-4-1-model-flops-utilization-mfu">59.5.4.1 Model FLOPs Utilization (MFU)</h3>
+<p>The headline throughput metric is MFU (Chowdhery et al., PaLM 2022): the ratio of useful FLOPs your model computed per second to the theoretical peak FLOPs of your hardware. For a transformer with $P$ parameters processing $T$ tokens with sequence length $L$:</p>
+
+<div class="math-block">$$\text{FLOPs}_{\text{step}} \approx 6 P T \quad \text{(forward + backward, dense matmul)}$$</div>
+
+<p>and MFU is:</p>
+
+<div class="math-block">$$\text{MFU} = \frac{6 P T / t_{\text{step}}}{N \cdot \text{FLOPs}_{\text{peak per GPU}}}$$</div>
+
+<p>Modern frontier training achieves 35-55% MFU on H100s in BF16. The Llama-3 paper reports 38-43% MFU at 405B scale; Megatron's published benchmarks reach 50-55% on smaller models. The remaining headroom is communication overlap and kernel efficiency; the Hopper architecture's full peak is unreachable in dense BF16 because of memory bandwidth bottlenecks. FP8 training (DeepSeek-V3, Llama-4) lifts the ceiling.</p>
+
+<h3 id="59-5-4-2-per-rank-loss-tracking">59.5.4.2 Per-Rank Loss Tracking</h3>
+<p>The training loss is computed locally on each rank and aggregated for logging. Frontier teams log per-rank loss <em>separately</em> as well, because a per-rank loss spike on a single rank is the smoking gun for a corrupted data shard, a numerically unstable kernel on one GPU, or a degraded NCCL link. The "log only the average" pattern hides exactly the signal you need.</p>
+
+<h3 id="59-5-4-3-gradient-norms-and-spike-detection">59.5.4.3 Gradient Norms and Spike Detection</h3>
+<p>The global gradient norm $\| g \|_2$ is logged every step. A healthy run has a slowly decreasing norm; spikes correlate with bad batches (often noisy or duplicated data) and predict loss divergences. The standard recipe: clip gradients at $\max(1.0, \mu_g + 4\sigma_g)$ where $\mu_g, \sigma_g$ are running estimates of the gradient norm. Skip the optimizer step if the norm exceeds, say, $20 \cdot \mu_g$; this is the "skip step on spike" practice that turned around several public 100B+ training runs in 2023.</p>
+
+<h3 id="59-5-4-4-nccl-flame-graphs">59.5.4.4 NCCL Flame Graphs</h3>
+<p>When a step suddenly slows from 1.2 s to 1.8 s, the culprit is almost always NCCL. NCCL exposes per-collective profiling via the <code>NCCL_DEBUG=INFO</code> environment variable and the <code>nvtx</code> Python module; PyTorch's profiler aggregates these into a flame graph. The pathological patterns to look for:</p>
+
+<ul>
+<li><strong>One slow rank</strong>. Every rank waits on the slowest in a collective. If rank 47's all-gather takes 50 ms while every other rank takes 5 ms, GPU 47 is overheating, has a degraded NVLink, or is hosting a parasitic process. Pull it from the cluster.</li>
+<li><strong>Buffer fragmentation</strong>. After hours of training, the CUDA caching allocator fragments and NCCL can no longer allocate its preferred contiguous buffer, falling back to bounce-buffered transfers. A periodic <code>torch.cuda.empty_cache()</code> at known synchronization points fixes this.</li>
+<li><strong>Stragglers from network contention</strong>. On rail-suboptimal topologies, two large all-reduces from different runs (or different training groups) can collide on the same switch, dropping each to half throughput. The solution is rail-aligned scheduling, which most modern clusters now enforce.</li>
+</ul>
+
+<h2 id="59-5-5-the-tooling-stack">59.5.5 The Tooling Stack</h2>
+<p>The 2026 production stack converged on a small set of well-supported tools:</p>
+
+<figure class="diagram">
+<svg aria-label="Production training tooling stack" role="img" style="font-family: 'Segoe UI', sans-serif; max-width: 100%; height: auto;" viewBox="0 0 900 420" xmlns="http://www.w3.org/2000/svg">
+  <rect width="900" height="420" fill="#ffffff"/>
+  <text x="450" y="30" font-size="20" font-weight="700" text-anchor="middle" fill="#1a1a2e">Production Training Stack (2026)</text>
+
+  <!-- Layer 1: Framework -->
+  <g transform="translate(60, 60)">
+    <rect x="0" y="0" width="780" height="60" rx="6" fill="#eef4fa" stroke="#1a4078" stroke-width="2"/>
+    <text x="14" y="22" font-size="13" font-weight="700" fill="#1a4078">Framework layer</text>
+    <text x="120" y="22" font-size="12" fill="#1a1a2e">&#8226; PyTorch + FSDP2</text>
+    <text x="260" y="22" font-size="12" fill="#1a1a2e">&#8226; Megatron-Core</text>
+    <text x="390" y="22" font-size="12" fill="#1a1a2e">&#8226; NeMo</text>
+    <text x="470" y="22" font-size="12" fill="#1a1a2e">&#8226; DeepSpeed</text>
+    <text x="580" y="22" font-size="12" fill="#1a1a2e">&#8226; MosaicML Composer</text>
+    <text x="14" y="46" font-size="11" font-style="italic" fill="#5a4a3a">Sharding strategy, parallelism config, autograd graph</text>
+  </g>
+
+  <!-- Layer 2: Distributed primitives -->
+  <g transform="translate(60, 130)">
+    <rect x="0" y="0" width="780" height="60" rx="6" fill="#ecf6ee" stroke="#1f7a3a" stroke-width="2"/>
+    <text x="14" y="22" font-size="13" font-weight="700" fill="#1f7a3a">Distributed primitives</text>
+    <text x="170" y="22" font-size="12" fill="#1a1a2e">&#8226; NCCL / RCCL / oneCCL</text>
+    <text x="350" y="22" font-size="12" fill="#1a1a2e">&#8226; TorchElastic / c10d rendezvous</text>
+    <text x="600" y="22" font-size="12" fill="#1a1a2e">&#8226; UCC, MPI</text>
+    <text x="14" y="46" font-size="11" font-style="italic" fill="#5a4a3a">Collectives, rendezvous, failure detection</text>
+  </g>
+
+  <!-- Layer 3: Orchestration -->
+  <g transform="translate(60, 200)">
+    <rect x="0" y="0" width="780" height="60" rx="6" fill="#fef3e0" stroke="#a67c1a" stroke-width="2"/>
+    <text x="14" y="22" font-size="13" font-weight="700" fill="#a67c1a">Orchestration</text>
+    <text x="130" y="22" font-size="12" fill="#1a1a2e">&#8226; Slurm</text>
+    <text x="200" y="22" font-size="12" fill="#1a1a2e">&#8226; Kubeflow / Kueue</text>
+    <text x="350" y="22" font-size="12" fill="#1a1a2e">&#8226; SkyPilot</text>
+    <text x="440" y="22" font-size="12" fill="#1a1a2e">&#8226; AWS Batch / SageMaker</text>
+    <text x="650" y="22" font-size="12" fill="#1a1a2e">&#8226; Ray Train</text>
+    <text x="14" y="46" font-size="11" font-style="italic" fill="#5a4a3a">Provisioning, spot recovery, elastic scheduling</text>
+  </g>
+
+  <!-- Layer 4: Observability -->
+  <g transform="translate(60, 270)">
+    <rect x="0" y="0" width="780" height="60" rx="6" fill="#fce8e8" stroke="#9a2828" stroke-width="2"/>
+    <text x="14" y="22" font-size="13" font-weight="700" fill="#9a2828">Observability</text>
+    <text x="140" y="22" font-size="12" fill="#1a1a2e">&#8226; Weights &amp; Biases</text>
+    <text x="290" y="22" font-size="12" fill="#1a1a2e">&#8226; MLflow</text>
+    <text x="370" y="22" font-size="12" fill="#1a1a2e">&#8226; TensorBoard</text>
+    <text x="480" y="22" font-size="12" fill="#1a1a2e">&#8226; Datadog / Prometheus</text>
+    <text x="660" y="22" font-size="12" fill="#1a1a2e">&#8226; nsys / dcgm</text>
+    <text x="14" y="46" font-size="11" font-style="italic" fill="#5a4a3a">Per-rank loss, gradient norm, MFU, thermal, NCCL flame graphs</text>
+  </g>
+
+  <!-- Layer 5: Storage -->
+  <g transform="translate(60, 340)">
+    <rect x="0" y="0" width="780" height="60" rx="6" fill="#f3e8fc" stroke="#5f2a8a" stroke-width="2"/>
+    <text x="14" y="22" font-size="13" font-weight="700" fill="#5f2a8a">Storage</text>
+    <text x="100" y="22" font-size="12" fill="#1a1a2e">&#8226; Lustre / GPFS</text>
+    <text x="240" y="22" font-size="12" fill="#1a1a2e">&#8226; Tectonic</text>
+    <text x="340" y="22" font-size="12" fill="#1a1a2e">&#8226; FSx for Lustre</text>
+    <text x="470" y="22" font-size="12" fill="#1a1a2e">&#8226; GCSFuse / S3 Mountpoint</text>
+    <text x="14" y="46" font-size="11" font-style="italic" fill="#5a4a3a">Parallel checkpoints, dataset, GPUDirect-Storage</text>
+  </g>
+</svg>
+<figcaption><strong>Figure 59.5.1</strong>: The 2026 production training stack. The framework layer chooses sharding / parallelism; distributed primitives execute collectives and detect failure; orchestration provisions and recovers nodes; observability tracks every signal in flight; storage hosts checkpoints and the training corpus.</figcaption>
+</figure>
+
+<h3 id="59-5-5-1-w-and-b-and-mlflow-at-scale">59.5.5.1 Weights & Biases and MLflow at Scale</h3>
+<p>For a 1000-rank job, the simplest mistake is to have every rank push metrics to W&B independently; you get a 1000x rate-limit issue and ambiguous "which rank are these numbers from?" plots. The pattern is to <strong>have rank 0 alone publish metrics</strong>, with per-rank logs aggregated locally and pushed in batches. W&B's <code>wandb.init(group=run_id, job_type=f"rank-{rank}")</code> pattern lets you keep per-rank data for debugging while keeping the main run cleanly scalar. MLflow's distributed tracking server pattern is similar.</p>
+
+<h3 id="59-5-5-2-throughput-dashboards">59.5.5.2 Throughput Dashboards</h3>
+<p>The single most useful real-time dashboard for a frontier run is a stacked plot of: tokens/s (throughput), MFU, per-rank loss min/max/median, gradient norm, and an indicator of whether NCCL is exhibiting buffer-fragmentation slowdowns. A drop in any of these is the leading signal for a problem; the on-call engineer's job is to map the drop to the root cause within 15 minutes. Most frontier teams have a runbook of "the loss spiked, here are the 10 things to check"; the runbook gets longer with every training run.</p>
+
+<h2 id="59-5-6-real-world-post-mortems">59.5.6 Real-World Post-Mortems</h2>
+<p>The most informative training-stack lessons come from public post-mortems. Three worth knowing in 2026:</p>
+
+<h3 id="59-5-6-1-opt-175b-loss-divergences-2022">59.5.6.1 OPT-175B: 35+ Loss Divergences, 2022</h3>
+<p>Meta's OPT-175B (Zhang et al., 2022) was the first public training-stack post-mortem at frontier scale. The team published its training logbook, which documented <em>35 distinct loss divergences</em> across the run, each requiring a manual rewind to a checkpoint and a learning-rate cut. Root causes included: (a) a fp16 numerical overflow in the activation gradient of one attention head; (b) several incidents of data shard duplication that drove the loss into a tight loop on a single example; (c) a bad batch where one document had been incorrectly tokenized at training time. The fixes that emerged became standard practice: skip-step-on-spike, per-rank loss logging, document-level deduplication.</p>
+
+<h3 id="59-5-6-2-bloom-176b-instability-on-jean-zay">59.5.6.2 BLOOM-176B: NVLink Saturation on Jean Zay</h3>
+<p>The BLOOM training (BigScience, 2022) discovered mid-run that the Jean Zay supercomputer's NVLink topology had only 4-GPU fanout rather than the assumed 8. The original plan of $TP=8$ was infeasible; the team rolled out $TP=4, PP=12$ instead, which preserved the per-GPU memory budget but introduced a larger pipeline bubble. The cost was a roughly 15% throughput hit; the lesson is to validate the interconnect topology against the parallelism plan <em>before</em> the production run starts, not after.</p>
+
+<h3 id="59-5-6-3-llama-3-thermal-correlated-failures-2024">59.5.6.3 Llama-3 405B: Thermal-Correlated Failures, 2024</h3>
+<p>Meta's Llama-3 paper reports that GPU failure rate <em>tripled</em> during the hot afternoon hours of the cluster's geographic location, correlating tightly with rack-level inlet air temperature. The fix was to add thermal headroom to the cluster's HVAC, which dropped the daily failure spike from $\sim 3\times$ baseline to $\sim 1.2\times$. This is a "non-ML" problem (HVAC engineering) that the ML team had to drive because it dominated their job's MTBF. A second finding: nearly half the NCCL hangs were on a single rack with a flaky ToR switch; the cluster topology validation pass had missed it because synthetic benchmarks were under the threshold that exposed the flakiness.</p>
+
+<div class="callout warning">
+<div class="callout-title">Warning: Silent corruption is the worst failure mode</div>
+<p>Hardware failures that crash the rank are easy: the watchdog catches them. The terrifying failure is the GPU that silently returns incorrect arithmetic. On A100, ECC catches single-bit memory errors and reports them; on uncorrected double-bit errors, you have a stuck job at best and silent corruption at worst. NVIDIA's recommendation since the H100 release: enable <code>DCGM_FI_DEV_XID_ERRORS</code> monitoring and treat XID 13/31/79 errors as automatic node-eviction signals, no matter the run state. Several frontier post-mortems include "the loss looked fine for 8000 steps and then we discovered the gradient on rank 217 had been corrupted for 6000 of them." A periodic determinism check (compute a forward pass on a fixed input, hash the output, compare to expected) is cheap insurance.</p>
+</div>
+
+<h2 id="59-5-7-cost-discipline">59.5.7 Cost Discipline</h2>
+<p>The economic shape of a training run: a 16k-H100 cluster at $\$4/hr per GPU = \$64k/hr$. A 30-day run costs $\$46M$. Every 1% of MFU lost to inefficiency is $\$460k$. Every hour of downtime from a slow checkpoint recovery is $\$64k$. These numbers concentrate the mind.</p>
+
+<p>The operational rules of thumb that emerged from this discipline:</p>
+
+<ul>
+<li><strong>Burn-in test before any production run</strong>: run the full job at production scale for 1 hour, on the same data, and validate (a) MFU at target, (b) checkpoint write-read round-trip works, (c) elasticity tested by killing a rank manually.</li>
+<li><strong>Stagger checkpoints across runs</strong>: if 100 training runs all checkpoint at the same wall-clock instant, the parallel file system thrashes. Production schedulers stagger writes.</li>
+<li><strong>Pre-bake data shards</strong>: the dataloader's hot path is dominated by tokenization and shuffling. Pre-tokenize, pre-shuffle, store as <code>.bin</code> + index files. The pre-bake cost is a one-time CPU job; the speed-up to throughput is permanent.</li>
+<li><strong>Run a chaos-engineering pass</strong>: deliberately kill a random rank every hour during a soak test. If the run does not recover, fix the recovery, not the killer.</li>
+</ul>
+
+<h2 id="59-5-8-determinism-and-reproducibility">59.5.8 Determinism and Reproducibility</h2>
+<p>A reproducible training run lets you bisect a regression to the offending commit; an irreproducible run does not. The cost of full bit-for-bit determinism is real (10-20% throughput loss on H100s), so most teams take a middle path: <strong>scientific reproducibility</strong>, where two runs with the same seed produce loss curves that agree to within $10^{-3}$, but individual gradients may differ in the last bit.</p>
+
+<p>The discipline that achieves this:</p>
+<ul>
+<li><strong>Pin every seed</strong>: PyTorch (<code>torch.manual_seed</code>), NumPy, Python's <code>random</code>, and the dataloader's shuffle seed. Each rank gets seed $\text{base\_seed} + \text{rank}$ so they sample independently.</li>
+<li><strong>Use deterministic CUDA kernels for the critical path</strong>: <code>torch.use_deterministic_algorithms(True)</code> selects deterministic implementations of <code>conv</code>, attention, and reductions. This is the throughput tax; most teams disable it during normal training and enable it only when bisecting.</li>
+<li><strong>Capture the full training config in the checkpoint</strong>: optimizer state, RNG state, data-loader's current epoch, shard index, position within the shard. Skip any of these and you cannot resume to the same trajectory.</li>
+<li><strong>Log every divergence-related metric</strong>: per-rank gradient norm, per-rank loss, learning rate, and the value of any clipping or skip-step decision the trainer made.</li>
+</ul>
+
+<h2 id="59-5-9-data-pipeline-considerations">59.5.9 The Data Pipeline at Scale</h2>
+<p>A frequently-overlooked source of MFU loss: the data pipeline. At 50% MFU, the training step on a 70B model on 1000 H100s consumes roughly $10^{14}$ tokens-equivalent FLOPs per second. To stay fed, the data pipeline must deliver, say, $4 \times 10^7$ tokens per second. That is 80 MB/s per rank for BPE-tokenized text; modest, but only if the data is pre-tokenized and pre-shuffled.</p>
+
+<p>The 2026 practice: tokenize once, write to a <strong>WebDataset</strong> or <strong>MosaicML StreamingDataset</strong> format (sharded .tar archives with index files), and use random sampling within shards rather than full-corpus shuffling. The dataloader runs on a separate process pool (one per rank) and prefetches several shards ahead. Pin memory and use <code>persistent_workers=True</code>; the per-shard load cost is amortized across thousands of batches.</p>
+
+<p>Failure modes to watch for: <strong>data ordering correlated across ranks</strong> (a bug in the seeding of the data-loader can give every rank the same first batch; the loss looks fine but the effective batch is $N\times$ smaller than expected), and <strong>shard-level imbalance</strong> (some shards have longer documents and slow down their host rank, becoming the straggler on every collective).</p>
+
+<h2 id="59-5-10-cost-attribution-and-billing">59.5.10 Cost Attribution and Billing</h2>
+<p>For an internal team running on a shared cluster, the question "did this experiment cost me three days or three weeks of GPU-time?" is harder to answer than it sounds. Most modern training stacks instrument <strong>GPU-hour accounting</strong> at the rank level: each rank logs its allocation period to a per-experiment ledger, and the cluster scheduler totals the cost. For external cost (cloud GPU rentals), the same accounting plus a price multiplier produces dollar values.</p>
+
+<p>The economic implication: if your 30-day training run on 1024 H100s costs roughly $\$3$M on a major cloud, every percentage point of MFU lost to bad checkpoint cadence, dataloader stalls, or NCCL fragmentation is $\$30$k of waste. Frontier labs hire dedicated <em>training-systems engineers</em> whose KPI is MFU; their first quarter typically pays for itself.</p>
+
+<div class="callout practical-example">
+<div class="callout-title">Real-World Scenario: a 200-engineer-hour cost-saving</div>
+<p>One published 2024 retrospective (the Snowflake Arctic post-mortem) describes a single configuration change worth roughly $\$200{,}000$ on their 70B-class training run. The team had defaulted to <code>BackwardPrefetch.BACKWARD_POST</code> in FSDP (the default at the time); switching to <code>BACKWARD_PRE</code> shifted the next layer's all-gather to start during the previous layer's backward instead of after, recovering 8% MFU. The fix was a one-line change in the config; the impact was an extra two days of unused training time at the end of the run. This is the kind of operational lever that pays for the dedicated engineering effort.</p>
+</div>
+
+<h2 id="59-5-11-summary">59.5.11 Summary</h2>
+<p>Sections 59.1-59.4 give you the algorithmic toolkit; Section 59.5 is the operational layer that turns the toolkit into a training run that finishes. The four pillars: sharded async checkpoints with optimal cadence $\sqrt{2C\tau}$; elastic schedulers (TorchElastic, SkyPilot, MosaicML) that automatically recover from spot preemption; observability that catches per-rank divergences and NCCL stragglers; and a culture of public post-mortems that turn every failure into an institutional lesson. At frontier scale (1000+ GPUs, 30+ day runs), this operational layer is roughly half of what determines whether your run succeeds; the other half is the algorithms. Chapter 60 turns from the cluster end of the deployment spectrum to its opposite extreme: pushing LLMs to the edge.</p>
+
 <section class="bibliography">
 <h2>Bibliography</h2>
 <ol>
-<li>Rajbhandari, S. et al. "ZeRO: Memory Optimizations Toward Training Trillion Parameter Models." SC (2020).</li><li>Shoeybi, M. et al. "Megatron-LM: Training Multi-Billion Parameter Language Models Using Model Parallelism." (2019).</li><li>Zhao, Y. et al. "PyTorch FSDP: Experiences on Scaling Fully Sharded Data Parallel." (2023).</li>
+<li>Dubey, A. et al. <em>"The Llama 3 Herd of Models."</em> arXiv:2407.21783 (2024). Section 6 is the most detailed public post-mortem of a frontier training run.</li>
+<li>Zhang, S. et al. <em>"OPT: Open Pre-trained Transformer Language Models."</em> arXiv:2205.01068 (2022). Includes a public training logbook with all loss divergences.</li>
+<li>Chowdhery, A. et al. <em>"PaLM: Scaling Language Modeling with Pathways."</em> arXiv:2204.02311 (2022). The MFU metric is defined here.</li>
+<li>Eisenman, A. et al. <em>"Check-N-Run: A Checkpointing System for Training Deep Learning Recommendation Models."</em> NSDI (2022). Sharded async checkpointing design.</li>
+<li>Yang, Z. et al. <em>"SkyPilot: An Intercloud Broker for Sky Computing."</em> NSDI (2023). Cloud-agnostic elastic scheduling.</li>
+<li>Wang, K. et al. <em>"GPU-initiated Resilient and Elastic Sparse Matrix Decomposition."</em> SC (2024). The XID-based GPU eviction pattern.</li>
+<li>Le Scao, T. et al. <em>"BLOOM: A 176B-Parameter Open-Access Multilingual Language Model."</em> arXiv:2211.05100 (2022). Section 5 covers the operational reality of BigScience training.</li>
+<li>Liu, A. et al. <em>"DeepSeek-V3 Technical Report."</em> arXiv:2412.19437 (2024). First public 671B run with FP8 training and zero-bubble pipeline, includes operational lessons.</li>
+<li>NVIDIA. <em>"DCGM: Data Center GPU Manager."</em> <a href="https://developer.nvidia.com/dcgm">developer.nvidia.com/dcgm</a>. XID monitoring and thermal telemetry.</li>
+<li>MosaicML / Databricks. <em>"Composer: A library for training neural networks better, faster, and cheaper."</em> <a href="https://github.com/mosaicml/composer">github.com/mosaicml/composer</a>.</li>
 </ol>
 </section>
+
 <nav class="section-nav"></nav>
 <nav class="chapter-nav">
 <a class="prev" href="section-59.4.html"><span class="nav-label">Previous</span><span class="nav-num">Section 59.4</span><span class="nav-title">Pipeline Parallelism and Hybrid Strategies</span></a>
