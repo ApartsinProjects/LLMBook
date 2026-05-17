@@ -24,6 +24,7 @@ REPORT_PATH = ROOT / "html-integrity-audit.md"
 SKIP_DIRS = {
     "node_modules", ".git", "KDP", "build", "temp_ebook", "temp_epub",
     "source_fix_backups", "pagefind", "templates", ".claude", "vendor",
+    ".book-update",  # preserved content for later re-homing
 }
 
 DROPPED_REFS_PATTERNS = [
