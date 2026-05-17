@@ -17,19 +17,22 @@ ROOT = Path(__file__).resolve().parents[1]
 TOC = ROOT / 'toc.html'
 
 PARTS_META = [
-    ('I',    'Foundations',                                'part-1-foundations',                       'Math, ML, PyTorch, NLP basics, transformers, decoding, and the everyday tooling.'),
-    ('II',   'Understanding LLMs',                          'part-2-understanding-llms',                'Pre-training, scaling laws, evaluation, alignment, frontier models, and reasoning models.'),
-    ('III',  'Working with LLMs',                           'part-3-working-with-llms',                 'Prompts, structured output, tool use, and reasoning models for application builders.'),
-    ('IV',   'LLM Training and Adaptation',                 'part-4-training-adapting',                 'Supervised fine-tuning, PEFT, RLHF / DPO / GRPO, post-training, and the training stack.'),
-    ('V',    'Retrieval and Conversation with LLMs and Agents', 'part-5-retrieval-conversation',         'Embeddings, vector search, RAG, conversation design, memory, and the retrieval stack.'),
-    ('VI',   'Agentic AI',                                  'part-6-agentic-ai',                        'Agent architectures, tool use, multi-agent systems, and the agent-framework stack.'),
-    ('VII',  'Multimodal Generation',                       'part-7-multimodal-generation',             'Vision, audio, video, 3D, document understanding, robotics, and unified multimodal models.'),
-    ('VIII', 'Evaluation of LLM-Based Systems',             'part-8-evaluation-production',             'Rigorous evaluation, observability, and the eval / monitoring stack.'),
-    ('IX',   'LLM Safety, Security, and Ethics',            'part-9-safety-security-ethics',            'Threats, defenses, regulation, ethics, and the safety / guardrails stack.'),
-    ('X',    'LLM Operations and Production Infrastructure', 'part-10-llmops',                          'Compute planning, serving, gateways, durable execution, reliability, and K8s-native operations.'),
-    ('XI',   'Designing LLM-Based Products',                'part-11-designing-llm-products',           'Ideation, product management, MVPs, prototype-to-production, economics, and shipping.'),
-    ('XII',  'Applications Across Industries',              'part-12-applications-across-industries',   'Legal, finance, healthcare, education, cybersecurity, government, manufacturing, creative, recommendation.'),
-    ('XIII', 'Frontiers',                                   'part-13-frontiers',                        'Frontier architectures, theory, hardware, AGI trajectories, and the cutting-edge tooling.'),
+    ('I',    'LLM Building Blocks',                           'part-1-llm-building-blocks',                            'Math, ML/PyTorch prerequisites, NLP and text representation, tokenization, attention, transformers, decoding.'),
+    ('II',   'Understanding LLMs',                            'part-2-understanding-llms',                              'Pre-training, scaling laws, modern landscape, reasoning, inference optimization, interpretability.'),
+    ('III',  'Working with LLMs',                             'part-3-working-with-llms',                               'LLM APIs, prompt engineering, hybrid ML+LLM application patterns.'),
+    ('IV',   'LLM Training and Adaptation',                   'part-4-training-adaptation',                             'Synthetic data, supervised fine-tuning, PEFT, RLHF / DPO / preference tuning, training tools.'),
+    ('V',    'Multimodal LLMs',                               'part-5-multimodal-llms',                                 'Vision-language & Omni models, image/video/audio generation, document understanding, 3D, embodied AI / VLA / robotics.'),
+    ('VI',   'Agentic AI',                                    'part-6-agentic-ai',                                      'Agent foundations, tool use (MCP / A2A), multi-agent systems, specialized agents.'),
+    ('VII',  'Retrieval & Information Extraction with LLMs',  'part-7-retrieval-information-extraction-with-llms',      'Embeddings, structured information extraction & NER, RAG, knowledge graphs, cross-modal retrieval.'),
+    ('VIII', 'Conversational AI with LLMs',                   'part-8-conversational-ai-with-llms',                     'Dialogue architecture, memory and context management, multi-turn flows, voice and realtime multimodal assistants.'),
+    ('IX',   'LLM Evaluation & Observability',                'part-9-llm-evaluation-observability',                    'Quality metrics, LLM-as-judge, specialized evaluation, online monitoring, eval tools.'),
+    ('X',    'LLM Security & Runtime Safety',                 'part-10-llm-security-runtime-safety',                    'Adversarial threats, guardrails, agent safety, privacy, security tooling.'),
+    ('XI',   'LLM Ethics, Trust & Governance',                'part-11-llm-ethics-trust-governance',                    'Bias and hallucination, provenance and transparency, regulation and compliance, frontier safety.'),
+    ('XII',  'LLM Systems at Scale',                          'part-12-llm-systems-at-scale',                           'Compute planning, distributed training systems, hardware and chip diversity, edge and on-device LLMs.'),
+    ('XIII', 'LLMOps & Lifecycle Management',                 'part-13-llmops-lifecycle',                               'AI gateways and routing, workflow orchestration, containers, reliability and SLOs, model registry and lifecycle.'),
+    ('XIV',  'Designing LLM & Agent-based Products',          'part-14-designing-llm-agent-products',                   'Ideation, product management, prototyping, MVP, economics, shipping, product tools.'),
+    ('XV',   'Applications of LLMs Across Industries',        'part-15-applications-of-llms-across-industries',         'LLM use across legal, finance, healthcare, education, cybersecurity, government, and other domains.'),
+    ('XVI',  'LLM & Agentic AI Research Frontiers',           'part-16-llm-agentic-ai-research-frontiers',              'Frontier architectures, theory and cognition, AGI trajectories, frontier research tooling.'),
 ]
 
 
