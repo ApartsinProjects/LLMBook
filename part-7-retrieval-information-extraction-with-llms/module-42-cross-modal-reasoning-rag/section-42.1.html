@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<meta content="Section 42.1: Joint Embedding Spaces for Multimodal Retrieval. CLIP-style retrieval, ImageBind, late fusion." name="description"/>
+<title>Section 42.1: Joint Embedding Spaces for Multimodal Retrieval</title>
+<link href="../../styles/book.css" rel="stylesheet"/>
+<link href="../../styles/pygments.css" rel="stylesheet"/>
+<link href="../../vendor/katex/katex.min.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/katex/katex.min.js"></script>
+<script defer="" onload="renderMathInElement(document.body, {
+ delimiters: [
+ {left: '$$', right: '$$', display: true},
+ {left: '$', right: '$', display: false}
+ ],
+ throwOnError: false
+ });" src="../../vendor/katex/contrib/auto-render.min.js"></script>
+<link href="../../vendor/prism/prism-theme.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/prism/prism-bundle.min.js"></script>
+<script defer="" src="../../scripts/book.js"></script>
+<link href="../../pagefind/pagefind-ui.css" rel="stylesheet"/>
+<script defer="" src="../../pagefind/pagefind-ui.js"></script>
+</head>
+<body>
+<header class="chapter-header">
+<nav class="header-nav">
+<a class="book-title-link" href="../../index.html">Building Conversational AI with LLMs and Agents</a>
+<a class="toc-link" href="../../toc.html" title="Table of Contents"><span class="toc-icon">☰</span> Contents</a>
+</nav>
+<div class="header-search">
+<div id="search"></div>
+</div>
+<div class="page-breadcrumb" data-pagefind-meta="chapter"><a href="../index.html">Part VII: Multimodal Generation</a><span class="bc-sep">›</span><a href="index.html">Chapter 42: Cross-Modal Reasoning and Multimodal RAG</a></div>
+<h1>Joint Embedding Spaces for Multimodal Retrieval</h1><div class="page-current">Section 42.1</div>
+</header>
+<main class="content"><span class="pagefind-meta-injected" data-pagefind-meta="part:Part VII: Multimodal Generation" hidden=""></span><span class="pagefind-meta-injected" data-pagefind-meta="chapter:Chapter 42: Cross-Modal Reasoning and Multimodal RAG" hidden=""></span>
+<blockquote class="epigraph">
+<p>"Two encoders that agree on the same point in latent space have implicitly written a translation dictionary."</p>
+<cite>Common framing of contrastive multimodal pretraining</cite>
+</blockquote>
+<div class="callout big-picture">
+<div class="callout-title">Big Picture</div>
+<p><strong>A joint embedding space maps every modality, text, image, audio, video, into the same vector space so that semantically related items end up near each other.</strong> CLIP set the template for text and image; ImageBind extended it to six modalities; SigLIP improved the contrastive objective; LanguageBind and 4M extended it further. Once you have a joint space, retrieval becomes a single nearest-neighbor query: text-to-image, image-to-text, audio-to-image, anything-to-anything. This section walks through the contrastive training that produces these spaces, the late-fusion architecture that makes them efficient, and the practical concerns (dimensionality, normalization, hubness) that determine retrieval quality.</p>
+</div>
+<div class="prerequisites">
+<h3 id="prerequisites">Prerequisites</h3>
+<p>This section builds on the embedding fundamentals from <a href="../../part-7-retrieval-information-extraction-with-llms/module-22-embeddings-vector-db/section-22.1.html">Section 22.1</a> and the vision-language patterns from <a href="../../part-5-multimodal-llms/module-32-audio-music-generation/index.html">Section 31.1</a>. Familiarity with <a href="../../part-5-multimodal-llms/module-35-vision-language-models/index.html">Section 37.2</a> (early vs late fusion) helps situate why joint embedding spaces are late-fusion by design.</p>
+</div>
+<figure class="illustration">
+<img alt="Diagram of a joint embedding space: a text encoder and an image encoder both project into a shared d-dimensional sphere, with cosine similarity used for retrieval" src="images/fig-42.1.1-joint-embedding-space.svg"/>
+<figcaption><strong>Figure 42.1.1</strong>: A joint embedding space. Each encoder maps its modality into the same vector space, normalized to lie on the unit hypersphere. Cosine similarity (equivalent to dot product on the sphere) is the retrieval score.</figcaption>
+</figure>
+<h2 id="42-1-1-the-contrastive-recipe">42.1.1 The Contrastive Recipe</h2>
+<p>The standard contrastive objective trains two encoders (one per modality) to produce similar embeddings for matched pairs and dissimilar embeddings for mismatched pairs. For a batch of $N$ text-image pairs $(t_i, x_i)$:</p>
+<p>$$ \mathcal{L} = -\frac{1}{2N}\sum_{i=1}^N \log\frac{\exp(\langle f(t_i), g(x_i)\rangle/\tau)}{\sum_{j=1}^N \exp(\langle f(t_i), g(x_j)\rangle/\tau)} - \frac{1}{2N}\sum_{i=1}^N \log\frac{\exp(\langle g(x_i), f(t_i)\rangle/\tau)}{\sum_{j=1}^N \exp(\langle g(x_i), f(t_j)\rangle/\tau)} $$</p>
+<p>where $f, g$ are the text and image encoders, $\langle \cdot, \cdot \rangle$ is dot product on normalized vectors, and $\tau$ is a learnable temperature. The two summands are the InfoNCE losses in each direction (text-to-image and image-to-text); their average is the symmetric CLIP loss.</p>
+<p>The training pattern is the same as the contrastive embedding training from <a href="../../part-7-retrieval-information-extraction-with-llms/module-22-embeddings-vector-db/section-22.1.html">Section 22.1</a>, with two distinctions:</p>
+<ul>
+<li><strong>Cross-modal positive pairs</strong>: instead of paraphrased text pairs, the positives are (text, image) pairs scraped from the web (alt text, captions, surrounding HTML).</li>
+<li><strong>Hard negatives by construction</strong>: every other item in the batch is a negative; large batches (16k+) provide enough hard negatives to push apart subtly different concepts.</li>
+</ul>
+<h2 id="42-1-2-clip-and-its-direct-successors">42.1.2 CLIP and Its Direct Successors</h2>
+<p>CLIP (Radford et al., 2021) was the breakthrough. The original paper trained on 400M (image, alt-text) pairs scraped from the web with a ViT-L/14 image encoder and a 63M-parameter text transformer. The result: an embedding space where text-to-image retrieval, zero-shot image classification, and image-to-text similarity all worked without task-specific fine-tuning.</p>
+<p>The 2024-2026 successors improve on three axes:</p>
+<ul>
+<li><strong>SigLIP (Zhai et al., 2023)</strong>: replaces the softmax-over-batch InfoNCE with a per-pair sigmoid loss. Removes the dependency on global batch normalization, allowing smaller-batch training and better scaling.</li>
+<li><strong>EVA-CLIP (Sun et al., 2023)</strong>: bigger image encoder (1B to 18B parameters) and better masked-image-modeling initialization. Improved zero-shot ImageNet accuracy by 4 to 6 points.</li>
+<li><strong>OpenCLIP / MetaCLIP</strong>: open-source CLIP reproductions on larger, better-curated datasets (DataComp, MetaCLIP-1B).</li>
+<li><strong>SigLIP 2 (Zhai et al., 2025)</strong>: adds NaFlex (native flexible resolution), Locca caption regularization, and dense decoder probes. Now the open-source default in 2026.</li>
+</ul>
+<pre><code class="lang-python pygments-highlighted"><span class="c1"># SigLIP 2 inference: encode a text query and a set of images,</span>
+<span class="c1"># then rank by cosine similarity for retrieval.</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">AutoProcessor</span><span class="p">,</span> <span class="n">AutoModel</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span><span class="p">,</span> <span class="nn">torch.nn.functional</span> <span class="k">as</span> <span class="nn">F</span>
+
+<span class="n">MODEL_ID</span> <span class="o">=</span> <span class="s2">"google/siglip2-base-patch16-naflex"</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">AutoModel</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span><span class="n">MODEL_ID</span><span class="p">)</span><span class="o">.</span><span class="n">cuda</span><span class="p">()</span><span class="o">.</span><span class="n">eval</span><span class="p">()</span>
+<span class="n">proc</span> <span class="o">=</span> <span class="n">AutoProcessor</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span><span class="n">MODEL_ID</span><span class="p">)</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">encode_text</span><span class="p">(</span><span class="n">queries</span><span class="p">):</span>
+    <span class="n">batch</span> <span class="o">=</span> <span class="n">proc</span><span class="p">(</span><span class="n">text</span><span class="o">=</span><span class="n">queries</span><span class="p">,</span> <span class="n">return_tensors</span><span class="o">=</span><span class="s2">"pt"</span><span class="p">,</span>
+                  <span class="n">padding</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="s2">"cuda"</span><span class="p">)</span>
+    <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">inference_mode</span><span class="p">():</span>
+        <span class="n">emb</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">get_text_features</span><span class="p">(</span><span class="o">**</span><span class="n">batch</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">F</span><span class="o">.</span><span class="n">normalize</span><span class="p">(</span><span class="n">emb</span><span class="p">,</span> <span class="n">dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">encode_images</span><span class="p">(</span><span class="n">paths</span><span class="p">):</span>
+    <span class="n">images</span> <span class="o">=</span> <span class="p">[</span><span class="n">Image</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="n">p</span><span class="p">)</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">paths</span><span class="p">]</span>
+    <span class="n">batch</span> <span class="o">=</span> <span class="n">proc</span><span class="p">(</span><span class="n">images</span><span class="o">=</span><span class="n">images</span><span class="p">,</span> <span class="n">return_tensors</span><span class="o">=</span><span class="s2">"pt"</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="s2">"cuda"</span><span class="p">)</span>
+    <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">inference_mode</span><span class="p">():</span>
+        <span class="n">emb</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">get_image_features</span><span class="p">(</span><span class="o">**</span><span class="n">batch</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">F</span><span class="o">.</span><span class="n">normalize</span><span class="p">(</span><span class="n">emb</span><span class="p">,</span> <span class="n">dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
+
+<span class="c1"># Retrieve top-5 images for a query</span>
+<span class="n">q</span> <span class="o">=</span> <span class="n">encode_text</span><span class="p">([</span><span class="s2">"a dog wearing sunglasses"</span><span class="p">])</span>
+<span class="n">img_embs</span> <span class="o">=</span> <span class="n">encode_images</span><span class="p">(</span><span class="n">all_image_paths</span><span class="p">)</span>
+<span class="n">scores</span> <span class="o">=</span> <span class="p">(</span><span class="n">q</span> <span class="o">@</span> <span class="n">img_embs</span><span class="o">.</span><span class="n">T</span><span class="p">)</span><span class="o">.</span><span class="n">squeeze</span><span class="p">()</span>
+<span class="n">top5</span> <span class="o">=</span> <span class="n">scores</span><span class="o">.</span><span class="n">topk</span><span class="p">(</span><span class="mi">5</span><span class="p">)</span>
+<span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">idx</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">top5</span><span class="o">.</span><span class="n">indices</span><span class="p">):</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"#</span><span class="si">{</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">all_image_paths</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span><span class="si">}</span><span class="s2"> score </span><span class="si">{</span><span class="n">top5</span><span class="o">.</span><span class="n">values</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span></code></pre>
+<div class="code-caption"><strong>Code Fragment 42.1.1:</strong> SigLIP 2 text-to-image retrieval. Both encoders produce L2-normalized 768-dim embeddings; dot product is the retrieval score. For a million-image catalog you would push <code>img_embs</code> into a vector database (FAISS, Qdrant, Pinecone) and query with <code>q</code>.</div>
+<h2 id="42-1-3-imagebind-and-beyond-six-modalities">42.1.3 ImageBind and Beyond: Six Modalities</h2>
+<p>ImageBind (Girdhar et al., 2023) extended the joint embedding idea to six modalities: image, text, audio, depth, thermal, IMU (inertial). The key insight: you don't need pairs of every modality combination. As long as each modality is paired with images, the joint space self-organizes through the image hub.</p>
+<p>This "image-centered" training is parameter-efficient. ImageBind freezes a pretrained CLIP image encoder and trains each new modality's encoder to align with the CLIP image space. After training:</p>
+<ul>
+<li>Audio-to-text retrieval works (via the shared space).</li>
+<li>Audio-to-depth retrieval works.</li>
+<li>Image-to-audio retrieval works.</li>
+</ul>
+<p>None of these pairs ever appeared in the training data directly; the alignment is transitive through the image hub. This is the same trick that powers cross-lingual word embeddings via a pivot language.</p>
+<figure>
+<table>
+<thead>
+<tr><th scope="col">Model</th><th scope="col">Year</th><th scope="col">Modalities</th><th scope="col">Dimensionality</th><th scope="col">Notable Feature</th></tr>
+</thead>
+<tbody>
+<tr><td>CLIP (ViT-L/14)</td><td>2021</td><td>text, image</td><td>768</td><td>The original; still useful baseline</td></tr>
+<tr><td>OpenCLIP (ViT-bigG)</td><td>2023</td><td>text, image</td><td>1280</td><td>Open reproduction at frontier scale</td></tr>
+<tr><td>SigLIP</td><td>2023</td><td>text, image</td><td>768</td><td>Sigmoid loss, smaller batch friendly</td></tr>
+<tr><td>EVA-CLIP-18B</td><td>2024</td><td>text, image</td><td>1024</td><td>Frontier zero-shot ImageNet</td></tr>
+<tr><td>ImageBind</td><td>2023</td><td>image, text, audio, depth, thermal, IMU</td><td>1024</td><td>Six modalities via image hub</td></tr>
+<tr><td>LanguageBind</td><td>2024</td><td>text, image, audio, video, depth, thermal</td><td>768</td><td>Language hub instead of image hub</td></tr>
+<tr><td>4M-21</td><td>2024</td><td>21 modalities</td><td>variable</td><td>Encoder-decoder, not just encoder</td></tr>
+<tr><td>SigLIP 2</td><td>2025</td><td>text, image</td><td>768/1152</td><td>NaFlex resolution, Locca caption</td></tr>
+<tr><td>CLAP</td><td>2023</td><td>text, audio</td><td>512</td><td>Audio-specific CLIP analog</td></tr>
+</tbody>
+</table>
+<figcaption><strong>Figure 42.1.2</strong>: Joint embedding model landscape, late 2025. CLIP and SigLIP dominate the image-text axis; ImageBind, LanguageBind, and CLAP cover other modalities. Pick based on which modality combinations matter for your retrieval task.</figcaption>
+</figure>
+<h2 id="42-1-4-late-fusion-by-design">42.1.4 Late Fusion by Design</h2>
+<p>Joint embedding models are late-fusion by design (see <a href="../../part-5-multimodal-llms/module-35-vision-language-models/index.html">Section 37.2</a>). The modalities meet only at the final embedding, with no shared transformer layers. This has two consequences:</p>
+<ul>
+<li><strong>Efficiency at scale</strong>: pre-compute image embeddings once; only the text query is encoded at query time. With $N$ images and $M$ queries, you do $N$ image encodes plus $M$ text encodes plus $NM$ dot products (trivially fast).</li>
+<li><strong>Reasoning limits</strong>: the model cannot reason jointly about modalities; it can only match them at the embedding level. Asking "what unusual object is in this picture?" cannot be answered by a CLIP-style model; that needs a multimodal LLM.</li>
+</ul>
+<p>The right mental model: joint embedding models are for <em>retrieval</em>, not for <em>understanding</em>. They are the first stage of a two-stage pipeline where a downstream multimodal LLM does the reasoning. <a href="section-42.2.html">Section 42.2</a> covers exactly this pattern.</p>
+<div class="callout key-insight">
+<div class="callout-title">The asymmetry of inference cost</div>
+<p>One of CLIP's killer features is the asymmetry between indexing and querying. Indexing 100M images is a one-time GPU job that costs maybe \$5,000 and produces ~300 GB of float embeddings. Querying is O(d) per item per query, easily handled by an approximate nearest-neighbor index. This is why CLIP-style retrieval scales to web-scale image search. A multimodal LLM that processes the full image at every query would be 1000x more expensive per query.</p>
+</div>
+<h2 id="42-1-5-practical-considerations">42.1.5 Practical Considerations</h2>
+<p>Several engineering details determine whether your joint embedding retrieval actually works in production:</p>
+<ul>
+<li><strong>L2 normalization</strong>: always normalize embeddings to unit norm. Without this, cosine similarity and dot product diverge, and ANN indices give wrong results.</li>
+<li><strong>Dimensionality vs accuracy</strong>: 512-dim and 768-dim are the sweet spot. Above 1024 you pay storage and ANN cost with marginal accuracy gains. Matryoshka representation learning (MRL) lets you truncate to fewer dimensions at inference for a quality/cost trade-off.</li>
+<li><strong>Domain mismatch</strong>: CLIP's training data was internet-scraped, so it knows celebrities and cats well but struggles with medical imagery, technical drawings, or aerial photography. Fine-tune or use a domain-specific variant.</li>
+<li><strong>The hubness problem</strong>: in high-dimensional spaces, a few "hub" points appear as nearest neighbors for many queries. Normalize embedding magnitudes carefully and consider hubness-aware reranking.</li>
+<li><strong>Modality gap</strong>: text and image embeddings in CLIP do not fully overlap; they occupy slightly different regions of the unit sphere. This is observable as a systematic bias in cross-modal retrieval. Mitigations include centering or adding a learned offset.</li>
+</ul>
+<div class="callout warning">
+<div class="callout-title">The hidden text bias of CLIP</div>
+<p>CLIP's text encoder was trained on alt-text and image captions, which are linguistically narrow (typical caption length: 5 to 15 words). Long queries ("a smiling brown labrador retriever wearing a red collar sitting on green grass next to a wooden bench in a city park") underperform short queries ("dog on bench") because the long version pushes the text embedding into a region the model rarely saw during training. For production retrieval, train users (or your application layer) to issue short visual queries, or use an LLM to compress long queries before encoding.</p>
+</div>
+<h2 id="42-1-6-vector-database-integration">42.1.6 Vector Database Integration</h2>
+<p>Joint embeddings are the input to a vector database, the same infrastructure covered in <a href="../../part-7-retrieval-information-extraction-with-llms/module-22-embeddings-vector-db/section-22.1.html">Chapter 22</a>. The choices in 2026:</p>
+<ul>
+<li><strong>FAISS</strong>: in-process library; best for embedded use cases up to 10s of millions of vectors.</li>
+<li><strong>Qdrant</strong>: open-source self-hosted vector database with filtering and metadata support.</li>
+<li><strong>Pinecone, Weaviate</strong>: hosted vector databases; production-ready out of the box.</li>
+<li><strong>Vespa, Milvus</strong>: large-scale (billions of vectors) systems with advanced filtering.</li>
+<li><strong>pgvector</strong>: Postgres extension; convenient when you already have a Postgres database.</li>
+</ul>
+<p>For cross-modal RAG, the vector database must support storing metadata alongside vectors (modality type, source URL, timestamp, language) so the application can filter retrievals. Most modern vector databases handle this; FAISS does not natively.</p>
+<div class="callout practical-example">
+<div class="callout-title">Real-World Scenario: Visual Search for an Art Marketplace</div>
+<p>A 2025 art marketplace had 12 million artwork photos. They needed visual search ("artworks like this one"), reverse search ("which of our artworks is this Instagram screenshot?"), and text search ("oil paintings of seascapes in blue tones"). Their stack: SigLIP 2 for embeddings (768-dim), Qdrant for vector storage, a thin FastAPI service for query handling. Indexing cost: ~\$8,000 in one-time GPU compute. Query latency: 40 ms p95 for top-50 retrieval. The visual search drove a 14% lift in browse-to-purchase conversion.</p>
+</div>
+<div class="callout key-takeaway">
+<div class="callout-title">Key Takeaway</div>
+<p><strong>Joint embedding spaces enable efficient cross-modal retrieval by mapping every modality into a shared vector space.</strong> CLIP started the lineage; SigLIP and SigLIP 2 are the open-source defaults in 2026; ImageBind and LanguageBind extend to six or more modalities. The architecture is late-fusion by design: efficient at scale but limited to matching, not reasoning. Pair with a vector database and a downstream multimodal LLM for full cross-modal RAG, covered in <a href="section-42.2.html">Section 42.2</a>.</p>
+</div>
+<div class="callout self-check">
+<div class="callout-title">Self-Check</div>
+<ol>
+<li>Why does ImageBind work with image-anchored pairs even though many target retrievals (e.g., audio-to-depth) never appear in training?</li>
+<li>You observe that long descriptive text queries underperform short ones on CLIP-based retrieval. What is the root cause, and what application-layer mitigation can you implement?</li>
+<li>The "modality gap" between CLIP's text and image embeddings is a known issue. Describe it and one mitigation.</li>
+<li>Sketch why a joint-embedding model alone cannot answer "is this person in the photo wearing prescription glasses or sunglasses?" but a downstream VLM can.</li>
+</ol>
+</div>
+<div class="whats-next">
+<h2 id="what-comes-next">What Comes Next</h2>
+<p><a href="section-42.2.html">Section 42.2: Multimodal RAG</a> uses these joint embedding spaces as the first stage of a retrieval-augmented-generation pipeline for image, audio, and video contexts.</p>
+</div>
+<details class="bibliography-collapsible" open>
+<summary><strong>Further Reading</strong></summary>
+<section class="bibliography">
+<h3 id="clip-and-successors">CLIP and Successors</h3>
+<div class="bib-entry-card">
+<div class="bib-ref">Radford, A., Kim, J. W., Hallacy, C., et al. (2021). "Learning Transferable Visual Models From Natural Language Supervision" (CLIP). <em>ICML</em>. <a href="https://arxiv.org/abs/2103.00020" rel="noopener" target="_blank">arXiv:2103.00020</a></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Zhai, X., Mustafa, B., Kolesnikov, A., &amp; Beyer, L. (2023). "Sigmoid Loss for Language Image Pre-Training" (SigLIP). <em>ICCV</em>. <a href="https://arxiv.org/abs/2303.15343" rel="noopener" target="_blank">arXiv:2303.15343</a></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Tschannen, M., Gritsenko, A., Wang, X., et al. (2025). "SigLIP 2: Multilingual Vision-Language Encoders with Improved Semantic Understanding, Localization, and Dense Features." <em>arXiv</em>. <a href="https://arxiv.org/abs/2502.14786" rel="noopener" target="_blank">arXiv:2502.14786</a></div>
+</div>
+<h3 id="multi-modality-bind">Multi-Modality Binding</h3>
+<div class="bib-entry-card">
+<div class="bib-ref">Girdhar, R., El-Nouby, A., Liu, Z., et al. (2023). "ImageBind: One Embedding Space To Bind Them All." <em>CVPR</em>. <a href="https://arxiv.org/abs/2305.05665" rel="noopener" target="_blank">arXiv:2305.05665</a></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Zhu, B., Lin, B., Ning, M., et al. (2024). "LanguageBind: Extending Video-Language Pretraining to N-modality by Language-based Semantic Alignment." <em>ICLR</em>. <a href="https://arxiv.org/abs/2310.01852" rel="noopener" target="_blank">arXiv:2310.01852</a></div>
+</div>
+<h3 id="data-and-evaluation">Data and Evaluation</h3>
+<div class="bib-entry-card">
+<div class="bib-ref">Xu, H., Xie, S., Tan, X. E., et al. (2024). "Demystifying CLIP Data" (MetaCLIP). <em>ICLR</em>. <a href="https://arxiv.org/abs/2309.16671" rel="noopener" target="_blank">arXiv:2309.16671</a></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Gadre, S. Y., Ilharco, G., Fang, A., et al. (2024). "DataComp: In search of the next generation of multimodal datasets." <em>NeurIPS</em>. <a href="https://arxiv.org/abs/2304.14108" rel="noopener" target="_blank">arXiv:2304.14108</a></div>
+</div>
+<h3 id="audio-clip">Audio CLIP Analogs</h3>
+<div class="bib-entry-card">
+<div class="bib-ref">Elizalde, B., Deshmukh, S., Al Ismail, M., &amp; Wang, H. (2023). "CLAP: Learning Audio Concepts From Natural Language Supervision." <em>ICASSP</em>. <a href="https://arxiv.org/abs/2206.04769" rel="noopener" target="_blank">arXiv:2206.04769</a></div>
+</div>
+</section>
+</details>
+<nav class="chapter-nav">
+<a class="prev" href="../module-23-rag/section-23.9.html"><span class="nav-label">Previous</span><span class="nav-num">Section 23.9</span><span class="nav-title">Source Attribution and Citation in RAG</span></a>
+<a class="up" href="index.html"><span class="nav-label">In Chapter</span><span class="nav-num">Chapter 42</span><span class="nav-title">Cross-Modal Reasoning and Multimodal RAG</span></a>
+<a class="next" href="section-42.2.html"><span class="nav-label">Next</span><span class="nav-num">Section 42.2</span><span class="nav-title">Multimodal RAG: Image, Audio, Video Retrieval-Augmented Generation</span></a>
+</nav>
+<footer><p>Fifteenth Edition, 2026 · <a href="../../toc.html">Contents</a></p></footer>
+</main>
+<script>
+window.addEventListener("DOMContentLoaded", function() {
+  if (window.PagefindUI) {
+    new PagefindUI({
+      element: "#search",
+      showSubResults: true,
+      showImages: false,
+      resetStyles: false,
+      pageSize: 8,
+      autofocus: false,
+      translations: {
+        placeholder: "Search the book…",
+      },
+      processResult: function (result) {
+        try {
+          var part = (result && result.meta && result.meta.part) ? result.meta.part : "";
+          var chap = (result && result.meta && result.meta.chapter) ? result.meta.chapter : "";
+          var partShort = part.split(":")[0].trim();
+          var chapShort = chap.split(":")[0].trim();
+          var crumb = [partShort, chapShort].filter(Boolean).join(" › ");
+          if (crumb && result.meta && result.meta.title
+              && result.meta.title.indexOf("[" + partShort) !== 0) {
+            result.meta.title = "[" + crumb + "]  " + result.meta.title;
+          }
+        } catch (e) { /* fall through */ }
+        return result;
+      },
+    });
+  }
+});
+</script>
+</body>
+</html>

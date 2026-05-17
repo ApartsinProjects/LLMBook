@@ -1,0 +1,1106 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<meta content="Section 4.1: How a Transformer Computes One Token. A comprehensive chapter from the Building Conversational AI textbook." name="description"/>
+<title>Section 4.1: How a Transformer Computes One Token</title>
+<link href="../../styles/book.css" rel="stylesheet"/>
+<link href="../../styles/pygments.css" rel="stylesheet"/>
+<link href="../../vendor/katex/katex.min.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/katex/katex.min.js"></script>
+<script defer="" onload="renderMathInElement(document.body, {
+ delimiters: [
+ {left: '$$', right: '$$', display: true},
+ {left: '$', right: '$', display: false}
+ ],
+ throwOnError: false
+ });" src="../../vendor/katex/contrib/auto-render.min.js"></script>
+<link href="../../vendor/prism/prism-theme.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/prism/prism-bundle.min.js"></script>
+<script defer="" src="../../scripts/book.js"></script>
+<link href="../../pagefind/pagefind-ui.css" rel="stylesheet"/>
+<script defer="" src="../../pagefind/pagefind-ui.js"></script>
+</head>
+<body>
+<header class="chapter-header">
+<nav class="header-nav">
+<a class="book-title-link" href="../../index.html">Building Conversational AI with LLMs and Agents</a>
+<a class="toc-link" href="../../toc.html" title="Table of Contents"><span class="toc-icon">☰</span> Contents</a>
+</nav>
+<div class="header-search">
+<div id="search"></div>
+</div>
+
+<div class="page-breadcrumb" data-pagefind-meta="chapter"><a href="../index.html">Part I: Foundations</a><span class="bc-sep">›</span><a href="index.html">Chapter 4: The Transformer Architecture</a></div>
+<h1>How a Transformer Computes One Token</h1><div class="page-current">Section 4.1</div>
+
+</header>
+<main class="content"><span class="pagefind-meta-injected" data-pagefind-meta="part:Part I: Foundations" hidden=""></span><span class="pagefind-meta-injected" data-pagefind-meta="chapter:Chapter 4: The Transformer Architecture" hidden=""></span>
+<blockquote class="epigraph">
+<p>All you need is attention. And layer normalization. And positional encodings. And residual connections. And feed-forward networks. But mostly attention.</p>
+<span class="agent-avatar-inline" style="background-color: #95a5a6;"><img alt="Norm" height="28" src="../../front-matter/images/agents/norm.png" width="28"/></span><cite>Norm, <span class="agent-desc">Perpetually Normalizing AI Agent</span></cite>
+</blockquote>
+<aside class="callout note skip-to-mechanics">
+<div class="callout-title">Reader's shortcut</div>
+<p>The first sub-section is an information-theory primer (entropy, cross-entropy, KL divergence). If you already know these or just want the transformer mechanics, skip to Scaled Dot-Product Attention.</p>
+</aside>
+<div class="prerequisites">
+<h3 id="prerequisites">Prerequisites</h3>
+<p>This section assumes you understand scaled dot-product attention and multi-head attention from <a href="../module-03-sequence-models-attention/section-3.3.html">Section 3.3</a>. Familiarity with the encoder-decoder framework from <a href="../module-03-sequence-models-attention/section-3.1.html">Section 3.1</a> and <a href="../module-00-ml-pytorch-foundations/section-0.2.html">backpropagation</a> from <a href="../module-00-ml-pytorch-foundations/section-0.2.html">Section 0.2</a> is also expected. We reference tokenization concepts from <a href="../module-01-foundations-nlp-text-representation/section-1.5.html">Chapter 02</a> when discussing input processing.</p>
+</div>
+<!-- ============================================================ -->
+<div class="callout big-picture">
+<div class="callout-title">Big Picture</div>
+<p>
+ The Transformer's core insight is that attention alone, applied across all pairs of positions
+ simultaneously, can capture dependencies of arbitrary range without the vanishing gradient
+ problem that plagues RNNs. As we saw in <a href="../module-03-sequence-models-attention/section-3.3.html">Section 3.3</a>, multi-head <a href="../module-03-sequence-models-attention/section-3.3.html">self-attention</a> provides the mechanism; this section assembles it into a complete architecture.
+ The cost is quadratic in sequence length, a tradeoff that later
+ sections of this module will address.
+ </p>
+</div>
+<h2 id="4-1-1-the-paper-that-changed-everything">4.1.1 The Paper That Changed Everything</h2>
+<div class="callout key-insight">
+<div class="callout-title">Why: Why SwiGLU and GeGLU beat ReLU at the same parameter count</div>
+<p>The improvement is not magic, it is a capacity-vs-stability tradeoff. The gating branch <code>SiLU(xW_gate)</code> lets each FFN unit decide multiplicatively whether to fire, so the layer represents a piecewise-linear function with sharper feature selectors than a single ReLU/GELU stack of the same width. Shazeer (2020, "GLU Variants Improve Transformer") frames this as the multiplicative interaction giving the FFN a second-order Taylor term that pure ReLU networks must learn through depth. Labs hold parameter count fixed (the gate steals one third of the hidden width), so the gain is "free" capacity along the most expressive direction, not added compute.</p>
+</div>
+<div class="callout key-insight">
+<div class="callout-title">Mental Model: FFN Layers as Static Memory</div>
+<p>The FFN is computing the same operation as attention but with <em>static</em> rather than dynamic keys and values. When the input activates neuron j (because xW₁ row-j exceeds zero after ReLU), the corresponding row of W₂ is added to the residual stream, like retrieving the value associated with a key match. The difference from attention: FFN keys and values are baked into the weights and cannot change at inference, while attention keys and values are recomputed from current context. This explains an empirical pattern: factual knowledge (Paris is the capital of France) lives in FFN layers and can be edited by patching individual FFN rows (Geva et al., 2021). Grammatical and syntactic patterns, which integrate information across positions, live in attention. The two are complementary memory systems at different timescales, not redundant.</p>
+</div>
+<p>
+ This is the architecture inside every AI you have ever used. ChatGPT, Claude, Gemini, Llama: they are all Transformers. In June 2017, Vaswani et al. published "Attention Is All You Need," proposing a sequence-to-sequence
+ model that dropped recurrence and convolutions altogether. At its core, the Transformer relies on
+ a single mechanism repeated many times: scaled dot-product attention, combined with simple
+ position-wise feed-forward networks. This section walks through the complete architecture, explaining
+ not just <em>what</em> each component does, but <em>why</em> it exists and how each design choice
+ shapes the flow of information through the network.
+</p>
+<p>
+ The original Transformer is an <strong>encoder-decoder</strong> model. The encoder reads the entire
+ input sequence in parallel (no sequential bottleneck like an RNN), and the decoder generates the
+ output sequence one token at a time, attending both to the encoder output and to previously generated
+ tokens. While modern LLMs typically use only the decoder half, understanding the full architecture is
+ essential. Many design principles carry over directly.
+</p>
+<div class="callout key-insight">
+<div class="callout-title">Key Insight: Parallelism Was the Breakthrough</div>
+<p>The Transformer's most underappreciated advantage is not attention itself; it is <em>parallelism</em>. An RNN processes tokens one at a time, making training time proportional to sequence length. The Transformer processes all tokens simultaneously during training, making it vastly more efficient on GPUs. This is why the Transformer scaled to billions of parameters while RNNs could not: the architecture matches the hardware.</p>
+</div>
+<div class="callout fun-note">
+<div class="callout-title">Fun Fact</div>
+<p>"Attention Is All You Need" was almost titled "Transformers: Attention Networks." The name "Transformer" was suggested late in the writing process. A different title and the architecture might have been remembered by a much less evocative name.</p>
+</div>
+<figure class="illustration">
+<img alt="A multi-tiered cake where each layer is labeled with a Transformer component: embedding at the base, attention layers in the middle, feed-forward layers alternating, with add-and-norm frosting between each tier" src="images/transformer-layer-cake.png"/>
+<figcaption><strong>Figure 4.1.1</strong>: The Transformer as a layer cake: embedding at the base, with alternating attention and feed-forward layers stacked on top. Each layer adds richness to the representation, and residual connections (the frosting) keep gradients flowing smoothly.</figcaption>
+</figure>
+<!-- ============================================================ -->
+<h2 id="4-1-2-information-theory-the-language-of-learning">4.1.2 Information Theory: The Language of Learning</h2>
+<p>Before we trace a token through the architecture, a quick reminder of the four information-theoretic quantities that recur throughout the rest of this book. Modern language modeling rests on those four:
+<strong>entropy</strong> (the inherent uncertainty of a distribution),
+<strong>cross-entropy</strong> (what we minimize during training),
+<strong>perplexity</strong> (the human-readable scorecard derived from
+cross-entropy), and <strong>KL divergence</strong> (the gap between two
+distributions, used in distillation and alignment). For a self-contained
+walk through definitions, formulas, and worked examples, see
+<a href="../../appendices/appendix-a-mathematical-foundations/section-a.6.html">Appendix A.6 - Information Theory for Language Models</a>.
+The transformer architecture in the next subsection assumes you understand
+these terms or have skimmed the appendix.</p>
+<h2 id="4-1-3-high-level-architecture">4.1.3 High-Level Architecture</h2>
+<p>
+ The Transformer consists of two stacks: an <strong>encoder</strong> (N=6 identical layers) and a
+ <strong>decoder</strong> (N=6 identical layers). Each encoder layer has two sub-layers: (1) a
+ multi-head self-attention mechanism and (2) a position-wise feed-forward network. Each decoder layer
+ has three sub-layers: (1) masked multi-head self-attention, (2) multi-head cross-attention over the
+ encoder output, and (3) a position-wise feed-forward network. Every sub-layer is wrapped in a
+ residual connection followed by layer normalization.
+</p>
+<div class="diagram-container">
+<img alt="High-level encoder-decoder Transformer with stacked attention and feed-forward sub-layers, each wrapped in a residual connection and LayerNorm" src="images/transformer-architecture-vaswani2017.png"/>
+<div class="diagram-caption"><strong>Figure 4.1.2</strong>: High-level view of the encoder-decoder Transformer. Each sub-layer is wrapped with a residual connection and layer normalization.</div>
+</div>
+<!-- ============================================================ -->
+<h2 id="4-1-4-input-representation-and-positional-encoding">4.1.4 Input Representation and Positional Encoding</h2>
+<h3 id="4-1-4-1-token-embeddings">4.1.4.1 Token Embeddings</h3>
+<p>
+ The first step is converting discrete tokens into continuous vectors. A learned embedding matrix
+ <span class="math">$W_{E} \in R^{V \times d}$</span> maps each token index to a
+ <span class="math">$d$</span>-dimensional vector. In the original paper,
+ <span class="math">$d = 512$</span> and <span class="math">$V \approx 37,000$</span> (<a href="../module-01-foundations-nlp-text-representation/section-1.6.html">BPE</a> tokens for
+ English-German translation). The embedding weights are multiplied by
+ <span class="math">$\sqrt{d}$</span> to bring their scale in line with the positional encodings that
+ are added next. </p>
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># Token embedding with scaling</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">TokenEmbedding</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">vocab_size</span><span class="p">,</span> <span class="n">d_model</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">embed</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Embedding</span><span class="p">(</span><span class="n">vocab_size</span><span class="p">,</span> <span class="n">d_model</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">scale</span> <span class="o">=</span> <span class="n">d_model</span> <span class="o">**</span> <span class="mf">0.5</span>
+        <span class="c1"># Forward pass: define computation graph</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">embed</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">scale</span>
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 4.1.1:</strong> Token embedding with scaling.</div>
+<h3 id="4-1-4-2-why-we-need-positional-encoding">4.1.4.2 Why We Need Positional Encoding</h3>
+<p>
+ Self-attention is a <strong>set operation</strong>: it is permutation-equivariant, meaning that if you
+ shuffle the input tokens, the outputs shuffle in the same way. Without any notion of position, the
+ model cannot distinguish "the cat sat on the mat" from "mat the on sat cat the." Positional encoding
+ injects ordering information into the representation.
+</p>
+<h3 id="4-1-4-3-sinusoidal-positional-encoding">4.1.4.3 Sinusoidal Positional Encoding</h3>
+<p>
+ The original paper uses a fixed (non-learned) encoding based on sine and cosine functions of different
+ frequencies:
+</p>
+<div class="math-block">
+ $$\begin{aligned}PE(pos, 2i) &amp;= \sin(pos / 10000^{2i/d}) \\ 
+ PE(pos, 2i+1) &amp;= \cos(pos / 10000^{2i/d})\end{aligned}$$
+ 
+</div>
+<p>
+ Here <span class="math">$pos$</span> is the position in the sequence and <span class="math">$i$</span>
+ is the dimension index. Each dimension oscillates at a different frequency, forming a unique "barcode"
+ for each position. The key property: for any fixed offset <span class="math">$k$</span>, the encoding
+ at position <span class="math">$pos + k$</span> can be written as a linear function of the encoding at
+ position <span class="math">$pos$</span>. This allows the model to learn relative position patterns
+ through linear projections. </p>
+<pre><code class="pygments-highlighted lang-python"><span class="kn">from</span><span class="w"> </span><span class="nn">torch</span><span class="w"> </span><span class="kn">import</span> <span class="n">nn</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="c1"># Sinusoidal positional encoding: alternate sin/cos at different frequencies</span>
+<span class="c1"># so each position gets a unique, smoothly varying vector.</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">math</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">SinusoidalPE</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">d_model</span><span class="p">,</span> <span class="n">max_len</span><span class="o">=</span><span class="mi">5000</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="n">pe</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">max_len</span><span class="p">,</span> <span class="n">d_model</span><span class="p">)</span>
+        <span class="n">position</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">max_len</span><span class="p">)</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">float</span><span class="p">()</span>
+        <span class="n">div_term</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span>
+            <span class="n">torch</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">d_model</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span><span class="o">.</span><span class="n">float</span><span class="p">()</span> <span class="o">*</span> <span class="p">(</span><span class="o">-</span><span class="n">math</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="mf">10000.0</span><span class="p">)</span> <span class="o">/</span> <span class="n">d_model</span><span class="p">)</span>
+            <span class="p">)</span>
+        <span class="n">pe</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">::</span><span class="mi">2</span><span class="p">]</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">sin</span><span class="p">(</span><span class="n">position</span> <span class="o">*</span> <span class="n">div_term</span><span class="p">)</span>
+        <span class="n">pe</span><span class="p">[:,</span> <span class="mi">1</span><span class="p">::</span><span class="mi">2</span><span class="p">]</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">cos</span><span class="p">(</span><span class="n">position</span> <span class="o">*</span> <span class="n">div_term</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">register_buffer</span><span class="p">(</span><span class="s1">&#39;pe&#39;</span><span class="p">,</span> <span class="n">pe</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="mi">0</span><span class="p">))</span> <span class="c1"># (1, max_len, d_model)</span>
+        <span class="c1"># Forward pass: define computation graph</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
+        <span class="c1"># x: (batch, seq_len, d_model)</span>
+        <span class="k">return</span> <span class="n">x</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">pe</span><span class="p">[:,</span> <span class="p">:</span><span class="n">x</span><span class="o">.</span><span class="n">size</span><span class="p">(</span><span class="mi">1</span><span class="p">)]</span>
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 4.1.2:</strong> X: (batch, seq_len, d_model).</div>
+<div class="callout note">
+<div class="callout-title">Note: Learned vs. Sinusoidal</div>
+<p>
+ GPT-2 and many later models use <strong>learned positional embeddings</strong> instead, which are
+ simply an additional embedding table indexed by position. Empirically, both approaches work
+ comparably for training-length sequences, but sinusoidal encodings can extrapolate to longer
+ sequences more gracefully. Modern approaches like RoPE (Rotary Position Embedding) combine the
+ best of both worlds and are discussed in <a href="section-4.3.html">Section 4.3</a>.
+ </p>
+</div>
+<div class="diagram-container">
+<img alt="Positional encoding heatmap: each row is a token position, each column a dimension; low-index dimensions oscillate quickly, high-index dimensions change slowly" src="images/fig-4.1.4-pos-encoding.png"/>
+<div class="diagram-caption"><strong>Figure 4.1.3</strong>: Each row is a position; each column a dimension. Low-index dimensions oscillate quickly (high frequency) while high-index dimensions change slowly, creating a unique fingerprint per position.</div>
+</div>
+<!-- ============================================================ -->
+<h2 id="4-1-5-scaled-dot-product-attention-revisited">4.1.5 Scaled Dot-Product Attention (Revisited)</h2>
+<p>
+ We covered attention in <a href="../module-03-sequence-models-attention/index.html">Chapter 03</a>, but let us revisit it through the lens of the full Transformer. The
+ attention function maps a query and a set of key-value pairs to an output. All are vectors. The output
+ is a weighted sum of the values, where each weight is determined by the compatibility of the query
+ with the corresponding key:
+</p>
+<div class="math-block">
+ $$\operatorname{Attention}(Q, K, V) = \operatorname{softmax}(QK^{T} / \sqrt{d_k}) V$$
+ 
+</div>
+<p>
+ The division by <span class="math">$\sqrt{d_k}$</span> is crucial. Without it, when
+ <span class="math">$d_{k}$</span> is large, the dot products grow large in magnitude, pushing
+ the softmax into regions where it has extremely small gradients (the saturation problem). Vaswani et
+ al. provide an elegant information-theoretic argument: if the components of Q and K are independent
+ random variables with mean 0 and variance 1, then their dot product has mean 0 and variance
+ <span class="math">$d_{k}$</span>. Dividing by <span class="math">$\sqrt{d_k}$</span>
+ restores unit variance.
+</p>
+<div class="callout key-insight">
+<div class="callout-title">Why Divide by sqrt(<span class="math">$d_{k}$</span>)?</div>
+<p>Without scaling, dot products grow in magnitude as <span class="math">$d_{k}$</span> increases. For <span class="math">$d_{k}$</span> = 64, dot products have a standard deviation of 8, which pushes many softmax inputs into extreme tails where gradients are nearly zero. Dividing by sqrt(<span class="math">$d_{k}$</span>) = 8 restores the standard deviation to 1, keeping the softmax in its sensitive regime where small changes in input produce meaningful changes in output.</p>
+</div>
+<h3 id="4-1-5-1-multi-head-attention">4.1.5.1 Multi-Head Attention</h3>
+<p>
+ Instead of performing a single attention function with <span class="math">$d$</span>-dimensional keys,
+ values, and queries, the Transformer linearly projects them <span class="math">$h$</span> times with
+ different learned projections, performs attention in parallel on each projection, concatenates the
+ results, and projects again:
+</p>
+<div class="math-block">
+ $$\begin{aligned}\text{MultiHead}(Q, K, V) &amp;= Concat(head_{1}, ..., head_{h}) W^{O} \\ 
+ \text{where} head_{i} &amp;= \operatorname{Attention}(Q W_{i}^{Q}, K W_{i}^{K}, V W_{i}^{V})\end{aligned}$$
+ 
+</div>
+<p>
+ With <span class="math">$h = 8$</span> heads and <span class="math">$d = 512$</span>, each head operates
+ on <span class="math">$d_{k} = d_{v} = 64$</span> dimensions. This is computationally
+ equivalent to single-head attention with <span class="math">$d = 512$</span>, but it allows the model to
+ jointly attend to information from different representation subspaces at different positions. One head
+ might learn syntactic dependencies while another captures semantic relatedness. </p>
+<pre><code class="pygments-highlighted lang-python"><span class="kn">from</span><span class="w"> </span><span class="nn">torch</span><span class="w"> </span><span class="kn">import</span> <span class="n">nn</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="c1"># Multi-head attention: split d_model into n_heads parallel subspaces,</span>
+<span class="c1"># compute scaled dot-product attention in each, concatenate, and project.</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">MultiHeadAttention</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">d_model</span><span class="p">,</span> <span class="n">n_heads</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="k">assert</span> <span class="n">d_model</span> <span class="o">%</span> <span class="n">n_heads</span> <span class="o">==</span> <span class="mi">0</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">d_k</span> <span class="o">=</span> <span class="n">d_model</span> <span class="o">//</span> <span class="n">n_heads</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">n_heads</span> <span class="o">=</span> <span class="n">n_heads</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">W_q</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">d_model</span><span class="p">,</span> <span class="n">d_model</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">W_k</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">d_model</span><span class="p">,</span> <span class="n">d_model</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">W_v</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">d_model</span><span class="p">,</span> <span class="n">d_model</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">W_o</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">d_model</span><span class="p">,</span> <span class="n">d_model</span><span class="p">)</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">q</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+        <span class="n">B</span><span class="p">,</span> <span class="n">T</span><span class="p">,</span> <span class="n">C</span> <span class="o">=</span> <span class="n">q</span><span class="o">.</span><span class="n">shape</span>
+        <span class="c1"># Project and reshape: (B, T, d) -&gt; (B, h, T, d_k)</span>
+        <span class="n">q</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">W_q</span><span class="p">(</span><span class="n">q</span><span class="p">)</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">B</span><span class="p">,</span> <span class="n">T</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">n_heads</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">d_k</span><span class="p">)</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+        <span class="n">k</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">W_k</span><span class="p">(</span><span class="n">k</span><span class="p">)</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">B</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">n_heads</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">d_k</span><span class="p">)</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+        <span class="n">v</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">W_v</span><span class="p">(</span><span class="n">v</span><span class="p">)</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">B</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">n_heads</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">d_k</span><span class="p">)</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+        <span class="c1"># Scaled dot-product attention</span>
+        <span class="n">scores</span> <span class="o">=</span> <span class="p">(</span><span class="n">q</span> <span class="o">@</span> <span class="n">k</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="o">-</span><span class="mi">2</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">))</span> <span class="o">/</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">d_k</span> <span class="o">**</span> <span class="mf">0.5</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">mask</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">scores</span> <span class="o">=</span> <span class="n">scores</span><span class="o">.</span><span class="n">masked_fill</span><span class="p">(</span><span class="n">mask</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="nb">float</span><span class="p">(</span><span class="s1">&#39;-inf&#39;</span><span class="p">))</span>
+            <span class="n">attn</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">softmax</span><span class="p">(</span><span class="n">scores</span><span class="p">,</span> <span class="n">dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
+            <span class="c1"># Combine heads</span>
+            <span class="n">out</span> <span class="o">=</span> <span class="p">(</span><span class="n">attn</span> <span class="o">@</span> <span class="n">v</span><span class="p">)</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span><span class="o">.</span><span class="n">contiguous</span><span class="p">()</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">B</span><span class="p">,</span> <span class="n">T</span><span class="p">,</span> <span class="n">C</span><span class="p">)</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">W_o</span><span class="p">(</span><span class="n">out</span><span class="p">)</span>
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 4.1.3:</strong> Project and reshape: (B, T, d) -&gt; (B, h, T, d_k).</div>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># MultiHeadAttention from scratch using PyTorch</span>
+<span class="c1"># This is the version every modern Transformer uses internally.</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn.functional</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">F</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">MultiHeadAttention</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">"""Scaled dot-product multi-head attention with an optional causal mask."""</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">d_model</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">n_heads</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">dropout</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.0</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="k">assert</span> <span class="n">d_model</span> <span class="o">%</span> <span class="n">n_heads</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">"d_model must be divisible by n_heads"</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">d_model</span> <span class="o">=</span> <span class="n">d_model</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">n_heads</span> <span class="o">=</span> <span class="n">n_heads</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">head_dim</span> <span class="o">=</span> <span class="n">d_model</span> <span class="o">//</span> <span class="n">n_heads</span>
+
+        <span class="c1"># One big linear for Q, K, V together (more efficient than 3 separate)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">qkv</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">d_model</span><span class="p">,</span> <span class="mi">3</span> <span class="o">*</span> <span class="n">d_model</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">out_proj</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">d_model</span><span class="p">,</span> <span class="n">d_model</span><span class="p">,</span> <span class="n">bias</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dropout</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Dropout</span><span class="p">(</span><span class="n">dropout</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">mask</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+        <span class="n">B</span><span class="p">,</span> <span class="n">T</span><span class="p">,</span> <span class="n">C</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">shape</span>
+
+        <span class="c1"># Project + split into Q, K, V; reshape for per-head attention</span>
+        <span class="n">qkv</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">qkv</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>                                   <span class="c1"># (B, T, 3*C)</span>
+        <span class="n">q</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="o">=</span> <span class="n">qkv</span><span class="o">.</span><span class="n">chunk</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="n">dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>                      <span class="c1"># each (B, T, C)</span>
+        <span class="n">q</span> <span class="o">=</span> <span class="n">q</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">B</span><span class="p">,</span> <span class="n">T</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">n_heads</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">head_dim</span><span class="p">)</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+        <span class="n">k</span> <span class="o">=</span> <span class="n">k</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">B</span><span class="p">,</span> <span class="n">T</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">n_heads</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">head_dim</span><span class="p">)</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+        <span class="n">v</span> <span class="o">=</span> <span class="n">v</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">B</span><span class="p">,</span> <span class="n">T</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">n_heads</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">head_dim</span><span class="p">)</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+
+        <span class="c1"># Scaled dot-product attention</span>
+        <span class="n">scores</span> <span class="o">=</span> <span class="p">(</span><span class="n">q</span> <span class="o">@</span> <span class="n">k</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="o">-</span><span class="mi">2</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">))</span> <span class="o">/</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">head_dim</span> <span class="o">**</span> <span class="mf">0.5</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">mask</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">scores</span> <span class="o">=</span> <span class="n">scores</span><span class="o">.</span><span class="n">masked_fill</span><span class="p">(</span><span class="n">mask</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="nb">float</span><span class="p">(</span><span class="s2">"-inf"</span><span class="p">))</span>
+        <span class="n">attn</span> <span class="o">=</span> <span class="n">F</span><span class="o">.</span><span class="n">softmax</span><span class="p">(</span><span class="n">scores</span><span class="p">,</span> <span class="n">dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">attn</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">dropout</span><span class="p">(</span><span class="n">attn</span><span class="p">)</span>
+
+        <span class="c1"># Apply attention and merge heads back</span>
+        <span class="n">y</span> <span class="o">=</span> <span class="n">attn</span> <span class="o">@</span> <span class="n">v</span>                                        <span class="c1"># (B, n_heads, T, head_dim)</span>
+        <span class="n">y</span> <span class="o">=</span> <span class="n">y</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span><span class="o">.</span><span class="n">contiguous</span><span class="p">()</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">B</span><span class="p">,</span> <span class="n">T</span><span class="p">,</span> <span class="n">C</span><span class="p">)</span>    <span class="c1"># (B, T, d_model)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">out_proj</span><span class="p">(</span><span class="n">y</span><span class="p">)</span>
+</code></pre>
+</div>
+<div class="code-caption"><strong>Code Fragment 4.1.4:</strong> Define MultiHeadAttention</div>
+<div class="callout library-shortcut">
+<div class="callout-title">Library Shortcut: F.scaled_dot_product_attention for the fused kernel</div>
+<p>The five-line scoring + masking + softmax block compiles down to a single PyTorch call that dispatches to FlashAttention 2/3 when the shapes and dtypes match. Use it inside your own module rather than the manual loop.</p>
+<pre><code class="pygments-highlighted lang-python"><span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn.functional</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">F</span>
+
+<span class="c1"># Drop-in replacement for the scaled dot-product block above</span>
+<span class="n">y</span> <span class="o">=</span> <span class="n">F</span><span class="o">.</span><span class="n">scaled_dot_product_attention</span><span class="p">(</span><span class="n">q</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span><span class="p">,</span> <span class="n">is_causal</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+                                   <span class="n">dropout_p</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">dropout</span><span class="o">.</span><span class="n">p</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">training</span> <span class="k">else</span> <span class="mf">0.0</span><span class="p">)</span></code></pre>
+</div>
+<div class="callout tip">
+<div class="callout-title">Production Alternative</div>
+<p>The implementation above builds multi-head attention from scratch for pedagogical clarity. In production, use <strong><a href="https://pytorch.org/docs/stable/generated/torch.nn.MultiheadAttention.html" rel="noopener" target="_blank">torch.nn.MultiheadAttention</a></strong> (built into PyTorch), which provides an optimized implementation with <a href="section-4.4.html">FlashAttention</a> support:</p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># Production equivalent using PyTorch built-in</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
+<span class="n">mha</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">MultiheadAttention</span><span class="p">(</span><span class="n">embed_dim</span><span class="o">=</span><span class="mi">512</span><span class="p">,</span> <span class="n">num_heads</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">batch_first</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">output</span><span class="p">,</span> <span class="n">attn_weights</span> <span class="o">=</span> <span class="n">mha</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="n">attn_mask</span><span class="o">=</span><span class="n">mask</span><span class="p">)</span></code></pre>
+<div class="code-caption"><strong>Code Fragment 4.1.7:</strong> The implementation above builds multi-head attention from scratch for pedagogical clarity.</div>
+</div>
+<p>For full model pipelines, <strong><a href="https://huggingface.co/docs/transformers" rel="noopener" target="_blank">HuggingFace Transformers</a></strong> (install: <code>pip install transformers</code>) provides pre-trained multi-head attention as part of complete model architectures.</p>
+</div>
+<div class="callout key-insight">
+<div class="callout-title">Key Insight: Why Multiple Heads?</div>
+<p>
+ A single attention head computes one set of attention weights. If position 5 needs to attend
+ to both position 2 (for syntax) and position 8 (for coreference), a single softmax distribution
+ forces a compromise. Multiple heads let the model maintain multiple, independent attention
+ patterns simultaneously. Think of each head as a different "question" the model can ask about
+ the context.
+ </p>
+</div>
+<div class="callout warning">
+<div class="callout-title">Common Misconception: Attention Does Not "Focus on Important Words"</div>
+<p>It is common to see attention described as "the model focuses on the most important words." This framing is misleading. Attention computes a <em>weighted linear combination</em> of all value vectors, where the weights are determined by query-key compatibility. The model does not decide which words are "important" in any human sense; it computes which positions are useful for predicting the next token given the current query. A high attention weight on a word does not mean that word is semantically important. It means the key at that position is well-aligned with the current query in the learned projection space. Attention patterns often look nothing like what a human would consider "important." Some heads attend primarily to the previous token, others to punctuation, and others to positional patterns that have no obvious linguistic interpretation.</p>
+</div>
+<!-- ============================================================ -->
+<h2 id="4-1-6-position-wise-feed-forward-network">4.1.6 Position-Wise Feed-Forward Network</h2>
+<p>
+ After every attention sub-layer, the Transformer applies a simple two-layer feed-forward network to
+ each position independently and identically:
+</p>
+<div class="math-block">
+ $$\operatorname{FFN}(x) = \max(0, xW_{1} + b_{1}) W_{2} + b_{2}$$
+ 
+</div>
+<p>
+ This is applied to each token position separately (hence "position-wise"). The inner dimension is
+ typically 4 times the model dimension: with <span class="math">$d = 512$</span>, the inner layer has
+ <span class="math">$d_{ff} = 2048$</span> units. The FFN accounts for roughly two-thirds of
+ the parameters in each Transformer layer.
+</p>
+<p>A quick numeric trace through a tiny FFN (d=3, d_ff=4) shows how the two linear layers and ReLU interact:</p>
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># Numeric example: FFN forward pass on a single token</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span><span class="o">,</span><span class="w"> </span><span class="nn">torch.nn.functional</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">F</span>
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mf">0.5</span><span class="p">,</span> <span class="o">-</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">0.8</span><span class="p">])</span> <span class="c1"># one token, d_model=3</span>
+<span class="n">W1</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">],</span>
+    <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">],</span>
+    <span class="p">[</span><span class="mf">0.5</span><span class="p">,</span> <span class="o">-</span><span class="mf">0.5</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">]])</span><span class="o">.</span><span class="n">float</span><span class="p">()</span> <span class="c1"># (3, 4)</span>
+<span class="n">hidden</span> <span class="o">=</span> <span class="n">F</span><span class="o">.</span><span class="n">relu</span><span class="p">(</span><span class="n">x</span> <span class="o">@</span> <span class="n">W1</span><span class="p">)</span> <span class="c1"># project up, then ReLU</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"After W1 + ReLU: </span><span class="si">{</span><span class="n">hidden</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="c1"># After W1 + ReLU: [0.9, 0.0, 0.3, 1.25] (negatives clipped to 0)</span>
+<span class="n">W2</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">4</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span> <span class="o">*</span> <span class="mf">0.5</span> <span class="c1"># (4, 3) project back down</span>
+<span class="n">out</span> <span class="o">=</span> <span class="n">hidden</span> <span class="o">@</span> <span class="n">W2</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"FFN output shape: </span><span class="si">{</span><span class="n">out</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span> <span class="c1"># back to d_model=3</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> After W1 + ReLU: [0.9, 0.0, 0.3, 1.25]
+FFN output shape: torch.Size([3])</div>
+<div class="code-caption"><strong>Code Fragment 4.1.5:</strong> Tracing a single token through a two-layer FFN. The hidden layer expands dimensionality (3 to 4), applies ReLU, then projects back down (4 to 3).</div>
+<p>
+ Why is the FFN important? Attention allows tokens to mix information across positions, but it is a
+ linear operation over the value vectors (the softmax produces convex combination weights). The FFN
+ provides the <strong>per-token nonlinear transformation</strong> that is essential for the model to
+ learn complex functions. Think of attention as routing information and the FFN as processing it. </p>
+<pre><code class="pygments-highlighted lang-python"><span class="kn">from</span><span class="w"> </span><span class="nn">torch</span><span class="w"> </span><span class="kn">import</span> <span class="n">nn</span>
+<span class="c1"># Position-wise feed-forward network: expand to d_ff, apply ReLU,</span>
+<span class="c1"># project back to d_model. Applied identically at every sequence position.</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">FeedForward</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">d_model</span><span class="p">,</span> <span class="n">d_ff</span><span class="p">,</span> <span class="n">dropout</span><span class="o">=</span><span class="mf">0.1</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">net</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">(</span>
+            <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">d_model</span><span class="p">,</span> <span class="n">d_ff</span><span class="p">),</span>
+            <span class="n">nn</span><span class="o">.</span><span class="n">ReLU</span><span class="p">(),</span>
+            <span class="n">nn</span><span class="o">.</span><span class="n">Dropout</span><span class="p">(</span><span class="n">dropout</span><span class="p">),</span>
+            <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">d_ff</span><span class="p">,</span> <span class="n">d_model</span><span class="p">),</span>
+            <span class="n">nn</span><span class="o">.</span><span class="n">Dropout</span><span class="p">(</span><span class="n">dropout</span><span class="p">),</span>
+            <span class="p">)</span>
+        <span class="c1"># Forward pass: define computation graph</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">net</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 4.1.5a:</strong> A position-wise feed-forward network with GELU activation. Each token passes through the same two-layer MLP independently.</div>
+<div class="callout key-insight">
+<div class="callout-title">Paper Spotlight: FFN Layers as Knowledge Memories</div>
+<p>If attention is the "reading" step (gathering information from across the sequence), the FFN is the "thinking" step (processing gathered information for each position independently). Geva et al. (2021) showed that FFN layers act as learned key-value memories: each row of the first weight matrix detects a pattern, and the corresponding row of the second weight matrix stores associated knowledge. When the model "knows" that Paris is the capital of France, that knowledge is likely stored in an FFN layer, not in attention.</p>
+</div>
+<div class="callout note">
+<div class="callout-title">Modern Variants: SwiGLU and GeGLU</div>
+<p>
+ Most modern Transformers replace the <a href="../module-00-ml-pytorch-foundations/section-0.2.html">ReLU</a> FFN with a <strong>gated</strong> variant. The SwiGLU
+ activation (used in <a href="../../part-2-understanding-llms/module-08-modern-llm-landscape/section-8.2.html">LLaMA</a>, PaLM, and others) splits the first linear projection into two
+ branches and multiplies them element-wise:
+ <code>FFN(x) = (xW<sub>1</sub> &amp;odot; SiLU(xW<sub>gate</sub>)) W<sub>2</sub></code>.
+ This consistently improves performance at a modest increase in parameter count.
+ </p>
+</div>
+<!-- ============================================================ -->
+<h2 id="4-1-7-residual-connections">4.1.7 Residual Connections</h2>
+<p>
+ Every sub-layer in the Transformer is wrapped with a residual (skip) connection:
+</p>
+<div class="math-block">
+ $$\text{output} = \text{SubLayer}(x) + x$$
+ 
+</div>
+<p>
+ Residual connections, introduced in ResNet (He et al., 2016), solve the degradation problem in deep
+ networks: as you add more layers, training loss can <em>increase</em> because the optimization
+ landscape becomes harder to navigate. A residual connection provides a gradient highway that allows
+ gradients to flow directly from the output back to earlier layers without attenuation.
+</p>
+<h3 id="4-1-7-1-the-information-theoretic-view">4.1.7.1 The Information-Theoretic View</h3>
+<p>
+ From an information flow perspective, residual connections ensure that the original input to each layer
+ is preserved. Each sub-layer only needs to learn the <em>delta</em> (the difference between the desired
+ output and the input). This is a much easier optimization target. If a layer has nothing useful to add,
+ it can learn to output near-zero, effectively becoming an identity function. Without residuals, each
+ layer must learn to pass through all information, including what it does not modify.
+</p>
+<p>
+ In a Transformer with <span class="math">$N$</span> layers, the residual connections create
+ <span class="math">\$2^{N}$</span> possible paths through the network (each sub-layer can be
+ either included or skipped). This ensemble-like behavior helps explain the robustness of deep
+ Transformers.
+</p>
+<!-- ============================================================ -->
+<h2 id="4-1-8-layer-normalization">4.1.8 Layer Normalization</h2>
+<p>
+ Layer normalization (Ba, Kiros, and Hinton, 2016) normalizes the activations across the feature
+ dimension for each individual token:
+</p>
+<div class="math-block">
+ $$\operatorname{LayerNorm}(x) = \gamma \odot \frac{x - \mu}{\sqrt{\sigma^{2} + \epsilon}} + \beta$$
+ 
+</div>
+<p>
+ where <span class="math">$\mu$</span> and <span class="math">$\sigma$</span> are the mean and standard
+ deviation computed across the feature dimensions of a single token,
+ <span class="math">$\gamma$</span> and <span class="math">$\beta$</span> are learned scale and shift
+ parameters, and <span class="math">$\epsilon$</span> is a small constant for numerical stability.
+</p>
+<p>A quick numeric example makes the centering and scaling concrete:</p>
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># Numeric example: LayerNorm on a single token's feature vector</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">,</span> <span class="mf">3.0</span><span class="p">,</span> <span class="mf">4.0</span><span class="p">])</span> <span class="c1"># one token, 4 features</span>
+<span class="n">mu</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span> <span class="c1"># 2.5</span>
+<span class="n">sigma</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">std</span><span class="p">(</span><span class="n">unbiased</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span> <span class="c1"># 1.118</span>
+<span class="n">normed</span> <span class="o">=</span> <span class="p">(</span><span class="n">x</span> <span class="o">-</span> <span class="n">mu</span><span class="p">)</span> <span class="o">/</span> <span class="p">(</span><span class="n">sigma</span> <span class="o">+</span> <span class="mf">1e-5</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Input: </span><span class="si">{</span><span class="n">x</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Mean: </span><span class="si">{</span><span class="n">mu</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">, Std: </span><span class="si">{</span><span class="n">sigma</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Output: </span><span class="si">{</span><span class="n">normed</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">decimals</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="c1"># Output: [-1.342, -0.447, 0.447, 1.342] (zero mean, unit variance)</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> Input: [1.0, 2.0, 3.0, 4.0]
+Mean: 2.50, Std: 1.118
+Output: [-1.342, -0.447, 0.447, 1.342]</div>
+<div class="code-caption"><strong>Code Fragment 4.1.6:</strong> Worked numeric example of LayerNorm. The output has zero mean and unit variance across the feature dimension.</div>
+<h3 id="4-1-8-1-pre-ln-vs-post-ln">4.1.8.1 Pre-LN vs. Post-LN</h3>
+<p>
+ The original paper applies layer normalization <em>after</em> the residual addition (Post-LN):
+ <code>LayerNorm(x + SubLayer(x))</code>. Most modern Transformers use <strong>Pre-LN</strong>,
+ applying normalization <em>before</em> the sub-layer:
+ <code>x + SubLayer(LayerNorm(x))</code>.
+</p>
+<div class="comparison-table">
+<div class="comparison-table-title"><strong>Table 4.1.1:</strong> <em>8.1 Pre-LN vs. Post-LN (as of 2026).</em></div>
+<table>
+<tr>
+<th scope="col">Property</th>
+<th scope="col">Post-LN (Original)</th>
+<th scope="col">Pre-LN (Modern)</th>
+</tr>
+<tr>
+<td>Gradient scale</td>
+<td>Depends on depth; can explode</td>
+<td>Roughly constant across layers</td>
+</tr>
+<tr>
+<td>Warmup required?</td>
+<td>Yes, critical for stability</td>
+<td>Often trains without warmup</td>
+</tr>
+<tr>
+<td>Final performance</td>
+<td>Slightly higher ceiling (some studies)</td>
+<td>Slightly lower but more stable</td>
+</tr>
+<tr>
+<td>Used in</td>
+<td>Original Transformer, BERT</td>
+<td>GPT-2, GPT-3, LLaMA, most modern LLMs</td>
+</tr>
+</table>
+</div>
+<div class="callout warning">
+<div class="callout-title">Practical Warning</div>
+<p>
+ Pre-LN is the default for good reason: Post-LN training can diverge catastrophically without
+ learning rate warmup and careful initialization. If you are building a new model and have no
+ compelling reason to use Post-LN, choose Pre-LN. When using Pre-LN, remember to add a final
+ layer normalization after the last Transformer block (before the output projection), since the
+ sub-layer output is not normalized.
+ </p>
+</div>
+<h3 id="4-1-8-2-rmsnorm-the-modern-alternative">4.1.8.2 RMSNorm: The Modern Alternative</h3>
+<p>
+ While LayerNorm has served Transformers well since the original paper, most modern LLMs
+ (including LLaMA, Mistral, Gemma, and Qwen) have switched to <strong>RMSNorm</strong> (Root Mean
+ Square Layer Normalization), introduced by Zhang and Sennrich (2019). RMSNorm simplifies
+ LayerNorm by removing the mean-subtraction step and normalizing only by the root mean square
+ of the activations:
+</p>
+<div class="math-block">
+ $$\text{RMSNorm}(x) = x / \text{RMS}(x) \cdot \gamma , \; \text{where} \; \text{RMS}(x) = \sqrt{mean(x^{2}) + \epsilon}$$
+ 
+</div>
+<p>
+ The key difference from standard LayerNorm is the absence of the re-centering operation (subtracting
+ the mean). LayerNorm computes both the mean and variance, subtracts the mean, then divides by the
+ standard deviation. RMSNorm skips the mean computation entirely, dividing only by the root mean
+ square. This simplification has two practical benefits. First, it is approximately 10 to 15%
+ faster than LayerNorm because it requires fewer reduction operations on the GPU. Second,
+ empirical results show that the re-centering step contributes little to training stability; the
+ scale normalization alone is sufficient. The learned parameter <span class="math">$\gamma$</span>
+ (a per-feature gain vector) allows the network to recover any needed scaling, just as in
+ LayerNorm, but there is no learned bias <span class="math">$\beta$</span>.
+</p>
+<p>
+ The adoption of RMSNorm in production LLMs is now nearly universal. Meta's LLaMA family,
+ Mistral, Google's Gemma, and many other architectures all use RMSNorm with Pre-LN placement.
+ If you are implementing a Transformer from scratch today, RMSNorm with Pre-LN is the
+ recommended default.
+</p>
+<p>
+ The PyTorch implementation of RMSNorm is straightforward. The module stores a learnable gain
+ vector <code>weight</code> (one element per feature dimension) and applies the RMS normalization
+ formula during the forward pass. Note the absence of a bias parameter and the absence of
+ mean subtraction, both of which distinguish RMSNorm from standard LayerNorm. Modern versions
+ of PyTorch (2.4 and later) include <code>torch.nn.RMSNorm</code> as a built-in module, but the
+ manual implementation below is instructive and remains common in research codebases.
+</p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># RMSNorm: normalize by root-mean-square instead of mean+variance.</span>
+<span class="c1"># Cheaper than LayerNorm (skips the mean subtraction) with similar quality.</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">RMSNorm</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">"""Root Mean Square Layer Normalization (Zhang &amp; Sennrich, 2019)."""</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">dim</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">eps</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1e-6</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">eps</span> <span class="o">=</span> <span class="n">eps</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="n">dim</span><span class="p">))</span> <span class="c1"># learnable gain (gamma)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+        <span class="c1"># Compute RMS: sqrt(mean(x^2) + eps)</span>
+        <span class="n">rms</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">pow</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">,</span> <span class="n">keepdim</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">eps</span><span class="p">)</span>
+        <span class="c1"># Normalize and apply learnable scale</span>
+        <span class="k">return</span> <span class="p">(</span><span class="n">x</span> <span class="o">/</span> <span class="n">rms</span><span class="p">)</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">weight</span>
+
+        <span class="c1"># Usage: drop-in replacement for nn.LayerNorm in a Transformer block</span>
+        <span class="n">norm</span> <span class="o">=</span> <span class="n">RMSNorm</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="mi">4096</span><span class="p">)</span> <span class="c1"># e.g., LLaMA 7B hidden dim</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">128</span><span class="p">,</span> <span class="mi">4096</span><span class="p">)</span> <span class="c1"># (batch, seq_len, hidden_dim)</span>
+        <span class="n">out</span> <span class="o">=</span> <span class="n">norm</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="c1"># same shape: (2, 128, 4096)</span>
+
+        <span class="c1"># Compare with PyTorch built-in (available in PyTorch 2.4+):</span>
+            <span class="c1"># builtin_norm = torch.nn.RMSNorm(4096, eps=1e-6)</span>
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 4.1.8:</strong> The PyTorch implementation of RMSNorm is straightforward.</div>
+</div>
+<div class="callout library-shortcut">
+<div class="callout-title">Library Shortcut: PyTorch nn.RMSNorm (2.4+)</div>
+<p>PyTorch 2.4 and later include a built-in <code>torch.nn.RMSNorm</code> that is fused for GPU efficiency. It is a drop-in replacement for the manual implementation above:</p>
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># Built-in RMSNorm (PyTorch 2.4+), fused for GPU efficiency</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="n">norm</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">RMSNorm</span><span class="p">(</span><span class="mi">4096</span><span class="p">,</span> <span class="n">eps</span><span class="o">=</span><span class="mf">1e-6</span><span class="p">)</span> <span class="c1"># same API as the manual version</span>
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">128</span><span class="p">,</span> <span class="mi">4096</span><span class="p">)</span>
+<span class="n">out</span> <span class="o">=</span> <span class="n">norm</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="c1"># (2, 128, 4096), normalized per token</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Output shape: </span><span class="si">{</span><span class="n">out</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">, RMS per token ~ 1.0: </span><span class="si">{</span><span class="n">out</span><span class="o">.</span><span class="n">pow</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)[</span><span class="mi">0</span><span class="p">,</span><span class="mi">0</span><span class="p">]</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span></code></pre>
+</div>
+<div class="diagram-container">
+<img alt="Post-LN (left) applies LayerNorm after the residual addition; Pre-LN (right) applies LayerNorm before each sub-layer, which produces more stable gradients in deep models" src="images/fig-4.1.7-pre-post-ln.png"/>
+<div class="diagram-caption"><strong>Figure 4.1.4</strong>: Post-LN (left) applies normalization after the residual addition. Pre-LN (right) normalizes the input before the sub-layer, placing the residual path outside the normalization.</div>
+</div>
+<div class="callout note">
+<div class="callout-title">Checkpoint: What You Have Learned So Far</div>
+<p>You are halfway through this section. Let us pause and consolidate the core components you have covered:</p>
+<ol>
+<li><strong>Positional encoding</strong> injects ordering information into a set-like architecture.</li>
+<li><strong>Multi-head attention</strong> lets each token query every other token through multiple independent projections.</li>
+<li><strong>Feed-forward networks</strong> provide per-token nonlinear processing and store factual knowledge.</li>
+<li><strong>Residual connections</strong> create gradient highways and enable depth.</li>
+<li><strong>Layer normalization</strong> (Pre-LN with RMSNorm) stabilizes training.</li>
+</ol>
+<p>These five components, repeated N times, form the core of every modern Transformer. The remaining topics (weight initialization, causal masking, the KV cache, the complete forward pass, and the residual stream) are advanced details that deepen your understanding but build on the foundation above. If you need a break, this is a natural stopping point.</p>
+</div>
+<!-- ============================================================ -->
+<h2 id="4-1-9-weight-initialization">4.1.9 Weight Initialization</h2>
+<p>
+ Proper initialization is critical for training deep Transformers. The standard approach uses
+ <strong>Xavier (Glorot) initialization</strong> for most weights: values are drawn from a uniform or
+ normal distribution with variance <span class="math">\$2 / (fan_{in} + fan_{out})$</span>. This ensures that
+ the variance of activations stays roughly constant as they propagate forward through layers.
+</p>
+<p>
+ A subtle but important refinement, used in GPT-2 and later models, is to scale the initialization of
+ the output projection in the residual path by <span class="math">\$1 / \sqrt{2N}$</span>, where
+ <span class="math">$N$</span> is the number of layers. The factor of 2 comes from having two residual
+ sub-layers per block (attention and FFN). This keeps the residual stream variance from growing as
+ <span class="math">$O(N)$</span> through the network. </p>
+<pre><code class="pygments-highlighted lang-python"><span class="kn">from</span><span class="w"> </span><span class="nn">torch</span><span class="w"> </span><span class="kn">import</span> <span class="n">nn</span>
+<span class="c1"># GPT-2 style weight initialization: N(0, 0.02) for most layers,</span>
+<span class="c1"># scaled by 1/sqrt(2*n_layers) for residual projections to stabilize depth.</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">init_weights</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">n_layers</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;GPT-2 style initialization.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">):</span>
+        <span class="n">nn</span><span class="o">.</span><span class="n">init</span><span class="o">.</span><span class="n">normal_</span><span class="p">(</span><span class="n">module</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span> <span class="n">mean</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">std</span><span class="o">=</span><span class="mf">0.02</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">module</span><span class="o">.</span><span class="n">bias</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">nn</span><span class="o">.</span><span class="n">init</span><span class="o">.</span><span class="n">zeros_</span><span class="p">(</span><span class="n">module</span><span class="o">.</span><span class="n">bias</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">nn</span><span class="o">.</span><span class="n">Embedding</span><span class="p">):</span>
+            <span class="n">nn</span><span class="o">.</span><span class="n">init</span><span class="o">.</span><span class="n">normal_</span><span class="p">(</span><span class="n">module</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span> <span class="n">mean</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">std</span><span class="o">=</span><span class="mf">0.02</span><span class="p">)</span>
+            <span class="k">def</span><span class="w"> </span><span class="nf">scale_residual_init</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">n_layers</span><span class="p">):</span>
+<span class="w">                </span><span class="sd">&quot;&quot;&quot;Scale output projections in residual blocks.&quot;&quot;&quot;</span>
+                <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">param</span> <span class="ow">in</span> <span class="n">module</span><span class="o">.</span><span class="n">named_parameters</span><span class="p">():</span>
+                    <span class="k">if</span> <span class="n">name</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s1">&#39;W_o.weight&#39;</span><span class="p">)</span> <span class="ow">or</span> <span class="n">name</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s1">&#39;net.3.weight&#39;</span><span class="p">):</span>
+                        <span class="c1"># net.3 is the second linear layer in the FFN</span>
+                        <span class="n">nn</span><span class="o">.</span><span class="n">init</span><span class="o">.</span><span class="n">normal_</span><span class="p">(</span><span class="n">param</span><span class="p">,</span> <span class="n">mean</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">std</span><span class="o">=</span><span class="mf">0.02</span> <span class="o">/</span> <span class="p">(</span><span class="mi">2</span> <span class="o">*</span> <span class="n">n_layers</span><span class="p">)</span> <span class="o">**</span> <span class="mf">0.5</span><span class="p">)</span>
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 4.1.6a:</strong> Net.3 is the second linear layer in the FFN.</div>
+<!-- ============================================================ -->
+<h2 id="4-1-10-the-causal-mask-decoder-self-attention">4.1.10 The Causal Mask (Decoder Self-Attention)</h2>
+<p>
+ In auto-regressive language models (and in the decoder of the original Transformer), each position can
+ only attend to itself and to earlier positions. This is enforced by a <strong>causal mask</strong>: an
+ upper-triangular matrix of <code>-inf</code> values added to the attention scores before the softmax.
+ The softmax converts <code>-inf</code> to zero, effectively blocking information flow from future tokens. </p>
+<pre><code class="pygments-highlighted lang-python"><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="c1"># Build a causal (lower-triangular) boolean mask that blocks each token</span>
+<span class="c1"># from attending to future positions, enforcing autoregressive generation.</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">causal_mask</span><span class="p">(</span><span class="n">seq_len</span><span class="p">,</span> <span class="n">device</span><span class="p">):</span>
+<span class="w"> </span><span class="sd">"""Returns a boolean mask: True = allowed, False = blocked."""</span>
+<span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">tril</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="n">seq_len</span><span class="p">,</span> <span class="n">seq_len</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">bool</span><span class="p">))</span>
+<span class="c1"># Usage in attention:</span>
+<span class="c1"># scores.masked_fill_(~mask, float('-inf'))</span></code></pre>
+<div class="code-caption"><strong>Code Fragment 4.1.5c:</strong> Usage in attention.</div>
+<!-- Figure 4.1.5: Residual stream as branch-and-merge SVG (v5.8 redesign) -->
+<div class="diagram-container">
+<svg aria-labelledby="fig416-title fig416-desc" role="img" style="max-width:100%; height:auto;" viewbox="0 0 920 360" xmlns="http://www.w3.org/2000/svg">
+<title id="fig416-title">The residual stream as a communication highway</title>
+<desc id="fig416-desc">A horizontal residual stream runs across the top. Two sub-layers (Attention, FFN) each branch downward from the stream, perform their computation, and merge their output back into the stream via a plus node. This shows that each sub-layer reads from and writes additively to a shared vector, rather than transforming a single hidden state in series.</desc>
+<defs>
+<marker id="fig416-arrow" markerheight="6" markerwidth="6" orient="auto-start-reverse" refx="9" refy="5" viewbox="0 0 10 10">
+<path d="M0,0 L10,5 L0,10 z" fill="#444"></path>
+</marker>
+<marker id="fig416-arrow-blue" markerheight="6" markerwidth="6" orient="auto-start-reverse" refx="9" refy="5" viewbox="0 0 10 10">
+<path d="M0,0 L10,5 L0,10 z" fill="#1565c0"></path>
+</marker>
+</defs>
+<!-- THE RESIDUAL STREAM (horizontal highway) -->
+<line stroke="#1565c0" stroke-linecap="round" stroke-width="6" x1="20" x2="900" y1="80" y2="80"></line>
+<text fill="#1565c0" font-family="sans-serif" font-size="18" font-weight="bold" text-anchor="middle" x="460" y="40">Residual stream (shared vector x)</text>
+<text fill="#555" font-family="sans-serif" font-size="13" font-style="italic" text-anchor="middle" x="460" y="62">each sub-layer reads from and writes additively into this stream</text>
+<!-- INPUT (left edge) -->
+<rect fill="#e3f2fd" height="44" rx="6" stroke="#1565c0" stroke-width="2" width="100" x="20" y="100"></rect>
+<text fill="#0d47a1" font-family="sans-serif" font-size="14" font-weight="bold" text-anchor="middle" x="70" y="127">x_embed</text>
+<line marker-end="url(#fig416-arrow-blue)" stroke="#1565c0" stroke-width="2" x1="70" x2="70" y1="100" y2="83"></line>
+<!-- BLOCK 1: ATTENTION -->
+<!-- Branch down -->
+<line marker-end="url(#fig416-arrow)" stroke="#6a1b9a" stroke-width="2" x1="240" x2="240" y1="83" y2="170"></line>
+<text fill="#6a1b9a" font-family="sans-serif" font-size="11" text-anchor="end" x="222" y="110">read x</text>
+<!-- Sub-layer box -->
+<rect fill="#f3e5f5" height="56" rx="6" stroke="#6a1b9a" stroke-width="2" width="140" x="180" y="170"></rect>
+<text fill="#4a148c" font-family="sans-serif" font-size="14" font-weight="bold" text-anchor="middle" x="250" y="194">Attention</text>
+<text fill="#6a1b9a" font-family="sans-serif" font-size="11" text-anchor="middle" x="250" y="214">Attn(x)</text>
+<!-- Merge back up to + -->
+<line stroke="none" x1="250" x2="250" y1="170" y2="170"></line>
+<path d="M 250 226 L 250 250 L 320 250 L 320 100" fill="none" marker-end="url(#fig416-arrow)" stroke="#6a1b9a" stroke-width="2"></path>
+<text fill="#6a1b9a" font-family="sans-serif" font-size="11" text-anchor="start" x="335" y="180">write Attn(x)</text>
+<!-- + node on the stream -->
+<circle cx="320" cy="80" fill="#fff" r="14" stroke="#6a1b9a" stroke-width="2.5"></circle>
+<text fill="#6a1b9a" font-family="sans-serif" font-size="20" font-weight="bold" text-anchor="middle" x="320" y="86">+</text>
+<text fill="#6a1b9a" font-family="sans-serif" font-size="11" text-anchor="middle" x="320" y="20">x ← x + Attn(x)</text>
+<!-- BLOCK 2: FFN -->
+<line marker-end="url(#fig416-arrow)" stroke="#e65100" stroke-width="2" x1="500" x2="500" y1="83" y2="170"></line>
+<text fill="#e65100" font-family="sans-serif" font-size="11" text-anchor="end" x="482" y="110">read x</text>
+<rect fill="#fff3e0" height="56" rx="6" stroke="#e65100" stroke-width="2" width="140" x="440" y="170"></rect>
+<text fill="#bf360c" font-family="sans-serif" font-size="14" font-weight="bold" text-anchor="middle" x="510" y="194">FFN</text>
+<text fill="#e65100" font-family="sans-serif" font-size="11" text-anchor="middle" x="510" y="214">FFN(x)</text>
+<path d="M 510 226 L 510 250 L 580 250 L 580 100" fill="none" marker-end="url(#fig416-arrow)" stroke="#e65100" stroke-width="2"></path>
+<text fill="#e65100" font-family="sans-serif" font-size="11" text-anchor="start" x="595" y="180">write FFN(x)</text>
+<circle cx="580" cy="80" fill="#fff" r="14" stroke="#e65100" stroke-width="2.5"></circle>
+<text fill="#e65100" font-family="sans-serif" font-size="20" font-weight="bold" text-anchor="middle" x="580" y="86">+</text>
+<text fill="#e65100" font-family="sans-serif" font-size="11" text-anchor="middle" x="580" y="20">x ← x + FFN(x)</text>
+<!-- Ellipsis showing more layers -->
+<text fill="#777" font-family="sans-serif" font-size="20" font-weight="bold" text-anchor="middle" x="710" y="86">. . .</text>
+<text fill="#777" font-family="sans-serif" font-size="11" font-style="italic" text-anchor="middle" x="710" y="115">N more blocks</text>
+<!-- OUTPUT (right edge) -->
+<rect fill="#e8f5e9" height="44" rx="6" stroke="#2e7d32" stroke-width="2" width="100" x="800" y="100"></rect>
+<text fill="#1b5e20" font-family="sans-serif" font-size="14" font-weight="bold" text-anchor="middle" x="850" y="127">Output</text>
+<line marker-end="url(#fig416-arrow)" stroke="#2e7d32" stroke-width="2" x1="850" x2="850" y1="83" y2="100"></line>
+<!-- LEGEND -->
+<g transform="translate(20,290)">
+<text fill="#333" font-family="sans-serif" font-size="13" font-weight="bold" x="0" y="0">Reading the diagram:</text>
+<text fill="#444" font-family="sans-serif" font-size="12" x="0" y="20">• The blue highway is the residual stream, a single shared vector x that flows from input to output.</text>
+<text fill="#444" font-family="sans-serif" font-size="12" x="0" y="38">• Each sub-layer (Attention, FFN) <tspan font-style="italic">branches down</tspan>, computes its function on x, then <tspan font-style="italic">merges back up</tspan>: the new x is x + sub-layer(x).</text>
+<text fill="#444" font-family="sans-serif" font-size="12" x="0" y="56">• The stream itself is never replaced, sub-layers only ever <tspan font-weight="bold">add</tspan> to it. This is what makes the residual stream a "communication channel" between distant layers.</text>
+</g>
+</svg>
+<div class="diagram-caption"><strong>Figure 4.1.5</strong>: The residual stream as a branch-and-merge highway. Each sub-layer (Attention, FFN) reads the current stream, computes its contribution, and adds it back. The stream is never overwritten, sub-layers can only add. This is why information from early layers reaches late layers directly, and why deleting a layer often degrades the model less than expected.</div>
+</div>
+<p>
+ The mask ensures that the prediction for position <span class="math">$t$</span> depends only on tokens
+ at positions <span class="math">\$0, 1, ..., t$</span>. This is what makes the model auto-regressive:
+ during generation, each new token can be produced by conditioning only on the tokens generated so far.
+</p>
+<h3 id="4-1-10-1-the-kv-cache-avoiding-redundant-computation">4.1.10.1 The KV Cache: Avoiding Redundant Computation</h3>
+<p>
+ Consider what happens when a decoder-only model generates text one token at a time. To produce
+ token <span class="math">$t+1$</span>, the model runs a forward pass over the entire sequence
+ <span class="math">$[x_0, x_1, ..., x_t]$</span>. To produce token <span class="math">$t+2$</span>,
+ it must run over <span class="math">$[x_0, x_1, ..., x_t, x_{t+1}]$</span>. Notice that the Key
+ and Value projections for positions <span class="math">\$0$</span> through
+ <span class="math">$t$</span> are identical in both passes. Recomputing them from scratch at every
+ step is extremely wasteful, turning generation into an O(n²) operation in sequence length
+ when it could be O(n).
+</p>
+<p>
+ The solution is the <strong><a href="../../part-2-understanding-llms/module-10-inference-optimization/section-10.2.html">KV cache</a></strong>: after computing the Key and Value vectors for each
+ position, the model stores them in a cache. When generating the next token, only the new
+ token's Query, Key, and Value need to be computed. The new Key and Value are appended to the
+ cache, and the attention for the new Query is computed against all cached Keys and Values. This
+ reduces each generation step from processing the full sequence to processing a single token
+ (plus the cached context), providing a dramatic speedup in practice.
+</p>
+<p>
+ The tradeoff is memory: the KV cache stores two tensors (K and V) per layer, per attention head,
+ for every token in the sequence. For a model with <span class="math">$L$</span> layers,
+ <span class="math">$H$</span> heads, and head dimension <span class="math">$d_h$</span>, the cache
+ for a sequence of length <span class="math">$n$</span> requires
+ <span class="math">\$2 \times L \times H \times d_h \times n$</span> elements. For large models
+ serving long contexts, this cache can consume tens of gigabytes of GPU memory. Managing KV cache
+ memory efficiently is one of the central challenges of LLM inference, and techniques like
+ grouped-query attention (GQA), paged attention (<a href="../../part-2-understanding-llms/module-10-inference-optimization/section-10.5.html">vLLM</a>), and cache <a href="../../part-2-understanding-llms/module-10-inference-optimization/section-10.2.html">quantization</a> have been developed
+ to address it. We will explore these optimizations in detail in
+ <a href="../../part-2-understanding-llms/module-10-inference-optimization/section-10.1.html">Chapter 09: Inference Optimization</a>.
+</p>
+<div class="callout key-insight">
+<div class="callout-title">Key Insight: Why KV Cache Matters</div>
+<p>
+ Without a KV cache, generating a 1,000-token response would require roughly 500,000 redundant
+ Key and Value computations (summing the repeated work across all steps). With a KV cache, each
+ step processes exactly one new token. This is the single most important optimization that makes
+ real-time LLM inference practical, and every production serving framework implements it.
+ </p>
+</div>
+<!-- ============================================================ -->
+<h2 id="4-1-11-the-complete-forward-pass">4.1.11 The Complete Forward Pass</h2>
+<p>
+ Let us trace a single forward pass through a decoder-only Transformer, the architecture used by
+ GPT and most modern LLMs:
+</p>
+<ol>
+<li><strong>Tokenize</strong> the input text into a sequence of integer token IDs.</li>
+<li><strong>Embed</strong> the tokens: look up each ID in the embedding table and scale by <span class="math">$\sqrt{d}$</span>.</li>
+<li><strong>Add positional encoding</strong> (sinusoidal, learned, or RoPE).</li>
+<li>For each of the <span class="math">$N$</span> Transformer blocks:
+ <ol style="list-style-type: lower-alpha;">
+<li>Apply <strong>Layer Normalization</strong> (Pre-LN).</li>
+<li>Compute <strong>Masked Multi-Head Self-Attention</strong> (with the causal mask).</li>
+<li>Add the <strong>residual</strong> (skip connection).</li>
+<li>Apply <strong>Layer Normalization</strong> (Pre-LN).</li>
+<li>Apply the <strong>Feed-Forward Network</strong>.</li>
+<li>Add the <strong>residual</strong>.</li>
+</ol>
+</li>
+<li>Apply a <strong>final Layer Normalization</strong>.</li>
+<li>Project to vocabulary size with a <strong>linear layer</strong> (often weight-tied with the embedding matrix).</li>
+<li>Apply <strong>softmax</strong> to obtain next-token probabilities.</li>
+</ol>
+<div class="callout key-insight">
+<div class="callout-title">Key Insight: Weight Tying</div>
+<p>
+ Many models share ("tie") the embedding matrix and the final output projection matrix. Since
+ both map between <span class="math">$d$</span>-dimensional space and vocabulary space, sharing
+ weights reduces parameter count significantly (by <span class="math">$V \times d$</span>
+ parameters) and provides a useful inductive bias: similar tokens should have similar embeddings
+ and similar output logits.
+ </p>
+</div>
+<!-- ============================================================ -->
+<h2 id="4-1-12-information-flow-through-the-residual-stream">4.1.12 Information Flow Through the Residual Stream</h2>
+<p>
+ A powerful mental model for understanding Transformers (popularized by Elhage et al. at Anthropic) is
+ the <strong>residual stream</strong> perspective. Instead of viewing the Transformer as a sequence of
+ layers, imagine a single stream of vectors (one per position) flowing from the input embedding to the
+ output. Each attention layer and each FFN layer <em>reads from</em> and <em>writes to</em> this stream
+ additively:
+</p>
+<div class="math-block">
+ $$x_{out} = x_{embed} + \sum _{l} (Attn_{l}(x) + FFN_{l}(x))$$
+ 
+</div>
+<p>
+ Each sub-layer sees the accumulated state of the residual stream up to that point, performs some
+ computation, and adds its contribution back. This means that earlier layers can communicate with later
+ layers directly through the residual stream, without the information needing to "pass through" every
+ intermediate layer. It also means that deleting a layer from a trained Transformer may be less
+ catastrophic than you might expect; the residual stream carries forward most of the information regardless.
+</p>
+<div class="diagram-container">
+<img alt="Residual stream perspective: attention and FFN sub-layers read from and write back to a shared communication channel" src="images/fig-4.1.7-residual-stream.png"/>
+<div class="diagram-caption"><strong>Figure 4.1.6</strong>: The residual stream perspective (Elhage et al., 2021). The Transformer's residual path acts as a shared communication channel. Each attention and FFN sub-layer reads from the stream and adds its output back, rather than sequentially transforming a single representation.</div>
+</div>
+<p>
+ This perspective is central to the field of <strong>mechanistic interpretability</strong>, where
+ researchers decompose the behavior of trained Transformers into the contributions of individual heads
+ and MLP layers. We will return to this in a later module.
+</p>
+<!-- ============================================================ -->
+<h2 id="4-1-13-putting-it-all-together-parameter-counts">4.1.13 Putting It All Together: Parameter Counts</h2>
+<p>
+ For a Transformer with <span class="math">$N$</span> layers, model dimension <span class="math">$d$</span>,
+ feed-forward dimension <span class="math">$d_{ff} = 4d$</span>,
+ <span class="math">$h$</span> attention heads, and vocabulary size <span class="math">$V$</span>, the
+ parameter count is approximately:
+</p>
+<div class="comparison-table">
+<div class="comparison-table-title"><strong>Table 4.1.2:</strong> <em>13. Putting It All Together: Parameter Counts Comparison (as of 2026).</em></div>
+<table>
+<tr>
+<th scope="col">Component</th>
+<th scope="col">Parameters per Layer</th>
+<th scope="col">Notes</th>
+</tr>
+<tr>
+<td>Attention (Q, K, V, O)</td>
+<td>4d<sup>2</sup></td>
+<td>Four weight matrices, each d × d</td>
+</tr>
+<tr>
+<td>FFN (two linears)</td>
+<td>8d<sup>2</sup></td>
+<td>d × 4d + 4d × d</td>
+</tr>
+<tr>
+<td>LayerNorms (2 per block)</td>
+<td>4d</td>
+<td>Scale and shift, each d</td>
+</tr>
+<tr>
+<td>Per-layer total</td>
+<td>&amp;approx; 12d<sup>2</sup></td>
+<td>Dominated by FFN + Attention</td>
+</tr>
+<tr>
+<td>Embedding + Output</td>
+<td>V × d</td>
+<td>Halved with weight tying</td>
+</tr>
+<tr>
+<td><strong>Total (no tying)</strong></td>
+<td><strong>12Nd<sup>2</sup> + 2Vd</strong></td>
+<td></td>
+</tr>
+</table>
+</div>
+<p>
+ For GPT-3 (N=96, d=12288, V=50257), this gives roughly 175 billion parameters. The FFN contributes
+ about twice as many parameters as the attention layers, a ratio that remains consistent across model
+ sizes.
+</p>
+<div class="callout practical-example">
+<div class="callout-title">Parameter Budget Planning for Model Deployment</div>
+<p>Understanding the parameter count formula (12Nd<sup>2</sup> + 2Vd) is directly useful when planning model deployment. Suppose a team needs a model that fits in 16 GB of GPU memory at FP16 precision (2 bytes per parameter). That gives a budget of 8 billion parameters. Using the formula with a typical vocabulary of 50,000 tokens, they can solve for feasible combinations: N=32 layers with d=4096 yields roughly 6.4B parameters (fits), while N=40 with d=5120 yields roughly 12.6B (does not fit). This kind of back-of-the-envelope calculation lets engineers choose model dimensions that hit performance targets without exceeding hardware constraints, long before running any training jobs.</p>
+</div>
+<!-- ============================================================ -->
+<div class="callout tip">
+<div class="callout-title">Tip: Count Parameters Before Training</div>
+<p>Before launching a training run, print your model's parameter count with <code>sum(p.numel() for p in model.parameters())</code>. This sanity check catches architecture bugs (wrong hidden sizes, missing layers) before you waste GPU time.</p>
+</div>
+<div class="callout key-insight">
+<div class="callout-title">Key Insight: Residual Connections and the Geometry of Optimization</div>
+<p>Residual connections (He et al., 2016) are not just an engineering trick; they fundamentally reshape the loss landscape. Without residuals, deep networks have loss surfaces riddled with saddle points and sharp minima. Adding skip connections creates a smooth "highway" through parameter space: the network can always learn the identity function (do nothing) and then incrementally refine it. This insight from optimization geometry explains why Transformers can be trained with 100+ layers while plain deep networks struggle past 20. It also connects to a deeper principle: the Transformer's residual stream functions as an evolving "blackboard" where each attention layer and FFN layer reads, processes, and writes back information. This view, explored further in the mechanistic interpretability work of <a href="../../part-2-understanding-llms/module-11-interpretability/section-11.1.html">Section 11.1</a>, treats the residual stream as the central communication channel of the network.</p>
+</div>
+<div class="takeaways">
+<h2 id="key-takeaways">Key Takeaways</h2>
+<ul>
+<li>The Transformer processes all positions in parallel using self-attention plus feed-forward networks, avoiding the sequential bottleneck of RNNs.</li>
+<li>Positional encoding injects ordering information that attention alone cannot capture.</li>
+<li>Multi-head attention lets the model attend to multiple aspects of context simultaneously.</li>
+<li>The FFN provides the essential nonlinear per-token transformation; it holds roughly 2/3 of each layer's parameters.</li>
+<li>Residual connections create gradient highways and enable an "ensemble" of paths through the network.</li>
+<li>Pre-LN ordering is preferred in modern models for training stability.</li>
+<li>Careful initialization (Xavier + residual path scaling) prevents variance explosion in deep models.</li>
+<li>The residual stream perspective views each sub-layer as reading from and writing to a shared communication channel.</li>
+</ul>
+</div>
+<!-- ============================================================ -->
+<div class="callout self-check">
+<div class="callout-title">Self-Check</div>
+<div class="quiz-question">1. Why does the original Transformer scale dot products by 1/√<span class="math">$d_{k}$</span>?</div>
+<details>
+<summary>Show Answer</summary>
+<div class="answer">
+ When queries and keys have components that are independent with zero mean and unit variance,
+ their dot product has variance <span class="math">$d_{k}$</span>. Large dot products push softmax into saturated
+ regions with very small gradients. Dividing by √<span class="math">$d_{k}$</span> restores unit variance,
+ keeping the softmax in a well-behaved range.
+ </div>
+</details>
+<div class="quiz-question">2. What is the difference between Pre-LN and Post-LN, and which is preferred in practice?</div>
+<details>
+<summary>Show Answer</summary>
+<div class="answer">
+ Post-LN applies LayerNorm after the residual addition: LN(x + SubLayer(x)). Pre-LN applies
+ it before: x + SubLayer(LN(x)). Pre-LN is preferred in modern models because it produces
+ more stable gradients across layers and typically does not require learning rate warmup.
+ </div>
+</details>
+<div class="quiz-question">3. Why are residual connections essential in deep Transformers?</div>
+<details>
+<summary>Show Answer</summary>
+<div class="answer">
+ Residual connections (a) provide a gradient highway that prevents vanishing gradients in deep
+ networks, (b) allow each layer to learn only the incremental change (delta) rather than the
+ full transformation, making optimization easier, and (c) create an exponential number of
+ effective paths through the network, giving an ensemble-like benefit.
+ </div>
+</details>
+<div class="quiz-question">4. In a 12-layer model with d=768, approximately how many parameters are in the Transformer blocks (excluding embeddings)?</div>
+<details>
+<summary>Show Answer</summary>
+<div class="answer">
+ Using the formula 12Nd<sup>2</sup>: 12 × 12 × 768<sup>2</sup> = 12 × 12 ×
+ 589,824 &amp;approx; 85 million parameters. This is roughly the size of GPT-2 Small (the full model
+ is ~124M including embeddings).
+ </div>
+</details>
+<div class="quiz-question">5. What does the "residual stream" perspective mean, and why is it useful?</div>
+<details>
+<summary>Show Answer</summary>
+<div class="answer">
+ The residual stream views the Transformer as a single stream of vectors flowing from input
+ to output, with each attention and FFN sub-layer reading from and writing to this stream
+ additively. This is useful because it reveals that layers can communicate without passing
+ information through every intermediate layer. It also enables mechanistic interpretability
+ by decomposing the final output into contributions from individual sub-layers.
+ </div>
+</details>
+<div class="quiz-question">6. Why does GPT-2 scale the initialization of residual output projections by 1/√(2N)?</div>
+<details>
+<summary>Show Answer</summary>
+<div class="answer">
+ Each Transformer block adds two residual contributions (from attention and FFN). Without
+ scaling, the variance of the residual stream grows linearly with the number of layers.
+ Scaling each residual contribution by 1/√(2N) ensures that the total accumulated
+ variance remains roughly O(1) regardless of model depth.
+ </div>
+</details>
+</div>
+<h2 id="exercises">Exercises</h2>
+<div class="callout exercise">
+<div class="callout-title">Exercise 4.1.1: Compute GPT-2 Small Parameters <span class="exercise-type calculation" title="Calculation">Calculation</span></div>
+<p>GPT-2 Small has N=12 layers, d=768, vocab V=50257, and uses weight tying (input and output embedding share parameters). (a) Compute the parameters in the Transformer blocks alone. (b) Add the embedding (with weight tying). (c) The reported total is ~124M; how close is your estimate, and what accounts for any gap?</p>
+<details>
+<summary>Answer Sketch</summary>
+<p>(a) Per-layer is ~12d² = 12 × 768² = 7,077,888 params; times 12 layers = 84,934,656 (~85M). (b) Embedding: V × d = 50257 × 768 = 38,597,376 (~38.6M); with weight tying, the output projection reuses these parameters, so we count once. Subtotal: ~85M + ~39M = ~124M. (c) Excellent agreement. The remaining gap (less than 1M) comes from positional embeddings (1024 × 768 = ~0.79M for max context 1024), LayerNorm scale/shift parameters (~37K total), and final LayerNorm. The 12d² rule of thumb is accurate to within 1% for typical configurations and is the right tool for back-of-the-envelope sizing.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 4.1.2: Permutation Equivariance Check <span class="exercise-type predictive" title="Predictive">Predictive</span></div>
+<p>Suppose you remove positional encoding entirely from a Transformer (set it to zero). For the input "the cat sat" vs. "sat cat the", predict whether (a) the per-position output vectors will be identical, (b) the bag of output vectors will be identical, and (c) the next-token prediction will be the same. Justify each answer in one sentence.</p>
+<details>
+<summary>Answer Sketch</summary>
+<p>(a) No: position 0's output for "the cat sat" comes from input "the", but for "sat cat the" comes from input "sat", so the per-position outputs differ. (b) Yes: self-attention without positional encoding is permutation-equivariant, meaning the set (multiset) of output vectors is the same regardless of input order; permuting the input simply permutes the outputs. (c) Yes (in expectation): if the next-token prediction reads from a specific output position (say the last), and the multiset of representations going into that position is the same, the predicted distribution will be identical for both inputs, which is a disastrous failure for language modeling. This exercise directly motivates why positional encoding is non-optional.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 4.1.3: Pre-LN vs. Post-LN Trace <span class="exercise-type analysis" title="Analysis">Analysis</span></div>
+<p>Trace the residual stream values through a 4-layer model where each sub-layer's output has standard deviation 1.0 at initialization. (a) For Post-LN (LN after the residual add), what is the residual-stream std after layer 4? (b) For Pre-LN (LN before each sub-layer), what does the LN see at layer 4 input? (c) Use this to explain why Pre-LN is more stable.</p>
+<details>
+<summary>Answer Sketch</summary>
+<p>(a) Post-LN: each layer outputs <span class="math">$LN(x + sub(x))$</span>, which always has std = 1 by construction; the residual stream is renormalized after every block, so std stays at 1 after every layer. The danger is that the gradient through the LN can shrink because the normalization decouples scale information across layers. (b) Pre-LN: the residual stream accumulates without renormalization. Each block adds something with std ~ 1 to the stream, so after 4 layers std ~ <span class="math">$\sqrt{1 + 4} \approx 2.24$</span>. The LN inside each block sees inputs with growing std but normalizes them before the sub-layer, so the sub-layer always operates in unit-variance regime. (c) Pre-LN is more stable because the residual stream's growth is benign (the sum of independent contributions), while gradients flow back through the residual path without being affected by LN. Post-LN must learn to "balance" the residual through the LN, which often requires careful warmup of the learning rate.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 4.1.4: Sinusoidal Encoding Frequencies <span class="exercise-type calculation" title="Calculation">Calculation</span></div>
+<p>Using <span class="math">$d = 512$</span>, what is the wavelength (in token positions) of (a) the lowest-frequency dimension and (b) the highest-frequency dimension of the standard sinusoidal positional encoding? (c) For a sequence of length 4000, will a model trained on length 512 generalize positionally? Explain in terms of which dimensions can or cannot extrapolate.</p>
+<details>
+<summary>Answer Sketch</summary>
+<p>The frequency formula is <span class="math">\$1/10000^{2i/d}$</span>, so wavelength is <span class="math">\$2\pi \cdot 10000^{2i/d}$</span>. (a) Highest <span class="math">$i$</span> is 255 (since dims are paired sin/cos), giving wavelength <span class="math">\$2\pi \cdot 10000^{510/512} \approx 2\pi \cdot 9655 \approx 60{,}600$</span> positions. (b) Lowest <span class="math">$i = 0$</span>: wavelength <span class="math">\$2\pi \cdot 1 \approx 6.28$</span>. (c) Partial extrapolation: high-frequency dimensions (which oscillate every ~6 to ~100 positions) saw the same patterns at training; they should generalize. But the model never saw the slow-varying dimensions in their later phases (positions 512-4000), so the longer-period encodings represent unseen positional fingerprints. In practice, sinusoidal encodings extrapolate "okay-but-not-great" beyond training length; this is one motivation for RoPE and ALiBi (covered in Section 4.3).</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 4.1.5: Code Tweak: Add Bias Term to Attention Scores <span class="exercise-type coding" title="Coding">Coding</span></div>
+<p>Modify the <code>MultiHeadAttention</code> in Code Fragment 4.1.3 to support an additive position-dependent bias to attention scores (this is essentially how ALiBi works). The bias should be a tensor of shape <code>(n_heads, max_seq, max_seq)</code> registered as a buffer. Sketch the necessary changes in 5-6 lines.</p>
+<details>
+<summary>Answer Sketch</summary>
+<p>In <code>__init__</code>: add <code>self.register_buffer('alibi_bias', torch.zeros(n_heads, max_seq, max_seq))</code>. In <code>forward</code>, after computing <code>scores</code>: <code>T_q = q.size(2); T_k = k.size(2); scores = scores + self.alibi_bias[:, :T_q, :T_k].unsqueeze(0)</code>. The unsqueeze adds the batch dimension to broadcast across all batch elements. The bias is added <em>before</em> softmax so that it shapes the attention distribution; it is added <em>after</em> the <span class="math">$\sqrt{d_{k}}$</span> scaling because ALiBi's bias values are calibrated to interact with the un-normalized output of the softmax, not the unscaled scores. For a true ALiBi implementation, the bias matrix would be initialized as a linear penalty on (i-j) with per-head slopes following ALiBi's geometric schedule rather than zeros.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 4.1.6: Why FFN Has 2/3 of the Parameters <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+<p>Per the chapter table, the FFN contributes 8d² parameters per layer while attention contributes 4d². (a) Verify the 8d² figure by writing out the dimensions of the two FFN matrices (assume <span class="math">$d_{ff} = 4d$</span>). (b) If a researcher proposes shrinking <span class="math">$d_{ff}$</span> from 4d to 2d to halve the FFN parameter count, what tradeoff are they making? (c) Empirically, modern models (LLaMA-3, GPT-4-class) keep <span class="math">$d_{ff} \approx 4d$</span> or use <span class="math">$d_{ff} \approx 8d/3$</span> with SwiGLU. Why has the community converged on these specific ratios?</p>
+<details>
+<summary>Answer Sketch</summary>
+<p>(a) FFN has W1 of shape (d, 4d) = 4d² params and W2 of shape (4d, d) = 4d², total 8d². (b) Halving <span class="math">$d_{ff}$</span> reduces nonlinear capacity: the FFN is the only place where each token undergoes a nonlinear position-wise transformation, so it stores most of the model's "knowledge" (key-value memories, as Geva et al. 2021 showed). Halving it consistently degrades downstream task accuracy by 1-3% at constant total parameters; you would do better adding more layers. (c) The 4x ratio is empirical: ablations in the original Transformer paper and follow-ups (Kaplan et al. 2020) showed it sits near the Pareto frontier of compute vs. quality. SwiGLU's 8/3 ratio compensates for SwiGLU's three matrices (instead of two) so the parameter count matches GLU at 4d. Convergence on these ratios reflects extensive empirical study, not first-principles derivation.</p>
+</details>
+</div>
+<div class="callout research-frontier">
+<div class="callout-title">Research Frontier</div>
+<p><strong>Post-Transformer architectures</strong> are an active area of exploration. State-space models like <a href="../../part-16-llm-agentic-ai-research-frontiers/module-82-frontier-architectures/section-82.1.html">Mamba</a> (Gu and Dao, 2023) achieve linear-time sequence processing by replacing attention with selective state spaces. Hybrid architectures (Jamba, StripedHyena) combine state-space layers with attention layers to get the best of both worlds. Meanwhile, modifications to the standard Transformer continue: RoPE (Rotary Position Embedding) has largely replaced sinusoidal positional encoding, Pre-LayerNorm is now standard over Post-LayerNorm, and SwiGLU has replaced ReLU in feedforward blocks. See <a href="section-4.3.html">Section 4.3</a> for a systematic comparison of these variants.</p>
+</div>
+<div class="whats-next">
+<h3 id="what-s-next">What's Next?</h3>
+<p>In the next section, <a href="section-4.2.html">Section 4.2: Build a Transformer from Scratch</a>, we build a Transformer from scratch in code, solidifying your understanding through hands-on implementation.</p>
+</div>
+<details class="bibliography-collapsible" open>
+<summary><strong>Further Reading</strong></summary>
+<section class="bibliography">
+<div class="bib-entry-card">
+<div class="bib-ref">Vaswani, A., Shazeer, N., Parmar, N., et al. (2017). <a href="https://arxiv.org/abs/1706.03762" rel="noopener" target="_blank">"Attention Is All You Need."</a> NeurIPS 2017.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Radford, A., Wu, J., Child, R., Luan, D., Amodei, D., Sutskever, I. (2019). <a href="https://cdn.openai.com/better-language-models/language_models_are_unsupervised_multitask_learners.pdf" rel="noopener" target="_blank">"Language Models are Unsupervised Multitask Learners."</a> OpenAI Technical Report.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Xiong, R., Yang, Y., He, D., et al. (2020). <a href="https://arxiv.org/abs/2002.04745" rel="noopener" target="_blank">"On Layer Normalization in the Transformer Architecture."</a> ICML 2020.</div>
+</div>
+</section>
+</details>
+<nav class="chapter-nav">
+<a class="prev" href="../module-03-sequence-models-attention/section-3.3.html"><span class="nav-label">Previous</span><span class="nav-num">Section 3.3</span><span class="nav-title">Scaled Dot-Product &amp; Multi-Head Attention</span></a>
+<a class="up" href="index.html"><span class="nav-label">In Chapter</span><span class="nav-num">Chapter 04</span><span class="nav-title">The Transformer Architecture</span></a>
+<a class="next" href="section-4.2.html"><span class="nav-label">Next</span><span class="nav-num">Section 4.2</span><span class="nav-title">Build a Transformer from Scratch</span></a>
+</nav>
+<footer><p>Fifteenth Edition, 2026 · <a href="../../toc.html">Contents</a></p></footer>
+</main>
+<script>
+window.addEventListener("DOMContentLoaded", function() {
+  if (window.PagefindUI) {
+    new PagefindUI({
+      element: "#search",
+      showSubResults: true,
+      showImages: false,
+      resetStyles: false,
+      pageSize: 8,
+      autofocus: false,
+      translations: {
+        placeholder: "Search the book\u2026",
+      },
+      processResult: function (result) {
+        try {
+          var part = (result && result.meta && result.meta.part) ? result.meta.part : "";
+          var chap = (result && result.meta && result.meta.chapter) ? result.meta.chapter : "";
+          var partShort = part.split(":")[0].trim();
+          var chapShort = chap.split(":")[0].trim();
+          var crumb = [partShort, chapShort].filter(Boolean).join(" \u203a ");
+          if (crumb && result.meta && result.meta.title
+              && result.meta.title.indexOf("[" + partShort) !== 0) {
+            result.meta.title = "[" + crumb + "]  " + result.meta.title;
+          }
+        } catch (e) { /* fall through */ }
+        return result;
+      },
+    });
+  }
+});
+</script>
+</body>
+</html>
