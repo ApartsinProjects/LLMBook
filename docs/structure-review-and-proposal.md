@@ -1,4 +1,4 @@
-# Book Structure: Analysis and Proposed Restructure (v8)
+# Book Structure: Analysis and Proposed Restructure (v9)
 
 **Status**: proposal, in development on branch `v2.0`. Production lives on `main` tagged `production-v1.0`.
 **Generated**: 2026-05-17, post-appendix-renumbering.
@@ -8,12 +8,14 @@
   - v3 — split old Part X into LLM @ Scale and LLMOps; move Multimodal to V.
   - v4 — move Agentic AI to Part VI; rename old Part XII to LLMOps & Lifecycle Management.
   - v5 — deep section-level content analysis + content-level interventions.
-  - v6 — split Safety into X (Security) + XI (Ethics & Governance); rename every part with LLM or Agentic; restructure appendices (7→4); absorb Math + ML Essentials into main book.
-  - v7 — drop pedagogy appendices (Projects, Capstone, War Stories); rename Part I to "LLM Building Blocks"; rename XIV; consolidate XIV from 7 to 5 chapters; rename XVI to "LLM & Agentic AI Research Frontiers".
-  - **v8 (this version)** — grammar fixes for parts whose topic is "X *built with* LLMs" rather than "X *of* LLMs":
-      - VII: "LLM Retrieval & Information Extraction" → **"Retrieval & Information Extraction with LLMs"**
-      - VIII: "LLM Conversational AI" → **"Conversational AI with LLMs"**
-      - XV: "LLM Applications Across Industries" → **"Applications of LLMs Across Industries"**
+  - v6 — split Safety into X (Security) + XI (Ethics & Governance); rename every part with LLM or Agentic; restructure appendices.
+  - v7 — drop pedagogy appendices; rename Part I to "LLM Building Blocks"; consolidate XIV from 7 to 5 chapters.
+  - v8 — grammar fixes for VII, VIII, XV (Pattern B "with LLMs" / "of LLMs").
+  - **v9 (this version)** — rebalance Part I (7→6), Part V (7→6), Part IX (4→5):
+      - Part I: merge Ch 1 (NLP) + Ch 2 (Tokenization) → "Foundations of NLP, Text Representation & Tokenization"
+      - Part V: merge Ch 22 (Image+Video) + Ch 23 (Audio) → "Multimodal Generation: Image, Video & Audio"
+      - Part IX: promote sec 44.8 (LLM-as-Judge) to a new chapter "LLM-as-Judge & Automated Evaluation"
+      - Net: 85 → **84 chapters** (-1)
 
 **Current state on disk**: 13 parts, 87 chapters, 413 sections, 7 appendices, audit clean.
 
@@ -47,26 +49,35 @@ The 15 parts cluster into 6 thematic blocks:
 
 ---
 
-## 3. Final per-part structure (v8)
+## 3. Final per-part structure (v9)
 
 | # | Part | Block | Ch | What it contains |
 |---|---|---|---:|---|
-| **I** | **LLM Building Blocks** | A. Models | 7 | Math, ML/PyTorch, NLP basics, tokenization, attention, transformers, decoding, Foundations Tools |
+| **I** | **LLM Building Blocks** | A. Models | **6** | Math/ML/PyTorch, NLP+text+tokenization, attention, transformer, decoding, Foundations Tools |
 | **II** | **Understanding LLMs** | A. Models | 5 | Pre-training & scaling, modern landscape, reasoning, inference optimization, interpretability+Tools |
 | **III** | **Working with LLMs** | A. Models | 4 | APIs, prompt engineering, hybrid ML+LLM, Tools |
 | **IV** | **LLM Training & Adaptation** | A. Models | 5 | Synthetic data, SFT, PEFT, alignment, Tools |
-| **V** | **Multimodal LLMs** | A. Models | 7 | VLM/Omni, image+video, audio, document/OCR, 3D/scenes, embodied AI/VLA/robotics, Tools |
+| **V** | **Multimodal LLMs** | A. Models | **6** | VLM/Omni, multimodal generation (img+video+audio merged), doc/OCR, 3D/scenes, embodied AI, Tools |
 | **VI** | **Agentic AI** | B. Patterns | 5 | Foundations, tools/MCP/A2A, multi-agent, specialized, Tools |
 | **VII** | **Retrieval & Information Extraction with LLMs** | B. Patterns | 6 | Embeddings, NER, RAG fundamentals, advanced RAG/KG, cross-modal RAG, Tools |
 | **VIII** | **Conversational AI with LLMs** | B. Patterns | 5 | Dialogue architecture, memory, multi-turn, voice & realtime, Tools |
-| **IX** | **LLM Evaluation & Observability** | C. Quality | 4 | Quality metrics, specialized eval, online monitoring, Tools |
+| **IX** | **LLM Evaluation & Observability** | C. Quality | **5** | Eval fundamentals, **LLM-as-judge (new)**, specialized eval, online monitoring, Tools |
 | **X** | **LLM Security & Runtime Safety** | C. Quality | 5 | Adversarial, guardrails, agent safety, privacy, Tools |
 | **XI** | **LLM Ethics, Trust & Governance** | C. Quality | 5 | Bias/hallucination, provenance/transparency, regulation/compliance, frontier safety, Tools |
 | **XII** | **LLM Systems at Scale** | D. Runtime | 5 | Compute planning, distributed training, hardware, edge, Tools |
 | **XIII** | **LLMOps & Lifecycle Management** | D. Runtime | 5 | Gateways, orchestration, K8s, reliability/registry, Tools |
-| **XIV** | **Designing LLM & Agent-based Products** | E. Applied | 5 | Ideation+PM, prototype+MVP, economics, shipping, Tools (consolidated from 7) |
-| **XV** | **Applications of LLMs Across Industries** | E. Applied | 8 | Legal, finance, healthcare, education, cyber, gov, manuf+creative+rec (merged), Tools |
+| **XIV** | **Designing LLM & Agent-based Products** | E. Applied | 5 | Ideation+PM, prototype+MVP, economics, shipping, Tools |
+| **XV** | **Applications of LLMs Across Industries** | E. Applied | 8 | Legal, finance, healthcare, education, cyber, gov, manuf+creative+rec, Tools |
 | **XVI** | **LLM & Agentic AI Research Frontiers** | F. Future | 4 | Architectures, theory, AGI trajectories, Tools |
+| | **TOTAL** | | **84** | |
+
+### v9 rebalance details
+
+**Part I (7→6)**: merge Ch 1 (Foundations of NLP & Text Representation) + Ch 2 (Tokenization and Subword Models) → **Foundations of NLP, Text Representation & Tokenization**. Both small (4+3=7 sections, ~7-8 after dedup); cover the closely-related text-to-tokens-to-embeddings arc.
+
+**Part V (7→6)**: merge Ch 22 (Image & Video Generation) + Ch 23 (Audio & Music Generation) → **Multimodal Generation: Image, Video & Audio**. Sibling generation chapters; ~7 sections after consolidation (was 5+5=10, trim duplicate framing).
+
+**Part IX (4→5)**: promote section 44.8 (LLM-as-Judge: Reliability, Debiasing, and Training Judge Models) to a full chapter **LLM-as-Judge & Automated Evaluation**. Expanded to 5 sections covering judge reliability, debiasing techniques, training judge models, multi-judge ensembles, judge prompting patterns. Was a buried section in the old Ch 44 monster (11 sections).
 
 **Totals**: 16 parts, **85 chapters**, ~375 sections target. Every part in 4–9 chapter band. All part names use "LLM" or "Agentic" prefix in adjective-noun pattern for consistency.
 

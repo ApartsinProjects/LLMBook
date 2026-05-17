@@ -21,11 +21,11 @@ target = {
         'year': 2026,
     },
     '_meta': {
-        'proposal_version': 8,
+        'proposal_version': 9,
         'total_parts_target': 16,
-        'total_chapters_target': 85,
+        'total_chapters_target': 84,
         'total_appendices_target': 2,
-        'notes': 'v8: grammar fixes for parts whose scope is "X built with LLMs" rather than "X of LLMs": VII -> "Retrieval & Information Extraction with LLMs", VIII -> "Conversational AI with LLMs", XV -> "Applications of LLMs Across Industries".',
+        'notes': 'v9: rebalance — Part I (7->6, merge NLP+Tokenization), Part V (7->6, merge Image+Video and Audio), Part IX (4->5, promote LLM-as-Judge to chapter).',
     },
     'parts': []
 }
@@ -34,16 +34,16 @@ parts = []
 
 parts.append({
     'num': 1, 'roman': 'I', 'slug': 'llm-building-blocks', 'title': 'LLM Building Blocks',
-    'subtitle': 'Math, ML/PyTorch prerequisites, NLP basics, tokenization, attention, transformers, decoding.',
+    'subtitle': 'Math, ML/PyTorch prerequisites, NLP and text representation, tokenization, attention, transformers, decoding.',
     '_action': 'rename', '_source': 'part-1-foundations',
+    '_notes': 'v9: 7 chapters -> 6 (merge old Ch 1 + Ch 2 into one Foundations chapter)',
     'chapters': [
         {'num': 0, 'slug': 'math-ml-pytorch-foundations', 'title': 'Math, ML and PyTorch Foundations', '_action': 'absorb_appendices', '_absorbs': ['appendix-a-mathematical-foundations', 'appendix-b-ml-essentials sec b.1-b.3'], '_source': 'module-00-ml-pytorch-foundations'},
-        {'num': 1, 'slug': 'foundations-nlp-text-representation', 'title': 'Foundations of NLP & Text Representation', '_action': 'unchanged'},
-        {'num': 2, 'slug': 'tokenization-subword-models', 'title': 'Tokenization and Subword Models', '_action': 'unchanged'},
-        {'num': 3, 'slug': 'sequence-models-attention', 'title': 'Sequence Models & the Attention Mechanism', '_action': 'unchanged'},
-        {'num': 4, 'slug': 'transformer-architecture', 'title': 'The Transformer Architecture', '_action': 'unchanged'},
-        {'num': 5, 'slug': 'decoding-text-generation', 'title': 'Decoding Strategies & Text Generation', '_action': 'unchanged'},
-        {'num': 6, 'slug': 'tools-of-the-trade', 'title': 'Tools of the Trade: Foundations Stack', '_action': 'unchanged'},
+        {'num': 1, 'slug': 'nlp-text-representation-tokenization', 'title': 'Foundations of NLP, Text Representation & Tokenization', '_action': 'merge', '_sources': ['module-01-foundations-nlp-text-representation', 'module-02-tokenization-subword-models']},
+        {'num': 2, 'slug': 'sequence-models-attention', 'title': 'Sequence Models & the Attention Mechanism', '_action': 'renumber', '_source': 'module-03-sequence-models-attention'},
+        {'num': 3, 'slug': 'transformer-architecture', 'title': 'The Transformer Architecture', '_action': 'renumber', '_source': 'module-04-transformer-architecture'},
+        {'num': 4, 'slug': 'decoding-text-generation', 'title': 'Decoding Strategies & Text Generation', '_action': 'renumber', '_source': 'module-05-decoding-text-generation'},
+        {'num': 5, 'slug': 'tools-of-the-trade', 'title': 'Tools of the Trade: Foundations Stack', '_action': 'renumber', '_source': 'module-06-tools-of-the-trade'},
     ],
 })
 
@@ -52,11 +52,11 @@ parts.append({
     'subtitle': 'Pre-training, scaling laws, model landscape, reasoning models, inference optimization, interpretability.',
     '_action': 'rename',
     'chapters': [
-        {'num': 7, 'slug': 'pretraining-scaling-laws', 'title': 'Pre-training, Scaling Laws & Data Curation', '_action': 'unchanged'},
-        {'num': 8, 'slug': 'modern-llm-landscape', 'title': 'Modern LLM Landscape & Model Internals', '_action': 'unchanged'},
-        {'num': 9, 'slug': 'reasoning-test-time-compute', 'title': 'Reasoning Models & Test-Time Compute', '_action': 'unchanged'},
-        {'num': 10, 'slug': 'inference-optimization', 'title': 'Inference Optimization & Efficient Serving', '_action': 'unchanged'},
-        {'num': 11, 'slug': 'interpretability-and-tools', 'title': 'Interpretability, Mechanistic Understanding & Tools', '_action': 'merge', '_sources': ['module-11-interpretability', 'module-12-tools-of-the-trade']},
+        {'num': 6, 'slug': 'pretraining-scaling-laws', 'title': 'Pre-training, Scaling Laws & Data Curation', '_action': 'unchanged'},
+        {'num': 7, 'slug': 'modern-llm-landscape', 'title': 'Modern LLM Landscape & Model Internals', '_action': 'unchanged'},
+        {'num': 8, 'slug': 'reasoning-test-time-compute', 'title': 'Reasoning Models & Test-Time Compute', '_action': 'unchanged'},
+        {'num': 9, 'slug': 'inference-optimization', 'title': 'Inference Optimization & Efficient Serving', '_action': 'unchanged'},
+        {'num': 10, 'slug': 'interpretability-and-tools', 'title': 'Interpretability, Mechanistic Understanding & Tools', '_action': 'merge', '_sources': ['module-11-interpretability', 'module-12-tools-of-the-trade']},
     ],
 })
 
@@ -65,10 +65,10 @@ parts.append({
     'subtitle': 'LLM APIs, prompt engineering, hybrid ML+LLM application patterns.',
     '_action': 'rename',
     'chapters': [
-        {'num': 12, 'slug': 'llm-apis', 'title': 'Working with LLM APIs', '_action': 'renumber', '_source': 'module-13-llm-apis'},
-        {'num': 13, 'slug': 'prompt-engineering', 'title': 'Prompt Engineering & Advanced Techniques', '_action': 'renumber', '_source': 'module-14-prompt-engineering'},
-        {'num': 14, 'slug': 'hybrid-ml-llm', 'title': 'Hybrid ML+LLM Architectures & Decision Frameworks', '_action': 'renumber_and_shrink', '_source': 'module-15-hybrid-ml-llm', '_remove_sections': ['15.5', '15.6']},
-        {'num': 15, 'slug': 'tools-of-the-trade', 'title': 'Tools of the Trade: LLM API Stack', '_action': 'renumber', '_source': 'module-16-tools-of-the-trade'},
+        {'num': 11, 'slug': 'llm-apis', 'title': 'Working with LLM APIs', '_action': 'renumber', '_source': 'module-13-llm-apis'},
+        {'num': 12, 'slug': 'prompt-engineering', 'title': 'Prompt Engineering & Advanced Techniques', '_action': 'renumber', '_source': 'module-14-prompt-engineering'},
+        {'num': 13, 'slug': 'hybrid-ml-llm', 'title': 'Hybrid ML+LLM Architectures & Decision Frameworks', '_action': 'renumber_and_shrink', '_source': 'module-15-hybrid-ml-llm', '_remove_sections': ['15.5', '15.6']},
+        {'num': 14, 'slug': 'tools-of-the-trade', 'title': 'Tools of the Trade: LLM API Stack', '_action': 'renumber', '_source': 'module-16-tools-of-the-trade'},
     ],
 })
 
@@ -77,11 +77,11 @@ parts.append({
     'subtitle': 'Synthetic data, supervised fine-tuning, PEFT, RLHF / DPO / preference tuning, training tools.',
     '_action': 'rename',
     'chapters': [
-        {'num': 16, 'slug': 'synthetic-data', 'title': 'Synthetic Data Generation & LLM Simulation', '_action': 'renumber', '_source': 'module-17-synthetic-data'},
-        {'num': 17, 'slug': 'fine-tuning-fundamentals', 'title': 'Fine-Tuning Fundamentals', '_action': 'renumber', '_source': 'module-18-fine-tuning-fundamentals'},
-        {'num': 18, 'slug': 'peft', 'title': 'Parameter-Efficient Fine-Tuning (PEFT)', '_action': 'renumber', '_source': 'module-19-peft'},
-        {'num': 19, 'slug': 'alignment-rlhf-dpo', 'title': 'Alignment: RLHF, DPO & Preference Tuning', '_action': 'renumber', '_source': 'module-20-alignment-rlhf-dpo'},
-        {'num': 20, 'slug': 'tools-of-the-trade', 'title': 'Tools of the Trade: Training Stack', '_action': 'renumber', '_source': 'module-21-tools-of-the-trade'},
+        {'num': 15, 'slug': 'synthetic-data', 'title': 'Synthetic Data Generation & LLM Simulation', '_action': 'renumber', '_source': 'module-17-synthetic-data'},
+        {'num': 16, 'slug': 'fine-tuning-fundamentals', 'title': 'Fine-Tuning Fundamentals', '_action': 'renumber', '_source': 'module-18-fine-tuning-fundamentals'},
+        {'num': 17, 'slug': 'peft', 'title': 'Parameter-Efficient Fine-Tuning (PEFT)', '_action': 'renumber', '_source': 'module-19-peft'},
+        {'num': 18, 'slug': 'alignment-rlhf-dpo', 'title': 'Alignment: RLHF, DPO & Preference Tuning', '_action': 'renumber', '_source': 'module-20-alignment-rlhf-dpo'},
+        {'num': 19, 'slug': 'tools-of-the-trade', 'title': 'Tools of the Trade: Training Stack', '_action': 'renumber', '_source': 'module-21-tools-of-the-trade'},
     ],
 })
 
@@ -90,13 +90,12 @@ parts.append({
     'subtitle': 'Vision-language & Omni models, image/video/audio generation, document understanding, 3D, embodied AI / VLA / robotics.',
     '_action': 'move_and_restructure', '_source': 'part-7-multimodal-generation',
     'chapters': [
-        {'num': 21, 'slug': 'vision-language-omni', 'title': 'Vision-Language and Omni Models', '_action': 'merge', '_sources': ['module-35-vision-language-models', 'module-37-unified-multimodal-omni']},
-        {'num': 22, 'slug': 'image-video-generation', 'title': 'Image & Video Generation', '_action': 'renumber', '_source': 'module-33-video-generation'},
-        {'num': 23, 'slug': 'audio-music-generation', 'title': 'Audio & Music Generation', '_action': 'renumber_and_shrink', '_source': 'module-32-audio-music-generation', '_remove_streaming_sections': True},
-        {'num': 24, 'slug': 'document-understanding-ocr', 'title': 'Document Understanding & OCR', '_action': 'renumber', '_source': 'module-34-document-understanding-ocr'},
-        {'num': 25, 'slug': '3d-generation-neural-scenes', 'title': '3D Generation, World Models & Neural Scenes', '_action': 'merge', '_sources': ['module-36-3d-generation-neural-scenes', 'module-41-world-models-simulation']},
-        {'num': 26, 'slug': 'embodied-ai-vla-robotics', 'title': 'Embodied AI: VLA Models & LLM-Powered Robotics', '_action': 'merge', '_sources': ['module-39-vla-models', 'module-40-llm-robotics']},
-        {'num': 27, 'slug': 'tools-of-the-trade', 'title': 'Tools of the Trade: Multimodal Stack', '_action': 'renumber', '_source': 'module-43-tools-of-the-trade'},
+        {'num': 20, 'slug': 'vision-language-omni', 'title': 'Vision-Language and Omni Models', '_action': 'merge', '_sources': ['module-35-vision-language-models', 'module-37-unified-multimodal-omni']},
+        {'num': 21, 'slug': 'multimodal-generation', 'title': 'Multimodal Generation: Image, Video & Audio', '_action': 'merge', '_sources': ['module-33-video-generation', 'module-32-audio-music-generation'], '_notes': 'v9 merge: image/video + audio/music; trim duplicate framing; ~7 sections after dedup'},
+        {'num': 22, 'slug': 'document-understanding-ocr', 'title': 'Document Understanding & OCR', '_action': 'renumber', '_source': 'module-34-document-understanding-ocr'},
+        {'num': 23, 'slug': '3d-generation-neural-scenes', 'title': '3D Generation, World Models & Neural Scenes', '_action': 'merge', '_sources': ['module-36-3d-generation-neural-scenes', 'module-41-world-models-simulation']},
+        {'num': 24, 'slug': 'embodied-ai-vla-robotics', 'title': 'Embodied AI: VLA Models & LLM-Powered Robotics', '_action': 'merge', '_sources': ['module-39-vla-models', 'module-40-llm-robotics']},
+        {'num': 25, 'slug': 'tools-of-the-trade', 'title': 'Tools of the Trade: Multimodal Stack', '_action': 'renumber', '_source': 'module-43-tools-of-the-trade'},
     ],
     '_deletions': [
         'module-31-multimodal (overview duplicate of Ch 32-43)',
@@ -113,11 +112,11 @@ parts.append({
     '_action': 'move',
     '_source': 'part-6-agentic-ai',
     'chapters': [
-        {'num': 28, 'slug': 'ai-agents', 'title': 'AI Agent Foundations', '_action': 'renumber', '_source': 'module-26-ai-agents'},
-        {'num': 29, 'slug': 'tool-use-protocols', 'title': 'Tool Use, Function Calling & Protocols', '_action': 'renumber', '_source': 'module-27-tool-use-protocols'},
-        {'num': 30, 'slug': 'multi-agent-systems', 'title': 'Multi-Agent Systems', '_action': 'renumber', '_source': 'module-28-multi-agent-systems'},
-        {'num': 31, 'slug': 'specialized-agents', 'title': 'Specialized Agents', '_action': 'renumber', '_source': 'module-29-specialized-agents'},
-        {'num': 32, 'slug': 'tools-of-the-trade', 'title': 'Tools of the Trade: Agent Stack', '_action': 'renumber', '_source': 'module-30-tools-of-the-trade'},
+        {'num': 26, 'slug': 'ai-agents', 'title': 'AI Agent Foundations', '_action': 'renumber', '_source': 'module-26-ai-agents'},
+        {'num': 27, 'slug': 'tool-use-protocols', 'title': 'Tool Use, Function Calling & Protocols', '_action': 'renumber', '_source': 'module-27-tool-use-protocols'},
+        {'num': 28, 'slug': 'multi-agent-systems', 'title': 'Multi-Agent Systems', '_action': 'renumber', '_source': 'module-28-multi-agent-systems'},
+        {'num': 29, 'slug': 'specialized-agents', 'title': 'Specialized Agents', '_action': 'renumber', '_source': 'module-29-specialized-agents'},
+        {'num': 30, 'slug': 'tools-of-the-trade', 'title': 'Tools of the Trade: Agent Stack', '_action': 'renumber', '_source': 'module-30-tools-of-the-trade'},
     ],
 })
 
@@ -128,12 +127,12 @@ parts.append({
     'subtitle': 'Embeddings, structured information extraction & NER, RAG, knowledge graphs, cross-modal retrieval.',
     '_action': 'new_part',
     'chapters': [
-        {'num': 33, 'slug': 'embeddings-vector-db', 'title': 'Embeddings, Vector Databases & Semantic Search', '_action': 'renumber', '_source': 'module-22-embeddings-vector-db'},
-        {'num': 34, 'slug': 'information-extraction-ner', 'title': 'Structured Information Extraction & NER', '_action': 'promote_from_section', '_source_section': 'part-3-working-with-llms/module-15-hybrid-ml-llm/section-15.5'},
-        {'num': 35, 'slug': 'rag-fundamentals', 'title': 'RAG Fundamentals', '_action': 'split', '_source': 'module-23-rag', '_source_sections': ['23.1', '23.2', '23.4', '23.5']},
-        {'num': 36, 'slug': 'advanced-rag-knowledge-graphs', 'title': 'Advanced RAG: Knowledge Graphs, Ingestion & Attribution', '_action': 'split', '_source': 'module-23-rag', '_source_sections': ['23.3', '23.6', '23.7', '23.8', '23.9']},
-        {'num': 37, 'slug': 'cross-modal-rag', 'title': 'Cross-Modal Reasoning & Multimodal RAG', '_action': 'move', '_source': 'part-7-multimodal-generation/module-42-cross-modal-reasoning-rag'},
-        {'num': 38, 'slug': 'tools-of-the-trade', 'title': 'Tools of the Trade: Retrieval & Extraction Stack', '_action': 'split', '_source': 'module-25-tools-of-the-trade'},
+        {'num': 31, 'slug': 'embeddings-vector-db', 'title': 'Embeddings, Vector Databases & Semantic Search', '_action': 'renumber', '_source': 'module-22-embeddings-vector-db'},
+        {'num': 32, 'slug': 'information-extraction-ner', 'title': 'Structured Information Extraction & NER', '_action': 'promote_from_section', '_source_section': 'part-3-working-with-llms/module-15-hybrid-ml-llm/section-15.5'},
+        {'num': 33, 'slug': 'rag-fundamentals', 'title': 'RAG Fundamentals', '_action': 'split', '_source': 'module-23-rag', '_source_sections': ['23.1', '23.2', '23.4', '23.5']},
+        {'num': 34, 'slug': 'advanced-rag-knowledge-graphs', 'title': 'Advanced RAG: Knowledge Graphs, Ingestion & Attribution', '_action': 'split', '_source': 'module-23-rag', '_source_sections': ['23.3', '23.6', '23.7', '23.8', '23.9']},
+        {'num': 35, 'slug': 'cross-modal-rag', 'title': 'Cross-Modal Reasoning & Multimodal RAG', '_action': 'move', '_source': 'part-7-multimodal-generation/module-42-cross-modal-reasoning-rag'},
+        {'num': 36, 'slug': 'tools-of-the-trade', 'title': 'Tools of the Trade: Retrieval & Extraction Stack', '_action': 'split', '_source': 'module-25-tools-of-the-trade'},
     ],
 })
 
@@ -144,11 +143,11 @@ parts.append({
     'subtitle': 'Dialogue architecture, memory and context management, multi-turn flows, voice and realtime multimodal assistants.',
     '_action': 'new_part',
     'chapters': [
-        {'num': 39, 'slug': 'dialogue-architecture', 'title': 'Dialogue System Architecture & Personas', '_action': 'split', '_source_sections': ['24.1', '24.2']},
-        {'num': 40, 'slug': 'memory-context-management', 'title': 'Memory & Context Management', '_action': 'split', '_source_sections': ['24.3']},
-        {'num': 41, 'slug': 'multi-turn-flows', 'title': 'Multi-Turn Conversation Flows', '_action': 'split', '_source_sections': ['24.4']},
-        {'num': 42, 'slug': 'voice-realtime-assistants', 'title': 'Voice & Realtime Multimodal Assistants', '_action': 'merge', '_sources': ['section 24.5', 'part-7/module-38-streaming-realtime-multimodal']},
-        {'num': 43, 'slug': 'tools-of-the-trade', 'title': 'Tools of the Trade: Conversational AI Stack', '_action': 'split', '_source': 'module-25-tools-of-the-trade'},
+        {'num': 37, 'slug': 'dialogue-architecture', 'title': 'Dialogue System Architecture & Personas', '_action': 'split', '_source_sections': ['24.1', '24.2']},
+        {'num': 38, 'slug': 'memory-context-management', 'title': 'Memory & Context Management', '_action': 'split', '_source_sections': ['24.3']},
+        {'num': 39, 'slug': 'multi-turn-flows', 'title': 'Multi-Turn Conversation Flows', '_action': 'split', '_source_sections': ['24.4']},
+        {'num': 40, 'slug': 'voice-realtime-assistants', 'title': 'Voice & Realtime Multimodal Assistants', '_action': 'merge', '_sources': ['section 24.5', 'part-7/module-38-streaming-realtime-multimodal']},
+        {'num': 41, 'slug': 'tools-of-the-trade', 'title': 'Tools of the Trade: Conversational AI Stack', '_action': 'split', '_source': 'module-25-tools-of-the-trade'},
     ],
 })
 
@@ -157,10 +156,11 @@ parts.append({
     'subtitle': 'Quality metrics, specialized evaluation, online monitoring, eval tools.',
     '_action': 'rename',
     'chapters': [
-        {'num': 44, 'slug': 'evaluation-foundations', 'title': 'LLM Evaluation Fundamentals & Quality Metrics', '_action': 'merge_and_absorb', '_sources': ['module-44-evaluation-foundations', 'module-45-testing-quality-gates'], '_absorbs': ['appendix-b-ml-essentials section b.4 (Evaluation Metrics, 22 inbound refs)']},
-        {'num': 45, 'slug': 'specialized-evaluation', 'title': 'Specialized Evaluation: RAG, Agents, Multimodal', '_action': 'renumber', '_source': 'module-46-specialized-evaluation'},
-        {'num': 46, 'slug': 'online-eval-observability', 'title': 'Online Evaluation, Observability & Production Monitoring', '_action': 'renumber_and_repair', '_source': 'module-47-online-eval-observability', '_repair_section_numbering': True},
-        {'num': 47, 'slug': 'tools-of-the-trade', 'title': 'Tools of the Trade: Eval & Observability Stack', '_action': 'renumber', '_source': 'module-48-tools-of-the-trade'},
+        {'num': 42, 'slug': 'evaluation-foundations', 'title': 'LLM Evaluation Fundamentals & Quality Metrics', '_action': 'merge_and_absorb', '_sources': ['module-44-evaluation-foundations', 'module-45-testing-quality-gates'], '_absorbs': ['appendix-b-ml-essentials section b.4 (Evaluation Metrics, 22 inbound refs)']},
+        {'num': 43, 'slug': 'llm-as-judge', 'title': 'LLM-as-Judge & Automated Evaluation', '_action': 'promote_from_section', '_source_section': 'old sec 44.8 (LLM-as-Judge: Reliability, Debiasing, and Training Judge Models)', '_notes': 'v9: promote buried section to dedicated chapter; expand to 5 sections covering judge reliability, debiasing, training judge models, multi-judge ensembles, judge prompting patterns'},
+        {'num': 44, 'slug': 'specialized-evaluation', 'title': 'Specialized Evaluation: RAG, Agents, Multimodal', '_action': 'renumber', '_source': 'module-46-specialized-evaluation'},
+        {'num': 45, 'slug': 'online-eval-observability', 'title': 'Online Evaluation, Observability & Production Monitoring', '_action': 'renumber_and_repair', '_source': 'module-47-online-eval-observability', '_repair_section_numbering': True},
+        {'num': 46, 'slug': 'tools-of-the-trade', 'title': 'Tools of the Trade: Eval & Observability Stack', '_action': 'renumber', '_source': 'module-48-tools-of-the-trade'},
     ],
 })
 
@@ -171,11 +171,11 @@ parts.append({
     '_action': 'new_part_from_split',
     '_source': 'part-9-safety-security-ethics (technical chapters)',
     'chapters': [
-        {'num': 48, 'slug': 'adversarial-security-red-team', 'title': 'Adversarial Security & Red Teaming', '_action': 'renumber_and_split_monster', '_source': 'module-49-adversarial-security-red-team', '_split_section': '49.1 (86KB monster)'},
-        {'num': 49, 'slug': 'guardrails-runtime-safety', 'title': 'Guardrails & Runtime Safety', '_action': 'renumber', '_source': 'module-50-guardrails-runtime-safety'},
-        {'num': 50, 'slug': 'agent-safety-autonomy', 'title': 'Agent Safety & Sandboxing', '_action': 'renumber', '_source': 'module-51-agent-safety-autonomy'},
-        {'num': 51, 'slug': 'privacy-data-protection', 'title': 'Privacy & Data Protection', '_action': 'renumber_and_expand', '_source': 'module-52-privacy-data-protection'},
-        {'num': 52, 'slug': 'tools-of-the-trade', 'title': 'Tools of the Trade: Security Stack', '_action': 'split', '_source': 'module-60-tools-of-the-trade (security portions)'},
+        {'num': 47, 'slug': 'adversarial-security-red-team', 'title': 'Adversarial Security & Red Teaming', '_action': 'renumber_and_split_monster', '_source': 'module-49-adversarial-security-red-team', '_split_section': '49.1 (86KB monster)'},
+        {'num': 48, 'slug': 'guardrails-runtime-safety', 'title': 'Guardrails & Runtime Safety', '_action': 'renumber', '_source': 'module-50-guardrails-runtime-safety'},
+        {'num': 49, 'slug': 'agent-safety-autonomy', 'title': 'Agent Safety & Sandboxing', '_action': 'renumber', '_source': 'module-51-agent-safety-autonomy'},
+        {'num': 50, 'slug': 'privacy-data-protection', 'title': 'Privacy & Data Protection', '_action': 'renumber_and_expand', '_source': 'module-52-privacy-data-protection'},
+        {'num': 51, 'slug': 'tools-of-the-trade', 'title': 'Tools of the Trade: Security Stack', '_action': 'split', '_source': 'module-60-tools-of-the-trade (security portions)'},
     ],
 })
 
@@ -186,11 +186,11 @@ parts.append({
     '_action': 'new_part_from_split',
     '_source': 'part-9-safety-security-ethics (behavioral/policy chapters)',
     'chapters': [
-        {'num': 53, 'slug': 'bias-fairness-truthfulness', 'title': 'Bias, Fairness, Hallucination & Truthfulness', '_action': 'merge', '_sources': ['module-53-bias-fairness', 'module-54-hallucination-truthfulness']},
-        {'num': 54, 'slug': 'provenance-transparency', 'title': 'Watermarking, Provenance & Transparency', '_action': 'merge', '_sources': ['module-56-watermarking-provenance', 'module-57-transparency-documentation']},
-        {'num': 55, 'slug': 'regulation-compliance', 'title': 'Regulation, Compliance & Governance', '_action': 'renumber', '_source': 'module-55-regulation-compliance'},
-        {'num': 56, 'slug': 'frontier-safety-sustainability', 'title': 'Frontier Safety, Sustainability & Open Problems', '_action': 'merge', '_sources': ['module-58-environmental-sustainability', 'module-59-frontier-safety-open-problems']},
-        {'num': 57, 'slug': 'tools-of-the-trade', 'title': 'Tools of the Trade: Responsible AI Stack', '_action': 'split', '_source': 'module-60-tools-of-the-trade (ethics portions)'},
+        {'num': 52, 'slug': 'bias-fairness-truthfulness', 'title': 'Bias, Fairness, Hallucination & Truthfulness', '_action': 'merge', '_sources': ['module-53-bias-fairness', 'module-54-hallucination-truthfulness']},
+        {'num': 53, 'slug': 'provenance-transparency', 'title': 'Watermarking, Provenance & Transparency', '_action': 'merge', '_sources': ['module-56-watermarking-provenance', 'module-57-transparency-documentation']},
+        {'num': 54, 'slug': 'regulation-compliance', 'title': 'Regulation, Compliance & Governance', '_action': 'renumber', '_source': 'module-55-regulation-compliance'},
+        {'num': 55, 'slug': 'frontier-safety-sustainability', 'title': 'Frontier Safety, Sustainability & Open Problems', '_action': 'merge', '_sources': ['module-58-environmental-sustainability', 'module-59-frontier-safety-open-problems']},
+        {'num': 56, 'slug': 'tools-of-the-trade', 'title': 'Tools of the Trade: Responsible AI Stack', '_action': 'split', '_source': 'module-60-tools-of-the-trade (ethics portions)'},
     ],
 })
 
@@ -199,11 +199,11 @@ parts.append({
     'subtitle': 'Compute planning, distributed training systems, hardware and chip diversity, edge and on-device LLMs.',
     '_action': 'new_part',
     'chapters': [
-        {'num': 58, 'slug': 'compute-planning', 'title': 'Compute Planning & GPU Procurement', '_action': 'renumber', '_source': 'module-61-compute-planning'},
-        {'num': 59, 'slug': 'distributed-training-systems', 'title': 'Distributed Training Systems', '_action': 'extract', '_pulls_from': ['part-2/module-07-pretraining-scaling-laws sec 7.6, 7.8']},
-        {'num': 60, 'slug': 'hardware-chip-diversity', 'title': 'Hardware & Chip Diversity', '_action': 'move', '_source': 'part-13-frontiers/module-84-frontier-systems-hardware'},
-        {'num': 61, 'slug': 'edge-on-device', 'title': 'Edge & On-Device LLMs', '_action': 'extract', '_source_section': 'module-62 sec 62.5'},
-        {'num': 62, 'slug': 'tools-of-the-trade', 'title': 'Tools of the Trade: Scale Stack', '_action': 'new'},
+        {'num': 57, 'slug': 'compute-planning', 'title': 'Compute Planning & GPU Procurement', '_action': 'renumber', '_source': 'module-61-compute-planning'},
+        {'num': 58, 'slug': 'distributed-training-systems', 'title': 'Distributed Training Systems', '_action': 'extract', '_pulls_from': ['part-2/module-07-pretraining-scaling-laws sec 7.6, 7.8']},
+        {'num': 59, 'slug': 'hardware-chip-diversity', 'title': 'Hardware & Chip Diversity', '_action': 'move', '_source': 'part-13-frontiers/module-84-frontier-systems-hardware'},
+        {'num': 60, 'slug': 'edge-on-device', 'title': 'Edge & On-Device LLMs', '_action': 'extract', '_source_section': 'module-62 sec 62.5'},
+        {'num': 61, 'slug': 'tools-of-the-trade', 'title': 'Tools of the Trade: Scale Stack', '_action': 'new'},
     ],
 })
 
@@ -212,11 +212,11 @@ parts.append({
     'subtitle': 'AI gateways and routing, workflow orchestration, containers, reliability and SLOs, model registry and lifecycle.',
     '_action': 'new_part',
     'chapters': [
-        {'num': 63, 'slug': 'ai-gateways-routing', 'title': 'AI Gateways & Model Routing', '_action': 'extract', '_source_section': 'module-62 sec 62.3'},
-        {'num': 64, 'slug': 'workflow-orchestration', 'title': 'Workflow Orchestration & Durable Execution', '_action': 'extract', '_source_section': 'module-62 sec 62.4'},
-        {'num': 65, 'slug': 'containers-kubernetes', 'title': 'Containers, Kubernetes & Deployment', '_action': 'extract', '_source_sections': ['62.7', '62.8', '62.9', '62.10', '62.11']},
-        {'num': 66, 'slug': 'reliability-registry-lifecycle', 'title': 'Reliability Engineering, SLOs & Model Registry', '_action': 'merge_sections', '_source_sections': ['62.1', '62.2', '62.6']},
-        {'num': 67, 'slug': 'tools-of-the-trade', 'title': 'Tools of the Trade: LLMOps Stack', '_action': 'new'},
+        {'num': 62, 'slug': 'ai-gateways-routing', 'title': 'AI Gateways & Model Routing', '_action': 'extract', '_source_section': 'module-62 sec 62.3'},
+        {'num': 63, 'slug': 'workflow-orchestration', 'title': 'Workflow Orchestration & Durable Execution', '_action': 'extract', '_source_section': 'module-62 sec 62.4'},
+        {'num': 64, 'slug': 'containers-kubernetes', 'title': 'Containers, Kubernetes & Deployment', '_action': 'extract', '_source_sections': ['62.7', '62.8', '62.9', '62.10', '62.11']},
+        {'num': 65, 'slug': 'reliability-registry-lifecycle', 'title': 'Reliability Engineering, SLOs & Model Registry', '_action': 'merge_sections', '_source_sections': ['62.1', '62.2', '62.6']},
+        {'num': 66, 'slug': 'tools-of-the-trade', 'title': 'Tools of the Trade: LLMOps Stack', '_action': 'new'},
     ],
 })
 
@@ -226,11 +226,11 @@ parts.append({
     '_action': 'rename_and_consolidate',
     '_notes': 'Consolidated from 7 chapters to 5: merge ideation+PM, merge prototyping+MVP, keep economics and shipping separate, keep Tools.',
     'chapters': [
-        {'num': 68, 'slug': 'ideation-strategy-pm', 'title': 'Ideation, Strategy & Product Management', '_action': 'merge', '_sources': ['module-63-ideation', 'module-65-strategy-prioritization', 'module-68-prototype-to-production', 'module-64-product-management']},
-        {'num': 69, 'slug': 'prototyping-and-mvp', 'title': 'Prototyping via Vibe-Coding & MVP Development', '_action': 'merge', '_sources': ['module-66-vibe-coding', 'module-67-mvp']},
-        {'num': 70, 'slug': 'llm-economics', 'title': 'Scaling Economics: Unit Costs & ROI', '_action': 'renumber', '_source': 'module-69-llm-economics'},
-        {'num': 71, 'slug': 'shipping-products', 'title': 'Shipping and Scaling AI Products', '_action': 'renumber', '_source': 'module-70-shipping-products'},
-        {'num': 72, 'slug': 'tools-of-the-trade', 'title': 'Tools of the Trade: Product Toolkit', '_action': 'renumber', '_source': 'module-71-tools-of-the-trade'},
+        {'num': 67, 'slug': 'ideation-strategy-pm', 'title': 'Ideation, Strategy & Product Management', '_action': 'merge', '_sources': ['module-63-ideation', 'module-65-strategy-prioritization', 'module-68-prototype-to-production', 'module-64-product-management']},
+        {'num': 68, 'slug': 'prototyping-and-mvp', 'title': 'Prototyping via Vibe-Coding & MVP Development', '_action': 'merge', '_sources': ['module-66-vibe-coding', 'module-67-mvp']},
+        {'num': 69, 'slug': 'llm-economics', 'title': 'Scaling Economics: Unit Costs & ROI', '_action': 'renumber', '_source': 'module-69-llm-economics'},
+        {'num': 70, 'slug': 'shipping-products', 'title': 'Shipping and Scaling AI Products', '_action': 'renumber', '_source': 'module-70-shipping-products'},
+        {'num': 71, 'slug': 'tools-of-the-trade', 'title': 'Tools of the Trade: Product Toolkit', '_action': 'renumber', '_source': 'module-71-tools-of-the-trade'},
     ],
 })
 
@@ -241,14 +241,14 @@ parts.append({
     'subtitle': 'LLM use across legal, finance, healthcare, education, cybersecurity, government, and other domains.',
     '_action': 'rename',
     'chapters': [
-        {'num': 73, 'slug': 'legal-llms', 'title': 'LLMs in Legal Practice', '_action': 'renumber', '_source': 'module-72-legal-llms'},
-        {'num': 74, 'slug': 'finance-llms', 'title': 'LLMs in Finance', '_action': 'renumber', '_source': 'module-73-finance-llms'},
-        {'num': 75, 'slug': 'healthcare-llms', 'title': 'LLMs in Healthcare & Biomedical', '_action': 'renumber', '_source': 'module-74-healthcare-llms'},
-        {'num': 76, 'slug': 'education-llms', 'title': 'LLMs in Education', '_action': 'renumber', '_source': 'module-75-education-llms'},
-        {'num': 77, 'slug': 'cybersecurity-llms', 'title': 'LLMs in Cybersecurity', '_action': 'renumber', '_source': 'module-76-cybersecurity-llms'},
-        {'num': 78, 'slug': 'government-llms', 'title': 'LLMs in Government & Public Sector', '_action': 'renumber', '_source': 'module-77-government-llms'},
-        {'num': 79, 'slug': 'manufacturing-creative-recommendation', 'title': 'LLMs in Manufacturing, Creative & Recommendation', '_action': 'merge', '_sources': ['module-78-manufacturing-llms', 'module-79-creative-industries', 'module-80-recommendation-search']},
-        {'num': 80, 'slug': 'tools-of-the-trade', 'title': 'Tools of the Trade: Industry Solution Stack', '_action': 'renumber', '_source': 'module-81-tools-of-the-trade'},
+        {'num': 72, 'slug': 'legal-llms', 'title': 'LLMs in Legal Practice', '_action': 'renumber', '_source': 'module-72-legal-llms'},
+        {'num': 73, 'slug': 'finance-llms', 'title': 'LLMs in Finance', '_action': 'renumber', '_source': 'module-73-finance-llms'},
+        {'num': 74, 'slug': 'healthcare-llms', 'title': 'LLMs in Healthcare & Biomedical', '_action': 'renumber', '_source': 'module-74-healthcare-llms'},
+        {'num': 75, 'slug': 'education-llms', 'title': 'LLMs in Education', '_action': 'renumber', '_source': 'module-75-education-llms'},
+        {'num': 76, 'slug': 'cybersecurity-llms', 'title': 'LLMs in Cybersecurity', '_action': 'renumber', '_source': 'module-76-cybersecurity-llms'},
+        {'num': 77, 'slug': 'government-llms', 'title': 'LLMs in Government & Public Sector', '_action': 'renumber', '_source': 'module-77-government-llms'},
+        {'num': 78, 'slug': 'manufacturing-creative-recommendation', 'title': 'LLMs in Manufacturing, Creative & Recommendation', '_action': 'merge', '_sources': ['module-78-manufacturing-llms', 'module-79-creative-industries', 'module-80-recommendation-search']},
+        {'num': 79, 'slug': 'tools-of-the-trade', 'title': 'Tools of the Trade: Industry Solution Stack', '_action': 'renumber', '_source': 'module-81-tools-of-the-trade'},
     ],
 })
 
@@ -257,10 +257,10 @@ parts.append({
     'subtitle': 'Frontier architectures, theory and cognition, AGI trajectories, frontier research tooling.',
     '_action': 'rename',
     'chapters': [
-        {'num': 81, 'slug': 'frontier-architectures', 'title': 'Frontier Architectures & Scaling', '_action': 'renumber', '_source': 'module-82-frontier-architectures'},
-        {'num': 82, 'slug': 'frontier-theory', 'title': 'Frontier Theory & Cognition', '_action': 'renumber', '_source': 'module-83-frontier-theory'},
-        {'num': 83, 'slug': 'agi-trajectories', 'title': 'AGI Trajectories & Open Questions', '_action': 'renumber', '_source': 'module-85-agi-trajectories'},
-        {'num': 84, 'slug': 'tools-of-the-trade', 'title': 'Tools of the Trade: Frontier Research Stack', '_action': 'renumber', '_source': 'module-86-tools-of-the-trade'},
+        {'num': 80, 'slug': 'frontier-architectures', 'title': 'Frontier Architectures & Scaling', '_action': 'renumber', '_source': 'module-82-frontier-architectures'},
+        {'num': 81, 'slug': 'frontier-theory', 'title': 'Frontier Theory & Cognition', '_action': 'renumber', '_source': 'module-83-frontier-theory'},
+        {'num': 82, 'slug': 'agi-trajectories', 'title': 'AGI Trajectories & Open Questions', '_action': 'renumber', '_source': 'module-85-agi-trajectories'},
+        {'num': 83, 'slug': 'tools-of-the-trade', 'title': 'Tools of the Trade: Frontier Research Stack', '_action': 'renumber', '_source': 'module-86-tools-of-the-trade'},
     ],
 })
 
