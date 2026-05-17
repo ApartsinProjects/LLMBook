@@ -2,6 +2,7 @@
 
 **Status**: proposal, awaiting review.
 **Generated**: 2026-05-17, post-appendix-renumbering.
+**Revised**: 2026-05-17 to split current Part V into two parts (Retrieval & Information Extraction; Dialogue & Assistants) and to give NER / structured extraction a prominent home.
 **Current state**: 13 parts, 87 chapters, 413 sections, 7 appendices.
 **Audit**: P0=P1=P2=P3=0; linear nav 413/413; ToC clean.
 
@@ -188,12 +189,13 @@ Total: **13 parts → 13 parts** (no parts added or removed), **87 chapters → 
 4. Inference Optimization & Efficient Serving *(was Ch 10)*
 5. Interpretability & Mechanistic Understanding + Tools *(merge old Ch 11 + Ch 12)*
 
-### Part III — Working with LLMs *(5 ch, was 4)*
+### Part III — Working with LLMs *(4 ch, unchanged count)*
 1. Working with LLM APIs
 2. Prompt Engineering & Advanced Techniques
-3. Hybrid ML+LLM Architectures & Decision Frameworks
-4. Structured Output, Dataset Engineering & Application Patterns *(new, pulled from current 15.5–15.6)*
-5. Tools of the Trade: LLM API Stack
+3. Hybrid ML+LLM Architectures & Decision Frameworks *(15.1–15.4; 15.5 and 15.6 move to new Part V)*
+4. Tools of the Trade: LLM API Stack
+
+> Note: 4 chapters is below the 5–7 target band but acceptable — Part III is a deliberately compact "first foray" before training (IV), retrieval (V), and dialogue (VI) split the workload. The chapter on Hybrid ML+LLM is the linkable Application Patterns reference.
 
 ### Part IV — LLM Training and Adaptation *(5 ch, unchanged)*
 1. Synthetic Data Generation & LLM Simulation
@@ -202,33 +204,44 @@ Total: **13 parts → 13 parts** (no parts added or removed), **87 chapters → 
 4. Alignment: RLHF, DPO & Preference Tuning
 5. Tools of the Trade: Training Stack
 
-### Part V — Retrieval and Conversation *(5 ch, was 4)*
-1. Embeddings, Vector Databases & Semantic Search
-2. RAG Fundamentals *(was 23.1–23.5)*
-3. Advanced RAG: GraphRAG, Ingestion, Attribution *(was 23.6–23.9, new chapter)*
-4. Building Conversational AI Systems
-5. Tools of the Trade: Retrieval & Conversation Stack
+### Part V — Retrieval and Information Extraction *(5 ch, was 4)* **SPLIT FROM OLD PART V**
+1. Embeddings, Vector Databases & Semantic Search *(was Ch 22)*
+2. Structured Information Extraction & NER *(was Part III sec 15.5; now a full chapter)*
+3. RAG Fundamentals *(was 23.1–23.5)*
+4. Advanced RAG: Knowledge Graphs, Ingestion & Attribution *(was 23.3, 23.6–23.9)*
+5. Tools of the Trade: Retrieval & Extraction Stack
 
-### Part VI — Agentic AI *(5 ch, unchanged)*
+> The current 23.3 (RAG with Knowledge Graphs) and 23.7 (GraphRAG) merge into one Advanced-RAG chapter so the knowledge-graph thread is contiguous; NER → graph construction → graph-augmented retrieval reads as one arc.
+
+### Part VI — Dialogue and Assistants *(5 ch, new)* **SPLIT FROM OLD PART V**
+1. Dialogue System Architecture & Personas *(was 24.1 + 24.2)*
+2. Memory & Context Management *(was 24.3)*
+3. Multi-Turn Conversation Flows *(was 24.4)*
+4. Voice & Realtime Multimodal Assistants *(was 24.5 + current Part VII Ch 38 streaming sections)*
+5. Tools of the Trade: Conversational AI Stack
+
+> The 4 streaming sections currently in Part VII Ch 38 (Gemini Live, GPT-4o Realtime, Moshi/Pipecat/LiveKit, audio-latency engineering) belong with Voice Agents — they describe the same product category from the realtime-API side. Moving them here clears Part VII (Multimodal) of an off-theme chapter and unifies the voice-assistant story.
+
+### Part VII — Agentic AI *(5 ch, was VI, unchanged content)*
 1. AI Agent Foundations
 2. Tool Use, Function Calling & Protocols
 3. Multi-Agent Systems
 4. Specialized Agents
 5. Tools of the Trade: Agent Stack
 
-### Part VII — Multimodal Generation *(7 ch, was 13)* **biggest restructure**
+### Part VIII — Multimodal Generation *(7 ch, was VII with 13)* **biggest restructure**
 1. Vision-Language and Omni Models *(merges Ch 35 + 37)*
-2. Image, Video & Audio Generation *(merges Ch 33 + parts of 32)*
-3. Audio: Generation and Streaming *(merges Ch 32 + 38)*
+2. Image & Video Generation *(was Ch 33; image generation pulled out of merged sources)*
+3. Audio & Music Generation *(was Ch 32, minus the 4 streaming sections moved to Part VI)*
 4. Document Understanding and OCR *(was Ch 34)*
 5. 3D Generation, World Models & Neural Scenes *(merges Ch 36 + unique parts of 41)*
 6. Embodied AI: VLA Models & LLM-Powered Robotics *(merges Ch 39 + 40 + 41)*
 7. Cross-Modal Reasoning & Multimodal RAG *(was Ch 42)*
 8. Tools of the Trade: Multimodal Stack
 
-**Deletions**: Ch 31 (overview duplicate), Ch 41 (aggregator duplicate).
+**Deletions**: Ch 31 (overview duplicate), Ch 38 (4 sections moved to new Part VI Ch 4), Ch 41 (aggregator duplicate).
 
-### Part VIII — Evaluation of LLM-Based Systems *(4 ch, was 5)*
+### Part IX — Evaluation of LLM-Based Systems *(4 ch, was VIII with 5)*
 1. LLM Evaluation Fundamentals & Quality Metrics *(was Ch 44, split into 6 sections)*
 2. Specialized Evaluation: RAG, Agents, Multimodal *(absorbs old Ch 45 single section + Ch 46)*
 3. Online Evaluation, Observability & Production Monitoring *(was Ch 47, renumber sections to start at .1)*
@@ -237,7 +250,7 @@ Total: **13 parts → 13 parts** (no parts added or removed), **87 chapters → 
 **Deletions**: Ch 45 was an orphan with one section (45.6 only) — merge into Ch 44.
 **Repair**: Ch 47 starts at section 47.4 — renumber to 47.1–47.4.
 
-### Part IX — LLM Safety, Security, and Ethics *(8 ch, was 12)*
+### Part X — LLM Safety, Security, and Ethics *(8 ch, was IX with 12)*
 1. Adversarial Security and Red Teaming *(was Ch 49)*
 2. Guardrails and Runtime Safety *(was Ch 50)*
 3. Agent Safety & Sandboxing *(was Ch 51)*
@@ -250,14 +263,14 @@ Total: **13 parts → 13 parts** (no parts added or removed), **87 chapters → 
 
 **Deletions**: 4 one-section chapters (53, 54, 58, 59) absorbed by neighboring chapters.
 
-### Part X — LLM Operations and Production Infrastructure *(5 ch, was 2)* **expansion**
+### Part XI — LLM Operations and Production Infrastructure *(5 ch, was X with 2)* **expansion**
 1. Compute Planning & Hardware Procurement *(was Ch 61)*
 2. Scaling, Reliability & SLOs *(was 62.1, 62.2, 62.6)*
 3. AI Gateways, Routing & Workflow Orchestration *(was 62.3, 62.4)*
 4. Containers, Kubernetes & Edge Deployment *(was 62.5, 62.7–62.11)*
 5. Tools of the Trade: Operations Stack *(new, broken out from Tools of the Trade context)*
 
-### Part XI — Designing LLM-Based Products *(7 ch, was 9)*
+### Part XII — Designing LLM-Based Products *(7 ch, was XI with 9)*
 1. Ideation, Strategy & Product Hypothesis *(merges Ch 63 + 65 + 68)*
 2. LLM Product Management *(was Ch 64)*
 3. Prototyping via Vibe-Coding *(was Ch 66)*
@@ -268,7 +281,7 @@ Total: **13 parts → 13 parts** (no parts added or removed), **87 chapters → 
 
 **Merge**: three near-duplicate chapters about "ideation / strategy / product hypothesis" collapsed into one.
 
-### Part XII — Applications Across Industries *(8 ch, was 10)*
+### Part XIII — Applications Across Industries *(8 ch, was XII with 10)*
 1. LLMs in Legal Practice
 2. LLMs in Finance
 3. LLMs in Healthcare & Biomedical
@@ -278,7 +291,7 @@ Total: **13 parts → 13 parts** (no parts added or removed), **87 chapters → 
 7. LLMs in Manufacturing, Creative & Recommendation *(merges Ch 78 + 79 + 80)*
 8. Tools of the Trade: Industry Solution Stack
 
-### Part XIII — Frontiers *(5 ch, unchanged)*
+### Part XIV — Frontiers *(5 ch, was XIII)*
 1. Frontier Architectures & Scaling
 2. Frontier Theory & Cognition
 3. Frontier Systems & Hardware
@@ -289,24 +302,40 @@ Total: **13 parts → 13 parts** (no parts added or removed), **87 chapters → 
 
 ## 6. Summary of structural changes
 
-| Part | Before | After | Net |
-|---|---:|---:|---:|
-| I  | 7 | 7 | 0 |
-| II | 6 | 5 | -1 |
-| III | 4 | 5 | +1 |
-| IV | 5 | 5 | 0 |
-| V  | 4 | 5 | +1 |
-| VI | 5 | 5 | 0 |
-| **VII** | **13** | **8** | **-5** |
-| **VIII** | **5** | **4** | **-1** |
-| **IX** | **12** | **9** | **-3** |
-| **X** | **2** | **5** | **+3** |
-| **XI** | **9** | **7** | **-2** |
-| **XII** | **10** | **8** | **-2** |
-| XIII | 5 | 5 | 0 |
-| **TOTAL** | **87** | **78** | **-9** |
+The split of old Part V into two parts (V Retrieval & Information Extraction + VI Dialogue & Assistants) takes the book from 13 parts to 14. All other parts shift +1 in their Roman-numeral label from the old VI (Agentic AI) onward.
 
-All 13 parts now sit in the 4–9 chapter band (target: 5–7). Part XII at 8 is acceptable because each industry chapter is a distinct stakeholder context. Part VIII at 4 is acceptable because evaluation breaks cleanly into 4 cohesive topics.
+| New # | Part | Old # | Chapters before | Chapters after | Net |
+|---:|---|---:|---:|---:|---:|
+| I    | Foundations | I | 7 | 7 | 0 |
+| II   | Understanding LLMs | II | 6 | 5 | -1 |
+| III  | Working with LLMs | III | 4 | 4 | 0 (15.5/15.6 move out) |
+| IV   | LLM Training and Adaptation | IV | 5 | 5 | 0 |
+| **V**    | **Retrieval & Information Extraction** | — (new) | — | **5** | **+5 (split)** |
+| **VI**   | **Dialogue and Assistants** | — (new) | — | **5** | **+5 (split)** |
+| —    | (old V Retrieval and Conversation) | V | 4 | — | -4 (split out) |
+| VII  | Agentic AI | VI | 5 | 5 | 0 |
+| **VIII** | **Multimodal Generation** | VII | **13** | **7** | **-6** |
+| IX   | Evaluation of LLM-Based Systems | VIII | 5 | 4 | -1 |
+| **X**    | **LLM Safety, Security, and Ethics** | IX | **12** | **9** | **-3** |
+| **XI**   | **LLM Operations** | X | **2** | **5** | **+3** |
+| **XII**  | **Designing LLM-Based Products** | XI | **9** | **7** | **-2** |
+| XIII | Applications Across Industries | XII | 10 | 8 | -2 |
+| XIV  | Frontiers | XIII | 5 | 5 | 0 |
+| **TOTAL** | | | **87** | **81** | **-6** |
+
+All 14 parts now sit in the 4–9 chapter band (target: 5–7). Notable boundary cases:
+
+- **Part III (4 chapters)** — deliberately compact "first foray" before the deeper parts split the workload.
+- **Part IX (4 chapters)** — Evaluation breaks cleanly into 4 cohesive topics; further splitting would dilute.
+- **Part VIII (7 chapters), Part XII (7), Part XIII (8)** — at the top of the band; each chapter is a distinct stakeholder context or modality.
+
+### Where NER / structured extraction lives
+
+In the new structure, NER and structured information extraction are no longer buried inside a hybrid-architecture chapter — they have a full chapter in the new Part V:
+
+  - **Part V Ch 2: Structured Information Extraction & NER** *(was section 15.5)*
+
+This pairs naturally with the surrounding chapters: Vector retrieval (V.1) handles unstructured-to-similarity; NER (V.2) handles unstructured-to-structured; RAG (V.3, V.4) handles retrieval-as-context-for-generation; knowledge-graph construction is part of V.4 (Advanced RAG).
 
 ---
 
@@ -325,31 +354,42 @@ Delete the three duplicate-aggregator chapters. Content unique to them gets re-h
 Combine sibling chapters that share topical scope.
 
 4. Part II: merge Ch 11 + Ch 12 (Interpretability + Tools)
-5. Part VII: merge Ch 32 + Ch 38 (Audio + Streaming → Audio: Generation and Streaming)
-6. Part VII: merge Ch 35 + Ch 37 (VLM + Omni → Vision-Language and Omni Models)
-7. Part VII: merge Ch 39 + Ch 40 (VLA + Robotics → Embodied AI)
-8. Part IX: merge Ch 53 + Ch 54 (Bias + Hallucination → Bias, Fairness, Hallucination & Truthfulness)
-9. Part IX: merge Ch 56 + Ch 57 (Watermarking + Transparency → Watermarking, Provenance & Transparency)
-10. Part IX: merge Ch 58 + Ch 59 (Environmental + Frontier Safety → Frontier Safety, Sustainability & Open Problems)
-11. Part XI: merge Ch 63 + Ch 65 + Ch 68 → Ideation, Strategy & Product Hypothesis
-12. Part XII: merge Ch 78 + Ch 79 + Ch 80 → LLMs in Manufacturing, Creative & Recommendation
+5. Part VII (Multimodal): merge Ch 35 + Ch 37 (VLM + Omni → Vision-Language and Omni Models)
+6. Part VII: merge Ch 39 + Ch 40 (VLA + Robotics → Embodied AI)
+7. Part IX (Safety): merge Ch 53 + Ch 54 (Bias + Hallucination → Bias, Fairness, Hallucination & Truthfulness)
+8. Part IX: merge Ch 56 + Ch 57 (Watermarking + Transparency → Watermarking, Provenance & Transparency)
+9. Part IX: merge Ch 58 + Ch 59 (Environmental + Frontier Safety → Frontier Safety, Sustainability & Open Problems)
+10. Part XI: merge Ch 63 + Ch 65 + Ch 68 → Ideation, Strategy & Product Hypothesis
+11. Part XII: merge Ch 78 + Ch 79 + Ch 80 → LLMs in Manufacturing, Creative & Recommendation
 
-### Phase 3: splits and re-numbering
-Where one chapter does too much.
+### Phase 3: Part V split — **biggest structural change**
 
-13. Part V: split Ch 23 (9 sections) into Ch 23 RAG Fundamentals + Ch 24 Advanced RAG
-14. Part X: split Ch 62 (11 sections) into 3 chapters (Scaling/Reliability, Gateways/Orchestration, Containers/K8s/Edge)
-15. Part VIII: rename Ch 47 sections from 47.4–47.7 to 47.1–47.4
+12. Move Part III sec 15.5 (Structured Information Extraction) into a new chapter inside the new Part V.
+13. Move Part VII Ch 38 (Streaming Multimodal — 4 sections) into a new chapter inside the new Part VI (combined with current 24.5 Voice Agents).
+14. Split old Part V into:
+    - New Part V — Retrieval and Information Extraction (5 chapters: Embeddings, NER, RAG Fundamentals, Advanced RAG, Tools)
+    - New Part VI — Dialogue and Assistants (5 chapters: Architecture, Memory, Multi-Turn, Voice & Realtime, Tools)
+15. Split old Ch 23 (9 sections) across the new Part V Ch 3 (RAG Fundamentals) and Ch 4 (Advanced RAG including knowledge graphs).
 
-### Phase 4: gap-fill new chapters
-Where the band is below 5.
+### Phase 4: other splits and renumbering
 
-16. Part III: add new Ch — "Structured Output, Dataset Engineering & Application Patterns" (pulled from 15.5, 15.6)
+16. Part X (Operations): split Ch 62 (11 sections) into 3 chapters (Scaling/Reliability, Gateways/Orchestration, Containers/K8s/Edge).
+17. Part VIII (Eval): renumber Ch 47 sections from 47.4–47.7 to 47.1–47.4.
 
 ### Phase 5: book-wide renumbering cascade
-Run after all deletions / merges / splits. Each chapter gets its new number; every section file inside is renamed; every cross-reference in the book is rewritten; toc.html, part indexes, chapter indexes, and linear nav are all regenerated.
+
+After all deletions / merges / splits / Part V split, run the canonical renumbering cascade so the chapter sequence is 0–N with no gaps. Part numbering shifts: old VI–XIII become VII–XIV.
+
+Mechanics (same as the Parts 10–13 renumbering pattern):
+
+- `.__tmp__` intermediate renames to avoid collisions
+- in-file metadata rewrite (title, meta, breadcrumb, page-current, pagefind-meta, anchor IDs, body refs)
+- cross-file href rewrite across the entire book
+- regenerate toc.html, part indexes, chapter indexes
+- rebuild linear nav chain
 
 ### Phase 6: audit gates
+
 After every phase: P0 = P1 = P2 = P3 = 0, linear nav 100% coverage, toc.html matches disk.
 
 ---
@@ -377,7 +417,11 @@ After every phase: P0 = P1 = P2 = P3 = 0, linear nav 100% coverage, toc.html mat
 
 Confirm the proposed structure (or veto specific items) and I execute Phases 1–6 in order with audit gates between phases. Estimated outcome:
 
-- 87 chapters → **74–78 chapters** (-9 to -13)
-- 413 sections → **~330–360 sections** (-15%)
-- Every part in 4–8 chapter band, every chapter in 3–8 section band
+- **13 parts → 14 parts** (old V splits into V Retrieval+IE and VI Dialogue+Assistants)
+- **87 chapters → ~81 chapters** (-6)
+- **413 sections → ~370 sections** (-10%)
+- Every part in 4–9 chapter band, every chapter in 3–8 section band
+- NER / structured extraction gets a full chapter (Part V Ch 2), no longer buried in a hybrid-architecture chapter
+- Realtime voice/streaming unifies with Voice Agents in Part VI Ch 4, no longer split between Conversation and Multimodal
+- Knowledge graphs become a contiguous arc in Part V (NER → graph construction → graph-augmented retrieval)
 - Zero duplicated topics across the table of contents
