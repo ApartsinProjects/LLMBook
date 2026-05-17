@@ -263,6 +263,64 @@
 <div class="callout-title">Note</div>
 <p>Production agentic RAG systems must balance thoroughness with cost and latency. Each iteration involves LLM calls for evaluation and follow-up generation, plus retrieval costs. Common budget strategies include: (1) a hard iteration cap (typically 3 to 5 rounds), (2) a total token budget across all iterations, (3) diminishing returns detection (stop when new iterations add little new information), and (4) time budgets for latency-sensitive applications.</p>
 </div>
+<h3 id="32-2-3-1-named-patterns-crag-adaptive-rag-self-rag">32.2.3.1 Named Patterns: CRAG, Adaptive-RAG, Self-RAG</h3>
+<p>Three research threads have crystallized the iterative-refinement idea into named patterns that production systems frequently borrow. <strong>Corrective RAG (CRAG)</strong> evaluates retrieved documents for relevance and triggers a web search as a fallback when the knowledge base lacks the answer, treating "knowledge gap detected" as a routing signal rather than a failure. <strong>Adaptive-RAG</strong> classifies the incoming query by complexity and routes simple, well-scoped queries to direct single-shot retrieval while reserving multi-step agentic reasoning for ambiguous or multi-hop queries, saving cost on the easy cases. <strong>Self-RAG</strong> trains the model to emit special control tokens (such as <code>[Retrieve]</code> and <code>[NoRetrieve]</code>) so that retrieval fires only when the model itself determines it needs external evidence, rather than retrieving once per query by default.</p>
+<p>These three patterns share a common architectural move: <em>insert a gate between the question and the retriever</em>. CRAG places the gate after retrieval (was this any good?), Adaptive-RAG places it before (how hard is this?), and Self-RAG embeds the gate inside the model itself (do I even need to look this up?). In practice they compose: a production system might use Adaptive-RAG to skip retrieval for trivial queries, Self-RAG-style tokens to control mid-generation lookups, and CRAG-style fallback to the web when internal retrieval scores low.</p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># Corrective RAG (CRAG) as a LangGraph state machine.</span>
+<span class="c1"># Retrieve, grade each document, fall back to web search if all scores are low.</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">langgraph.graph</span><span class="w"> </span><span class="kn">import</span> <span class="n">StateGraph</span><span class="p">,</span> <span class="n">END</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">TypedDict</span><span class="p">,</span> <span class="n">List</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">CRAGState</span><span class="p">(</span><span class="n">TypedDict</span><span class="p">):</span>
+    <span class="n">query</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">documents</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">dict</span><span class="p">]</span>
+    <span class="n">relevance_scores</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span>
+    <span class="n">needs_web_search</span><span class="p">:</span> <span class="nb">bool</span>
+    <span class="n">final_answer</span><span class="p">:</span> <span class="nb">str</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">retrieve</span><span class="p">(</span><span class="n">state</span><span class="p">:</span> <span class="n">CRAGState</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Retrieve documents from the knowledge base."""</span>
+    <span class="n">docs</span> <span class="o">=</span> <span class="n">vector_store</span><span class="o">.</span><span class="n">similarity_search</span><span class="p">(</span><span class="n">state</span><span class="p">[</span><span class="s2">"query"</span><span class="p">],</span> <span class="n">k</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
+    <span class="k">return</span> <span class="p">{</span><span class="s2">"documents"</span><span class="p">:</span> <span class="n">docs</span><span class="p">}</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">grade_documents</span><span class="p">(</span><span class="n">state</span><span class="p">:</span> <span class="n">CRAGState</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Score each document for relevance to the query."""</span>
+    <span class="n">scores</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">doc</span> <span class="ow">in</span> <span class="n">state</span><span class="p">[</span><span class="s2">"documents"</span><span class="p">]:</span>
+        <span class="n">score</span> <span class="o">=</span> <span class="n">llm</span><span class="o">.</span><span class="n">invoke</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">"Rate relevance 0-1.</span><span class="se">\n</span><span class="s2">Query: </span><span class="si">{</span><span class="n">state</span><span class="p">[</span><span class="s1">'query'</span><span class="p">]</span><span class="si">}</span>
+<span class="s2">             </span><span class="se">\n</span><span class="s2">Document: </span><span class="si">{</span><span class="n">doc</span><span class="p">[</span><span class="s1">'content'</span><span class="p">][:</span><span class="mi">500</span><span class="p">]</span><span class="si">}</span><span class="se">\n</span><span class="s2">Score:"</span>
+        <span class="p">)</span>
+        <span class="n">scores</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">score</span><span class="o">.</span><span class="n">content</span><span class="o">.</span><span class="n">strip</span><span class="p">()))</span>
+    <span class="n">needs_web</span> <span class="o">=</span> <span class="nb">all</span><span class="p">(</span><span class="n">s</span> <span class="o">&lt;</span> <span class="mf">0.5</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">scores</span><span class="p">)</span>
+    <span class="k">return</span> <span class="p">{</span><span class="s2">"relevance_scores"</span><span class="p">:</span> <span class="n">scores</span><span class="p">,</span> <span class="s2">"needs_web_search"</span><span class="p">:</span> <span class="n">needs_web</span><span class="p">}</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">web_search_fallback</span><span class="p">(</span><span class="n">state</span><span class="p">:</span> <span class="n">CRAGState</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Search the web when knowledge-base scores fall below threshold."""</span>
+    <span class="n">web_results</span> <span class="o">=</span> <span class="n">web_search_tool</span><span class="p">(</span><span class="n">state</span><span class="p">[</span><span class="s2">"query"</span><span class="p">])</span>
+    <span class="k">return</span> <span class="p">{</span><span class="s2">"documents"</span><span class="p">:</span> <span class="n">state</span><span class="p">[</span><span class="s2">"documents"</span><span class="p">]</span> <span class="o">+</span> <span class="n">web_results</span><span class="p">}</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">route_after_grade</span><span class="p">(</span><span class="n">state</span><span class="p">:</span> <span class="n">CRAGState</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+    <span class="k">return</span> <span class="s2">"web_search"</span> <span class="k">if</span> <span class="n">state</span><span class="p">[</span><span class="s2">"needs_web_search"</span><span class="p">]</span> <span class="k">else</span> <span class="s2">"generate"</span>
+
+<span class="n">graph</span> <span class="o">=</span> <span class="n">StateGraph</span><span class="p">(</span><span class="n">CRAGState</span><span class="p">)</span>
+<span class="n">graph</span><span class="o">.</span><span class="n">add_node</span><span class="p">(</span><span class="s2">"retrieve"</span><span class="p">,</span> <span class="n">retrieve</span><span class="p">)</span>
+<span class="n">graph</span><span class="o">.</span><span class="n">add_node</span><span class="p">(</span><span class="s2">"grade"</span><span class="p">,</span> <span class="n">grade_documents</span><span class="p">)</span>
+<span class="n">graph</span><span class="o">.</span><span class="n">add_node</span><span class="p">(</span><span class="s2">"web_search"</span><span class="p">,</span> <span class="n">web_search_fallback</span><span class="p">)</span>
+<span class="n">graph</span><span class="o">.</span><span class="n">add_node</span><span class="p">(</span><span class="s2">"generate"</span><span class="p">,</span> <span class="n">generate_answer</span><span class="p">)</span>
+<span class="n">graph</span><span class="o">.</span><span class="n">set_entry_point</span><span class="p">(</span><span class="s2">"retrieve"</span><span class="p">)</span>
+<span class="n">graph</span><span class="o">.</span><span class="n">add_edge</span><span class="p">(</span><span class="s2">"retrieve"</span><span class="p">,</span> <span class="s2">"grade"</span><span class="p">)</span>
+<span class="n">graph</span><span class="o">.</span><span class="n">add_conditional_edges</span><span class="p">(</span><span class="s2">"grade"</span><span class="p">,</span> <span class="n">route_after_grade</span><span class="p">)</span>
+<span class="n">graph</span><span class="o">.</span><span class="n">add_edge</span><span class="p">(</span><span class="s2">"web_search"</span><span class="p">,</span> <span class="s2">"generate"</span><span class="p">)</span>
+<span class="n">graph</span><span class="o">.</span><span class="n">add_edge</span><span class="p">(</span><span class="s2">"generate"</span><span class="p">,</span> <span class="n">END</span><span class="p">)</span>
+</code></pre>
+<div class="code-caption"><strong><strong>Code Fragment 32.2.3a</strong>:</strong> Corrective RAG (CRAG) implemented as a LangGraph <code>StateGraph</code> with retrieve, grade, web-search-fallback, and generate nodes. The grade node scores each retrieved document and conditionally routes to <code>web_search</code> when all scores fall below the threshold, salvaging answer quality for out-of-distribution queries.</div>
+</div>
+<div class="callout key-insight">
+<div class="callout-title">Key Insight</div>
+<p>The single most valuable upgrade over naive RAG is <strong>query refinement with reflection</strong>. When initial retrieval returns irrelevant results, naive RAG is stuck. An agentic system can analyze why (too broad, wrong terminology, missing constraint), reformulate, and try again. This one capability accounts for most of the accuracy gap between naive and agentic systems on multi-hop benchmarks. Implement reflection before adding more elaborate patterns; CRAG, Adaptive-RAG, and Self-RAG are essentially three different reflection-trigger strategies layered on top.</p>
+</div>
 <h2 id="32-2-4-source-credibility-assessment">32.2.4 Source Credibility Assessment</h2>
 <p>Not all retrieved sources are equally trustworthy. A critical feature of agentic RAG systems is
  the ability to assess source credibility and weight information accordingly. This is especially
@@ -690,6 +748,15 @@
 </div>
 <div class="bib-entry-card">
 <div class="bib-ref"><a href="https://arxiv.org/abs/2212.10509" rel="noopener" target="_blank">Trivedi, H. et al. (2023). "Interleaving Retrieval with Chain-of-Thought Reasoning for Knowledge-Intensive Multi-Step Questions." <em>ACL 2023</em>.</a> Demonstrates that interleaving retrieval steps within <a href="../../part-2-understanding-llms/module-08-reasoning-test-time-compute/section-8.1.html">Section 8.1</a> reasoning improves multi-hop question answering. A key technique for complex research queries. Useful for teams building deep research tools.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://arxiv.org/abs/2401.15884" rel="noopener" target="_blank">Yan, S. et al. (2024). "Corrective Retrieval Augmented Generation." <em>arXiv preprint</em>.</a> Introduces CRAG, the named pattern that grades retrieved passages and falls back to web search when knowledge-base scores are low. Widely re-implemented as a LangGraph reference architecture.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://arxiv.org/abs/2310.11511" rel="noopener" target="_blank">Asai, A. et al. (2023). "Self-RAG: Learning to Retrieve, Generate, and Critique through Self-Reflection." <em>ICLR 2024</em>.</a> Trains the model to emit retrieval-control and self-critique tokens, letting it decide at generation time whether external evidence is needed. Foundational for in-model retrieval gating.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://arxiv.org/abs/2403.14403" rel="noopener" target="_blank">Jeong, S. et al. (2024). "Adaptive-RAG: Learning to Adapt Retrieval-Augmented Large Language Models through Question Complexity." <em>NAACL 2024</em>.</a> Classifies incoming queries by complexity and routes simple ones to direct retrieval while reserving multi-step agentic loops for hard queries, optimizing the cost-quality tradeoff.</div>
 </div>
 <div class="bib-entry-card">
 <div class="bib-ref"><a href="https://tavily.com/" rel="noopener" target="_blank">Tavily AI Search API.</a> A search API designed specifically for AI agents, providing structured web search results. Commonly used in agentic RAG frameworks for real-time information gathering. Practical tool for deep research implementations.</div>
