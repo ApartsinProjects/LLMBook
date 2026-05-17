@@ -14,11 +14,45 @@ For each section in the book, ask four questions:
 | # | Question | Action if "no" |
 |---|---|---|
 | Q1 | Does the section's prose stay on the topic its title and chapter promise? | Flag for content trim or re-home |
-| Q2 | Is anything in this section better covered in another section? | Replace with a cross-reference |
+| Q2 | Is anything in this section better covered in another section? | **Consolidate first, then cross-reference. Never silently drop unique information** — see §2a below. |
 | Q3 | Would this section be more valuable with deeper technical content (architecture details, algorithms, code, concept derivations)? | Author additions where warranted |
 | Q4 | Would a diagram, table, or illustration genuinely make a hard idea easier? | Author the visual; skip if cosmetic |
 
 The rule for Q3 and Q4: **additions only if they increase the section's value**. No filler, no decorative figures, no code dumps for show.
+
+---
+
+## 2a. Q2 consolidation rule — no information loss
+
+When Layer A flags two (or more) sections as covering the same topic, the rule is **consolidate, don't delete**. The process:
+
+1. **List unique claims, examples, and citations from each source.** For each section in the cluster, extract:
+   - Distinct technical claims or definitions (does this section say something the others don't?)
+   - Distinct worked examples, code snippets, or numerical results
+   - Distinct citations (papers, blog posts, library docs)
+   - Distinct figures, diagrams, or tables
+   - Distinct caveats or "watch out for X" callouts
+
+2. **Designate the canonical home** per the rule in §4 (most authoritative, most depth, earliest in book on ties).
+
+3. **Merge unique material into the canonical home.** Each unique item from a non-canonical source must end up in:
+   - The canonical section's body (preferred), OR
+   - A new H3 subsection inside the canonical, OR
+   - A footnote / callout if it's a side observation
+
+4. **Only after merge complete: replace non-canonical occurrences with cross-references** that point at the canonical section.
+
+5. **Never silently drop a unique citation or callout** — even if the prose summary is redundant, the citation may have been the reader's only path to the original source.
+
+6. **Audit trail.** Each consolidation produces a one-line record in `docs/content-pass/consolidation-log.md`:
+   ```
+   <date>  consolidated [topic]
+     canonical home: <path>
+     absorbed from:  <path1>, <path2>, ...
+     unique items moved: <n citations>, <n callouts>, <n examples>
+   ```
+
+This applies symmetrically: if a section is being **deleted** entirely (e.g., aggregator chapter), every unique piece of its content must be re-homed first. The audit trail is the proof.
 
 ---
 
