@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<meta content="Section 39.2: Gemini Live and GPT-4o Realtime API. WebSocket protocols, session management, function calling." name="description"/>
+<title>Section 39.2: Gemini Live &amp; GPT-4o Realtime API</title>
+<link href="../../styles/book.css" rel="stylesheet"/>
+<link href="../../styles/pygments.css" rel="stylesheet"/>
+<link href="../../vendor/prism/prism-theme.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/prism/prism-bundle.min.js"></script>
+<script defer="" src="../../scripts/book.js"></script>
+<link href="../../pagefind/pagefind-ui.css" rel="stylesheet"/>
+<script defer="" src="../../pagefind/pagefind-ui.js"></script>
+</head>
+<body>
+<header class="chapter-header">
+<nav class="header-nav">
+<a class="book-title-link" href="../../index.html">Building Conversational AI with LLMs and Agents</a>
+<a class="toc-link" href="../../toc.html" title="Table of Contents"><span class="toc-icon">☰</span> Contents</a>
+</nav>
+<div class="header-search">
+<div id="search"></div>
+</div>
+<div class="page-breadcrumb" data-pagefind-meta="chapter"><a href="../index.html">Part VII: Multimodal Generation</a><span class="bc-sep">›</span><a href="index.html">Chapter 39: Streaming and Real-Time Multimodal</a></div>
+<h1>Gemini Live &amp; GPT-4o Realtime API</h1><div class="page-current">Section 39.2</div>
+</header>
+<main class="content"><span class="pagefind-meta-injected" data-pagefind-meta="part:Part VII: Multimodal Generation" hidden=""></span><span class="pagefind-meta-injected" data-pagefind-meta="chapter:Chapter 39: Streaming and Real-Time Multimodal" hidden=""></span>
+<blockquote class="epigraph">
+<p>"The protocols are 60% the same. The 40% difference is where production engineering hours go."</p>
+<cite>Engineer integrating both realtime APIs into the same product, mid-2025</cite>
+</blockquote>
+<div class="callout big-picture">
+<div class="callout-title">Big Picture</div>
+<p><strong>Both GPT-4o Realtime and Gemini Live expose a WebSocket-based, event-driven protocol for streaming audio and tool calls.</strong> The shapes are similar: open a session with configuration, push audio frames over the socket, receive incremental text and audio deltas. The differences are in turn-detection semantics, function-calling shape, session state model, and the audio-codec format. This section walks through both protocols side-by-side with executable code, then covers the production patterns (reconnection, partial-state recovery, tool dispatch) that distinguish a demo from a shipping product.</p>
+</div>
+<figure class="illustration">
+<img alt="Side-by-side sequence diagrams of GPT-4o Realtime and Gemini Live sessions, showing event types and message ordering for a single turn" src="images/fig-38.2.1-realtime-protocols.svg"/>
+<figcaption><strong>Figure 38.2.1</strong>: Sequence diagrams for one conversational turn on each API. Both protocols are event-streamed, but event names, the exact set of session-update fields, and the function-calling event shape differ.</figcaption>
+</figure>
+<h2 id="39-2-1-protocol-overview">38.2.1 Protocol Overview</h2>
+<p>Both APIs use a long-lived WebSocket connection. Once authenticated, the client sends a session-update event with configuration (voice, modalities, tools, system prompt), then streams audio chunks. The server emits incremental events as the model processes input and generates output.</p>
+<p>The minimal event types are:</p>
+<figure>
+<table>
+<thead>
+<tr><th scope="col">Concept</th><th scope="col">GPT-4o Realtime</th><th scope="col">Gemini Live</th></tr>
+</thead>
+<tbody>
+<tr><td>Session config</td><td><code>session.update</code></td><td><code>BidiGenerateContentSetup</code></td></tr>
+<tr><td>Send audio chunk</td><td><code>input_audio_buffer.append</code></td><td><code>realtimeInput.audio</code></td></tr>
+<tr><td>Send text chunk</td><td><code>conversation.item.create</code></td><td><code>clientContent.turns</code></td></tr>
+<tr><td>Commit audio turn</td><td><code>input_audio_buffer.commit</code> + <code>response.create</code></td><td>Implicit (server VAD)</td></tr>
+<tr><td>Server emits text</td><td><code>response.text.delta</code></td><td><code>serverContent.modelTurn.parts.text</code></td></tr>
+<tr><td>Server emits audio</td><td><code>response.audio.delta</code></td><td><code>serverContent.modelTurn.parts.inlineData</code></td></tr>
+<tr><td>Function call</td><td><code>response.function_call_arguments.delta</code></td><td><code>toolCall.functionCalls</code></td></tr>
+<tr><td>Function result</td><td><code>conversation.item.create</code> (function_call_output)</td><td><code>toolResponse.functionResponses</code></td></tr>
+<tr><td>Interruption (user spoke)</td><td><code>input_audio_buffer.speech_started</code></td><td><code>serverContent.interrupted</code></td></tr>
+</tbody>
+</table>
+<figcaption><strong>Figure 38.2.2</strong>: Side-by-side event taxonomy. The conceptual primitives match; the names and the message envelopes do not. Production code that targets both APIs typically wraps them in a thin adapter.</figcaption>
+</figure>
+<h2 id="39-2-2-gpt-4o-realtime-walkthrough">38.2.2 GPT-4o Realtime: Full Walkthrough</h2>
+<p>The GPT-4o Realtime endpoint is <code>wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview</code>. Authentication is via a standard bearer token plus the <code>OpenAI-Beta: realtime=v1</code> header. The minimal full lifecycle:</p>
+<pre><code class="lang-python pygments-highlighted"><span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span><span class="p">,</span> <span class="nn">json</span><span class="p">,</span> <span class="nn">base64</span><span class="p">,</span> <span class="nn">os</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">websockets</span>
+
+<span class="n">URL</span> <span class="o">=</span> <span class="s2">"wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview"</span>
+<span class="n">HEADERS</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">"Authorization"</span><span class="p">:</span> <span class="sa">f</span><span class="s2">"Bearer </span><span class="si">{</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s1">'OPENAI_API_KEY'</span><span class="p">]</span><span class="si">}</span><span class="s2">"</span><span class="p">,</span>
+    <span class="s2">"OpenAI-Beta"</span><span class="p">:</span> <span class="s2">"realtime=v1"</span><span class="p">,</span>
+<span class="p">}</span>
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">run</span><span class="p">():</span>
+    <span class="k">async</span> <span class="k">with</span> <span class="n">websockets</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="n">URL</span><span class="p">,</span> <span class="n">extra_headers</span><span class="o">=</span><span class="n">HEADERS</span><span class="p">)</span> <span class="k">as</span> <span class="n">ws</span><span class="p">:</span>
+        <span class="c1"># 1. Configure session: enable both modalities, set voice and tools.</span>
+        <span class="k">await</span> <span class="n">ws</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">({</span>
+            <span class="s2">"type"</span><span class="p">:</span> <span class="s2">"session.update"</span><span class="p">,</span>
+            <span class="s2">"session"</span><span class="p">:</span> <span class="p">{</span>
+                <span class="s2">"modalities"</span><span class="p">:</span> <span class="p">[</span><span class="s2">"text"</span><span class="p">,</span> <span class="s2">"audio"</span><span class="p">],</span>
+                <span class="s2">"voice"</span><span class="p">:</span> <span class="s2">"shimmer"</span><span class="p">,</span>
+                <span class="s2">"input_audio_format"</span><span class="p">:</span> <span class="s2">"pcm16"</span><span class="p">,</span>
+                <span class="s2">"output_audio_format"</span><span class="p">:</span> <span class="s2">"pcm16"</span><span class="p">,</span>
+                <span class="s2">"turn_detection"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"type"</span><span class="p">:</span> <span class="s2">"server_vad"</span><span class="p">,</span> <span class="s2">"threshold"</span><span class="p">:</span> <span class="mf">0.5</span><span class="p">},</span>
+                <span class="s2">"instructions"</span><span class="p">:</span> <span class="s2">"You are a helpful assistant."</span><span class="p">,</span>
+                <span class="s2">"tools"</span><span class="p">:</span> <span class="p">[{</span>
+                    <span class="s2">"type"</span><span class="p">:</span> <span class="s2">"function"</span><span class="p">,</span>
+                    <span class="s2">"name"</span><span class="p">:</span> <span class="s2">"lookup_weather"</span><span class="p">,</span>
+                    <span class="s2">"description"</span><span class="p">:</span> <span class="s2">"Get weather for a city"</span><span class="p">,</span>
+                    <span class="s2">"parameters"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"type"</span><span class="p">:</span> <span class="s2">"object"</span><span class="p">,</span>
+                        <span class="s2">"properties"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"city"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"type"</span><span class="p">:</span> <span class="s2">"string"</span><span class="p">}}},</span>
+                <span class="p">}],</span>
+            <span class="p">},</span>
+        <span class="p">}))</span>
+
+        <span class="c1"># 2. Stream microphone audio in 100ms chunks (16kHz PCM-16).</span>
+        <span class="n">mic_task</span> <span class="o">=</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">create_task</span><span class="p">(</span><span class="n">stream_mic</span><span class="p">(</span><span class="n">ws</span><span class="p">))</span>
+
+        <span class="c1"># 3. Receive server events and play audio output.</span>
+        <span class="k">async</span> <span class="k">for</span> <span class="n">raw</span> <span class="ow">in</span> <span class="n">ws</span><span class="p">:</span>
+            <span class="n">ev</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">raw</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">ev</span><span class="p">[</span><span class="s2">"type"</span><span class="p">]</span> <span class="o">==</span> <span class="s2">"response.audio.delta"</span><span class="p">:</span>
+                <span class="n">pcm</span> <span class="o">=</span> <span class="n">base64</span><span class="o">.</span><span class="n">b64decode</span><span class="p">(</span><span class="n">ev</span><span class="p">[</span><span class="s2">"delta"</span><span class="p">])</span>
+                <span class="n">speaker</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">pcm</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="n">ev</span><span class="p">[</span><span class="s2">"type"</span><span class="p">]</span> <span class="o">==</span> <span class="s2">"response.function_call_arguments.done"</span><span class="p">:</span>
+                <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">handle_tool</span><span class="p">(</span><span class="n">ev</span><span class="p">[</span><span class="s2">"name"</span><span class="p">],</span>
+                                            <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">ev</span><span class="p">[</span><span class="s2">"arguments"</span><span class="p">]))</span>
+                <span class="k">await</span> <span class="n">ws</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">({</span>
+                    <span class="s2">"type"</span><span class="p">:</span> <span class="s2">"conversation.item.create"</span><span class="p">,</span>
+                    <span class="s2">"item"</span><span class="p">:</span> <span class="p">{</span>
+                        <span class="s2">"type"</span><span class="p">:</span> <span class="s2">"function_call_output"</span><span class="p">,</span>
+                        <span class="s2">"call_id"</span><span class="p">:</span> <span class="n">ev</span><span class="p">[</span><span class="s2">"call_id"</span><span class="p">],</span>
+                        <span class="s2">"output"</span><span class="p">:</span> <span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">result</span><span class="p">),</span>
+                    <span class="p">},</span>
+                <span class="p">}))</span>
+                <span class="k">await</span> <span class="n">ws</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">({</span><span class="s2">"type"</span><span class="p">:</span> <span class="s2">"response.create"</span><span class="p">}))</span>
+            <span class="k">elif</span> <span class="n">ev</span><span class="p">[</span><span class="s2">"type"</span><span class="p">]</span> <span class="o">==</span> <span class="s2">"input_audio_buffer.speech_started"</span><span class="p">:</span>
+                <span class="n">speaker</span><span class="o">.</span><span class="n">flush</span><span class="p">()</span>  <span class="c1"># interruption</span></code></pre>
+<div class="code-caption"><strong>Code Fragment 38.2.1:</strong> Minimal but complete GPT-4o Realtime client. With <code>server_vad</code> turn detection, you do not have to commit audio buffers manually; the server detects end-of-speech and emits a response. Function calls round-trip via <code>conversation.item.create</code> with the function_call_output item type.</div>
+<h2 id="39-2-3-gemini-live-walkthrough">38.2.3 Gemini Live: Full Walkthrough</h2>
+<p>Gemini Live uses a similar WebSocket pattern but with Google's bidi-streaming envelope. The endpoint is <code>wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent</code>. Authentication is via API key as a query parameter.</p>
+<pre><code class="lang-python pygments-highlighted"><span class="kn">from</span><span class="w"> </span><span class="nn">google</span><span class="w"> </span><span class="kn">import</span> <span class="n">genai</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
+
+<span class="n">client</span> <span class="o">=</span> <span class="n">genai</span><span class="o">.</span><span class="n">Client</span><span class="p">(</span><span class="n">api_key</span><span class="o">=</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">"GOOGLE_API_KEY"</span><span class="p">])</span>
+<span class="n">MODEL</span> <span class="o">=</span> <span class="s2">"models/gemini-2.5-flash-live-preview"</span>
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">run</span><span class="p">():</span>
+    <span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s2">"response_modalities"</span><span class="p">:</span> <span class="p">[</span><span class="s2">"AUDIO"</span><span class="p">],</span>
+        <span class="s2">"speech_config"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"voice_config"</span><span class="p">:</span>
+            <span class="p">{</span><span class="s2">"prebuilt_voice_config"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"voice_name"</span><span class="p">:</span> <span class="s2">"Aoede"</span><span class="p">}}},</span>
+        <span class="s2">"system_instruction"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"parts"</span><span class="p">:</span>
+            <span class="p">[{</span><span class="s2">"text"</span><span class="p">:</span> <span class="s2">"You are a helpful assistant."</span><span class="p">}]},</span>
+        <span class="s2">"tools"</span><span class="p">:</span> <span class="p">[{</span><span class="s2">"function_declarations"</span><span class="p">:</span> <span class="p">[</span>
+            <span class="p">{</span><span class="s2">"name"</span><span class="p">:</span> <span class="s2">"lookup_weather"</span><span class="p">,</span>
+             <span class="s2">"description"</span><span class="p">:</span> <span class="s2">"Get weather for a city"</span><span class="p">,</span>
+             <span class="s2">"parameters"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"type"</span><span class="p">:</span> <span class="s2">"OBJECT"</span><span class="p">,</span>
+                <span class="s2">"properties"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"city"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"type"</span><span class="p">:</span> <span class="s2">"STRING"</span><span class="p">}}}}</span>
+        <span class="p">]}],</span>
+    <span class="p">}</span>
+
+    <span class="k">async</span> <span class="k">with</span> <span class="n">client</span><span class="o">.</span><span class="n">aio</span><span class="o">.</span><span class="n">live</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="n">model</span><span class="o">=</span><span class="n">MODEL</span><span class="p">,</span> <span class="n">config</span><span class="o">=</span><span class="n">config</span><span class="p">)</span> <span class="k">as</span> <span class="n">session</span><span class="p">:</span>
+        <span class="c1"># 1. Mic streaming task</span>
+        <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">send_audio</span><span class="p">():</span>
+            <span class="k">async</span> <span class="k">for</span> <span class="n">chunk</span> <span class="ow">in</span> <span class="n">mic_chunks</span><span class="p">():</span>
+                <span class="k">await</span> <span class="n">session</span><span class="o">.</span><span class="n">send_realtime_input</span><span class="p">(</span>
+                    <span class="n">audio</span><span class="o">=</span><span class="p">{</span><span class="s2">"data"</span><span class="p">:</span> <span class="n">chunk</span><span class="p">,</span> <span class="s2">"mime_type"</span><span class="p">:</span> <span class="s2">"audio/pcm"</span><span class="p">}</span>
+                <span class="p">)</span>
+
+        <span class="n">asyncio</span><span class="o">.</span><span class="n">create_task</span><span class="p">(</span><span class="n">send_audio</span><span class="p">())</span>
+
+        <span class="c1"># 2. Receive loop</span>
+        <span class="k">async</span> <span class="k">for</span> <span class="n">resp</span> <span class="ow">in</span> <span class="n">session</span><span class="o">.</span><span class="n">receive</span><span class="p">():</span>
+            <span class="k">if</span> <span class="n">resp</span><span class="o">.</span><span class="n">data</span><span class="p">:</span>
+                <span class="n">speaker</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">resp</span><span class="o">.</span><span class="n">data</span><span class="p">)</span>  <span class="c1"># PCM audio chunk</span>
+            <span class="k">if</span> <span class="n">resp</span><span class="o">.</span><span class="n">tool_call</span><span class="p">:</span>
+                <span class="k">for</span> <span class="n">call</span> <span class="ow">in</span> <span class="n">resp</span><span class="o">.</span><span class="n">tool_call</span><span class="o">.</span><span class="n">function_calls</span><span class="p">:</span>
+                    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">handle_tool</span><span class="p">(</span><span class="n">call</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">call</span><span class="o">.</span><span class="n">args</span><span class="p">)</span>
+                    <span class="k">await</span> <span class="n">session</span><span class="o">.</span><span class="n">send_tool_response</span><span class="p">(</span>
+                        <span class="n">function_responses</span><span class="o">=</span><span class="p">[{</span><span class="s2">"id"</span><span class="p">:</span> <span class="n">call</span><span class="o">.</span><span class="n">id</span><span class="p">,</span>
+                            <span class="s2">"name"</span><span class="p">:</span> <span class="n">call</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="s2">"response"</span><span class="p">:</span> <span class="n">result</span><span class="p">}]</span>
+                    <span class="p">)</span>
+            <span class="k">if</span> <span class="n">resp</span><span class="o">.</span><span class="n">server_content</span> <span class="ow">and</span> <span class="n">resp</span><span class="o">.</span><span class="n">server_content</span><span class="o">.</span><span class="n">interrupted</span><span class="p">:</span>
+                <span class="n">speaker</span><span class="o">.</span><span class="n">flush</span><span class="p">()</span></code></pre>
+<div class="code-caption"><strong>Code Fragment 38.2.2:</strong> Gemini Live client using the official google-genai SDK. The SDK wraps the raw bidi-streaming gRPC; you can also drop down to the WebSocket bridge if you prefer. Function declarations follow JSON Schema with the all-caps Google convention (<code>STRING</code>, <code>OBJECT</code>).</div>
+<h2 id="39-2-4-session-management">38.2.4 Session Management and Reconnection</h2>
+<p>Production realtime clients must survive transient WebSocket disconnects. Both APIs let you continue a session by replaying the conversation history on a new connection:</p>
+<ul>
+<li><strong>GPT-4o Realtime</strong>: replay <code>conversation.item.create</code> events for each prior turn on the new socket, then resume audio streaming.</li>
+<li><strong>Gemini Live</strong>: pass the prior turns in <code>clientContent.turns</code> as the first send on the new session.</li>
+</ul>
+<p>Neither API persists session state server-side beyond the WebSocket lifetime. The client owns the conversation history, which simplifies the data model (no session IDs to manage) but means the client must implement reconnection logic carefully. Production patterns typically save the running transcript to a database every few turns so a refresh or device handoff can resume cleanly.</p>
+<div class="callout note">
+<div class="callout-title">Both APIs cap sessions at 15 to 30 minutes</div>
+<p>Each provider enforces a maximum session duration (currently 30 minutes for GPT-4o Realtime, 15 minutes for Gemini Live, both subject to change). Long-running voice agents must implement transparent session rotation: open a new socket before the old one expires, transfer the conversation context, and switch the audio stream over with minimal perceived gap. The pattern looks like a TCP handoff; expect to spend an afternoon getting it right.</p>
+</div>
+<h2 id="39-2-5-function-calling-in-realtime">38.2.5 Function Calling in Realtime</h2>
+<p>Function calling in a streaming audio context introduces a unique problem: the model wants to call a function mid-speech, but the function call blocks the audio response. Both APIs handle this by emitting a function-call event mid-stream, expecting the client to respond with a function output, and then resuming audio generation.</p>
+<p>Best practices that emerged in 2025:</p>
+<ol>
+<li><strong>Acknowledge before calling</strong>: prompt the model to say a brief "let me check" before invoking a tool, so the user perceives responsiveness while the tool runs.</li>
+<li><strong>Parallel function dispatch</strong>: if multiple tools can be called, dispatch them in parallel rather than serially.</li>
+<li><strong>Streaming tool results</strong>: for long-running tools, send incremental partial results so the model can begin speaking before the tool fully resolves.</li>
+<li><strong>Timeouts</strong>: enforce a max latency on tool calls. If the weather API takes more than 1 second, return a "weather lookup pending" placeholder so the conversation does not stall.</li>
+</ol>
+<div class="callout key-insight">
+<div class="callout-title">The acknowledgment pattern</div>
+<p>Without a verbal acknowledgment, the user perceives a silent gap during tool execution. With "let me check that for you" emitted by the model before the tool call, the gap is filled with natural speech and the perceived latency drops dramatically even if the tool is slow. The trick is in the system prompt: instruct the model to always preface tool calls with a brief verbal acknowledgment. Both APIs honor this pattern reliably.</p>
+</div>
+<h2 id="39-2-6-debugging-and-observability">38.2.6 Debugging and Observability</h2>
+<p>Realtime APIs are noisier than text APIs and harder to debug. Recommended observability:</p>
+<ul>
+<li><strong>Log every event with timestamps</strong>: server-side timing tells you where latency lives in the stack.</li>
+<li><strong>Record audio in and out</strong>: optionally save the user's input audio and the model's output audio so you can replay session failures.</li>
+<li><strong>Track TTFB and TTLB</strong>: time-to-first-byte (audio) and time-to-last-byte for each turn.</li>
+<li><strong>Monitor server-side events</strong>: <code>error</code>, <code>response.done</code>, and <code>conversation.item.truncated</code> events indicate something went wrong.</li>
+</ul>
+<pre><code class="lang-python pygments-highlighted"><span class="c1"># Minimal observability wrapper for either realtime API.</span>
+<span class="c1"># Logs every event with monotonic-clock timestamps to a JSONL file.</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">time</span><span class="p">,</span> <span class="nn">json</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">EventLogger</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">path</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">f</span> <span class="o">=</span> <span class="nb">open</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="s2">"a"</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">t0</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">monotonic</span><span class="p">()</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">log</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">direction</span><span class="p">,</span> <span class="n">event</span><span class="p">):</span>
+        <span class="n">elapsed_ms</span> <span class="o">=</span> <span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">monotonic</span><span class="p">()</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">t0</span><span class="p">)</span> <span class="o">*</span> <span class="mi">1000</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">({</span>
+            <span class="s2">"t_ms"</span><span class="p">:</span> <span class="nb">round</span><span class="p">(</span><span class="n">elapsed_ms</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span>
+            <span class="s2">"dir"</span><span class="p">:</span> <span class="n">direction</span><span class="p">,</span>
+            <span class="s2">"type"</span><span class="p">:</span> <span class="n">event</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"type"</span><span class="p">)</span> <span class="ow">or</span> <span class="nb">type</span><span class="p">(</span><span class="n">event</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="p">,</span>
+            <span class="s2">"summary"</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">event</span><span class="p">)[:</span><span class="mi">200</span><span class="p">],</span>
+        <span class="p">})</span> <span class="o">+</span> <span class="s2">"</span><span class="se">\n</span><span class="s2">"</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">f</span><span class="o">.</span><span class="n">flush</span><span class="p">()</span></code></pre>
+<div class="code-caption"><strong>Code Fragment 38.2.3:</strong> A 15-line event logger. Wrap every send and receive with <code>logger.log("out", payload)</code> or <code>logger.log("in", event)</code>. The resulting JSONL is invaluable for diagnosing latency spikes and protocol-level mismatches.</div>
+<div class="callout warning">
+<div class="callout-title">Audio format mismatches are the #1 silent failure</div>
+<p>Both APIs accept PCM-16 mono at specific sample rates (24 kHz for GPT-4o output, 16 kHz for Gemini Live input). Sending audio at the wrong rate gets you no error: the server processes the bytes as though they were the expected rate, and the model produces garbage output. Always log the sample rate from your audio capture chain and add an assertion at the WebSocket boundary.</p>
+</div>
+<div class="callout practical-example">
+<div class="callout-title">Real-World Scenario: A Multi-Provider Realtime Adapter</div>
+<p>A 2025 customer-support startup wanted to A/B test GPT-4o Realtime versus Gemini Live in production. They built a thin adapter layer (~600 lines of Python) exposing a unified <code>RealtimeSession</code> interface with methods <code>send_audio</code>, <code>send_tool_response</code>, and an async iterator of <code>AudioChunk</code>, <code>ToolCall</code>, and <code>InterruptionEvent</code> objects. The adapter normalized voice IDs, sample rates, and function-call schemas. The A/B test showed Gemini Live was 18% cheaper for their workload but had higher TTFB; they shipped a mixed-provider stack with intelligent routing based on conversational urgency.</p>
+</div>
+<div class="callout key-takeaway">
+<div class="callout-title">Key Takeaway</div>
+<p><strong>GPT-4o Realtime and Gemini Live share the same conceptual primitives, WebSocket session, streaming audio, server-VAD turn detection, function calling, but differ in event names, schemas, and SDKs.</strong> Production code should wrap them in a thin adapter so you can switch or A/B test. Session management is client-owned; both APIs cap sessions at 15 to 30 minutes and require client-side reconnection. Function calling needs an acknowledgment pattern to avoid silent gaps. Instrument every event with timestamps; audio sample-rate mismatches are silent failures that observability catches before users do.</p>
+</div>
+<div class="callout self-check">
+<div class="callout-title">Self-Check</div>
+<ol>
+<li>You need to switch your audio agent between GPT-4o Realtime and Gemini Live based on cost. What is the minimum adapter surface you need to expose, and which 3 events are most likely to behave differently?</li>
+<li>A user complains that the agent goes silent for 4 seconds whenever it looks up an order. The order-lookup tool returns in 800 ms. What's the fix that doesn't require a faster tool?</li>
+<li>Sketch a reconnection protocol for a 25-minute voice conversation that needs to survive the 30-minute session cap and a transient 3-second network drop.</li>
+<li>Why is "log every event with monotonic timestamps" more valuable in realtime APIs than in non-streaming LLM APIs?</li>
+</ol>
+</div>
+<div class="whats-next">
+<h2 id="what-comes-next">What Comes Next</h2>
+<p><a href="section-39.3.html">Section 39.3: Audio Token Budget and Latency Engineering</a> goes one layer deeper into the audio token economics: codec choice, token rate, voice-activity tuning, and the math behind sub-300-ms TTFT.</p>
+</div>
+<details class="bibliography-collapsible" open>
+<summary><strong>Further Reading</strong></summary>
+<section class="bibliography">
+<h3 id="api-docs">API Documentation</h3>
+<div class="bib-entry-card">
+<div class="bib-ref">OpenAI. (2024-2025). "Realtime API Reference." <a href="https://platform.openai.com/docs/api-reference/realtime" rel="noopener" target="_blank">platform.openai.com/docs/api-reference/realtime</a></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Google. (2024-2025). "Gemini Live API Reference." <a href="https://ai.google.dev/api/generate-content#bidigeneratecontent" rel="noopener" target="_blank">ai.google.dev/api/generate-content</a></div>
+</div>
+<h3 id="protocol-design">Protocol Design Discussions</h3>
+<div class="bib-entry-card">
+<div class="bib-ref">OpenAI. (2024). "Introducing the Realtime API." <a href="https://openai.com/index/introducing-the-realtime-api/" rel="noopener" target="_blank">openai.com/index/introducing-the-realtime-api</a></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Pipecat. (2025). "Adapter patterns for multi-provider voice agents." <a href="https://docs.pipecat.ai/" rel="noopener" target="_blank">docs.pipecat.ai</a></div>
+</div>
+<h3 id="webrtc-and-transport">WebRTC and Transport</h3>
+<div class="bib-entry-card">
+<div class="bib-ref">LiveKit. (2024-2025). "LiveKit Agents documentation." <a href="https://docs.livekit.io/agents/" rel="noopener" target="_blank">docs.livekit.io/agents</a></div>
+</div>
+<h3 id="best-practices">Production Best Practices</h3>
+<div class="bib-entry-card">
+<div class="bib-ref">OpenAI. (2025). "Best practices for the Realtime API." (Blog post.) <a href="https://openai.com/index/" rel="noopener" target="_blank">openai.com/index</a></div>
+</div>
+</section>
+</details>
+<nav class="chapter-nav">
+<a class="prev" href="section-39.1.html"><span class="nav-label">Previous</span><span class="nav-num">Section 39.1</span><span class="nav-title">Streaming Audio Architectures</span></a>
+<a class="up" href="index.html"><span class="nav-label">In Chapter</span><span class="nav-num">Chapter 39</span><span class="nav-title">Streaming and Real-Time Multimodal</span></a>
+<a class="next" href="section-39.3.html"><span class="nav-label">Next</span><span class="nav-num">Section 39.3</span><span class="nav-title">Audio Token Budget &amp; Latency Engineering</span></a>
+</nav>
+<footer><p>Fifteenth Edition, 2026 · <a href="../../toc.html">Contents</a></p></footer>
+</main>
+<script>
+window.addEventListener("DOMContentLoaded", function() {
+  if (window.PagefindUI) {
+    new PagefindUI({
+      element: "#search",
+      showSubResults: true,
+      showImages: false,
+      resetStyles: false,
+      pageSize: 8,
+      autofocus: false,
+      translations: {
+        placeholder: "Search the book…",
+      },
+      processResult: function (result) {
+        try {
+          var part = (result && result.meta && result.meta.part) ? result.meta.part : "";
+          var chap = (result && result.meta && result.meta.chapter) ? result.meta.chapter : "";
+          var partShort = part.split(":")[0].trim();
+          var chapShort = chap.split(":")[0].trim();
+          var crumb = [partShort, chapShort].filter(Boolean).join(" › ");
+          if (crumb && result.meta && result.meta.title
+              && result.meta.title.indexOf("[" + partShort) !== 0) {
+            result.meta.title = "[" + crumb + "]  " + result.meta.title;
+          }
+        } catch (e) { /* fall through */ }
+        return result;
+      },
+    });
+  }
+});
+</script>
+</body>
+</html>

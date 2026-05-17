@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<meta content="Section 3.4: GPU Fundamentals &amp; Systems. A comprehensive chapter from the Building Conversational AI textbook." name="description"/>
+<title>Section 3.4: GPU Fundamentals &amp; Systems</title>
+<link href="../../styles/book.css" rel="stylesheet"/>
+<link href="../../styles/pygments.css" rel="stylesheet"/>
+<link href="../../vendor/katex/katex.min.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/katex/katex.min.js"></script>
+<script defer="" onload="renderMathInElement(document.body, {
+ delimiters: [
+ {left: '$$', right: '$$', display: true},
+ {left: '$', right: '$', display: false}
+ ],
+ throwOnError: false
+ });" src="../../vendor/katex/contrib/auto-render.min.js"></script>
+<link href="../../vendor/prism/prism-theme.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/prism/prism-bundle.min.js"></script>
+<script defer="" src="../../scripts/book.js"></script>
+<link href="../../pagefind/pagefind-ui.css" rel="stylesheet"/>
+<script defer="" src="../../pagefind/pagefind-ui.js"></script>
+</head>
+<body>
+<header class="chapter-header">
+<nav class="header-nav">
+<a class="book-title-link" href="../../index.html">Building Conversational AI with LLMs and Agents</a>
+<a class="toc-link" href="../../toc.html" title="Table of Contents"><span class="toc-icon">☰</span> Contents</a>
+</nav>
+<div class="header-search">
+<div id="search"></div>
+</div>
+
+<div class="page-breadcrumb" data-pagefind-meta="chapter"><a href="../index.html">Part I: Foundations</a><span class="bc-sep">›</span><a href="index.html">Chapter 3: The Transformer Architecture</a></div>
+<h1>GPU Fundamentals &amp; Systems</h1><div class="page-current">Section 3.4</div>
+
+</header>
+<main class="content"><span class="pagefind-meta-injected" data-pagefind-meta="part:Part I: Foundations" hidden=""></span><span class="pagefind-meta-injected" data-pagefind-meta="chapter:Chapter 3: The Transformer Architecture" hidden=""></span>
+<aside class="callout note optional-marker">
+<div class="callout-title">Optional - for depth</div>
+<p>This section dives deeper into a topic that is not strictly required for the rest of the book. Readers who are time-constrained can skim or skip on first pass and return when they need the specific details. The next section assumes only what was covered in the earlier sections of this chapter.</p>
+</aside>
+<blockquote class="epigraph">
+<p>My GPU utilization hit 100% and for one beautiful moment, memory bandwidth and compute were perfectly balanced. Then I loaded the next batch.</p>
+<span class="agent-avatar-inline" style="background-color: #95a5a6;"><img alt="Norm" height="28" src="../../front-matter/images/agents/norm.png" width="28"/></span><cite>Norm, <span class="agent-desc">Bandwidth-Bottlenecked AI Agent</span></cite>
+</blockquote>
+<div class="prerequisites">
+<h3 id="prerequisites">Prerequisites</h3>
+<p>This section assumes familiarity with the Transformer architecture from <a href="section-3.1.html">Section 3.1</a>, especially the matrix operations involved in attention computation. The PyTorch foundations from <a href="../module-00-ml-pytorch-foundations/section-0.3.html">Section 0.3</a> (tensors, device placement) are helpful. The hardware concepts here connect directly to inference optimization in <a href="../../part-2-understanding-llms/module-09-inference-optimization/section-9.1.html">Section 10.1</a> and distributed training in <a href="../../part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.3.html">Section 7.3</a>.</p>
+</div>
+<figure class="illustration">
+<img alt="An aerial view of a city representing GPU memory hierarchy, with fast SRAM neighborhoods near the center and slower HBM districts on the outskirts, connected by data highways of varying widths" src="images/gpu-city-memory-hierarchy.png"/>
+<figcaption><strong>Figure 4.4.1</strong>: GPU memory as a city: the fastest SRAM is a small neighborhood at the center, surrounded by larger but slower HBM districts. Data must travel along bandwidth-limited highways between them, making memory access patterns critical for performance.</figcaption>
+</figure>
+<!-- ============================================================ -->
+<div class="callout big-picture">
+<div class="callout-title">Big Picture</div>
+<p>
+ Modern GPUs are fundamentally <strong>throughput machines</strong> designed to keep thousands of
+ cores busy simultaneously. The main challenge is not compute; it is feeding data to those cores
+ fast enough. Most Transformer operations are <strong>memory-bound</strong>, meaning they spend
+ more time moving data than computing with it. The PyTorch tensor foundations from <a href="../module-00-ml-pytorch-foundations/section-0.3.html">Section 0.3</a> map directly onto these GPU primitives.
+ </p>
+</div>
+<h2 id="3-4-1-why-gpu-architecture-matters">4.4.1 Why GPU Architecture Matters</h2>
+<div class="callout key-insight">
+<div class="callout-title">Why: Why Flash Attention is faster despite computing the same math</div>
+<p>Flash Attention's speedup comes from a tiling reorder, not from any algebraic trick: standard attention reads the N × N score matrix to and from HBM twice (once to compute softmax, once to apply it to V). Dao et al. (2022) showed you can fuse softmax and the V-multiply into a single pass over tiles small enough to fit in SRAM, using an online-softmax recurrence (Milakov and Gimelshein, 2018) that updates the running max and sum incrementally. The wall-clock win is purely the HBM-vs-SRAM bandwidth ratio (typically 10-20x), and the math is bit-for-bit identical. This is a microcosm of modern GPU optimization: most "kernel improvements" are memory-hierarchy reorderings that the autograd framework cannot do for you.</p>
+</div>
+<div class="callout algorithm">
+<div class="callout-title">Under the Hood: Why FlashAttention Doesn't Materialize N×N</div>
+<p>Standard attention computes Q Kᵀ first (an N×N matrix), softmaxes the rows, then multiplies by V. The intermediate N×N matrix dominates memory at long contexts (1M tokens × 1M tokens of FP16 = 2 TB, impossible). FlashAttention <strong>never materializes</strong> the full attention matrix. It tiles Q, K, V into blocks that fit in GPU SRAM (~100 KB), computes one block at a time, and maintains a running "online softmax" using the log-sum-exp trick:</p><div class="math-block">$$m_{\text{new}} = \max(m, \text{row\_max}(S)), \quad \ell_{\text{new}} = e^{m - m_{\text{new}}} \ell + \sum e^{S - m_{\text{new}}}$$</div><p>where m is the running maximum (for numerical stability) and ℓ is the running denominator. After processing all K/V blocks, the output is rescaled by 1/ℓ. Peak memory: O(N × block_size), not O(N²). Verification: the output matches standard attention up to numerical noise (&lt; 10⁻⁵ max diff).</p>
+</div>
+<p>
+ Here is a number that should surprise you: a modern GPU can perform 1,000 trillion floating-point operations per second, but it can only read about 3 trillion bytes from its main memory in that same second. The math does not lie: for many operations, the GPU finishes computing before the data even arrives. A Transformer's theoretical FLOP count tells only half the story. Two implementations with identical
+ FLOP counts can differ by 10x in wall-clock time depending on how well they utilize the GPU's memory
+ hierarchy. Understanding GPU architecture is not optional for anyone who wants to train or serve LLMs
+ efficiently. This section provides the mental model you need to reason about performance bottlenecks
+ and understand optimizations like FlashAttention.
+</p>
+<!-- ============================================================ -->
+<h2 id="3-4-2-gpu-architecture-overview">4.4.2 GPU Architecture Overview</h2>
+<h3 id="3-4-2-1-streaming-multiprocessors-sms">4.4.2.1 Streaming Multiprocessors (SMs)</h3>
+<p>
+ A GPU is organized as an array of <strong>Streaming Multiprocessors</strong> (SMs). Each SM contains:
+</p>
+<ul>
+<li><strong>CUDA cores</strong>: Scalar arithmetic units for FP32/FP64/INT operations. An A100 has 6912 CUDA cores across 108 SMs.</li>
+<li><strong>Tensor Cores</strong>: Specialized matrix multiply-accumulate units that process small matrix tiles (e.g., 16x16x16) in a single cycle. They provide the bulk of the compute for matrix multiplications in Transformers.</li>
+<li><strong>Shared Memory / L1 Cache</strong>: Fast, programmer-controlled on-chip memory (up to 228 KB per SM on H100). This is the key resource for kernel optimization.</li>
+<li><strong>Register File</strong>: The fastest storage, private to each thread. 256 KB per SM.</li>
+<li><strong>Warp Schedulers</strong>: Each SM schedules 32-thread groups called "warps" in a round-robin fashion, hiding memory latency by switching between warps.</li>
+</ul>
+<h3 id="3-4-2-2-memory-hierarchy">4.4.2.2 Memory Hierarchy</h3>
+<div class="diagram-container">
+<img alt="GPU memory hierarchy from registers (fastest) to HBM (largest)" src="images/fig-4.4.2-gpu-memory.png"/>
+<div class="diagram-caption"><strong>Figure 4.4.2</strong>: GPU memory hierarchy. Each level is faster but smaller than the one below. The key optimization challenge is keeping data in the fast upper levels.</div>
+</div>
+<p>
+ The bandwidth gap between shared memory (~19 TB/s) and HBM (~3.35 TB/s on H100) is roughly 6x.
+ The gap between registers and HBM is even larger. This is why <strong>memory access patterns</strong>
+ dominate GPU performance. An operation that reads the same data from HBM three times (like naive
+ attention) can be 3x slower than one that reads it once and keeps it in shared memory (FlashAttention).
+</p>
+<!-- ============================================================ -->
+<h2 id="3-4-3-compute-bound-vs-memory-bound-operations">4.4.3 Compute-Bound vs. Memory-Bound Operations</h2>
+<h3 id="3-4-3-1-the-roofline-model">4.4.3.1 The Roofline Model</h3>
+<p>
+ The <strong>roofline model</strong> characterizes each operation by its
+ <strong>arithmetic intensity</strong>: the ratio of FLOPs to bytes transferred from memory. If an
+ operation does many FLOPs per byte loaded, it is <em>compute-bound</em> (limited by the number of
+ arithmetic units). If it does few FLOPs per byte, it is <em>memory-bound</em> (limited by memory
+ bandwidth).
+</p>
+<div class="math-block">
+ $$\text{Arithmetic Intensity} = \text{FLOPs} / \text{Bytes transferred}$$
+ 
+</div>
+<div class="comparison-table">
+<div class="comparison-table-title"><strong>Table 4.4.1:</strong> <em>Operation Comparison (as of 2026).</em></div>
+<table class="complex-table">
+<tr><th scope="col">Operation</th><th scope="col">FLOPs</th><th scope="col">Memory</th><th scope="col">Intensity</th><th scope="col">Bound</th></tr>
+<tr>
+<td>Matrix multiply (large)</td>
+<td>2MNK</td>
+<td>2(MK + KN + MN) bytes</td>
+<td>High (scales with dims)</td>
+<td>Compute</td>
+</tr>
+<tr>
+<td>LayerNorm</td>
+<td>~5T per element</td>
+<td>Read + write all elements</td>
+<td>~2.5</td>
+<td>Memory</td>
+</tr>
+<tr>
+<td>Softmax</td>
+<td>~5T per element</td>
+<td>Read + write all elements</td>
+<td>~2.5</td>
+<td>Memory</td>
+</tr>
+<tr>
+<td><a href="../module-00-ml-pytorch-foundations/section-0.2.html">Dropout</a></td>
+<td>~1 per element</td>
+<td>Read + write all elements</td>
+<td>~0.5</td>
+<td>Memory</td>
+</tr>
+<tr>
+<td>Element-wise add (residual)</td>
+<td>1 per element</td>
+<td>Read 2 + write 1</td>
+<td>~0.33</td>
+<td>Memory</td>
+</tr>
+<tr>
+<td>Attention (<span class="math">$QK^{T}$</span> softmax V)</td>
+<td>O(<span class="math">$T^{2}$</span>d)</td>
+<td>O(<span class="math">$T^{2}$</span>) for attention matrix</td>
+<td>Depends on T, d</td>
+<td>Usually memory</td>
+</tr>
+</table>
+</div>
+<div class="callout key-insight">
+<div class="callout-title">Key Insight: Most Operations Are Memory-Bound</div>
+<p>
+ In a typical Transformer forward pass, the large matrix multiplications (QKV projections, FFN
+ layers, output projection) are compute-bound and keep the GPU busy. But everything else
+ (LayerNorm, softmax, dropout, residual adds, attention score computation for moderate sequence
+ lengths) is memory-bound. This is why <strong>kernel fusion</strong> (combining multiple
+ memory-bound operations into a single kernel) is so effective.
+ </p>
+</div>
+<!-- ============================================================ -->
+<h2 id="3-4-4-the-flashattention-algorithm">4.4.4 The FlashAttention Algorithm</h2>
+<div class="callout fun-note">
+<div class="callout-title">Fun Fact</div>
+<p>FlashAttention computes the exact same result as naive attention but 2 to 4 times faster, simply by being smarter about memory access patterns. It is the computational equivalent of realizing you can grocery shop faster by organizing your list by aisle rather than alphabetically.</p>
+</div>
+<p>
+ FlashAttention is the single most important GPU optimization for Transformers. It computes exact
+ standard attention while reducing HBM reads/writes from O(<span class="math">$T^{2}$</span>) to O(<span class="math">$T^{2}$</span>d/M),
+ where M is the size of on-chip SRAM. For typical values, this is a 5 to 10x reduction in memory
+ traffic.
+</p>
+<h3 id="3-4-4-1-the-problem-with-naive-attention">4.4.4.1 The Problem with Naive Attention</h3>
+<p>
+ The standard attention implementation performs these steps, each reading from and writing to HBM:
+</p>
+<ol>
+<li>Compute <code>S = QK<sup>T</sup> / √d</code>, write S to HBM. Size: O(T<sup>2</sup>).</li>
+<li>Read S from HBM, apply mask, compute <code>P = softmax(S)</code>, write P to HBM. Size: O(T<sup>2</sup>).</li>
+<li>Apply dropout to P, write back to HBM.</li>
+<li>Read P from HBM, compute <code>O = PV</code>, write O to HBM.</li>
+</ol>
+<p>
+ The T × T matrices S and P are the bottleneck. For T=4096, d=128, each matrix is 64 MB in
+ FP32 per head per batch element. With 32 heads and batch size 4, that is 8 GB just for the
+ intermediate attention matrices.
+</p>
+<h3 id="3-4-4-2-the-tiling-approach">4.4.4.2 The Tiling Approach</h3>
+<p>
+ FlashAttention processes the attention computation in <strong>tiles</strong>. Instead of computing
+ the full T × T attention matrix at once, it processes blocks of size <span class="math">$B_{r}$</span> ×
+ <span class="math">$B_{c}$</span> that fit in SRAM. The challenge is computing the softmax correctly when you only
+ see part of each row at a time.
+</p>
+<h3 id="online-softmax">Online Softmax</h3>
+<p>
+ The critical algorithmic trick is <strong>online softmax</strong>: computing the softmax
+ incrementally as new blocks arrive. For a row of attention scores being computed in blocks, the
+ algorithm maintains running statistics (the current maximum and the running sum of exponentials)
+ and rescales previous partial results as new maxima are discovered: </p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-text"><span class="c1"># Pseudocode: Online softmax for FlashAttention</span>
+<span class="c1"># Processing one row of the attention matrix in blocks</span>
+<span class="n">max_so_far</span> <span class="o">=</span> <span class="o">-</span><span class="n">infinity</span>
+<span class="n">sum_exp</span> <span class="o">=</span> <span class="mi">0</span>
+<span class="n">output_accumulator</span> <span class="o">=</span> <span class="n">zeros</span><span class="p">(</span><span class="n">d_v</span><span class="p">)</span>
+<span class="k">for</span> <span class="n">each</span> <span class="n">block</span> <span class="n">j</span> <span class="n">of</span> <span class="n">keys</span><span class="o">/</span><span class="n">values</span><span class="p">:</span>
+<span class="c1"># Compute attention scores for this block</span>
+<span class="n">scores_j</span> <span class="o">=</span> <span class="n">query</span> <span class="o">@</span> <span class="n">keys_block_j</span><span class="o">.</span><span class="n">T</span> <span class="o">/</span> <span class="n">sqrt</span><span class="p">(</span><span class="n">d_k</span><span class="p">)</span>
+<span class="c1"># Update running max</span>
+<span class="n">new_max</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">max_so_far</span><span class="p">,</span> <span class="nb">max</span><span class="p">(</span><span class="n">scores_j</span><span class="p">))</span>
+<span class="c1"># Rescale previous accumulator with correction factor</span>
+<span class="n">correction</span> <span class="o">=</span> <span class="n">exp</span><span class="p">(</span><span class="n">max_so_far</span> <span class="o">-</span> <span class="n">new_max</span><span class="p">)</span>
+<span class="n">sum_exp</span> <span class="o">=</span> <span class="n">sum_exp</span> <span class="o">*</span> <span class="n">correction</span> <span class="o">+</span> <span class="nb">sum</span><span class="p">(</span><span class="n">exp</span><span class="p">(</span><span class="n">scores_j</span> <span class="o">-</span> <span class="n">new_max</span><span class="p">))</span>
+<span class="n">output_accumulator</span> <span class="o">=</span> <span class="n">output_accumulator</span> <span class="o">*</span> <span class="n">correction</span> <span class="o">+</span> <span class="n">exp</span><span class="p">(</span><span class="n">scores_j</span> <span class="o">-</span> <span class="n">new_max</span><span class="p">)</span> <span class="o">@</span> <span class="n">values_block_j</span>
+<span class="n">max_so_far</span> <span class="o">=</span> <span class="n">new_max</span>
+<span class="c1"># Final normalization</span>
+<span class="n">output</span> <span class="o">=</span> <span class="n">output_accumulator</span> <span class="o">/</span> <span class="n">sum_exp</span></code></pre>
+<div class="code-caption"><strong>Code Fragment 4.4.3:</strong> The critical algorithmic trick is online softmax: computing the softmax incrementally as new blocks arrive.</div>
+</div>
+<pre><code class="lang-python pygments-highlighted"><span class="n">Input</span><span class="p">:</span> <span class="n">Q</span><span class="p">,</span> <span class="n">K</span><span class="p">,</span> <span class="n">V</span> <span class="n">matrices</span> <span class="ow">in</span> <span class="n">HBM</span><span class="p">;</span> <span class="n">tile</span> <span class="n">sizes</span> <span class="n">Br</span><span class="p">,</span> <span class="n">Bc</span> <span class="n">fitting</span> <span class="ow">in</span> <span class="n">SRAM</span>
+<span class="n">Output</span><span class="p">:</span> <span class="n">O</span> <span class="o">=</span> <span class="n">softmax</span><span class="p">(</span><span class="n">QKT</span> <span class="o">/</span> <span class="err">√</span><span class="n">dk</span><span class="p">)</span> <span class="n">V</span><span class="p">,</span> <span class="n">written</span> <span class="n">to</span> <span class="n">HBM</span>
+<span class="o">//</span> <span class="n">Partition</span> <span class="n">Q</span> <span class="n">into</span> <span class="n">T</span><span class="o">/</span><span class="n">Br</span> <span class="n">row</span> <span class="n">blocks</span><span class="p">,</span> <span class="n">K</span> <span class="ow">and</span> <span class="n">V</span> <span class="n">into</span> <span class="n">T</span><span class="o">/</span><span class="n">Bc</span> <span class="n">column</span> <span class="n">blocks</span>
+<span class="k">for</span> <span class="n">each</span> <span class="n">Q</span> <span class="n">block</span> <span class="n">Qi</span> <span class="p">(</span><span class="n">rows</span> <span class="n">i</span><span class="o">*</span><span class="n">Br</span> <span class="n">to</span> <span class="p">(</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="p">)</span><span class="o">*</span><span class="n">Br</span><span class="p">):</span>
+    <span class="n">Load</span> <span class="n">Qi</span> <span class="kn">from</span><span class="w"> </span><span class="nn">HBM</span> <span class="n">to</span> <span class="n">SRAM</span>
+    <span class="n">Initialize</span><span class="p">:</span> <span class="n">Oi</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">li</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">mi</span> <span class="o">=</span> <span class="err">−∞</span>
+    <span class="o">//</span> <span class="n">l</span> <span class="o">=</span> <span class="n">running</span> <span class="nb">sum</span> <span class="n">of</span> <span class="n">exponentials</span><span class="p">,</span> <span class="n">m</span> <span class="o">=</span> <span class="n">running</span> <span class="n">row</span><span class="o">-</span><span class="n">wise</span> <span class="nb">max</span>
+    <span class="k">for</span> <span class="n">each</span> <span class="n">K</span><span class="p">,</span><span class="n">V</span> <span class="n">block</span> <span class="p">(</span><span class="n">Kj</span><span class="p">,</span> <span class="n">Vj</span><span class="p">):</span>
+        <span class="n">Load</span> <span class="n">Kj</span><span class="p">,</span> <span class="n">Vj</span> <span class="kn">from</span><span class="w"> </span><span class="nn">HBM</span> <span class="n">to</span> <span class="n">SRAM</span>
+        <span class="n">Sij</span> <span class="o">=</span> <span class="n">Qi</span> <span class="n">KjT</span> <span class="o">/</span> <span class="err">√</span><span class="n">dk</span> <span class="o">//</span> <span class="n">computed</span> <span class="ow">in</span> <span class="n">SRAM</span>
+        <span class="n">mnew</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">mi</span><span class="p">,</span> <span class="n">rowmax</span><span class="p">(</span><span class="n">Sij</span><span class="p">))</span>
+        <span class="n">Pij</span> <span class="o">=</span> <span class="n">exp</span><span class="p">(</span><span class="n">Sij</span> <span class="err">−</span> <span class="n">mnew</span><span class="p">)</span>
+        <span class="o">//</span> <span class="n">Rescale</span> <span class="n">previous</span> <span class="n">accumulator</span> <span class="k">for</span> <span class="n">updated</span> <span class="nb">max</span>
+        <span class="n">α</span> <span class="o">=</span> <span class="n">exp</span><span class="p">(</span><span class="n">mi</span> <span class="err">−</span> <span class="n">mnew</span><span class="p">)</span>
+        <span class="n">li</span> <span class="o">=</span> <span class="n">α</span> <span class="err">⋅</span> <span class="n">li</span> <span class="o">+</span> <span class="n">rowsum</span><span class="p">(</span><span class="n">Pij</span><span class="p">)</span>
+        <span class="n">Oi</span> <span class="o">=</span> <span class="n">α</span> <span class="err">⋅</span> <span class="n">Oi</span> <span class="o">+</span> <span class="n">Pij</span> <span class="n">Vj</span>
+        <span class="n">mi</span> <span class="o">=</span> <span class="n">mnew</span>
+        <span class="n">Oi</span> <span class="o">=</span> <span class="n">Oi</span> <span class="o">/</span> <span class="n">li</span> <span class="o">//</span> <span class="n">final</span> <span class="n">normalization</span>
+        <span class="n">Write</span> <span class="n">Oi</span> <span class="n">to</span> <span class="n">HBM</span>
+        <span class="k">return</span> <span class="n">O</span></code></pre>
+<div class="code-caption"><strong>Code Fragment 4.4.1:</strong> Pseudocode: Online softmax for FlashAttention.</div>
+<p>
+ This is numerically equivalent to computing the full softmax but requires only O(B) SRAM at any
+ point, rather than the full O(T) row. The correction factor ensures that as we discover larger
+ values, all previous exponentials are rescaled consistently.
+</p>
+<div class="callout algorithm">
+<div class="callout-title">Pseudocode 4.4.6: The FlashAttention tiling algorithm in pseudocode. By processing Q, K, and V in SRAM-sized blocks and rescaling partial softmax accumulators on the fly, it computes exact attention while reducing HBM reads from quadratic to linear in sequence length.</div>
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># Input: queries Q, keys K, values V (each shape [N, d]), block sizes Br x Bc tuned to SRAM</span>
+<span class="c1"># Output: attention output O = softmax(QK^T / sqrt(d)) V (shape [N, d]) without materializing the full N x N attention matrix in HBM</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="c1"># Triton fused softmax kernel: compute softmax in a single GPU pass</span>
+<span class="c1"># without materializing the full attention matrix in HBM.</span>
+<span class="nd">@triton</span><span class="o">.</span><span class="n">jit</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">softmax_kernel</span><span class="p">(</span>
+<span class="n">output_ptr</span><span class="p">,</span> <span class="n">input_ptr</span><span class="p">,</span>
+<span class="n">input_row_stride</span><span class="p">,</span> <span class="n">output_row_stride</span><span class="p">,</span>
+<span class="n">n_cols</span><span class="p">,</span>
+<span class="n">BLOCK_SIZE</span><span class="p">:</span> <span class="n">tl</span><span class="o">.</span><span class="n">constexpr</span><span class="p">,</span>
+<span class="p">):</span>
+<span class="w"> </span><span class="sd">"""Fused softmax: one kernel, one pass through HBM per row."""</span>
+<span class="c1"># Each program handles one row</span>
+<span class="n">row_idx</span> <span class="o">=</span> <span class="n">tl</span><span class="o">.</span><span class="n">program_id</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">row_start_ptr</span> <span class="o">=</span> <span class="n">input_ptr</span> <span class="o">+</span> <span class="n">row_idx</span> <span class="o">*</span> <span class="n">input_row_stride</span>
+<span class="c1"># Load the row into SRAM</span>
+<span class="n">col_offsets</span> <span class="o">=</span> <span class="n">tl</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">BLOCK_SIZE</span><span class="p">)</span>
+<span class="n">mask</span> <span class="o">=</span> <span class="n">col_offsets</span> <span class="o">&lt;</span> <span class="n">n_cols</span>
+<span class="n">row</span> <span class="o">=</span> <span class="n">tl</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">row_start_ptr</span> <span class="o">+</span> <span class="n">col_offsets</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">mask</span><span class="p">,</span> <span class="n">other</span><span class="o">=</span><span class="nb">float</span><span class="p">(</span><span class="s1">'-inf'</span><span class="p">))</span>
+<span class="c1"># Compute softmax entirely in SRAM</span>
+<span class="c1"># Step 1: Subtract max for numerical stability</span>
+<span class="n">row_max</span> <span class="o">=</span> <span class="n">tl</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">row</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">row</span> <span class="o">=</span> <span class="n">row</span> <span class="o">-</span> <span class="n">row_max</span>
+<span class="c1"># Step 2: Exponentiate</span>
+<span class="n">numerator</span> <span class="o">=</span> <span class="n">tl</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="n">row</span><span class="p">)</span>
+<span class="c1"># Step 3: Normalize</span>
+<span class="n">denominator</span> <span class="o">=</span> <span class="n">tl</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">numerator</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">softmax_output</span> <span class="o">=</span> <span class="n">numerator</span> <span class="o">/</span> <span class="n">denominator</span>
+<span class="c1"># Write back to HBM</span>
+<span class="n">output_row_start_ptr</span> <span class="o">=</span> <span class="n">output_ptr</span> <span class="o">+</span> <span class="n">row_idx</span> <span class="o">*</span> <span class="n">output_row_stride</span>
+<span class="n">tl</span><span class="o">.</span><span class="n">store</span><span class="p">(</span><span class="n">output_row_start_ptr</span> <span class="o">+</span> <span class="n">col_offsets</span><span class="p">,</span> <span class="n">softmax_output</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">mask</span><span class="p">)</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">fused_softmax</span><span class="p">(</span><span class="n">x</span><span class="p">):</span>
+<span class="w"> </span><span class="sd">"""Apply softmax to each row of x using a fused Triton kernel."""</span>
+<span class="n">n_rows</span><span class="p">,</span> <span class="n">n_cols</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">shape</span>
+<span class="c1"># BLOCK_SIZE must be a power of 2 &gt;= n_cols</span>
+<span class="n">BLOCK_SIZE</span> <span class="o">=</span> <span class="n">triton</span><span class="o">.</span><span class="n">next_power_of_2</span><span class="p">(</span><span class="n">n_cols</span><span class="p">)</span>
+<span class="n">output</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">empty_like</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+<span class="n">softmax_kernel</span><span class="p">[(</span><span class="n">n_rows</span><span class="p">,)](</span>
+<span class="n">output</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span>
+<span class="n">x</span><span class="o">.</span><span class="n">stride</span><span class="p">(</span><span class="mi">0</span><span class="p">),</span> <span class="n">output</span><span class="o">.</span><span class="n">stride</span><span class="p">(</span><span class="mi">0</span><span class="p">),</span>
+<span class="n">n_cols</span><span class="p">,</span>
+<span class="n">BLOCK_SIZE</span><span class="o">=</span><span class="n">BLOCK_SIZE</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="k">return</span> <span class="n">output</span></code></pre>
+</div>
+<p>
+ The key insight: Q, K, V are each read from HBM once per outer loop iteration, and the T × T attention matrix is never materialized in HBM. Total HBM access is O(<span class="math">$T^{2}$</span>d<sup>2</sup>/M) instead of O(<span class="math">$T^{2}$</span> + Td), where M is SRAM size. This is where the 2 to 4x speedup comes from.
+</p>
+<div class="diagram-container">
+<img alt="FlashAttention tiles computation into SRAM blocks, never materializing full attention matrix" src="images/fig-4.4.3-flash-attention.png"/>
+<div class="diagram-caption"><strong>Figure 4.4.3</strong>: FlashAttention tiles the attention computation into blocks that fit in on-chip SRAM. The full T x T attention matrix is never materialized in HBM.</div>
+</div>
+<!-- ============================================================ -->
+<h2 id="3-4-5-introduction-to-triton">4.4.5 Introduction to Triton</h2>
+<p>
+ Writing GPU kernels in CUDA requires managing threads, warps, shared memory, synchronization, and
+ memory coalescing at a low level. <strong>Triton</strong> (developed at OpenAI) provides a
+ higher-level abstraction: you write kernels in a Python-like language that operates on
+ <strong>blocks of data</strong> rather than individual threads. Triton handles the complex details
+ of thread mapping, shared memory management, and memory coalescing automatically. </p>
+<h3 id="3-4-5-1-a-simple-example-vector-addition">4.4.5.1 A Simple Example: Vector Addition</h3>
+<p>This Triton kernel performs element-wise vector addition, illustrating the block-based programming model.</p>
+<pre><code class="pygments-highlighted lang-python"><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="c1"># implement add_kernel, triton_add</span>
+<span class="c1"># See inline comments for step-by-step details.</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">triton</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">triton.language</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">tl</span>
+<span class="nd">@triton</span><span class="o">.</span><span class="n">jit</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">add_kernel</span><span class="p">(</span>
+    <span class="n">x_ptr</span><span class="p">,</span> <span class="n">y_ptr</span><span class="p">,</span> <span class="n">output_ptr</span><span class="p">,</span>
+    <span class="n">n_elements</span><span class="p">,</span>
+    <span class="n">BLOCK_SIZE</span><span class="p">:</span> <span class="n">tl</span><span class="o">.</span><span class="n">constexpr</span><span class="p">,</span>
+    <span class="p">):</span>
+    <span class="c1"># Each program instance handles BLOCK_SIZE elements</span>
+    <span class="n">pid</span> <span class="o">=</span> <span class="n">tl</span><span class="o">.</span><span class="n">program_id</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+    <span class="n">block_start</span> <span class="o">=</span> <span class="n">pid</span> <span class="o">*</span> <span class="n">BLOCK_SIZE</span>
+    <span class="n">offsets</span> <span class="o">=</span> <span class="n">block_start</span> <span class="o">+</span> <span class="n">tl</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">BLOCK_SIZE</span><span class="p">)</span>
+    <span class="c1"># Mask to handle the case where n_elements is not a multiple of BLOCK_SIZE</span>
+    <span class="n">mask</span> <span class="o">=</span> <span class="n">offsets</span> <span class="o">&lt;</span> <span class="n">n_elements</span>
+    <span class="c1"># Load, compute, store</span>
+    <span class="n">x</span> <span class="o">=</span> <span class="n">tl</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">x_ptr</span> <span class="o">+</span> <span class="n">offsets</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">mask</span><span class="p">)</span>
+    <span class="n">y</span> <span class="o">=</span> <span class="n">tl</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">y_ptr</span> <span class="o">+</span> <span class="n">offsets</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">mask</span><span class="p">)</span>
+    <span class="n">output</span> <span class="o">=</span> <span class="n">x</span> <span class="o">+</span> <span class="n">y</span>
+    <span class="n">tl</span><span class="o">.</span><span class="n">store</span><span class="p">(</span><span class="n">output_ptr</span> <span class="o">+</span> <span class="n">offsets</span><span class="p">,</span> <span class="n">output</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">mask</span><span class="p">)</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">triton_add</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">):</span>
+        <span class="n">output</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">empty_like</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+        <span class="n">n_elements</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span>
+        <span class="n">BLOCK_SIZE</span> <span class="o">=</span> <span class="mi">1024</span>
+        <span class="c1"># Launch kernel with enough program instances</span>
+        <span class="n">grid</span> <span class="o">=</span> <span class="p">(</span><span class="n">triton</span><span class="o">.</span><span class="n">cdiv</span><span class="p">(</span><span class="n">n_elements</span><span class="p">,</span> <span class="n">BLOCK_SIZE</span><span class="p">),)</span>
+        <span class="n">add_kernel</span><span class="p">[</span><span class="n">grid</span><span class="p">](</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">output</span><span class="p">,</span> <span class="n">n_elements</span><span class="p">,</span> <span class="n">BLOCK_SIZE</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">output</span>
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 4.4.2:</strong> Each program instance handles BLOCK_SIZE elements.</div>
+<p>
+ Notice: no thread management, no shared memory allocation, no warp-level operations. Triton programs
+ are specified in terms of <strong>program instances</strong> that each process a block of elements.
+ The compiler handles the mapping to GPU hardware.
+</p>
+<h3 id="3-4-5-2-lab-fused-softmax-in-triton">4.4.5.2 Lab: Fused Softmax in Triton</h3>
+<div class="callout note">
+<div class="callout-title">Lab: Fused Softmax Kernel</div>
+<p>
+ Implementing softmax as a fused kernel eliminates the need for multiple HBM round-trips.
+ In a naive implementation, computing softmax requires three passes over the data: one to find the
+ max, one to compute exponentials and their sum, and one to normalize. A fused kernel does all
+ three in a single pass through the data in SRAM.
+ </p>
+</div>
+<p>
+ This fused kernel reads each row from HBM exactly once, performs the entire softmax in SRAM, and
+ writes the result back once. The naive PyTorch implementation (<code>torch.softmax</code>) may
+ require multiple reads and writes for the intermediate max and sum computations. On an A100, a fused
+ softmax kernel can be 2 to 4x faster than the PyTorch default for typical Transformer shapes.
+</p>
+<!-- ============================================================ -->
+<h2 id="3-4-6-key-gpu-metrics-for-llm-practitioners">4.4.6 Key GPU Metrics for LLM Practitioners</h2>
+<div class="comparison-table">
+<div class="comparison-table-title"><strong>Table 4.4.2:</strong> <em>6. Key GPU Metrics for LLM Practitioners Comparison (as of 2026).</em></div>
+<table class="complex-table">
+<tr><th scope="col">GPU</th><th scope="col">HBM Capacity</th><th scope="col">HBM Bandwidth</th><th scope="col">FP16 TFLOPs</th><th scope="col">TF32 TFLOPs</th></tr>
+<tr><td>A100 (80GB)</td><td>80 GB</td><td>2.0 TB/s</td><td>312</td><td>156</td></tr>
+<tr><td>H100 SXM</td><td>80 GB</td><td>3.35 TB/s</td><td>990</td><td>495</td></tr>
+<tr><td>H200</td><td>141 GB</td><td>4.8 TB/s</td><td>990</td><td>495</td></tr>
+<tr><td>B200</td><td>192 GB</td><td>8.0 TB/s</td><td>2250</td><td>1125</td></tr>
+</table>
+</div>
+<div class="callout note">
+<div class="callout-title">Note: Model Flops Utilization (MFU)</div>
+<p>
+ MFU measures what fraction of the GPU's theoretical peak FLOPS your training run actually
+ achieves. Good Transformer training typically reaches 40% to 60% MFU. Reaching above 60% is
+ excellent. Values below 30% usually indicate a bottleneck (memory-bound operations, communication
+ overhead, or poor batch size selection). The Chinchilla paper reported ~57% MFU for their
+ training runs.
+ </p>
+</div>
+<!-- ============================================================ -->
+<h2 id="3-4-7-practical-considerations">4.4.7 Practical Considerations</h2>
+<h3 id="3-4-7-1-mixed-precision-training">4.4.7.1 Mixed Precision Training</h3>
+<p>
+ Modern LLM training uses <strong>mixed precision</strong>: forward and backward passes use FP16
+ or BF16, while the master weights and optimizer states are kept in FP32. BF16 is preferred because
+ it has the same exponent range as FP32 (avoiding overflow) but lower precision (8 vs. 23 mantissa
+ bits). BF16 Tensor Core operations are natively supported on A100 and later GPUs.
+</p>
+<h3 id="3-4-7-2-memory-budgeting">4.4.7.2 Memory Budgeting</h3>
+<p>
+ Training a Transformer model requires storing: (1) model parameters, (2) optimizer states (Adam stores
+ momentum and variance, tripling the parameter memory), (3) gradients, and (4) activations (for the
+ backward pass). The dominant cost for large models is often optimizer states. For a 7B parameter model
+ in mixed precision:
+</p>
+<ul>
+<li>Parameters: 7B × 2 bytes (BF16) = 14 GB</li>
+<li>Optimizer (AdamW): 7B × 4 bytes × 2 states = 56 GB</li>
+<li>Gradients: 7B × 2 bytes = 14 GB</li>
+<li>Activations: Variable, depends on batch size and sequence length</li>
+<li><strong>Total minimum: ~84 GB</strong> (before activations)</li>
+</ul>
+<p>
+ This is why training a 7B model requires multiple GPUs even when the model parameters alone would fit
+ on a single 80 GB GPU. Techniques like ZeRO (distributed optimizer states), gradient checkpointing
+ (recomputing activations instead of storing them), and offloading help manage this memory pressure. We cover distributed training strategies in <a href="../../part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.6.html">Section 7.6</a> and inference-time memory optimization (including <a href="../../part-2-understanding-llms/module-09-inference-optimization/section-9.2.html">quantization</a>) in <a href="../../part-2-understanding-llms/module-09-inference-optimization/index.html">Chapter 09</a>.
+</p>
+<div class="callout practical-example">
+<div class="callout-title">Profiling a Transformer Inference Pipeline</div>
+<p>A team running <a href="../../part-2-understanding-llms/module-07-modern-llm-landscape/section-7.2.html">Llama 2</a> 7B inference on an A100 GPU noticed throughput was lower than expected. Using <code>torch.profiler</code>, they found that 68% of GPU time was spent on memory-bound operations (layer normalization, residual additions, and softmax), not the matrix multiplications. By switching to FlashAttention and fusing the layer norm with the subsequent linear projection using a custom Triton kernel, they reduced per-token latency from 12 ms to 7 ms, a 42% improvement, without changing the model itself. The key lesson: profiling the roofline characteristics of each operation, rather than optimizing blindly, directs engineering effort to where it matters most.</p>
+</div>
+<!-- ============================================================ -->
+<div class="callout tip">
+<div class="callout-title">Tip: Match Layer Norm Placement to Your Reference</div>
+<p>Pre-norm (LayerNorm before attention) and post-norm (after attention) give different training dynamics. Most modern LLMs use pre-norm for stability. If you are reproducing a paper, check which variant they used; swapping them silently degrades performance.</p>
+</div>
+<div class="callout key-insight">
+<div class="callout-title">Key Insight: The Memory Wall as a Fundamental Physical Constraint</div>
+<p>The dominance of memory bandwidth over compute capacity in LLM inference is not an engineering oversight; it reflects a fundamental physical constraint. The speed of light limits how fast data can travel between memory chips and processing units, and the energy required to move a bit of data across a chip is now 10 to 100 times greater than the energy to perform a floating-point operation on it. This "memory wall" was predicted by Wulf and McKee in 1995, and it has only widened since. FlashAttention's brilliance lies in recognizing that the bottleneck is data movement, not computation, and restructuring the algorithm to minimize it. This principle generalizes far beyond attention: across all of computing, from databases to scientific simulations to neural networks, the dominant cost is increasingly data movement rather than arithmetic. Understanding this physical reality explains why algorithmic improvements (like FlashAttention's tiling strategy) can yield 2 to 4x speedups without changing the mathematical result, and why hardware innovations like high-bandwidth memory, near-memory computing, and in-memory processing are central to the future of AI acceleration.</p>
+</div>
+<div class="takeaways">
+<h2 id="key-takeaways">Key Takeaways</h2>
+<ul>
+<li>GPU performance is dominated by memory bandwidth, not compute, for most Transformer operations.</li>
+<li>The memory hierarchy (registers, shared memory, L2, HBM) spans 4 orders of magnitude in bandwidth. Keeping data in fast levels is the key to performance.</li>
+<li>FlashAttention computes exact attention while keeping the attention matrix in SRAM, reducing HBM traffic by 5 to 10x.</li>
+<li>The roofline model classifies operations as compute-bound or memory-bound based on arithmetic intensity.</li>
+<li>Triton provides a high-level way to write GPU kernels, operating on blocks of data rather than individual threads.</li>
+<li>Kernel fusion (combining multiple memory-bound operations) is one of the most effective optimization strategies.</li>
+<li>Training a 7B model requires ~84 GB minimum memory, necessitating multi-GPU setups and memory optimization techniques.</li>
+</ul>
+</div>
+<!-- ============================================================ -->
+<div class="callout self-check">
+<div class="callout-title">Self-Check</div>
+<div class="quiz-question">1. Why is standard attention considered memory-bound rather than compute-bound?</div>
+<details>
+<summary>Show Answer</summary>
+<div class="answer">
+ The T x T attention matrix must be written to and read from HBM multiple times (for the
+ QK^T product, masking, softmax, dropout, and the final multiplication with V). The total
+ bytes transferred (O(T^2) for the attention matrix) exceed what the memory bandwidth can
+ deliver before the compute units would finish their work. FlashAttention addresses this
+ by keeping the attention matrix in fast on-chip SRAM.
+ </div>
+</details>
+<div class="quiz-question">2. What is the "online softmax" trick and why is it needed for FlashAttention?</div>
+<details>
+<summary>Show Answer</summary>
+<div class="answer">
+ Online softmax computes the softmax incrementally as new blocks of the attention row arrive.
+ It maintains running statistics (current max, running sum of exponentials) and rescales
+ previous partial results when a new maximum is found. This is needed because FlashAttention
+ processes the attention matrix in tiles; it never has the complete row available at once, so
+ it cannot compute the global max and sum in advance.
+ </div>
+</details>
+<div class="quiz-question">3. Why does mixed precision training use BF16 rather than FP16?</div>
+<details>
+<summary>Show Answer</summary>
+<div class="answer">
+ BF16 has the same exponent range (8 bits) as FP32, which prevents overflow and underflow
+ during training. FP16 has only 5 exponent bits, giving a much smaller dynamic range that
+ can cause training instabilities (loss scaling is required). BF16 trades mantissa precision
+ (8 bits vs. FP16's 10 bits) for this exponent range, which is a good tradeoff since
+ gradient and activation values need wide range more than high precision.
+ </div>
+</details>
+<div class="quiz-question">4. A GPU has 3.35 TB/s HBM bandwidth and 990 TFLOPS of FP16 compute. What is the arithmetic intensity threshold for an operation to be compute-bound?</div>
+<details>
+<summary>Show Answer</summary>
+<div class="answer">
+ The threshold is 990 TFLOPS / 3.35 TB/s = ~295 FLOPs per byte. Operations with arithmetic
+ intensity above 295 FLOPs/byte are compute-bound; below are memory-bound. For reference,
+ large matrix multiplies can easily reach 1000+ FLOPs/byte, while element-wise operations
+ have ~0.5 to 5 FLOPs/byte.
+ </div>
+</details>
+<div class="quiz-question">5. Why does training a 7B parameter model require much more than 14 GB of GPU memory?</div>
+<details>
+<summary>Show Answer</summary>
+<div class="answer">
+ Beyond the 14 GB for parameters (in BF16), training also requires: optimizer states
+ (AdamW stores two FP32 states per parameter, adding ~56 GB), gradients (~14 GB in BF16),
+ and activations (variable, can be many GB depending on batch size and sequence length).
+ The total minimum is roughly 84 GB before activations, which is why multi-GPU training and
+ memory optimization techniques like ZeRO and gradient checkpointing are essential.
+ </div>
+</details>
+</div>
+<h2 id="exercises">Exercises</h2>
+<div class="callout exercise">
+<div class="callout-title">Exercise 4.4.1: Arithmetic Intensity Classification <span class="exercise-type calculation" title="Calculation">Calculation</span></div>
+<p>For each of the following, compute the arithmetic intensity in FLOPs/byte (assume FP16, 2 bytes) and classify as compute-bound or memory-bound on a GPU with a 295 FLOPs/byte threshold. (a) Multiplying two 4096x4096 matrices to produce a 4096x4096 output. (b) Element-wise softmax over a 4096-element row. (c) LayerNorm over a vector of length 4096.</p>
+<details>
+<summary>Answer Sketch</summary>
+<p>(a) FLOPs = 2 × 4096³ ≈ 1.37 × 10¹¹. Bytes = 2 × (3 × 4096²) = 100.7 MB (read A, read B, write C). Intensity = 1366 FLOPs/byte. Compute-bound (well above 295). (b) Softmax FLOPs ≈ 5n = 20480 (max, subtract, exp, sum, divide). Bytes = 2 × 2 × 4096 = 16384 (read row, write row). Intensity = 1.25 FLOPs/byte. Strongly memory-bound. (c) LayerNorm FLOPs ≈ 5n = 20480 (mean, subtract, square, mean, divide, scale, shift). Bytes ≈ 16384. Intensity ≈ 1.25 FLOPs/byte. Memory-bound. Conclusion: matrix multiplication is the only one that saturates compute; everything else is bandwidth-limited, which is exactly why kernel fusion (FlashAttention, fused LayerNorm) is so impactful.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 4.4.2: FlashAttention Memory Reduction <span class="exercise-type predictive" title="Predictive">Predictive</span></div>
+<p>Compute the HBM I/O for standard attention vs. FlashAttention at T=8192, d=128, 32 heads, batch=4 (FP16). (a) Standard attention reads/writes the attention matrix multiple times; estimate total HBM bytes moved through it. (b) FlashAttention reduces HBM I/O by what factor approximately? (c) Why does this translate to a wall-clock speedup of "only" 2-4x rather than the larger ratio of byte reduction?</p>
+<details>
+<summary>Answer Sketch</summary>
+<p>(a) The T x T attention matrix per head is 8192² × 2 bytes = 128 MB. Standard attention reads/writes it ~4 times (compute scores, mask, softmax, multiply by V), so 4 × 128 = 512 MB per head per batch. Total: 512 × 32 × 4 = 64 GB of HBM traffic just for the attention matrix. (b) FlashAttention never materializes the full matrix in HBM, only keeps a single Q and a single K,V block in SRAM, reducing HBM bytes to O(T × d × heads × batch) = roughly 8192 × 128 × 32 × 4 × 2 = 256 MB, a 256x reduction in HBM traffic for the attention matrix. (c) Wall-clock speedup is "only" 2-4x because (i) FlashAttention is the same total FLOPs (the QV matmul still dominates), and the FLOPs themselves take real time; (ii) other parts of the layer (FFN, projections) are unaffected; (iii) FlashAttention's SRAM-aware kernel has its own overhead (synchronization between blocks). The lesson: HBM I/O reduction is only useful when HBM I/O is the bottleneck, which it is for attention but not for everything.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 4.4.3: Online Softmax Numerical Sketch <span class="exercise-type calculation" title="Calculation">Calculation</span></div>
+<p>Walk through the online softmax algorithm with two blocks of attention scores: block A = [1, 3, 2], block B = [5, 0]. Compute (a) the running max, sum_exp, and rescaling factor after each block, and (b) verify the final normalized probabilities equal the direct softmax over [1, 3, 2, 5, 0].</p>
+<details>
+<summary>Answer Sketch</summary>
+<p>After block A: max_so_far = 3, sum_exp = e^(1-3) + e^(3-3) + e^(2-3) = 0.135 + 1 + 0.368 = 1.503. Partial output accumulator = sum of (e^(score-3) × value); we just track sum_exp here. Processing block B: new_max = max(3, 5) = 5. Correction = e^(3-5) = e^(-2) = 0.135. Rescale: sum_exp = 1.503 × 0.135 + e^(5-5) + e^(0-5) = 0.203 + 1 + 0.0067 = 1.210. (b) Direct softmax: numerators e^(x-5) = [0.0183, 0.135, 0.0498, 1, 0.0067]; sum = 1.210 (matches!). Probabilities: divide each by 1.210, giving [0.0151, 0.112, 0.0411, 0.826, 0.0055]. The trick of always subtracting the running max keeps all exponentials between 0 and 1 (numerically safe), and the correction factor e^(old_max - new_max) compensates exactly for the regrouping.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 4.4.4: Memory Budget for 7B Training <span class="exercise-type calculation" title="Calculation">Calculation</span></div>
+<p>You want to train a 7B-parameter model on a single A100 80GB GPU. Compute the memory for (a) BF16 model weights, (b) FP32 AdamW optimizer states, (c) BF16 gradients, and (d) sum. (e) What is the budget left for activations and how would you proceed if it's insufficient?</p>
+<details>
+<summary>Answer Sketch</summary>
+<p>(a) 7B × 2 bytes = 14 GB. (b) AdamW stores 2 FP32 moments per parameter, so 7B × 2 × 4 = 56 GB. (Some implementations also keep a FP32 copy of weights: another 28 GB.) (c) 7B × 2 bytes = 14 GB. (d) Total without FP32 master weights: 84 GB. With FP32 master copy: 112 GB. The A100's 80 GB cannot hold these. (e) Budget left is roughly 80 - 84 = -4 GB (negative, infeasible). Mitigations: (i) <em>ZeRO Stage 2/3</em> shards optimizer states and gradients across multiple GPUs, dropping per-GPU memory by 4-8x at the cost of inter-GPU communication; (ii) <em>Gradient checkpointing</em> trades 30% extra compute for 5-10x less activation memory; (iii) Use 8-bit AdamW which stores moments in INT8 (saves 28 GB at minor convergence cost); (iv) Use LoRA or QLoRA fine-tuning, which freezes the base model and only trains a few percent of parameters. In practice, full pretraining of 7B requires at least 8x A100s with FSDP/ZeRO.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 4.4.5: When FlashAttention Does NOT Help <span class="exercise-type analysis" title="Analysis">Analysis</span></div>
+<p>FlashAttention is "free speed" for most workloads, but there are settings where it provides little benefit. Describe two scenarios where FlashAttention's speedup over standard attention is &lt; 20%, and explain why.</p>
+<details>
+<summary>Answer Sketch</summary>
+<p>Scenario 1: Very short sequences (T &lt; 512). At T=128, the attention matrix is 128² = 16K entries per head, only 32 KB in FP16. This fits comfortably in L2 cache without needing FlashAttention's tiling; HBM is barely involved. Standard attention is already fast, and FlashAttention's kernel-launch overhead may even make it slightly slower. Empirically the breakeven is around T = 1024-2048. Scenario 2: KV-cache decoding with batch size 1 (autoregressive generation). At each step, we process only a single query token attending over T cached key positions. The Q matrix is (1, d), the K matrix is (T, d). Total HBM bytes are O(T × d), the same with or without FlashAttention (no T² matrix is ever needed). The bottleneck is loading the KV cache from HBM, not the attention computation. FlashAttention's tiling cannot help. Newer "FlashAttention-Decoder" or "PagedAttention" variants address this with different techniques (paged KV cache, speculative decoding).</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 4.4.6: BF16 vs. FP16 Failure Mode <span class="exercise-type predictive" title="Predictive">Predictive</span></div>
+<p>You inherit a training codebase that uses FP16 with loss scaling. You try to train a new architecture and observe NaN losses after ~500 steps. Diagnose this in terms of FP16's specific limitation, predict whether switching to BF16 would fix it, and describe what additional change (besides switching dtypes) you might still need to make.</p>
+<details>
+<summary>Answer Sketch</summary>
+<p>Diagnosis: FP16 has a 5-bit exponent (max value ~65,504; min normal value ~6 × 10⁻⁵). If any forward activation or gradient exceeds 65,504, it overflows to infinity; if it underflows below ~10⁻⁵, it rounds to zero. Loss scaling multiplies the loss by a large constant (e.g., 2¹⁵) so gradients stay in the representable range, then divides back. NaN appears when gradients in some layer still overflow (typical with deeper or wider models). Switching to BF16: BF16 has the same 8-bit exponent as FP32 (range ~10⁻³⁸ to 10³⁸), so overflow/underflow vanishes essentially regardless of model size; training is stable without loss scaling. Additional change needed: BF16 has only 7 mantissa bits vs. FP16's 10, which can cause small accuracy losses in (i) the LayerNorm/RMSNorm computation when summing large numbers of small contributions, and (ii) the final loss aggregation. Standard fix: keep LayerNorm and the final loss in FP32 (mixed precision), which most frameworks do automatically. So the typical migration is: remove loss scaling, switch all matmuls to BF16, keep norms and loss in FP32.</p>
+</details>
+</div>
+<div class="callout research-frontier">
+<div class="callout-title">Research Frontier</div>
+<p><strong>Hardware-software co-design</strong> is accelerating. NVIDIA's Blackwell (B200/GB200) GPUs introduce a second-generation Transformer Engine with FP4 support, doubling effective throughput for inference. Google's TPU v5p and AMD's MI300X offer competitive alternatives. On the software side, Triton (OpenAI, 2024) enables researchers to write custom GPU kernels in Python, dramatically lowering the barrier to hardware optimization. ThunderKittens (Stanford, 2024) provides even higher-level abstractions for attention kernels. Disaggregated inference architectures (separating prefill and decode across different GPU pools) are emerging as a key pattern for cost-efficient LLM serving, as explored in <a href="../../part-2-understanding-llms/module-09-inference-optimization/section-9.1.html">Section 10.1</a>.</p>
+</div>
+<div class="whats-next">
+<h3 id="what-s-next">What's Next?</h3>
+<p>In the next section, <a href="section-3.5.html">Section 3.5: Transformer Expressiveness Theory</a>, we explore the theoretical expressiveness of Transformers, understanding what these models can and cannot compute.</p>
+</div>
+<details class="bibliography-collapsible" open>
+<summary><strong>Further Reading</strong></summary>
+<section class="bibliography">
+<div class="bib-entry-card">
+<div class="bib-ref">Dao, T. (2023). <a href="https://arxiv.org/abs/2307.08691" rel="noopener" target="_blank">"FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning."</a></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Tillet, P., Kung, H.T., Cox, D. (2019). <a href="https://arxiv.org/abs/1903.04174" rel="noopener" target="_blank">"Triton: An Intermediate Language and Compiler for Tiled Neural Network Computations."</a> MLSys 2019.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Ivanov, A., Dryden, N., Ben-Nun, T., Li, S., Hoefler, T. (2021). <a href="https://arxiv.org/abs/2007.00072" rel="noopener" target="_blank">"Data Movement Is All You Need: A Case Study on Optimizing Transformers."</a> MLSys 2021.</div>
+</div>
+</section>
+</details>
+<nav class="chapter-nav">
+<a class="prev" href="section-3.3.html"><span class="nav-label">Previous</span><span class="nav-num">Section 3.3</span><span class="nav-title">Transformer Variants &amp; Efficiency</span></a>
+<a class="up" href="index.html"><span class="nav-label">In Chapter</span><span class="nav-num">Chapter 03</span><span class="nav-title">The Transformer Architecture</span></a>
+<a class="next" href="section-3.5.html"><span class="nav-label">Next</span><span class="nav-num">Section 3.5</span><span class="nav-title">Transformer Expressiveness Theory</span></a>
+</nav>
+<footer><p>Fifteenth Edition, 2026 · <a href="../../toc.html">Contents</a></p></footer>
+</main>
+<script>
+window.addEventListener("DOMContentLoaded", function() {
+  if (window.PagefindUI) {
+    new PagefindUI({
+      element: "#search",
+      showSubResults: true,
+      showImages: false,
+      resetStyles: false,
+      pageSize: 8,
+      autofocus: false,
+      translations: {
+        placeholder: "Search the book\u2026",
+      },
+      processResult: function (result) {
+        try {
+          var part = (result && result.meta && result.meta.part) ? result.meta.part : "";
+          var chap = (result && result.meta && result.meta.chapter) ? result.meta.chapter : "";
+          var partShort = part.split(":")[0].trim();
+          var chapShort = chap.split(":")[0].trim();
+          var crumb = [partShort, chapShort].filter(Boolean).join(" \u203a ");
+          if (crumb && result.meta && result.meta.title
+              && result.meta.title.indexOf("[" + partShort) !== 0) {
+            result.meta.title = "[" + crumb + "]  " + result.meta.title;
+          }
+        } catch (e) { /* fall through */ }
+        return result;
+      },
+    });
+  }
+});
+</script>
+</body>
+</html>

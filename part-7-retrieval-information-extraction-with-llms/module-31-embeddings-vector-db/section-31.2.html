@@ -1,0 +1,779 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<meta content="Section 31.2: Vector Index Data Structures &amp; Algorithms. A comprehensive chapter from the Building Conversational AI textbook." name="description"/>
+<title>Section 31.2: Vector Index Data Structures &amp; Algorithms</title>
+<link href="../../styles/book.css" rel="stylesheet"/>
+<link href="../../styles/pygments.css" rel="stylesheet"/>
+<link href="../../vendor/prism/prism-theme.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/prism/prism-bundle.min.js"></script>
+<script defer="" src="../../scripts/book.js"></script>
+<link href="../../pagefind/pagefind-ui.css" rel="stylesheet"/>
+<script defer="" src="../../pagefind/pagefind-ui.js"></script>
+</head>
+<body>
+<header class="chapter-header">
+<nav class="header-nav">
+<a class="book-title-link" href="../../index.html">Building Conversational AI with LLMs and Agents</a>
+<a class="toc-link" href="../../toc.html" title="Table of Contents"><span class="toc-icon">☰</span> Contents</a>
+</nav>
+<div class="header-search">
+<div id="search"></div>
+</div>
+
+<div class="page-breadcrumb" data-pagefind-meta="chapter"><a href="../index.html">Part V: Retrieval and Conversation with LLMs and Agents</a><span class="bc-sep">›</span><a href="index.html">Chapter 31: Embeddings, Vector Databases &amp; Semantic Search</a></div>
+<h1>Vector Index Data Structures &amp; Algorithms</h1><div class="page-current">Section 31.2</div>
+
+</header>
+<main class="content"><span class="pagefind-meta-injected" data-pagefind-meta="part:Part V: Retrieval and Conversation with LLMs and Agents" hidden=""></span><span class="pagefind-meta-injected" data-pagefind-meta="chapter:Chapter 31: Embeddings, Vector Databases &amp; Semantic Search" hidden=""></span>
+<blockquote class="epigraph">
+<p>The art of progress is to preserve order amid change and to preserve change amid order.</p> <span class="agent-avatar-inline" style="background-color: #8e44ad;"><img alt="Vec" height="28" src="../../front-matter/images/agents/vec.png" width="28"/></span><cite>Vec, <span class="agent-desc">Orderly AI Agent</span></cite>
+</blockquote>
+<div class="callout big-picture">
+<div class="callout-title">Big Picture</div>
+<p><strong>Finding the most similar vectors in a collection of millions is a computational challenge that brute-force search cannot solve at scale.</strong> Approximate Nearest Neighbor (ANN) algorithms trade a small amount of accuracy for dramatic speedups, enabling sub-millisecond search over billions of vectors. Understanding the internals of HNSW, IVF, and Product <a href="../../part-2-understanding-llms/module-09-inference-optimization/section-9.1.html">Quantization</a> is essential for configuring vector indexes that meet your application's latency, recall, and memory requirements. Building on the embedding models from <a href="section-31.1.html">Section 31.1</a>, this section provides a deep, implementation-level understanding of the algorithms that power every vector database.</p> </div>
+<div class="prerequisites">
+<h3 id="prerequisites">Prerequisites</h3>
+<p>Before diving into vector indexing algorithms, make sure you are comfortable with the embedding similarity concepts from <a href="section-31.1.html">Section 31.1</a>, particularly <a href="../module-31-embeddings-vector-db/section-31.1.html">cosine similarity</a> and inner product distance metrics. An intuitive understanding of tree-based data structures and graph traversal will help, though the section builds these concepts from first principles. The discussion of approximate search tradeoffs connects directly to the inference optimization strategies covered in <a href="../../part-2-understanding-llms/module-09-inference-optimization/section-9.1.html">Section 10.1</a>.</p>
+</div>
+<figure class="illustration">
+<img alt="A city with express highways and local streets, representing HNSW's hierarchical graph structure for fast nearest-neighbor search" src="images/hnsw-city-navigation.png"/>
+<figcaption><strong>Figure 22.2.1</strong>: HNSW navigates vector space like a city driver: start on the highway for big jumps, then switch to local streets to find the exact address.</figcaption>
+</figure>
+<h2 id="31-2-1-the-nearest-neighbor-problem">22.2.1 The Nearest Neighbor Problem</h2>
+<div class="callout key-insight">
+<div class="callout-title">Why: Why product quantization beats brute-force k-means in 768 dimensions</div>
+<p>The word "product" is doing real work here: the effective codebook size is 256<sup>96</sup> ≈ 10<sup>231</sup>, but only 96 × 256 = 24,576 centroids ever need to be trained. This is the same trick (Cartesian product of small codebooks) that compressed video codecs use. Jegou, Douze, and Schmid (2011) showed that distances in R<sup>d</sup> approximately decompose across orthogonal subspaces, so squared L2 distance can be computed as a sum of m table lookups instead of d multiplications. The "asymmetric distance computation" further refines this by keeping the query in full precision and only quantizing the database. Without the decomposition, brute-force k-means in 768 dimensions would need an absurd number of centroids to cover the space.</p>
+</div>
+<div class="callout key-insight">
+<div class="callout-title">Why: Why HNSW achieves O(log N) search</div>
+<p>A multi-layer graph gives O(log N) search for the same reason a skip list does: each higher layer acts as an express lane that halves the expected number of hops. Malkov and Yashunin (2018) prove that if you assign layers by a geometric distribution with parameter 1/ln(M), the graph becomes a navigable small-world network (Milgram's six degrees, formalized). Greedy descent works because the small-world property guarantees that the nearest neighbor on layer ℓ is "close enough" to the true nearest neighbor on layer 0 to be a good entry point. M controls the in-degree, ef_construction controls how thoroughly you build each layer, and the log factor falls out for free.</p>
+</div>
+<div class="callout algorithm">
+<div class="callout-title">Under the Hood: HNSW Layer Assignment</div>
+<p>HNSW assigns each new node a maximum layer drawn from an <em>exponential</em> distribution: m<sub>L</sub> = 1/ln(M), and the layer is <code>floor(-ln(random()) * m_L)</code>. This produces:</p><div class="math-block">$$\Pr[\text{layer} \geq \ell] = e^{-\ell/m_L} \approx (1/M)^\ell$$</div><p>So each layer has roughly 1/M of the nodes in the layer below it (on average). For M = 16 and 100,000 vectors: ~94% on layer 0, ~6% on layer 1, ~0.4% on layer 2, ~0% on layer 4+. The greedy search-from-the-top guarantees O(log N) navigation steps because layer count is logarithmic in N. <strong>Practical implication:</strong> increasing M beyond ~64 causes index bloat without recall gain, the marginal upper-layer nodes don't help navigation any more.</p>
+</div>
+<p>Given a query vector <em>q</em> and a collection of <em>N</em> vectors in <em>d</em> dimensions,
+ the <strong>k-nearest neighbor (k-NN)</strong> problem asks for the <em>k</em> vectors most similar
+ to <em>q</em>. The brute-force solution computes the distance between <em>q</em> and every vector
+ in the collection, then returns the top <em>k</em>. This requires <span class="math">$O(N \times d)$</span> operations per
+ query, which becomes prohibitive as N grows into the millions. </p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># Brute-force k-NN search with NumPy</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">brute_force_knn</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="n">vectors</span><span class="p">,</span> <span class="n">k</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">metric</span><span class="o">=</span><span class="s2">"cosine"</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">"""</span>
+<span class="sd">    Exact nearest neighbor search.</span>
+<span class="sd">    query: (d,) vector</span>
+<span class="sd">    vectors: (N, d) matrix</span>
+<span class="sd">    Returns: indices of k nearest neighbors and their distances</span>
+<span class="sd">    """</span>
+    <span class="k">if</span> <span class="n">metric</span> <span class="o">==</span> <span class="s2">"cosine"</span><span class="p">:</span>
+        <span class="c1"># For normalized vectors, cosine similarity = dot product</span>
+        <span class="n">similarities</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">vectors</span><span class="p">,</span> <span class="n">query</span><span class="p">)</span>
+        <span class="c1"># Higher similarity = more similar, so negate for argsort</span>
+        <span class="n">top_k_indices</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">argsort</span><span class="p">(</span><span class="o">-</span><span class="n">similarities</span><span class="p">)[:</span><span class="n">k</span><span class="p">]</span>
+        <span class="n">top_k_distances</span> <span class="o">=</span> <span class="n">similarities</span><span class="p">[</span><span class="n">top_k_indices</span><span class="p">]</span>
+    <span class="k">elif</span> <span class="n">metric</span> <span class="o">==</span> <span class="s2">"l2"</span><span class="p">:</span>
+        <span class="n">distances</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">norm</span><span class="p">(</span><span class="n">vectors</span> <span class="o">-</span> <span class="n">query</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">top_k_indices</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">argsort</span><span class="p">(</span><span class="n">distances</span><span class="p">)[:</span><span class="n">k</span><span class="p">]</span>
+        <span class="n">top_k_distances</span> <span class="o">=</span> <span class="n">distances</span><span class="p">[</span><span class="n">top_k_indices</span><span class="p">]</span>
+        <span class="k">return</span> <span class="n">top_k_indices</span><span class="p">,</span> <span class="n">top_k_distances</span>
+        <span class="c1"># Benchmark at different scales</span>
+        <span class="n">dim</span> <span class="o">=</span> <span class="mi">768</span>
+        <span class="k">for</span> <span class="n">n_vectors</span> <span class="ow">in</span> <span class="p">[</span><span class="mi">10_000</span><span class="p">,</span> <span class="mi">100_000</span><span class="p">,</span> <span class="mi">1_000_000</span><span class="p">]:</span>
+            <span class="n">vectors</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">n_vectors</span><span class="p">,</span> <span class="n">dim</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+            <span class="n">vectors</span> <span class="o">/=</span> <span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">norm</span><span class="p">(</span><span class="n">vectors</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">keepdims</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+            <span class="n">query</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">dim</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+            <span class="n">query</span> <span class="o">/=</span> <span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">norm</span><span class="p">(</span><span class="n">query</span><span class="p">)</span>
+            <span class="n">start</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+            <span class="n">indices</span><span class="p">,</span> <span class="n">distances</span> <span class="o">=</span> <span class="n">brute_force_knn</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="n">vectors</span><span class="p">,</span> <span class="n">k</span><span class="o">=</span><span class="mi">10</span><span class="p">)</span>
+            <span class="n">elapsed</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">start</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"N=</span><span class="si">{</span><span class="n">n_vectors</span><span class="si">:</span><span class="s2">&gt;10,</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">elapsed</span><span class="o">*</span><span class="mi">1000</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2">ms"</span><span class="p">)</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> 
+N= 10,000: 2.3ms
+N= 100,000: 18.7ms
+N= 1,000,000: 193.4ms
+ 
+
+</div>
+<div class="code-caption"><strong>Code Fragment 22.2.1:</strong> Brute-force k-NN search with NumPy</div>
+</div>
+<p>The same brute-force search can be expressed in three lines with FAISS, which also provides a seamless upgrade path to approximate indexes:</p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># Library shortcut: brute-force kNN with FAISS (pip install faiss-cpu)</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">faiss</span><span class="o">,</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="n">dim</span><span class="p">,</span> <span class="n">k</span> <span class="o">=</span> <span class="mi">768</span><span class="p">,</span> <span class="mi">10</span>
+<span class="n">vectors</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">1_000_000</span><span class="p">,</span> <span class="n">dim</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+<span class="n">faiss</span><span class="o">.</span><span class="n">normalize_L2</span><span class="p">(</span><span class="n">vectors</span><span class="p">)</span> <span class="c1"># in-place normalize for cosine similarity</span>
+<span class="n">index</span> <span class="o">=</span> <span class="n">faiss</span><span class="o">.</span><span class="n">IndexFlatIP</span><span class="p">(</span><span class="n">dim</span><span class="p">)</span> <span class="c1"># exact inner-product search</span>
+<span class="n">index</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">vectors</span><span class="p">)</span>
+<span class="n">distances</span><span class="p">,</span> <span class="n">indices</span> <span class="o">=</span> <span class="n">index</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">vectors</span><span class="p">[:</span><span class="mi">1</span><span class="p">],</span> <span class="n">k</span><span class="p">)</span> <span class="c1"># query the first vector</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Top-</span><span class="si">{</span><span class="n">k</span><span class="si">}</span><span class="s2"> indices: </span><span class="si">{</span><span class="n">indices</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="c1"># To switch to approximate search, replace IndexFlatIP with IndexHNSWFlat.</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> 
+Top-10 indices: [ 0 384721 629054 217893 51482 903217 748362 62190 445871 331056]
+ 
+
+</div>
+<div class="code-caption"><strong>Code Fragment 22.2.2:</strong> Library shortcut: brute-force kNN with FAISS (pip install faiss-cpu)</div>
+</div>
+<p>At one million vectors with 768 dimensions, brute-force search takes nearly 200ms per query.
+ For real-time applications that need sub-10ms latency (the kind of constraint explored in <a href="../../part-2-understanding-llms/module-09-inference-optimization/index.html">Chapter 09 on inference optimization</a>), this is unacceptable. This motivates
+ the use of <strong>Approximate Nearest Neighbor (ANN)</strong> algorithms, which build index
+ structures that enable much faster search at the cost of occasionally missing the true nearest
+ neighbor.
+ </p>
+<figure class="illustration">
+<img alt="An artist mixing a limited palette of base colors to approximate any color, representing product quantization's codebook approach" src="images/product-quantization-paint.png"/>
+<figcaption><strong>Figure 22.2.2</strong>: Product quantization is like painting with a limited palette. You cannot represent every exact shade, but a clever mix of base colors gets surprisingly close.</figcaption>
+</figure>
+<div class="callout fun-note">
+<div class="callout-title">Fun Fact</div>
+<p>The "curse of dimensionality" means that in high-dimensional spaces, the distance between the nearest and farthest neighbor converges. In 768 dimensions, all points are roughly the same distance from each other, which is exactly why brute-force search still kind of works and why ANN algorithms have to be surprisingly clever.</p>
+</div>
+<h3 id="measuring-ann-quality-recall-k">Measuring ANN Quality: Recall@k</h3>
+<p>The standard quality metric for ANN algorithms is <strong>recall@k</strong>: the fraction of true
+ k-nearest neighbors that appear in the ANN algorithm's <a href="../../part-1-llm-building-blocks/module-04-decoding-text-generation/section-4.2.html">top-k</a> results. A recall@10 of 0.95 means
+ that on average, 9.5 of the 10 returned results are actual top-10 nearest neighbors. For most
+ <a href="../module-32-rag/index.html">RAG</a> applications, recall@10 above 0.95 is sufficient.
+ </p>
+<h2 id="31-2-2-hnsw-hierarchical-navigable-small-world-graphs">22.2.2 HNSW: Hierarchical Navigable Small World Graphs</h2>
+<p>HNSW is the most widely used ANN algorithm in production vector databases. It builds a multi-layer
+ graph where each vector is a node, and edges connect vectors that are close to each other in the
+ embedding space. The graph is navigable: starting from any node, you can reach any other node by
+ following a short path of edges, and greedy traversal (always moving to the neighbor closest to
+ the query) finds excellent approximate nearest neighbors.
+ </p>
+<figure class="illustration">
+<img alt="Express lanes on a highway that skip stops, representing the skip connections in HNSW's upper layers" src="images/hnsw-express-lanes.png"/>
+<figcaption><strong>Figure 22.2.3</strong>: The upper layers of HNSW are express lanes that skip most stops. The lower layers handle the last-mile navigation to your nearest neighbors.</figcaption>
+</figure>
+<h3 id="graph-construction">Graph Construction</h3>
+<div class="callout tip">
+<div class="callout-title">Tip</div>
+<p>Start with M=16 and ef_construction=200 as sensible defaults for most workloads. If your recall@10 is below 0.95, increase M before increasing ef_construction. Doubling M doubles memory usage but also dramatically improves recall. Think of M as the graph's "connectedness budget" and ef_construction as the "build-time quality budget."</p>
+</div>
+<p>HNSW builds the graph incrementally. When a new vector is inserted, it is assigned a random
+ maximum layer according to an exponential distribution. The algorithm then searches for the
+ nearest neighbors of the new vector at each layer and connects them with bidirectional edges.
+ Two parameters control the graph structure: illustrates the multi-layer graph structure of HNSW.</p>
+<ul>
+<li><strong>M</strong> (max edges per node): Controls the graph connectivity. Higher M means more edges per node, which improves recall but increases memory usage and insertion time. Typical values range from 16 to 64.</li>
+<li><strong>ef_construction</strong> (search width during build): Controls how thoroughly the algorithm searches for neighbors during insertion. Higher values produce a better graph but slow down construction. Typical values range from 100 to 400.</li>
+</ul>
+<div class="diagram-container">
+<svg aria-label="Diagram" role="img" viewbox="0 0 720 380" xmlns="http://www.w3.org/2000/svg">
+<defs>
+<lineargradient id="grad_09c789_e3f2fd" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#f2ffff"></stop><stop offset="100%" stop-color="#e3f2fd"></stop></lineargradient>
+<lineargradient id="grad_09c789_f8f9fa" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#ffffff"></stop><stop offset="100%" stop-color="#f8f9fa"></stop></lineargradient>
+<lineargradient id="grad_09c789_fce4ec" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#fff3fb"></stop><stop offset="100%" stop-color="#fce4ec"></stop></lineargradient>
+<filter height="115%" id="shadow_09c789" width="115%" x="-5%" y="-5%"><fedropshadow dx="2" dy="2" flood-opacity="0.1" stddeviation="3"></fedropshadow></filter>
+</defs>
+<rect fill="url(#grad_09c789_f8f9fa)" filter="url(#shadow_09c789)" height="370" rx="10" stroke="#ddd" stroke-linecap="round" width="710" x="5" y="5"></rect>
+<!-- Layer 2 (top, sparse) -->
+<rect fill="url(#grad_09c789_fce4ec)" height="75" rx="8" stroke="#e91e63" stroke-dasharray="4,3" stroke-linecap="round" stroke-width="1" width="680" x="20" y="45"></rect>
+<text fill="#c2185b" font-family="Segoe UI, system-ui, sans-serif" font-size="11" font-weight="600" x="55" y="65">Layer 2 (sparse)</text>
+<circle cx="200" cy="90" fill="#e91e63" r="8"></circle>
+<circle cx="500" cy="90" fill="#e91e63" r="8"></circle>
+<line stroke="#e91e63" stroke-linecap="round" stroke-width="1.5" x1="208" x2="492" y1="90" y2="90"></line>
+<!-- Layer 1 (middle) -->
+<rect fill="url(#grad_09c789_e3f2fd)" height="95" rx="8" stroke="#1976d2" stroke-dasharray="4,3" stroke-linecap="round" stroke-width="1" width="680" x="20" y="130"></rect>
+<text fill="#1565c0" font-family="Segoe UI, system-ui, sans-serif" font-size="11" font-weight="600" x="55" y="150">Layer 1 (medium)</text>
+<circle cx="150" cy="180" fill="#1976d2" r="8"></circle>
+<circle cx="300" cy="175" fill="#1976d2" r="8"></circle>
+<circle cx="420" cy="182" fill="#1976d2" r="8"></circle>
+<circle cx="580" cy="178" fill="#1976d2" r="8"></circle>
+<line stroke="#1976d2" stroke-linecap="round" stroke-width="1.5" x1="158" x2="292" y1="180" y2="175"></line>
+<line stroke="#1976d2" stroke-linecap="round" stroke-width="1.5" x1="308" x2="412" y1="175" y2="182"></line>
+<line stroke="#1976d2" stroke-linecap="round" stroke-width="1.5" x1="428" x2="572" y1="182" y2="178"></line>
+<line opacity="0.4" stroke="#1976d2" stroke-linecap="round" stroke-width="1" x1="158" x2="412" y1="180" y2="182"></line>
+<!-- Vertical connections between layers -->
+<line stroke="#999" stroke-dasharray="3,3" stroke-linecap="round" stroke-width="1" x1="200" x2="150" y1="98" y2="172"></line>
+<line stroke="#999" stroke-dasharray="3,3" stroke-linecap="round" stroke-width="1" x1="200" x2="300" y1="98" y2="167"></line>
+<line stroke="#999" stroke-dasharray="3,3" stroke-linecap="round" stroke-width="1" x1="500" x2="420" y1="98" y2="174"></line>
+<line stroke="#999" stroke-dasharray="3,3" stroke-linecap="round" stroke-width="1" x1="500" x2="580" y1="98" y2="170"></line>
+<!-- Layer 0 (bottom, dense) -->
+<rect fill="#e8f5e9" height="95" rx="8" stroke="#388e3c" stroke-dasharray="4,3" stroke-linecap="round" stroke-width="1" width="680" x="20" y="235"></rect>
+<text fill="#2e7d32" font-family="Segoe UI, system-ui, sans-serif" font-size="11" font-weight="600" x="55" y="255">Layer 0 (dense, all vectors)</text>
+<circle cx="80" cy="285" fill="#388e3c" r="6"></circle>
+<circle cx="140" cy="280" fill="#388e3c" r="6"></circle>
+<circle cx="200" cy="290" fill="#388e3c" r="6"></circle>
+<circle cx="260" cy="278" fill="#388e3c" r="6"></circle>
+<circle cx="320" cy="288" fill="#388e3c" r="6"></circle>
+<circle cx="380" cy="282" fill="#388e3c" r="6"></circle>
+<circle cx="440" cy="290" fill="#388e3c" r="6"></circle>
+<circle cx="500" cy="275" fill="#388e3c" r="6"></circle>
+<circle cx="560" cy="285" fill="#388e3c" r="6"></circle>
+<circle cx="620" cy="280" fill="#388e3c" r="6"></circle>
+<!-- Layer 0 edges (subset) -->
+<line stroke="#388e3c" stroke-linecap="round" stroke-width="1" x1="86" x2="134" y1="285" y2="280"></line>
+<line stroke="#388e3c" stroke-linecap="round" stroke-width="1" x1="146" x2="194" y1="280" y2="290"></line>
+<line stroke="#388e3c" stroke-linecap="round" stroke-width="1" x1="206" x2="254" y1="290" y2="278"></line>
+<line stroke="#388e3c" stroke-linecap="round" stroke-width="1" x1="266" x2="314" y1="278" y2="288"></line>
+<line stroke="#388e3c" stroke-linecap="round" stroke-width="1" x1="326" x2="374" y1="288" y2="282"></line>
+<line stroke="#388e3c" stroke-linecap="round" stroke-width="1" x1="386" x2="434" y1="282" y2="290"></line>
+<line stroke="#388e3c" stroke-linecap="round" stroke-width="1" x1="446" x2="494" y1="290" y2="275"></line>
+<line stroke="#388e3c" stroke-linecap="round" stroke-width="1" x1="506" x2="554" y1="275" y2="285"></line>
+<line stroke="#388e3c" stroke-linecap="round" stroke-width="1" x1="566" x2="614" y1="285" y2="280"></line>
+<line opacity="0.4" stroke="#388e3c" stroke-linecap="round" stroke-width="0.7" x1="86" x2="194" y1="285" y2="290"></line>
+<line opacity="0.4" stroke="#388e3c" stroke-linecap="round" stroke-width="0.7" x1="266" x2="374" y1="278" y2="282"></line>
+<line opacity="0.4" stroke="#388e3c" stroke-linecap="round" stroke-width="0.7" x1="506" x2="614" y1="275" y2="280"></line>
+<!-- Query arrow -->
+<circle cx="350" cy="350" fill="#ff9800" r="8" stroke="#e65100" stroke-linecap="round" stroke-width="2"></circle>
+<text fill="#e65100" font-family="Segoe UI, system-ui, sans-serif" font-size="11" font-weight="600" x="370" y="355">query</text>
+<!-- Search path annotation -->
+<text fill="#c2185b" font-family="Segoe UI, system-ui, sans-serif" font-size="11" x="600" y="55">Start here</text>
+<text fill="#1565c0" font-family="Segoe UI, system-ui, sans-serif" font-size="11" x="600" y="145">Navigate down</text>
+<text fill="#2e7d32" font-family="Segoe UI, system-ui, sans-serif" font-size="11" x="600" y="250">Refine locally</text>
+</svg>
+<div class="diagram-caption"><strong>Figure 22.2.4</strong>: HNSW builds a multi-layer graph. Search starts at the sparse top layer and descends to the dense bottom layer for local refinement.</div>
+</div>
+<h3 id="search-algorithm">Search Algorithm</h3>
+<p>At query time, HNSW search begins at the top layer's entry point and greedily navigates toward
+ the query vector. At each layer, it finds the closest node, then descends to the same node in the
+ layer below. At the bottom layer (layer 0, which contains all vectors), it performs a more thorough
+ local search controlled by the <code>ef_search</code> parameter. Higher <code>ef_search</code>
+ values explore more candidates, improving recall at the cost of latency.
+ </p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># HNSW index with FAISS</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">faiss</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
+<span class="n">dim</span> <span class="o">=</span> <span class="mi">768</span>
+<span class="n">n_vectors</span> <span class="o">=</span> <span class="mi">1_000_000</span>
+<span class="c1"># Generate random normalized vectors</span>
+<span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">seed</span><span class="p">(</span><span class="mi">42</span><span class="p">)</span>
+<span class="n">vectors</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">n_vectors</span><span class="p">,</span> <span class="n">dim</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+<span class="n">faiss</span><span class="o">.</span><span class="n">normalize_L2</span><span class="p">(</span><span class="n">vectors</span><span class="p">)</span>
+<span class="n">query</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">dim</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+<span class="n">faiss</span><span class="o">.</span><span class="n">normalize_L2</span><span class="p">(</span><span class="n">query</span><span class="p">)</span>
+<span class="c1"># Build HNSW index</span>
+<span class="c1"># M=32: each node connected to ~32 neighbors</span>
+<span class="c1"># ef_construction=200: search width during build</span>
+<span class="n">index</span> <span class="o">=</span> <span class="n">faiss</span><span class="o">.</span><span class="n">IndexHNSWFlat</span><span class="p">(</span><span class="n">dim</span><span class="p">,</span> <span class="mi">32</span><span class="p">)</span>
+<span class="n">index</span><span class="o">.</span><span class="n">hnsw</span><span class="o">.</span><span class="n">efConstruction</span> <span class="o">=</span> <span class="mi">200</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"Building HNSW index..."</span><span class="p">)</span>
+<span class="n">start</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+<span class="n">index</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">vectors</span><span class="p">)</span>
+<span class="n">build_time</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">start</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Build time: </span><span class="si">{</span><span class="n">build_time</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2">s"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Memory: ~</span><span class="si">{</span><span class="n">index</span><span class="o">.</span><span class="n">ntotal</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">dim</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mi">4</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mf">1e9</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> GB (vectors only)"</span><span class="p">)</span>
+<span class="c1"># Search with different ef values to show recall/latency tradeoff</span>
+<span class="k">for</span> <span class="n">ef_search</span> <span class="ow">in</span> <span class="p">[</span><span class="mi">16</span><span class="p">,</span> <span class="mi">64</span><span class="p">,</span> <span class="mi">256</span><span class="p">]:</span>
+    <span class="n">index</span><span class="o">.</span><span class="n">hnsw</span><span class="o">.</span><span class="n">efSearch</span> <span class="o">=</span> <span class="n">ef_search</span>
+    <span class="n">start</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+    <span class="n">distances</span><span class="p">,</span> <span class="n">indices</span> <span class="o">=</span> <span class="n">index</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="n">k</span><span class="o">=</span><span class="mi">10</span><span class="p">)</span>
+    <span class="n">search_time</span> <span class="o">=</span> <span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">start</span><span class="p">)</span> <span class="o">*</span> <span class="mi">1000</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"ef_search=</span><span class="si">{</span><span class="n">ef_search</span><span class="si">:</span><span class="s2">&gt;3</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">search_time</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">ms, "</span>
+        <span class="sa">f</span><span class="s2">"top result idx=</span><span class="si">{</span><span class="n">indices</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> 
+Building HNSW index...
+Build time: 142.3s
+Memory: ~2.87 GB (vectors only)
+ef_search= 16: 0.42ms, top result idx=384721
+ef_search= 64: 0.89ms, top result idx=384721
+ef_search=256: 2.31ms, top result idx=384721
+ 
+
+</div>
+<div class="code-caption"><strong>Code Fragment 22.2.3:</strong> HNSW index with FAISS</div>
+</div>
+<div class="callout key-insight">
+<div class="callout-title">Key Insight: HNSW Tradeoffs</div>
+<p>HNSW provides excellent recall and low latency, but it requires storing the full vectors in memory along with the graph structure. For 1 million 768-dimensional float32 vectors, the vectors alone consume ~3 GB. The graph metadata adds another 20 to 50% overhead depending on M. This makes HNSW memory-intensive for very large collections (100M+ vectors), which is where IVF and quantization techniques become essential.</p>
+</div>
+<h2 id="31-2-3-ivf-inverted-file-index">22.2.3 IVF: Inverted File Index</h2>
+<p>The Inverted File (IVF) index partitions the vector space into <em>nlist</em> regions using
+ k-means clustering. Each vector is assigned to its nearest cluster centroid. At query time,
+ the algorithm first identifies the <em>nprobe</em> closest centroids to the query, then performs
+ an exhaustive search only within those clusters. This reduces the number of distance computations
+ from N to approximately N × nprobe / nlist.
+ </p>
+<h3 id="ivf-construction">IVF Construction</h3>
+<p>Building an IVF index requires a training phase where k-means clustering is performed on a
+ representative sample of the data. The number of clusters (<code>nlist</code>) is typically set
+ to the square root of N, although values between 4×sqrt(N) and 16×sqrt(N) are also
+ common. More clusters enable more selective search but require more centroids to be compared at
+ query time. </p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># IVF index with FAISS</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">faiss</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
+<span class="n">dim</span> <span class="o">=</span> <span class="mi">768</span>
+<span class="n">n_vectors</span> <span class="o">=</span> <span class="mi">1_000_000</span>
+<span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">seed</span><span class="p">(</span><span class="mi">42</span><span class="p">)</span>
+<span class="n">vectors</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">n_vectors</span><span class="p">,</span> <span class="n">dim</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+<span class="n">faiss</span><span class="o">.</span><span class="n">normalize_L2</span><span class="p">(</span><span class="n">vectors</span><span class="p">)</span>
+<span class="n">query</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">dim</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+<span class="n">faiss</span><span class="o">.</span><span class="n">normalize_L2</span><span class="p">(</span><span class="n">query</span><span class="p">)</span>
+<span class="c1"># IVF with flat (uncompressed) storage within each cell</span>
+<span class="n">nlist</span> <span class="o">=</span> <span class="mi">1024</span> <span class="c1"># Number of Voronoi cells (clusters)</span>
+<span class="n">quantizer</span> <span class="o">=</span> <span class="n">faiss</span><span class="o">.</span><span class="n">IndexFlatIP</span><span class="p">(</span><span class="n">dim</span><span class="p">)</span> <span class="c1"># Inner product for normalized vectors</span>
+<span class="n">index</span> <span class="o">=</span> <span class="n">faiss</span><span class="o">.</span><span class="n">IndexIVFFlat</span><span class="p">(</span><span class="n">quantizer</span><span class="p">,</span> <span class="n">dim</span><span class="p">,</span> <span class="n">nlist</span><span class="p">,</span> <span class="n">faiss</span><span class="o">.</span><span class="n">METRIC_INNER_PRODUCT</span><span class="p">)</span>
+<span class="c1"># IVF requires a training step (k-means on the data)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"Training IVF index..."</span><span class="p">)</span>
+<span class="n">start</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+<span class="n">index</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">vectors</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Training time: </span><span class="si">{</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">start</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2">s"</span><span class="p">)</span>
+<span class="c1"># Add vectors to index</span>
+<span class="n">start</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+<span class="n">index</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">vectors</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Add time: </span><span class="si">{</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">start</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2">s"</span><span class="p">)</span>
+<span class="c1"># Search with different nprobe values</span>
+<span class="k">for</span> <span class="n">nprobe</span> <span class="ow">in</span> <span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">8</span><span class="p">,</span> <span class="mi">32</span><span class="p">,</span> <span class="mi">128</span><span class="p">]:</span>
+    <span class="n">index</span><span class="o">.</span><span class="n">nprobe</span> <span class="o">=</span> <span class="n">nprobe</span>
+    <span class="n">start</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+    <span class="n">distances</span><span class="p">,</span> <span class="n">indices</span> <span class="o">=</span> <span class="n">index</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="n">k</span><span class="o">=</span><span class="mi">10</span><span class="p">)</span>
+    <span class="n">search_time</span> <span class="o">=</span> <span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">start</span><span class="p">)</span> <span class="o">*</span> <span class="mi">1000</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"nprobe=</span><span class="si">{</span><span class="n">nprobe</span><span class="si">:</span><span class="s2">&gt;3</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">search_time</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">ms, "</span>
+        <span class="sa">f</span><span class="s2">"searched </span><span class="si">{</span><span class="n">nprobe</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">n_vectors</span><span class="w"> </span><span class="o">//</span><span class="w"> </span><span class="n">nlist</span><span class="si">:</span><span class="s2">,</span><span class="si">}</span><span class="s2"> vectors"</span><span class="p">)</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> 
+Training IVF index...
+Training time: 28.4s
+Add time: 7.2s
+nprobe= 1: 0.31ms, searched 976 vectors
+nprobe= 8: 1.02ms, searched 7,812 vectors
+nprobe= 32: 3.41ms, searched 31,250 vectors
+nprobe=128: 12.89ms, searched 125,000 vectors
+ 
+
+</div>
+<div class="code-caption"><strong>Code Fragment 22.2.4:</strong> IVF index with FAISS</div>
+</div>
+<h2 id="31-2-4-product-quantization-pq">22.2.4 Product Quantization (PQ)</h2>
+<p>Product Quantization compresses vectors by splitting each <em>d</em>-dimensional vector into
+ <em>m</em> sub-vectors, then quantizing each sub-vector independently using a small codebook.
+ A 768-dimensional vector split into 96 sub-vectors of 8 dimensions each, with 256 codes per
+ sub-vector, requires only 96 bytes of storage instead of 3,072 bytes (768 × 4 for float32).
+ This represents a 32x compression ratio.
+ Figure 22.2.5 shows how product quantization compresses vectors by replacing sub-vectors with codebook indices. </p>
+<h3 id="how-pq-works">How PQ Works</h3>
+<ol>
+<li><strong>Split:</strong> Divide each d-dimensional vector into m sub-vectors of d/m dimensions.</li>
+<li><strong>Train codebooks:</strong> For each sub-vector position, run k-means with 256 centroids (or another power of 2) on the training data. This produces m codebooks, each with 256 entries.</li>
+<li><strong>Encode:</strong> Replace each sub-vector with the index of its nearest codebook entry (a single byte for 256 codes).</li>
+<li><strong>Compute distances:</strong> At query time, precompute a distance lookup table from the query sub-vectors to all codebook entries, then sum table lookups for each compressed vector.</li>
+</ol>
+<div class="diagram-container">
+<svg aria-label="Diagram: How PQ Works" role="img" viewbox="0 0 720 280" xmlns="http://www.w3.org/2000/svg">
+<defs>
+<lineargradient id="grad_fc55f1_e3f2fd" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#f2ffff"></stop><stop offset="100%" stop-color="#e3f2fd"></stop></lineargradient>
+<lineargradient id="grad_fc55f1_f8f9fa" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#ffffff"></stop><stop offset="100%" stop-color="#f8f9fa"></stop></lineargradient>
+<lineargradient id="grad_fc55f1_ffcdd2" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#ffdce1"></stop><stop offset="100%" stop-color="#ffcdd2"></stop></lineargradient>
+<lineargradient id="grad_fc55f1_c8e6c9" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#d7f5d8"></stop><stop offset="100%" stop-color="#c8e6c9"></stop></lineargradient>
+<lineargradient id="grad_fc55f1_fff3e0" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#ffffef"></stop><stop offset="100%" stop-color="#fff3e0"></stop></lineargradient>
+<filter height="115%" id="shadow_fc55f1" width="115%" x="-5%" y="-5%"><fedropshadow dx="2" dy="2" flood-opacity="0.1" stddeviation="3"></fedropshadow></filter>
+</defs>
+<rect fill="url(#grad_fc55f1_f8f9fa)" filter="url(#shadow_fc55f1)" height="270" rx="10" stroke="#ddd" stroke-linecap="round" width="710" x="5" y="5"></rect>
+<!-- Original vector -->
+<text fill="#666" font-family="Segoe UI, system-ui, sans-serif" font-size="11" x="30" y="60">Original (768d, 3072 bytes)</text>
+<rect fill="url(#grad_fc55f1_e3f2fd)" height="30" rx="4" stroke="#1976d2" stroke-linecap="round" width="660" x="30" y="68"></rect>
+<text fill="#333" font-family="Consolas, monospace" font-size="11" text-anchor="middle" x="360" y="88">[0.12, -0.45, 0.78, 0.33, ..., -0.21, 0.56, 0.09, -0.67]</text>
+<!-- Split into sub-vectors -->
+<text fill="#666" font-family="Segoe UI, system-ui, sans-serif" font-size="11" x="30" y="125">Split into m=96 sub-vectors (8 dims each)</text>
+<rect fill="url(#grad_fc55f1_c8e6c9)" height="28" rx="4" stroke="#388e3c" stroke-linecap="round" width="80" x="30" y="133"></rect>
+<text fill="#333" font-family="Consolas, monospace" font-size="11" text-anchor="middle" x="70" y="152">sub_1</text>
+<rect fill="url(#grad_fc55f1_c8e6c9)" height="28" rx="4" stroke="#388e3c" stroke-linecap="round" width="80" x="115" y="133"></rect>
+<text fill="#333" font-family="Consolas, monospace" font-size="11" text-anchor="middle" x="155" y="152">sub_2</text>
+<rect fill="url(#grad_fc55f1_c8e6c9)" height="28" rx="4" stroke="#388e3c" stroke-linecap="round" width="80" x="200" y="133"></rect>
+<text fill="#333" font-family="Consolas, monospace" font-size="11" text-anchor="middle" x="240" y="152">sub_3</text>
+<text fill="#666" font-family="Segoe UI, system-ui, sans-serif" font-size="16" x="310" y="152">...</text>
+<rect fill="url(#grad_fc55f1_c8e6c9)" height="28" rx="4" stroke="#388e3c" stroke-linecap="round" width="80" x="350" y="133"></rect>
+<text fill="#333" font-family="Consolas, monospace" font-size="11" text-anchor="middle" x="390" y="152">sub_95</text>
+<rect fill="url(#grad_fc55f1_c8e6c9)" height="28" rx="4" stroke="#388e3c" stroke-linecap="round" width="80" x="435" y="133"></rect>
+<text fill="#333" font-family="Consolas, monospace" font-size="11" text-anchor="middle" x="475" y="152">sub_96</text>
+<!-- Arrows down -->
+<text fill="#666" font-family="Segoe UI, system-ui, sans-serif" font-size="11" x="250" y="185">Quantize each sub-vector to nearest codebook entry</text>
+<!-- Compressed codes -->
+<text fill="#666" font-family="Segoe UI, system-ui, sans-serif" font-size="11" x="30" y="210">Compressed (96 bytes)</text>
+<rect fill="url(#grad_fc55f1_ffcdd2)" height="28" rx="4" stroke="#c62828" stroke-linecap="round" width="40" x="30" y="218"></rect>
+<text fill="#333" font-family="Consolas, monospace" font-size="11" text-anchor="middle" x="50" y="237">42</text>
+<rect fill="url(#grad_fc55f1_ffcdd2)" height="28" rx="4" stroke="#c62828" stroke-linecap="round" width="40" x="75" y="218"></rect>
+<text fill="#333" font-family="Consolas, monospace" font-size="11" text-anchor="middle" x="95" y="237">187</text>
+<rect fill="url(#grad_fc55f1_ffcdd2)" height="28" rx="4" stroke="#c62828" stroke-linecap="round" width="40" x="120" y="218"></rect>
+<text fill="#333" font-family="Consolas, monospace" font-size="11" text-anchor="middle" x="140" y="237">5</text>
+<text fill="#666" font-family="Segoe UI, system-ui, sans-serif" font-size="16" x="185" y="237">...</text>
+<rect fill="url(#grad_fc55f1_ffcdd2)" height="28" rx="4" stroke="#c62828" stroke-linecap="round" width="40" x="210" y="218"></rect>
+<text fill="#333" font-family="Consolas, monospace" font-size="11" text-anchor="middle" x="230" y="237">201</text>
+<rect fill="url(#grad_fc55f1_ffcdd2)" height="28" rx="4" stroke="#c62828" stroke-linecap="round" width="40" x="255" y="218"></rect>
+<text fill="#333" font-family="Consolas, monospace" font-size="11" text-anchor="middle" x="275" y="237">93</text>
+<!-- Compression ratio -->
+<rect fill="url(#grad_fc55f1_fff3e0)" height="35" rx="8" stroke="#e65100" stroke-linecap="round" width="270" x="420" y="215"></rect>
+<text fill="#e65100" font-family="Segoe UI, system-ui, sans-serif" font-size="12" font-weight="600" text-anchor="middle" x="555" y="237">32x compression: 3072 bytes → 96 bytes</text>
+</svg>
+<div class="diagram-caption"><strong>Figure 22.2.5</strong>: Product Quantization splits each vector into sub-vectors and replaces each with a codebook index, achieving high compression ratios.</div>
+</div>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># IVF + Product Quantization composite index in FAISS</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">faiss</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
+<span class="n">dim</span> <span class="o">=</span> <span class="mi">768</span>
+<span class="n">n_vectors</span> <span class="o">=</span> <span class="mi">1_000_000</span>
+<span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">seed</span><span class="p">(</span><span class="mi">42</span><span class="p">)</span>
+<span class="n">vectors</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">n_vectors</span><span class="p">,</span> <span class="n">dim</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+<span class="n">faiss</span><span class="o">.</span><span class="n">normalize_L2</span><span class="p">(</span><span class="n">vectors</span><span class="p">)</span>
+<span class="n">query</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">dim</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+<span class="n">faiss</span><span class="o">.</span><span class="n">normalize_L2</span><span class="p">(</span><span class="n">query</span><span class="p">)</span>
+<span class="c1"># IVF-PQ: combines partitioning with compression</span>
+<span class="n">nlist</span> <span class="o">=</span> <span class="mi">1024</span> <span class="c1"># Number of IVF partitions</span>
+<span class="n">m_subquantizers</span> <span class="o">=</span> <span class="mi">96</span> <span class="c1"># Number of sub-quantizers (must divide dim)</span>
+<span class="n">nbits</span> <span class="o">=</span> <span class="mi">8</span> <span class="c1"># Bits per sub-quantizer (256 codes)</span>
+<span class="n">index</span> <span class="o">=</span> <span class="n">faiss</span><span class="o">.</span><span class="n">IndexIVFPQ</span><span class="p">(</span>
+    <span class="n">faiss</span><span class="o">.</span><span class="n">IndexFlatIP</span><span class="p">(</span><span class="n">dim</span><span class="p">),</span> <span class="c1"># Coarse quantizer</span>
+    <span class="n">dim</span><span class="p">,</span>
+    <span class="n">nlist</span><span class="p">,</span>
+    <span class="n">m_subquantizers</span><span class="p">,</span>
+    <span class="n">nbits</span>
+<span class="p">)</span>
+<span class="c1"># Train and add</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"Training IVF-PQ index..."</span><span class="p">)</span>
+<span class="n">index</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">vectors</span><span class="p">)</span>
+<span class="n">index</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">vectors</span><span class="p">)</span>
+<span class="c1"># Memory comparison</span>
+<span class="n">flat_memory</span> <span class="o">=</span> <span class="n">n_vectors</span> <span class="o">*</span> <span class="n">dim</span> <span class="o">*</span> <span class="mi">4</span> <span class="c1"># float32</span>
+<span class="n">pq_memory</span> <span class="o">=</span> <span class="n">n_vectors</span> <span class="o">*</span> <span class="n">m_subquantizers</span> <span class="c1"># 1 byte per sub-quantizer</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Flat memory: </span><span class="si">{</span><span class="n">flat_memory</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mf">1e9</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> GB"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"PQ memory: </span><span class="si">{</span><span class="n">pq_memory</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mf">1e6</span><span class="si">:</span><span class="s2">.0f</span><span class="si">}</span><span class="s2"> MB"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Compression: </span><span class="si">{</span><span class="n">flat_memory</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">pq_memory</span><span class="si">:</span><span class="s2">.0f</span><span class="si">}</span><span class="s2">x"</span><span class="p">)</span>
+<span class="c1"># Search</span>
+<span class="n">index</span><span class="o">.</span><span class="n">nprobe</span> <span class="o">=</span> <span class="mi">32</span>
+<span class="n">start</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+<span class="n">distances</span><span class="p">,</span> <span class="n">indices</span> <span class="o">=</span> <span class="n">index</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="n">k</span><span class="o">=</span><span class="mi">10</span><span class="p">)</span>
+<span class="n">search_time</span> <span class="o">=</span> <span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">start</span><span class="p">)</span> <span class="o">*</span> <span class="mi">1000</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Search time: </span><span class="si">{</span><span class="n">search_time</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">ms"</span><span class="p">)</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> 
+Training IVF-PQ index...
+Flat memory: 2.87 GB
+PQ memory: 96 MB
+Compression: 32x
+Search time: 1.15ms
+ 
+
+</div>
+<div class="code-caption"><strong>Code Fragment 22.2.5:</strong> IVF + Product Quantization composite index in FAISS</div>
+</div>
+<h2 id="31-2-5-composite-indexes-and-advanced-techniques">22.2.5 Composite Indexes and Advanced Techniques</h2>
+<h3 id="ivf-hnsw">IVF-HNSW</h3>
+<p>Instead of using a flat (brute-force) coarse quantizer in IVF, the coarse quantizer itself can
+ be an HNSW index. This accelerates the cluster assignment step when there are many clusters
+ (tens of thousands), which is important for very large datasets where you need fine-grained
+ partitioning.
+ </p>
+<h3 id="scann-scalable-nearest-neighbors">ScaNN (Scalable Nearest Neighbors)</h3>
+<p>Google's ScaNN algorithm introduces <strong>anisotropic vector quantization</strong>, which
+ accounts for the direction of quantization error rather than minimizing error magnitude uniformly.
+ Standard PQ minimizes the overall reconstruction error, but ScaNN specifically minimizes the error
+ in the direction that matters for inner product computation. This produces better search quality at
+ the same compression ratio.
+ </p>
+<div class="callout note">
+<div class="callout-title">Note: Binary Quantization</div>
+<p>The simplest and most aggressive form of quantization converts each float dimension to a single bit: 1 if positive, 0 if negative. This reduces memory by 32x and enables ultra-fast Hamming distance computation. While the accuracy loss is significant when used alone, binary quantization works well as a first-pass filter followed by rescoring against full-precision vectors. Some vector databases (Qdrant, Weaviate) support this as a "binary quantization" or "oversampling + rescore" mode.</p>
+</div>
+<h2 id="31-2-6-index-selection-guide">22.2.6 Index Selection Guide</h2>
+<div class="comparison-table">
+<div class="comparison-table-title"><strong>Table 22.2.1:</strong> <em>6. Index Selection Guide Advanced Comparison (as of 2026).</em></div>
+<table class="complex-table">
+<thead>
+<tr>
+<th scope="col">Index Type</th>
+<th scope="col">Build Time</th>
+<th scope="col">Search Speed</th>
+<th scope="col">Memory</th>
+<th scope="col">Recall</th>
+<th scope="col">Best For</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Flat (brute-force)</td>
+<td>None</td>
+<td>Slow</td>
+<td>High</td>
+<td>100%</td>
+<td>&lt; 50K vectors</td>
+</tr>
+<tr>
+<td>HNSW</td>
+<td>Slow</td>
+<td>Very fast</td>
+<td>High</td>
+<td>98%+</td>
+<td>Low latency, &lt; 10M vectors</td>
+</tr>
+<tr>
+<td>IVF-Flat</td>
+<td>Medium</td>
+<td>Fast</td>
+<td>High</td>
+<td>95%+</td>
+<td>Moderate scale, updatable</td>
+</tr>
+<tr>
+<td>IVF-PQ</td>
+<td>Medium</td>
+<td>Fast</td>
+<td>Low</td>
+<td>90%+</td>
+<td>Large scale, memory-constrained</td>
+</tr>
+<tr>
+<td>HNSW + PQ</td>
+<td>Slow</td>
+<td>Fast</td>
+<td>Medium</td>
+<td>93%+</td>
+<td>Balanced latency and memory</td>
+</tr>
+<tr>
+<td>IVF-HNSW-PQ</td>
+<td>Slow</td>
+<td>Very fast</td>
+<td>Low</td>
+<td>92%+</td>
+<td>Billion-scale datasets</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="callout warning">
+<div class="callout-title">Warning: Common Pitfalls</div>
+<p><strong>Do not over-optimize for benchmarks.</strong> ANN benchmark scores (like ann-benchmarks.com) measure performance on specific datasets with specific query patterns. Your production workload may have very different characteristics. Always benchmark with your actual data and query distribution. Additionally, remember that index parameters interact: increasing <code>nprobe</code> in IVF can be more effective than increasing <code>ef_search</code> in HNSW for some data distributions, and vice versa.</p>
+</div>
+<h2 id="31-2-7-faiss-index-factory">22.2.7 FAISS Index Factory</h2>
+<p>FAISS provides an <strong>index factory</strong> that lets you construct composite indexes using a
+ string descriptor. This is the most convenient way to experiment with different configurations. </p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># FAISS index factory: composing index types with string descriptors</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">faiss</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="n">dim</span> <span class="o">=</span> <span class="mi">768</span>
+<span class="n">n_vectors</span> <span class="o">=</span> <span class="mi">500_000</span>
+<span class="n">vectors</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">n_vectors</span><span class="p">,</span> <span class="n">dim</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+<span class="n">faiss</span><span class="o">.</span><span class="n">normalize_L2</span><span class="p">(</span><span class="n">vectors</span><span class="p">)</span>
+<span class="c1"># Index factory string format: "preprocessing,coarse_quantizer,encoding"</span>
+<span class="n">index_configs</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">"Flat"</span><span class="p">:</span> <span class="s2">"Flat"</span><span class="p">,</span>
+    <span class="s2">"HNSW32"</span><span class="p">:</span> <span class="s2">"HNSW32"</span><span class="p">,</span>
+    <span class="s2">"IVF1024,Flat"</span><span class="p">:</span> <span class="s2">"IVF1024,Flat"</span><span class="p">,</span>
+    <span class="s2">"IVF1024,PQ96"</span><span class="p">:</span> <span class="s2">"IVF1024,PQ96"</span><span class="p">,</span>
+    <span class="s2">"IVF1024,SQ8"</span><span class="p">:</span> <span class="s2">"IVF1024,SQ8"</span><span class="p">,</span> <span class="c1"># Scalar quantization (8-bit)</span>
+    <span class="p">}</span>
+<span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">factory_str</span> <span class="ow">in</span> <span class="n">index_configs</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+    <span class="n">index</span> <span class="o">=</span> <span class="n">faiss</span><span class="o">.</span><span class="n">index_factory</span><span class="p">(</span><span class="n">dim</span><span class="p">,</span> <span class="n">factory_str</span><span class="p">,</span> <span class="n">faiss</span><span class="o">.</span><span class="n">METRIC_INNER_PRODUCT</span><span class="p">)</span>
+    <span class="c1"># Train if needed</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">index</span><span class="o">.</span><span class="n">is_trained</span><span class="p">:</span>
+        <span class="n">index</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">vectors</span><span class="p">[:</span><span class="mi">100_000</span><span class="p">])</span> <span class="c1"># Train on subset</span>
+        <span class="n">index</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">vectors</span><span class="p">)</span>
+        <span class="c1"># Estimate memory (rough approximation)</span>
+        <span class="k">if</span> <span class="s2">"PQ96"</span> <span class="ow">in</span> <span class="n">factory_str</span><span class="p">:</span>
+            <span class="n">mem_mb</span> <span class="o">=</span> <span class="n">n_vectors</span> <span class="o">*</span> <span class="mi">96</span> <span class="o">/</span> <span class="mf">1e6</span>
+        <span class="k">elif</span> <span class="s2">"SQ8"</span> <span class="ow">in</span> <span class="n">factory_str</span><span class="p">:</span>
+            <span class="n">mem_mb</span> <span class="o">=</span> <span class="n">n_vectors</span> <span class="o">*</span> <span class="n">dim</span> <span class="o">/</span> <span class="mf">1e6</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">mem_mb</span> <span class="o">=</span> <span class="n">n_vectors</span> <span class="o">*</span> <span class="n">dim</span> <span class="o">*</span> <span class="mi">4</span> <span class="o">/</span> <span class="mf">1e6</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">name</span><span class="si">:</span><span class="s2">&gt;20</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">n_vectors</span><span class="si">:</span><span class="s2">,</span><span class="si">}</span><span class="s2"> vectors, ~</span><span class="si">{</span><span class="n">mem_mb</span><span class="si">:</span><span class="s2">.0f</span><span class="si">}</span><span class="s2"> MB"</span><span class="p">)</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> 
+ Flat: 500,000 vectors, ~1440 MB
+ HNSW32: 500,000 vectors, ~1440 MB
+ IVF1024,Flat: 500,000 vectors, ~1440 MB
+ IVF1024,PQ96: 500,000 vectors, ~48 MB
+ IVF1024,SQ8: 500,000 vectors, ~384 MB
+ 
+
+</div>
+<div class="code-caption"><strong>Code Fragment 22.2.6:</strong> FAISS index factory: composing index types with string descriptors</div>
+</div>
+<!-- Quiz Section -->
+<div class="callout self-check">
+<div class="callout-title">Self-Check</div>
+<div class="quiz-question"><strong>Q1:</strong> Why does brute-force nearest neighbor search become impractical at scale?</div>
+<details>
+<summary>Show Answer</summary>
+<div class="answer">Brute-force search requires computing the distance between the query vector and every vector in the collection, resulting in <span class="math">$O(N \times d)$</span> operations per query. For millions of high-dimensional vectors, this translates to hundreds of milliseconds per query, which is too slow for real-time applications. ANN algorithms reduce this to sub-millisecond search by trading perfect accuracy for speed.</div>
+</details>
+<div class="quiz-question"><strong>Q2:</strong> What do the parameters M and ef_construction control in HNSW?</div>
+<details>
+<summary>Show Answer</summary>
+<div class="answer">M controls the maximum number of edges per node in the HNSW graph. Higher M increases connectivity, improving recall but consuming more memory. ef_construction controls how many candidates the algorithm evaluates when inserting a new node; higher values produce a higher-quality graph at the cost of slower build times. Together, they determine the graph's quality and the memory/build-time tradeoff.</div>
+</details>
+<div class="quiz-question"><strong>Q3:</strong> How does Product Quantization achieve vector compression?</div>
+<details>
+<summary>Show Answer</summary>
+<div class="answer">PQ divides each d-dimensional vector into m sub-vectors, then independently quantizes each sub-vector using a learned codebook with 256 entries (8 bits). Each sub-vector is replaced by its nearest codebook index (a single byte). A 768-dimensional float32 vector (3,072 bytes) split into 96 sub-vectors requires only 96 bytes: one byte per sub-vector. Distance computation uses precomputed lookup tables from the query to each codebook entry.</div>
+</details>
+<div class="quiz-question"><strong>Q4:</strong> In IVF indexing, what happens when you increase the nprobe parameter?</div>
+<details>
+<summary>Show Answer</summary>
+<div class="answer">Increasing nprobe causes the search to examine more cluster partitions at query time. With nprobe=1, only the cluster whose centroid is closest to the query is searched. With nprobe=32, the 32 closest clusters are searched. Higher nprobe values improve recall (finding more true nearest neighbors) but increase latency because more vectors are compared. The optimal nprobe balances your target recall with acceptable query latency.</div>
+</details>
+<div class="quiz-question"><strong>Q5:</strong> When would you choose IVF-PQ over HNSW?</div>
+<details>
+<summary>Show Answer</summary>
+<div class="answer">IVF-PQ is preferred over HNSW when memory is a constraint. HNSW stores full-precision vectors plus graph metadata, consuming substantial memory. IVF-PQ compresses vectors to a fraction of their original size (e.g., 32x compression). For large collections (100M+ vectors) where full-precision storage would require hundreds of gigabytes, IVF-PQ enables the entire index to fit in memory. The tradeoff is slightly lower recall compared to HNSW at the same query latency.</div>
+</details>
+</div>
+<div class="callout tip">
+<div class="callout-title">Tip: Benchmark Embedding Models on Your Data</div>
+<p>Do not rely solely on MTEB leaderboard rankings. Download 2 to 3 top embedding models and test them on a sample of your actual queries and documents. Domain-specific performance can differ significantly from general benchmarks.</p>
+</div>
+<!-- Key Takeaways -->
+<div class="callout key-insight">
+<div class="callout-title">Key Takeaways</div>
+<ul>
+<li><strong>Brute-force search scales linearly</strong> with dataset size and becomes impractical beyond ~50K vectors for real-time applications.</li>
+<li><strong>HNSW</strong> provides the best recall/latency tradeoff but requires storing full vectors in memory, making it memory-intensive.</li>
+<li><strong>IVF</strong> partitions the search space using clustering, reducing the number of comparisons proportional to the <code>nprobe/nlist</code> ratio.</li>
+<li><strong>Product Quantization</strong> compresses vectors by 16 to 32x, enabling large-scale search in constrained memory environments at the cost of some recall.</li>
+<li><strong>Composite indexes</strong> (IVF-PQ, IVF-HNSW-PQ) combine partitioning, graph navigation, and compression for billion-scale search.</li>
+<li><strong>Always benchmark on your data.</strong> The optimal index type and parameters depend on your specific dataset size, dimensionality, query patterns, and latency/recall requirements.</li>
+<li><strong>FAISS index factory</strong> provides a convenient string-based interface for constructing and experimenting with different composite index configurations.</li>
+</ul>
+</div>
+<div class="callout practical-example">
+<div class="callout-title">Real-World Scenario: Scaling Product Search with HNSW vs. IVF</div>
+<p><strong>Who:</strong> A platform engineering team at a mid-size e-commerce company (50 million product listings)</p>
+<p><strong>Situation:</strong> The team was migrating from keyword search to embedding-based <a href="../module-31-embeddings-vector-db/section-31.3.html">semantic search</a> for product discovery, using 768-dimensional vectors from a <a href="../../part-4-training-adaptation/module-16-fine-tuning-fundamentals/index.html">fine-tuned</a> model.</p>
+<p><strong>Problem:</strong> Flat (brute-force) search delivered perfect recall but took 800ms per query at their scale, far exceeding the 100ms latency budget for real-time search.</p>
+<p><strong>Dilemma:</strong> HNSW offered sub-10ms queries with 98% recall but required 120 GB of RAM to hold the full graph in memory. IVF-PQ reduced memory to 15 GB through quantization but dropped recall to 88% and introduced a retraining step whenever the catalog changed significantly.</p>
+<p><strong>Decision:</strong> They deployed a two-tier architecture: HNSW for the top 5 million high-traffic products (frequently searched categories) and IVF-PQ with a <a href="../module-32-rag/section-32.2.html">reranking</a> step for the full 50 million catalog as a fallback.</p>
+<p><strong>How:</strong> Using FAISS, they built the HNSW index with M=32 and ef_construction=200, and the IVF index with 4,096 centroids and PQ compression to 64 bytes per vector. A lightweight cross-encoder reranked the top 50 IVF results.</p>
+<p><strong>Result:</strong> P95 latency dropped to 35ms, recall stayed above 95% across both tiers, and total memory usage was 45 GB (fitting on a single high-memory instance).</p>
+<p><strong>Lesson:</strong> Combining index types in a tiered architecture lets you optimize for both latency and recall without paying the full memory cost of keeping everything in a high-fidelity index.</p>
+</div>
+<div class="callout research-frontier">
+<div class="callout-title">Research Frontier</div>
+<p><strong>Graph-based indexes with learned routing</strong> are replacing static HNSW configurations with neural network-guided neighbor selection, improving recall at the same latency budget. <strong>Hybrid quantization</strong> combines product quantization with scalar quantization at different index levels, achieving near-exact recall at 16x compression. <strong>GPU-accelerated ANN search</strong> libraries like RAFT (NVIDIA) and cuVS are moving index construction and search onto GPUs, enabling sub-millisecond queries on billion-scale datasets. Research into <strong>streaming index updates</strong> addresses the challenge of maintaining index quality as documents are continuously added and deleted, a key limitation of batch-built HNSW graphs.</p>
+</div>
+<section class="exercises">
+<h2 id="exercises">Exercises</h2>
+<p>Conceptual questions test your understanding of ANN algorithms. Coding exercises require <code>faiss</code> installed.</p>
+<div class="callout exercise">
+<div class="callout-title">Exercise 17.2.1: Brute-force scaling <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+<p>If brute-force nearest neighbor search over 1 million 768-dimensional vectors takes 200ms, estimate the time for 100 million vectors. Why is this unacceptable for production search?</p>
+<details><summary>Show Answer</summary>
+<p>At 100x the vectors, brute-force takes approximately 20 seconds per query. Production search APIs require sub-100ms latency, making brute-force infeasible beyond a few million vectors.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 17.2.2: HNSW layers <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+<p>Explain how the hierarchical structure of HNSW speeds up search. What role do the upper layers play, and why is a logarithmic number of layers sufficient?</p>
+<details><summary>Show Answer</summary>
+<p>Upper HNSW layers contain only a sparse subset of nodes, allowing the search to quickly navigate to the right region of the graph. Lower layers are dense and provide local refinement. The log(N) layers mirror a skip-list structure, giving <span class="math">$O(\log N)$</span> search complexity.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 17.2.3: IVF tradeoffs <span class="exercise-type coding" title="Coding">Coding</span></div>
+<p>In an IVF index with 1024 clusters, you set <code>nprobe=10</code>. Approximately what fraction of vectors are scanned? What happens to recall if you increase nprobe to 100?</p>
+<details><summary>Show Answer</summary>
+<p>With nprobe=10 out of 1024 clusters, about 1% of vectors are scanned. Increasing to nprobe=100 scans about 10%, significantly improving recall (often from 85% to 98%+) at the cost of 10x more computation.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 17.2.4: PQ compression <span class="exercise-type analysis" title="Analysis">Analysis</span></div>
+<p>A Product Quantization index splits 768-dimensional vectors into 96 sub-vectors of 8 dimensions each, with 256 centroids per sub-vector. Calculate the compressed size per vector in bytes. What is the compression ratio compared to storing raw float32 vectors?</p>
+<details><summary>Show Answer</summary>
+<p>96 sub-vectors with 1 byte each (256 centroids = 8 bits) = 96 bytes per vector. Raw float32: 768 * 4 = 3072 bytes. Compression ratio: 3072 / 96 = 32x.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 17.2.5: Composite indexes <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+<p>Explain why combining IVF with PQ (IVF+PQ) is more effective than using either alone. What does each component contribute to the overall system?</p>
+<details><summary>Show Answer</summary>
+<p>IVF partitions the search space, reducing the number of vectors to scan. PQ compresses each vector, reducing memory and enabling faster distance computation. Together, IVF handles coarse search and PQ handles fine-grained comparison within each partition.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 17.2.6: FAISS benchmark <span class="exercise-type coding" title="Coding">Coding</span></div>
+<p>Generate 100,000 random 128-dimensional vectors. Build a flat index (brute-force), an HNSW index, and an IVF index. Compare query latency and recall@10 across all three.</p>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 17.2.7: nprobe tuning <span class="exercise-type coding" title="Coding">Coding</span></div>
+<p>Build an IVF index with 256 clusters on 500,000 random vectors. Measure recall@10 and query time as you sweep nprobe from 1 to 128. Plot the recall/latency tradeoff curve.</p>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 17.2.8: Index factory <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+<p>Use FAISS index factory strings to build "IVF256,PQ32", "IVF256,Flat", and "HNSW32" indexes on 1 million random vectors. Compare memory usage, build time, query latency, and recall.</p>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 17.2.9: Memory calculation <span class="exercise-type coding" title="Coding">Coding</span></div>
+<p>Write a function that, given vector dimension, number of vectors, and a FAISS index type string, estimates the total memory footprint. Validate against actual memory usage.</p>
+</div>
+</section>
+<div class="whats-next">
+<h2 id="what-comes-next">What Comes Next</h2>
+<p>In the next section, <a href="section-31.3.html">Section 31.3: Vector Database Systems</a>, we survey vector database systems, comparing purpose-built solutions and understanding their production trade-offs.</p>
+</div>
+<details class="bibliography-collapsible" open>
+<summary><strong>Further Reading</strong></summary>
+<section class="bibliography">
+<h3 id="core-ann-algorithms">Core ANN Algorithms</h3>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://arxiv.org/abs/1603.09320" rel="noopener" target="_blank">Malkov, Y. &amp; Yashunin, D. (2018). "Efficient and Robust Approximate Nearest Neighbor Using Hierarchical Navigable Small World Graphs." <em>IEEE TPAMI</em>.</a> The definitive HNSW paper. Explains the multi-layer navigable small world graph that powers most production vector databases. Useful for understanding index tuning parameters like M and efConstruction.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://ieeexplore.ieee.org/document/5432202" rel="noopener" target="_blank">Jegou, H., Douze, M. &amp; Schmid, C. (2011). "Product Quantization for Nearest Neighbor Search." <em>IEEE TPAMI</em>.</a> Introduces Product Quantization (PQ) for compressing high-dimensional vectors while preserving approximate distances. The basis for memory-efficient billion-scale search systems.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://arxiv.org/abs/1702.08734" rel="noopener" target="_blank">Johnson, J., Douze, M. &amp; Jegou, H. (2021). "Billion-Scale Similarity Search with GPUs." <em>IEEE Transactions on Big Data</em>.</a> The paper behind FAISS, demonstrating GPU-accelerated billion-scale nearest neighbor search. Covers IVF indexing combined with PQ for practical large-scale deployments.</div>
+</div>
+<h3 id="tools-and-benchmarks">Tools &amp; Benchmarks</h3>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://github.com/spotify/annoy" rel="noopener" target="_blank">Bernhardsson, E. (2018). "Annoy: Approximate Nearest Neighbors Oh Yeah."</a> Spotify's lightweight ANN library using random projection trees. Ideal for read-heavy workloads where the index can be built once and memory-mapped across processes.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://github.com/facebookresearch/faiss/wiki/Guidelines-to-choose-an-index" rel="noopener" target="_blank">FAISS Wiki: Guidelines for Index Choice</a> Practical decision guide for selecting FAISS index types based on dataset size, memory budget, and latency requirements. The best starting point for FAISS configuration.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://ann-benchmarks.com/" rel="noopener" target="_blank">Aumuller, M. et al. (2020). "ANN-Benchmarks: A Benchmarking Tool for Approximate Nearest Neighbor Algorithms." <em>Information Systems</em>.</a> Standardized benchmarking framework comparing ANN algorithm implementations on recall-vs-throughput curves. Use this to validate vendor performance claims with reproducible numbers.</div>
+</div>
+</section>
+</details>
+<nav class="chapter-nav">
+<a class="prev" href="section-31.1.html"><span class="nav-label">Previous</span><span class="nav-num">Section 31.1</span><span class="nav-title">Text Embedding Models &amp; Training</span></a>
+<a class="up" href="index.html"><span class="nav-label">In Chapter</span><span class="nav-num">Chapter 31</span><span class="nav-title">Embeddings, Vector Databases &amp; Semantic Search</span></a>
+<a class="next" href="section-31.3.html"><span class="nav-label">Next</span><span class="nav-num">Section 31.3</span><span class="nav-title">Vector Database Systems</span></a>
+</nav>
+<footer><p>Fifteenth Edition, 2026 · <a href="../../toc.html">Contents</a></p></footer>
+</main>
+<script>
+window.addEventListener("DOMContentLoaded", function() {
+  if (window.PagefindUI) {
+    new PagefindUI({
+      element: "#search",
+      showSubResults: true,
+      showImages: false,
+      resetStyles: false,
+      pageSize: 8,
+      autofocus: false,
+      translations: {
+        placeholder: "Search the book\u2026",
+      },
+      processResult: function (result) {
+        try {
+          var part = (result && result.meta && result.meta.part) ? result.meta.part : "";
+          var chap = (result && result.meta && result.meta.chapter) ? result.meta.chapter : "";
+          var partShort = part.split(":")[0].trim();
+          var chapShort = chap.split(":")[0].trim();
+          var crumb = [partShort, chapShort].filter(Boolean).join(" \u203a ");
+          if (crumb && result.meta && result.meta.title
+              && result.meta.title.indexOf("[" + partShort) !== 0) {
+            result.meta.title = "[" + crumb + "]  " + result.meta.title;
+          }
+        } catch (e) { /* fall through */ }
+        return result;
+      },
+    });
+  }
+});
+</script>
+</body>
+</html>

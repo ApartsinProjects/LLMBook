@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<meta content="Section 39.3: Audio Token Budget and Latency Engineering. TTFAT, codec choice, voice activity detection tuning." name="description"/>
+<title>Section 39.3: Audio Token Budget &amp; Latency Engineering</title>
+<link href="../../styles/book.css" rel="stylesheet"/>
+<link href="../../styles/pygments.css" rel="stylesheet"/>
+<link href="../../vendor/katex/katex.min.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/katex/katex.min.js"></script>
+<script defer="" onload="renderMathInElement(document.body, {
+ delimiters: [
+ {left: '$$', right: '$$', display: true},
+ {left: '$', right: '$', display: false}
+ ],
+ throwOnError: false
+ });" src="../../vendor/katex/contrib/auto-render.min.js"></script>
+<link href="../../vendor/prism/prism-theme.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/prism/prism-bundle.min.js"></script>
+<script defer="" src="../../scripts/book.js"></script>
+<link href="../../pagefind/pagefind-ui.css" rel="stylesheet"/>
+<script defer="" src="../../pagefind/pagefind-ui.js"></script>
+</head>
+<body>
+<header class="chapter-header">
+<nav class="header-nav">
+<a class="book-title-link" href="../../index.html">Building Conversational AI with LLMs and Agents</a>
+<a class="toc-link" href="../../toc.html" title="Table of Contents"><span class="toc-icon">☰</span> Contents</a>
+</nav>
+<div class="header-search">
+<div id="search"></div>
+</div>
+<div class="page-breadcrumb" data-pagefind-meta="chapter"><a href="../index.html">Part VII: Multimodal Generation</a><span class="bc-sep">›</span><a href="index.html">Chapter 39: Streaming and Real-Time Multimodal</a></div>
+<h1>Audio Token Budget &amp; Latency Engineering</h1><div class="page-current">Section 39.3</div>
+</header>
+<main class="content"><span class="pagefind-meta-injected" data-pagefind-meta="part:Part VII: Multimodal Generation" hidden=""></span><span class="pagefind-meta-injected" data-pagefind-meta="chapter:Chapter 39: Streaming and Real-Time Multimodal" hidden=""></span>
+<blockquote class="epigraph">
+<p>"In a realtime audio system, every token costs you 20 milliseconds of someone's life."</p>
+<cite>Engineering note pinned to a voice-team Slack channel, 2025</cite>
+</blockquote>
+<div class="callout big-picture">
+<div class="callout-title">Big Picture</div>
+<p><strong>Latency in a streaming audio system is determined by the token rate of the audio codec, the time-to-first-audio-token (TTFAT) of the model, and the cumulative network and buffer overhead.</strong> This section unpacks the math: how many tokens per second a typical audio codec emits, what that means for context window cost, and how to engineer the loop so that the first audible byte reaches the user under 300 ms. We also cover the tuning levers, codec frame size, VAD threshold, beam vs greedy sampling, that move the latency budget without changing the model.</p>
+</div>
+<figure class="illustration">
+<img alt="Stacked bar chart of latency contributions from VAD, network in, prompt processing, first-token generation, codec decode, network out, jitter buffer, for both pipeline and native architectures" src="images/fig-38.3.1-latency-breakdown.svg"/>
+<figcaption><strong>Figure 38.3.1</strong>: Where the milliseconds go. The biggest movable contributors are VAD threshold, codec frame size, and the model's TTFAT. Network round-trip is fixed by geography; jitter buffer is a tunable trade-off between smoothness and lag.</figcaption>
+</figure>
+<h2 id="39-3-1-the-audio-token-rate-equation">38.3.1 The Audio Token Rate Equation</h2>
+<p>Native realtime models tokenize audio with a neural codec. The codec emits tokens at a fixed rate per second, typically expressed as <em>token rate</em> $r$ (tokens/sec) times <em>codebooks per frame</em> $C$. For example, GPT-4o Realtime uses a SoundStream-derived codec at approximately 25 Hz frame rate with 8 codebooks per frame, giving 200 tokens/sec per direction. SpeechTokenizer at 50 Hz with 8 codebooks gives 400 tokens/sec.</p>
+<p>The cost implications are sharp. For a typical 1-minute audio turn:</p>
+<p>$$ \text{tokens} = r \times C \times 60 $$</p>
+<p>At 200 tokens/sec, one minute = 12,000 tokens. A 20-turn conversation at 30 seconds per turn = 120,000 audio tokens of context. Compared to text (200-300 tokens per turn typical), audio is 50 to 100x more token-hungry. This is why audio realtime APIs are 10 to 20x more expensive per minute than the equivalent text-only API call.</p>
+<div class="callout key-insight">
+<div class="callout-title">Why audio is so token-expensive</div>
+<p>Audio carries a lot of bits per second that text does not: pitch, timbre, prosody, breath, micro-pauses. A neural audio codec has to represent all of that in discrete tokens. Even aggressively-quantized codecs land at 200 to 400 tokens/sec/direction. Compared to text's natural ~5 to 15 tokens per second of equivalent linguistic content, you are paying for the paralinguistic richness. The product question is whether your application needs that richness: if not, a pipeline architecture (Whisper transcript + text LLM + TTS) is 10x cheaper at comparable text quality.</p>
+</div>
+<h2 id="39-3-2-time-to-first-audio-token">38.3.2 Time-to-First-Audio-Token (TTFAT)</h2>
+<p>TTFAT is the user-perceived latency metric. It decomposes as:</p>
+<p>$$ \text{TTFAT} = t_{\text{vad}} + t_{\text{net,in}} + t_{\text{prompt}} + t_{\text{first\_token}} + t_{\text{codec\_decode}} + t_{\text{net,out}} + t_{\text{jitter\_buf}} $$</p>
+<p>Concrete numbers for GPT-4o Realtime on a US user with reasonable network:</p>
+<figure>
+<table>
+<thead>
+<tr><th scope="col">Term</th><th scope="col">Typical (ms)</th><th scope="col">Best Case (ms)</th><th scope="col">Lever to Reduce</th></tr>
+</thead>
+<tbody>
+<tr><td>$t_{\text{vad}}$ end-of-turn detection</td><td>400</td><td>200</td><td>Lower VAD silence threshold</td></tr>
+<tr><td>$t_{\text{net,in}}$ last audio chunk to server</td><td>50</td><td>20</td><td>Geographic routing, smaller frames</td></tr>
+<tr><td>$t_{\text{prompt}}$ context processing</td><td>100</td><td>40</td><td>Shorter prompts, prompt caching</td></tr>
+<tr><td>$t_{\text{first\_token}}$ first audio token generation</td><td>150</td><td>80</td><td>Smaller model, speculative decoding</td></tr>
+<tr><td>$t_{\text{codec\_decode}}$</td><td>20</td><td>10</td><td>Codec choice (hardware-accelerated)</td></tr>
+<tr><td>$t_{\text{net,out}}$ first audio frame to client</td><td>50</td><td>20</td><td>Geographic routing</td></tr>
+<tr><td>$t_{\text{jitter\_buf}}$ client-side buffering</td><td>80</td><td>40</td><td>Smaller jitter buffer, riskier playback</td></tr>
+<tr><td><strong>Total TTFAT</strong></td><td><strong>850 ms</strong></td><td><strong>410 ms</strong></td><td>(End-of-turn to first audible byte)</td></tr>
+</tbody>
+</table>
+<figcaption><strong>Figure 38.3.2</strong>: TTFAT breakdown. The achievable best-case TTFAT in a fully tuned production system is around 400 ms; the "Hello GPT-4o" demo's 320 ms TTFAT figure assumes server-collocated audio and aggressive jitter-buffer tuning.</figcaption>
+</figure>
+<h2 id="39-3-3-vad-tuning-and-end-pointing">38.3.3 VAD Tuning and Smart End-Pointing</h2>
+<p>The VAD silence threshold is the largest single tuning knob. Reducing it from 600 ms to 300 ms saves 300 ms of TTFAT at the cost of more false interruptions (the agent starts speaking while the user is just pausing mid-sentence).</p>
+<p>Smarter "end-pointing" uses a tiny grammar model to predict whether the user has finished speaking based on the partial transcript, not just on silence duration. Examples:</p>
+<ul>
+<li>"Where is..." with 400 ms silence: probably mid-sentence, do not end-point.</li>
+<li>"What time is it?" with 200 ms silence: complete question, end-point immediately.</li>
+<li>"Can you tell me..." with 700 ms silence: probably still thinking, wait.</li>
+</ul>
+<p>OpenAI's <code>server_vad</code> mode and Gemini Live's automatic turn detection both use grammar-aware end-pointing internally. For pipeline architectures, you can build your own with a small classifier over the partial Whisper transcript. The trade-off is more code complexity for ~150 ms TTFAT savings.</p>
+<pre><code class="lang-python pygments-highlighted"><span class="c1"># A simple grammar-aware end-pointer. Combines silence threshold</span>
+<span class="c1"># with a classifier on the partial transcript to decide</span>
+<span class="c1"># whether the user has finished speaking.</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
+
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">SmartEndpointer</span><span class="p">:</span>
+    <span class="n">min_silence_ms</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">200</span>      <span class="c1"># floor</span>
+    <span class="n">max_silence_ms</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">800</span>      <span class="c1"># ceiling</span>
+    <span class="n">silence_ms</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">last_transcript</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">""</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">should_endpoint</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">silence_ms</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">transcript</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+        <span class="c1"># Always wait at least min_silence_ms before considering endpoint.</span>
+        <span class="k">if</span> <span class="n">silence_ms</span> <span class="o">&lt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">min_silence_ms</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">False</span>
+        <span class="c1"># Fast endpoint if transcript ends in a clear terminator.</span>
+        <span class="k">if</span> <span class="n">transcript</span><span class="o">.</span><span class="n">rstrip</span><span class="p">()</span><span class="o">.</span><span class="n">endswith</span><span class="p">((</span><span class="s2">"?"</span><span class="p">,</span> <span class="s2">"!"</span><span class="p">,</span> <span class="s2">"."</span><span class="p">)):</span>
+            <span class="k">return</span> <span class="kc">True</span>
+        <span class="c1"># Trailing hesitation phrases mean wait longer.</span>
+        <span class="n">tail</span> <span class="o">=</span> <span class="n">transcript</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span><span class="o">.</span><span class="n">rstrip</span><span class="p">()</span><span class="o">.</span><span class="n">split</span><span class="p">()[</span><span class="o">-</span><span class="mi">3</span><span class="p">:]</span>
+        <span class="k">if</span> <span class="nb">any</span><span class="p">(</span><span class="n">w</span> <span class="ow">in</span> <span class="n">tail</span> <span class="k">for</span> <span class="n">w</span> <span class="ow">in</span> <span class="p">[</span><span class="s2">"um"</span><span class="p">,</span> <span class="s2">"uh"</span><span class="p">,</span> <span class="s2">"like"</span><span class="p">,</span> <span class="s2">"so"</span><span class="p">]):</span>
+            <span class="k">return</span> <span class="n">silence_ms</span> <span class="o">&gt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">max_silence_ms</span>
+        <span class="c1"># Default: endpoint at ~400ms.</span>
+        <span class="k">return</span> <span class="n">silence_ms</span> <span class="o">&gt;</span> <span class="mi">400</span></code></pre>
+<div class="code-caption"><strong>Code Fragment 38.3.1:</strong> Heuristic smart end-pointer. A learned model would do better, but even this 20-line rule reduces false interruptions by ~30% versus a fixed 400 ms silence threshold while keeping average TTFAT comparable.</div>
+<h2 id="39-3-4-codec-choice-and-frame-size">38.3.4 Codec Choice and Frame Size</h2>
+<p>For pipeline architectures, the audio codec on the wire matters. The choices in 2026:</p>
+<figure>
+<table>
+<thead>
+<tr><th scope="col">Codec</th><th scope="col">Frame Size</th><th scope="col">Bitrate</th><th scope="col">Latency Add</th><th scope="col">Use Case</th></tr>
+</thead>
+<tbody>
+<tr><td>PCM-16 raw</td><td>any</td><td>256 kbps</td><td>0 ms</td><td>Server-to-server, no bandwidth concern</td></tr>
+<tr><td>Opus 20ms</td><td>20 ms</td><td>32 kbps</td><td>~20 ms</td><td>Standard for WebRTC, best balance</td></tr>
+<tr><td>Opus 10ms</td><td>10 ms</td><td>32 kbps</td><td>~10 ms</td><td>Ultra-low-latency, slightly worse compression</td></tr>
+<tr><td>Opus 40ms</td><td>40 ms</td><td>32 kbps</td><td>~40 ms</td><td>Bandwidth-constrained, voice only</td></tr>
+<tr><td>G.711 (telephony)</td><td>10 ms</td><td>64 kbps</td><td>0 ms</td><td>Legacy telephony integration</td></tr>
+<tr><td>Neural codec (SoundStream, Encodec)</td><td>20 ms</td><td>3 to 6 kbps</td><td>~30 ms encode</td><td>Native realtime API internal</td></tr>
+</tbody>
+</table>
+<figcaption><strong>Figure 38.3.3</strong>: Codec choices for streaming audio. Opus at 20 ms frames is the WebRTC default and the right starting point for almost all pipeline architectures. Neural codecs are still 2x to 3x slower to encode than Opus and are mostly used inside native realtime APIs.</figcaption>
+</figure>
+<p>The general rule: smaller frame size means lower per-frame latency but more per-packet overhead. Opus at 20 ms is the production sweet spot for nearly every use case.</p>
+<h2 id="39-3-5-prompt-caching-and-context-shaping">38.3.5 Prompt Caching and Context Shaping</h2>
+<p>The $t_{\text{prompt}}$ term in TTFAT grows linearly with prompt length. For long system prompts (common in customer support agents with 5+ pages of instructions), this can add 100 ms or more on every turn. Both GPT-4o Realtime and Gemini Live support prompt caching: the static prefix of the prompt is cached server-side and the per-turn variable suffix is re-processed. Properly used, this drops $t_{\text{prompt}}$ to single-digit milliseconds.</p>
+<p>The caching key in OpenAI's API is automatic based on the first 1024 tokens of the prompt. In Gemini, you explicitly create a cached content object and reference it. The cost savings are substantial: cached input tokens are typically 50% cheaper than uncached.</p>
+<div class="callout note">
+<div class="callout-title">Audio token caching is harder</div>
+<p>Prompt caching for the audio context (the prior turns' audio tokens) is less developed than text caching. Most production stacks send only a text summary of prior turns to keep the context window manageable and cacheable. The audio of recent turns is sent as compact text transcripts in the prompt rather than the full audio token sequence. This is the reason that long realtime sessions tend to "forget" tonal context from earlier in the conversation: the audio details are summarized away.</p>
+</div>
+<h2 id="39-3-6-speculative-decoding-and-server-side-tricks">38.3.6 Speculative Decoding and Server-Side Tricks</h2>
+<p>The $t_{\text{first\_token}}$ term can be reduced with speculative decoding (covered in <a href="../../part-2-understanding-llms/module-09-inference-optimization/section-9.3.html">Section 26.3</a>): a small draft model proposes tokens, the main model verifies in parallel. For audio output, a similar pattern uses a small codec model to predict the next audio token while the main model verifies; this can halve the per-token generation latency.</p>
+<p>Frontier providers also use:</p>
+<ul>
+<li><strong>Continuous batching</strong>: requests with overlapping prompt prefixes share KV-cache computation.</li>
+<li><strong>Prompt warm-up</strong>: the model's first KV-cache pass for a session prompts is precomputed and cached the moment the session opens, before the user speaks.</li>
+<li><strong>Codec parallelism</strong>: multiple codebook tokens emitted per step in a single forward pass (RVQ token parallelism).</li>
+</ul>
+<p>Most of this is invisible to the API consumer; you benefit by using the latest model version. The relevant question for application engineers is: how do you measure that you are actually getting the benefits? Run a TTFAT histogram in production and watch the p50, p95, and p99. A regression in any provider-side optimization shows up immediately.</p>
+<div class="callout practical-example">
+<div class="callout-title">Real-World Scenario: Telephony Bot Latency Tuning</div>
+<p>A 2025 healthcare scheduling bot ran on Twilio for telephony with GPT-4o Realtime as the brain. Initial TTFAT was 1.4 seconds, which felt awkward in a phone call. Tuning steps and savings: (1) lower VAD silence threshold from 600 to 350 ms with smart end-pointing for hesitation phrases (saved 250 ms, false interruptions stayed flat), (2) reduce jitter buffer from 120 to 60 ms (saved 60 ms, lost some smoothness in poor network conditions), (3) enable prompt caching on the 800-token system prompt (saved 80 ms), (4) reroute from us-west to us-east where the user base concentrated (saved 100 ms RTT). Final TTFAT: 760 ms. The bot's caller satisfaction score rose from 3.4 to 4.2 out of 5.</p>
+</div>
+<div class="callout warning">
+<div class="callout-title">Premature TTFAT optimization</div>
+<p>Do not chase TTFAT below 400 ms unless your product requires it. Each 50 ms below 500 ms costs disproportionate engineering effort and increases risk of regressions. Most consumer use cases are perfectly fine at 600 to 800 ms; the magical sub-300 ms feel is reserved for highly conversational agents (voice assistants, real-time tutors). Match TTFAT to the use case, not to the demo videos.</p>
+</div>
+<div class="callout key-takeaway">
+<div class="callout-title">Key Takeaway</div>
+<p><strong>TTFAT in a streaming audio system is the sum of VAD, network, prompt processing, first-token generation, codec decode, and jitter-buffer terms.</strong> Native realtime APIs hit ~400 to 800 ms in production; pipelines floor at ~800 ms with aggressive overlap. The biggest tunable levers are VAD threshold with smart end-pointing, prompt caching, jitter buffer size, and geographic routing. Audio tokens cost 50 to 100x more than text tokens for equivalent linguistic content, which is why audio realtime APIs are an order of magnitude more expensive per minute than text APIs.</p>
+</div>
+<div class="callout self-check">
+<div class="callout-title">Self-Check</div>
+<ol>
+<li>Why does an audio codec emit so many more tokens per second than text? Estimate the token count for a 1-minute conversational turn under the GPT-4o Realtime codec (~200 tokens/sec).</li>
+<li>You have a 1.2-second TTFAT and need to get to 700 ms. Identify two levers from the breakdown and the trade-offs they entail.</li>
+<li>A grammar-aware end-pointer fires when the user's transcript ends with "?". Why does this fail for "What time is it... actually never mind." and what would you change?</li>
+<li>Sketch how prompt caching applies to a 5-minute audio conversation where the system prompt is fixed but each turn appends new audio context.</li>
+</ol>
+</div>
+<div class="whats-next">
+<h2 id="what-comes-next">What Comes Next</h2>
+<p><a href="section-39.4.html">Section 39.4: Open-Source Realtime</a> covers the open-source stack: Moshi as a native audio-text foundation model, plus Pipecat and LiveKit Agents as the orchestration frameworks that ship in 2026 production deployments.</p>
+</div>
+<details class="bibliography-collapsible" open>
+<summary><strong>Further Reading</strong></summary>
+<section class="bibliography">
+<h3 id="audio-codecs">Audio Codecs</h3>
+<div class="bib-entry-card">
+<div class="bib-ref">Zeghidour, N., Luebs, A., Omran, A., Skoglund, J., &amp; Tagliasacchi, M. (2022). "SoundStream: An End-to-End Neural Audio Codec." <em>IEEE/ACM TASLP</em>. <a href="https://arxiv.org/abs/2107.03312" rel="noopener" target="_blank">arXiv:2107.03312</a></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Kumar, R., Seetharaman, P., Luebs, A., et al. (2024). "DAC: High-Fidelity Audio Compression with Improved RVQGAN." <em>NeurIPS</em>. <a href="https://arxiv.org/abs/2306.06546" rel="noopener" target="_blank">arXiv:2306.06546</a></div>
+</div>
+<h3 id="endpointing">End-pointing</h3>
+<div class="bib-entry-card">
+<div class="bib-ref">Maas, R., Misra, A., Saon, G., et al. (2018). "End-to-End Speech Recognition with Word-Based RNN Language Models." <em>SLT</em>. (Foundational endpointing work that informs modern grammar-aware VAD.)</div>
+</div>
+<h3 id="prompt-caching">Prompt Caching</h3>
+<div class="bib-entry-card">
+<div class="bib-ref">OpenAI. (2024). "Prompt Caching in the API." <a href="https://platform.openai.com/docs/guides/prompt-caching" rel="noopener" target="_blank">platform.openai.com/docs/guides/prompt-caching</a></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Anthropic. (2024). "Prompt caching for Claude." <a href="https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching" rel="noopener" target="_blank">docs.anthropic.com/en/docs/build-with-claude/prompt-caching</a></div>
+</div>
+<h3 id="speculative-decoding">Speculative Decoding</h3>
+<div class="bib-entry-card">
+<div class="bib-ref">Leviathan, Y., Kalman, M., &amp; Matias, Y. (2023). "Fast Inference from Transformers via Speculative Decoding." <em>ICML</em>. <a href="https://arxiv.org/abs/2211.17192" rel="noopener" target="_blank">arXiv:2211.17192</a></div>
+</div>
+</section>
+</details>
+<nav class="chapter-nav">
+<a class="prev" href="section-39.2.html"><span class="nav-label">Previous</span><span class="nav-num">Section 39.2</span><span class="nav-title">Gemini Live &amp; GPT-4o Realtime API</span></a>
+<a class="up" href="index.html"><span class="nav-label">In Chapter</span><span class="nav-num">Chapter 39</span><span class="nav-title">Streaming and Real-Time Multimodal</span></a>
+<a class="next" href="section-39.4.html"><span class="nav-label">Next</span><span class="nav-num">Section 39.4</span><span class="nav-title">Open-Source Realtime: Moshi, Pipecat, LiveKit Agents</span></a>
+</nav>
+<footer><p>Fifteenth Edition, 2026 · <a href="../../toc.html">Contents</a></p></footer>
+</main>
+<script>
+window.addEventListener("DOMContentLoaded", function() {
+  if (window.PagefindUI) {
+    new PagefindUI({
+      element: "#search",
+      showSubResults: true,
+      showImages: false,
+      resetStyles: false,
+      pageSize: 8,
+      autofocus: false,
+      translations: {
+        placeholder: "Search the book…",
+      },
+      processResult: function (result) {
+        try {
+          var part = (result && result.meta && result.meta.part) ? result.meta.part : "";
+          var chap = (result && result.meta && result.meta.chapter) ? result.meta.chapter : "";
+          var partShort = part.split(":")[0].trim();
+          var chapShort = chap.split(":")[0].trim();
+          var crumb = [partShort, chapShort].filter(Boolean).join(" › ");
+          if (crumb && result.meta && result.meta.title
+              && result.meta.title.indexOf("[" + partShort) !== 0) {
+            result.meta.title = "[" + crumb + "]  " + result.meta.title;
+          }
+        } catch (e) { /* fall through */ }
+        return result;
+      },
+    });
+  }
+});
+</script>
+</body>
+</html>

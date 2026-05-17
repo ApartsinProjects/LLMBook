@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<meta content="Section 24.3: Physical Intelligence pi-0 / pi-0.5. Flow matching for robot policies, continuous action heads, and pi-0.5 generalization." name="description"/>
+<title>Section 24.3: Physical Intelligence pi-0 / pi-0.5</title>
+<link href="../../styles/book.css" rel="stylesheet"/>
+<link href="../../styles/pygments.css" rel="stylesheet"/>
+<link href="../../vendor/prism/prism-theme.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/prism/prism-bundle.min.js"></script>
+<script defer="" src="../../scripts/book.js"></script>
+<link href="../../pagefind/pagefind-ui.css" rel="stylesheet"/>
+<script defer="" src="../../pagefind/pagefind-ui.js"></script>
+</head>
+<body>
+<header class="chapter-header">
+<nav class="header-nav">
+<a class="book-title-link" href="../../index.html">Building Conversational AI with LLMs and Agents</a>
+<a class="toc-link" href="../../toc.html" title="Table of Contents"><span class="toc-icon">☰</span> Contents</a>
+</nav>
+<div class="header-search"><div id="search"></div></div>
+<div class="page-breadcrumb" data-pagefind-meta="chapter"><a href="../index.html">Part VII: Multimodal Generation</a><span class="bc-sep">›</span><a href="index.html">Chapter 24: Vision-Language-Action Models</a></div>
+<h1>Physical Intelligence pi-0 / pi-0.5</h1><div class="page-current">Section 24.3</div>
+</header>
+<main class="content"><span class="pagefind-meta-injected" data-pagefind-meta="part:Part VII: Multimodal Generation" hidden=""></span><span class="pagefind-meta-injected" data-pagefind-meta="chapter:Chapter 24: Vision-Language-Action Models" hidden=""></span>
+
+<div class="callout big-picture">
+<div class="callout-title">Big Picture</div>
+<p>Physical Intelligence's pi-0 (Black et al., 2024) and its 2025 successor pi-0.5 replaced the discrete-token action head of OpenVLA and RT-2 with a <em>flow-matching</em> action expert that emits continuous trajectories. The trunk is still a vision-language model (a PaliGemma derivative), but instead of treating actions as 7-bit-per-dimension symbols, pi-0 learns a vector field that flows Gaussian noise into a valid action chunk. This gives smoother trajectories, higher control rates, and, in pi-0.5, the first credible cross-task generalist that ships in production cleaning-the-house demos.</p>
+</div>
+
+<h2 id="1-the-architecture-vlm-trunk-plus-flow-matching-expert">1. The Architecture: VLM Trunk plus Flow-Matching Expert</h2>
+<p>pi-0 is structurally a two-headed model. The first head is a vision-language model (a 2B-parameter PaliGemma-Mix-3B variant) that ingests one or more camera frames plus an instruction and emits a sequence of latent tokens, the same way OpenVLA does. The second head is the novel piece: an "action expert" that conditions on those latent tokens and runs a small flow-matching network to produce a chunk of 50 continuous actions covering roughly a half-second of motion. The flow-matching expert has its own transformer layers (about 300M parameters, much smaller than the VLM trunk), and its outputs are 50 by D action vectors, where D is the robot's action dimension (typically 7 for end-effector control or 14-26 for whole-body humanoid control).</p>
+
+<figure>
+<table>
+<thead>
+<tr><th scope="col">Block</th><th scope="col">Role</th><th scope="col">Parameters</th><th scope="col">Output</th></tr>
+</thead>
+<tbody>
+<tr><td>VLM trunk (PaliGemma-Mix-3B)</td><td>Pixels + language to latent context</td><td>~3B</td><td>Latent tokens (sequence)</td></tr>
+<tr><td>Action expert (flow-matching head)</td><td>Latent context to action chunk</td><td>~300M</td><td>50 timesteps x D continuous actions</td></tr>
+<tr><td>Robot-specific normalization (LoRA)</td><td>Per-embodiment fine-tuning</td><td>~30M per robot</td><td>Calibrated continuous actions</td></tr>
+</tbody>
+</table>
+<figcaption><strong>Figure 39.3.1</strong>: pi-0's two-headed architecture. The VLM trunk is reused across all robots and all tasks; the action expert is the only piece that emits motor commands; per-embodiment LoRA adapters re-normalize for each robot platform.</figcaption>
+</figure>
+
+<h2 id="2-flow-matching-in-one-page">2. Flow Matching in One Page</h2>
+<p>Flow matching (Lipman et al., 2023, arXiv:2210.02747) is a close cousin of diffusion. The setup is identical: there is a distribution <code>p_1</code> over valid action chunks (the training data) and a distribution <code>p_0</code> over Gaussian noise. The model learns a time-dependent vector field <code>v_theta(a, tau, context)</code> that transports samples from <code>p_0</code> to <code>p_1</code> as <code>tau</code> goes from 0 to 1. The training objective is the conditional flow-matching loss:</p>
+<pre><code class="pygments-highlighted lang-python">L_CFM(theta) = E[ || v_theta(a_tau, tau, context) - (a_1 - a_0) ||^2 ]</code></pre>
+<p>where <code>a_0</code> is a noise sample, <code>a_1</code> is a training action chunk, and <code>a_tau = (1 - tau) * a_0 + tau * a_1</code> is the linear interpolant. The target the network must match is just the difference <code>a_1 - a_0</code>, the constant velocity of the straight-line path. At inference time you sample <code>a_0 ~ N(0, I)</code>, then integrate the learned vector field forward in 5 to 10 Euler steps to land on a sample from <code>p_1</code>. The whole thing is a one-page pseudocode.</p>
+
+<pre><code class="pygments-highlighted lang-python"><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">FlowMatchingActionExpert</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="sd">"""Pi-0-style action expert. Inputs: vision-language context. Output: action chunk."""</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">trunk</span><span class="p">,</span> <span class="n">action_dim</span><span class="o">=</span><span class="mi">7</span><span class="p">,</span> <span class="n">horizon</span><span class="o">=</span><span class="mi">50</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">trunk</span> <span class="o">=</span> <span class="n">trunk</span>                             <span class="c1"># small transformer, ~300M</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">action_dim</span> <span class="o">=</span> <span class="n">action_dim</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">horizon</span> <span class="o">=</span> <span class="n">horizon</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">time_embed</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">trunk</span><span class="o">.</span><span class="n">hidden_size</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">velocity</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">a_tau</span><span class="p">,</span> <span class="n">tau</span><span class="p">,</span> <span class="n">vl_context</span><span class="p">):</span>
+        <span class="c1"># Concatenate time embedding, noised action, and frozen vision-language context.</span>
+        <span class="n">t_emb</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">time_embed</span><span class="p">(</span><span class="n">tau</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">))</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">cat</span><span class="p">([</span><span class="n">vl_context</span><span class="p">,</span> <span class="n">t_emb</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="mi">1</span><span class="p">),</span> <span class="n">a_tau</span><span class="p">],</span> <span class="n">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">trunk</span><span class="p">(</span><span class="n">x</span><span class="p">)[:,</span> <span class="o">-</span><span class="bp">self</span><span class="o">.</span><span class="n">horizon</span><span class="p">:,</span> <span class="p">:</span><span class="bp">self</span><span class="o">.</span><span class="n">action_dim</span><span class="p">]</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">loss</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">a_1</span><span class="p">,</span> <span class="n">vl_context</span><span class="p">):</span>
+        <span class="n">B</span> <span class="o">=</span> <span class="n">a_1</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">tau</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">rand</span><span class="p">(</span><span class="n">B</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">a_1</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
+        <span class="n">a_0</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn_like</span><span class="p">(</span><span class="n">a_1</span><span class="p">)</span>
+        <span class="n">a_tau</span> <span class="o">=</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">tau</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">])</span> <span class="o">*</span> <span class="n">a_0</span> <span class="o">+</span> <span class="n">tau</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">]</span> <span class="o">*</span> <span class="n">a_1</span>
+        <span class="n">target</span> <span class="o">=</span> <span class="n">a_1</span> <span class="o">-</span> <span class="n">a_0</span>
+        <span class="n">pred</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">velocity</span><span class="p">(</span><span class="n">a_tau</span><span class="p">,</span> <span class="n">tau</span><span class="p">,</span> <span class="n">vl_context</span><span class="p">)</span>
+        <span class="k">return</span> <span class="p">((</span><span class="n">pred</span> <span class="o">-</span> <span class="n">target</span><span class="p">)</span> <span class="o">**</span> <span class="mi">2</span><span class="p">)</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span>
+
+    <span class="nd">@torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">()</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">sample</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">vl_context</span><span class="p">,</span> <span class="n">n_steps</span><span class="o">=</span><span class="mi">8</span><span class="p">):</span>
+        <span class="c1"># Sample noise, integrate the velocity field with Euler.</span>
+        <span class="n">a</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">vl_context</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="bp">self</span><span class="o">.</span><span class="n">horizon</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">action_dim</span><span class="p">,</span>
+                        <span class="n">device</span><span class="o">=</span><span class="n">vl_context</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
+        <span class="n">dt</span> <span class="o">=</span> <span class="mf">1.0</span> <span class="o">/</span> <span class="n">n_steps</span>
+        <span class="k">for</span> <span class="n">step</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n_steps</span><span class="p">):</span>
+            <span class="n">tau</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">full</span><span class="p">((</span><span class="n">a</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],),</span> <span class="n">step</span> <span class="o">*</span> <span class="n">dt</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">a</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
+            <span class="n">a</span> <span class="o">=</span> <span class="n">a</span> <span class="o">+</span> <span class="n">dt</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">velocity</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">tau</span><span class="p">,</span> <span class="n">vl_context</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">a</span>     <span class="c1"># shape (B, horizon, action_dim)</span></code></pre>
+<div class="code-caption"><strong>Code Fragment 39.3.1:</strong> A 30-line pi-0-style flow-matching action expert. Training is one MSE loss; inference is eight Euler steps. The contrast with the autoregressive token loop of OpenVLA is stark: instead of 7 transformer forward passes per action (one per DOF), pi-0 takes a fixed 8 forward passes per <em>chunk</em> of 50 actions, an effective 40x throughput improvement per emitted scalar.</div>
+
+<div class="callout key-insight">
+<div class="callout-title">Why flow matching beats diffusion in robotics</div>
+<p>Standard diffusion (DDPM, score-matching) trains on noised samples at random noise levels and requires 25 to 250 denoising steps at inference. Flow matching with the linear interpolant trains on the same noised samples but learns the <em>velocity</em> rather than the <em>score</em>, and the straight-line interpolant means Euler with 5-10 steps suffices. In a robotics control loop, 5 vs 50 forward passes per chunk is the difference between 20 Hz and 2 Hz; flow matching is what makes diffusion-style policies practical for real-time control. The Diffusion Policy work of Chi et al. (2023, arXiv:2303.04137) used ~100 DDIM steps; pi-0 uses 8.</p>
+</div>
+
+<h2 id="3-the-training-mixture-and-the-data-question">3. The Training Mixture and the Data Question</h2>
+<p>pi-0 trains on a custom mixture that Physical Intelligence assembled by combining a large internal teleoperation dataset (estimated ~10,000 hours across several humanoid and bimanual platforms), portions of Open X-Embodiment, and a few hundred hours of "task-specific" data for the dexterous tasks pi-0.5 is meant to handle. The total training corpus is multiple times the size of OpenVLA's, and roughly half of it is unreleased. This is one of two reasons pi-0 outperforms OpenVLA on harder benchmarks; the other is the architectural improvement of the flow head. Disentangling the two contributions is hard from public information, but the pi-0 technical report's ablations suggest the architectural piece accounts for ~30 percent of the benchmark gap and the data piece accounts for ~70 percent. <em>Data still scales more than architecture in 2026 robotics.</em></p>
+
+<div class="callout warning">
+<div class="callout-title">The open-weights gap on pi-0</div>
+<p>Unlike OpenVLA, pi-0 is not open-weights as of early 2026. Physical Intelligence has released a technical report, a partial open-source training stack (the OpenPI repo), and an evaluation harness, but the trained checkpoint is gated behind a research-access program. This is the largest practical obstacle to replicating pi-0 results outside Physical Intelligence's labs and is why many academic groups still benchmark against OpenVLA. The OpenPI repo lets you train your own version, but matching the production pi-0 quality requires Physical Intelligence's unreleased teleop data.</p>
+</div>
+
+<h2 id="4-pi-0-5-cross-task-generalization">4. pi-0.5: Cross-Task Generalization</h2>
+<p>pi-0.5, released in late 2025, is pi-0 plus a substantially larger training mixture and a few architectural tweaks aimed at <em>cross-task</em> generalization rather than cross-robot generalization. The headline result is that pi-0.5 can perform a long-horizon household task it has never seen during training, given only a natural-language instruction and a few seconds of front-camera footage of the scene. The published demos include tidying a kitchen counter, folding laundry, and unloading a dishwasher, all with the same model checkpoint and without per-task finetuning. Internally, pi-0.5 keeps the same flow-matching head but adds a "task-conditioning" pathway: a high-level planner LLM (a 7B model that runs separately) produces a structured plan as a JSON object, which is encoded into a sequence of plan tokens that join the latent context. The flow expert then conditions on both the visual context and the plan tokens.</p>
+
+<figure>
+<table>
+<thead>
+<tr><th scope="col">Capability</th><th scope="col">pi-0 (Q4 2024)</th><th scope="col">pi-0.5 (Q4 2025)</th></tr>
+</thead>
+<tbody>
+<tr><td>Action representation</td><td>Continuous flow-matching</td><td>Continuous flow-matching</td></tr>
+<tr><td>Trunk</td><td>PaliGemma-Mix-3B</td><td>PaliGemma-Mix-3B + plan tokens</td></tr>
+<tr><td>Training data (estimated)</td><td>~10k hours teleop + OXE</td><td>~25k hours teleop + OXE + synthetic</td></tr>
+<tr><td>Best long-horizon task</td><td>~5 min coffee-making</td><td>~30 min full kitchen tidy</td></tr>
+<tr><td>Zero-shot to unseen task</td><td>Marginal</td><td>Practical (~60% success)</td></tr>
+<tr><td>Humanoid support</td><td>Limited (1 robot)</td><td>4 humanoid platforms</td></tr>
+</tbody>
+</table>
+<figcaption><strong>Figure 39.3.2</strong>: pi-0 versus pi-0.5. The architecture is mostly stable across the version bump; the gains come from data scale and the addition of an explicit planning conditioning path.</figcaption>
+</figure>
+
+<div class="callout research-frontier">
+<div class="callout-title">The "hierarchy" debate</div>
+<p>pi-0.5 splits the policy into a high-level planner (separate LLM, runs at ~1 Hz) and a low-level VLA (the flow-matching expert, runs at ~20 Hz). The opposite approach is the pure end-to-end model (RT-2-X, the next section), where one transformer ingests an instruction and emits actions without an intermediate plan representation. As of 2026 the field is split: Physical Intelligence and the SayCan school (Chapter 40) bet on hierarchy; Google DeepMind and the AutoRT line (Section 24.4) bet on end-to-end. Both work; the trade-offs are about interpretability, debugging, and latency rather than raw capability.</p>
+</div>
+
+<h2 id="5-running-pi-0-via-openpi">5. Running pi-0 via OpenPI</h2>
+<p>Physical Intelligence's OpenPI library is the open-source companion to pi-0. It includes the model architecture, training stack, and evaluation harness, plus a permissive license for the code (the trained weights are gated, but a smaller "pi-0-fast" demo checkpoint is openly available). The inference API is similar in shape to OpenVLA's but exposes the chunking horizon as a first-class concept:</p>
+
+<pre><code class="pygments-highlighted lang-python"><span class="kn">import</span><span class="w"> </span><span class="nn">jax</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">openpi.policies</span><span class="w"> </span><span class="kn">import</span> <span class="n">policy_config</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">openpi.training</span><span class="w"> </span><span class="kn">import</span> <span class="n">config</span> <span class="k">as</span> <span class="n">cfg</span>
+
+<span class="c1"># Load the public pi-0-fast checkpoint (smaller demo, weights released).</span>
+<span class="n">policy</span> <span class="o">=</span> <span class="n">policy_config</span><span class="o">.</span><span class="n">create_trained_policy</span><span class="p">(</span>
+    <span class="n">config_name</span><span class="o">=</span><span class="s2">"pi0_fast_aloha"</span><span class="p">,</span>
+    <span class="n">checkpoint_dir</span><span class="o">=</span><span class="s2">"gs://openpi-assets/pi0_fast_aloha"</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">obs</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">"image"</span><span class="p">:</span> <span class="p">{</span>
+        <span class="s2">"cam_high"</span><span class="p">:</span> <span class="n">third_person_frame</span><span class="p">,</span>      <span class="c1"># np.uint8 (H, W, 3)</span>
+        <span class="s2">"cam_wrist_left"</span><span class="p">:</span> <span class="n">left_wrist_frame</span><span class="p">,</span>
+        <span class="s2">"cam_wrist_right"</span><span class="p">:</span> <span class="n">right_wrist_frame</span><span class="p">,</span>
+    <span class="p">},</span>
+    <span class="s2">"state"</span><span class="p">:</span> <span class="n">joint_positions</span><span class="p">,</span>                  <span class="c1"># np.float32 (D,)</span>
+    <span class="s2">"prompt"</span><span class="p">:</span> <span class="s2">"fold the towel and place it in the basket"</span><span class="p">,</span>
+<span class="p">}</span>
+<span class="n">action_chunk</span> <span class="o">=</span> <span class="n">policy</span><span class="o">.</span><span class="n">infer</span><span class="p">(</span><span class="n">obs</span><span class="p">)[</span><span class="s2">"actions"</span><span class="p">]</span>   <span class="c1"># shape (50, D), float32</span>
+
+<span class="c1"># Execute the first 10 actions, then re-query (receding horizon).</span>
+<span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">action_chunk</span><span class="p">[:</span><span class="mi">10</span><span class="p">]:</span>
+    <span class="n">robot</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">control_hz</span><span class="o">=</span><span class="mi">50</span><span class="p">)</span></code></pre>
+<div class="code-caption"><strong>Code Fragment 39.3.2:</strong> Calling pi-0-fast through OpenPI. The 50-step action chunk at 50 Hz covers one second of motion; re-querying every 200 ms (10 actions) gives the receding-horizon behavior from <a href="section-24.1.html">Section 24.1</a>. JAX rather than PyTorch is a Physical Intelligence stylistic choice; the math is identical.</div>
+
+<h2 id="6-what-changed-when-the-action-head-became-continuous">6. What Changed When the Action Head Became Continuous</h2>
+<p>Switching from discrete action tokens to a continuous flow-matching head produces three practical effects. First, trajectories are smoother: discrete bins introduce a small but visible chatter at the bin boundaries, especially during slow precise motions, which flow matching does not have. Second, the dexterity ceiling rises: 14- and 26-DOF whole-body humanoid control is unwieldy with discrete tokens (you would emit 26 tokens per action chunk, multiplied by 50 timesteps, which is 1,300 forward passes per control decision), but flow matching handles arbitrary action dimension at no extra cost. Third, the model is harder to interpret: you cannot inspect the action vocabulary distribution to see "the policy is 60 percent sure it wants to grasp here versus there"; the velocity field does not expose marginals as naturally.</p>
+
+<div class="callout practical-example">
+<div class="callout-title">When to pick pi-0 over OpenVLA</div>
+<p>Pick pi-0 (or its OpenPI demo) if your robot is high-DOF (a humanoid or a 14-DOF bimanual setup), if you need smooth contact-rich motion (folding cloth, pouring liquid), or if you have the connections to get research access to the production checkpoint. Pick OpenVLA if your robot is a standard 7-DOF arm, if you want open weights and easy debugging, or if you need to LoRA-finetune on a few hundred demos. As of 2026, hobbyists and most academic labs default to OpenVLA; commercial dexterous-manipulation startups default to pi-0 or its successors.</p>
+</div>
+
+<h2 id="key-takeaway">Key Takeaway</h2>
+<div class="callout key-takeaway">
+<div class="callout-title">Key Takeaway</div>
+<p>pi-0 keeps the VLM trunk of OpenVLA but replaces the discrete action head with a flow-matching expert that integrates Gaussian noise into a 50-step continuous action chunk in ~8 Euler steps. This unlocks smooth high-DOF control, dexterous manipulation, and (in pi-0.5) cross-task generalization on long-horizon household tasks. The trade-off is reduced interpretability and a closed-weights production checkpoint; the OpenPI demo gives you a runnable approximation.</p>
+</div>
+
+<h2 id="self-check">Self-Check</h2>
+<ol>
+<li>Why does flow matching require only 5-10 Euler steps at inference while DDPM diffusion requires 25-250 denoising steps? Tie your answer to the choice of straight-line interpolant.</li>
+<li>You are training a 26-DOF humanoid VLA. Estimate the per-chunk forward-pass count under (a) OpenVLA-style discrete tokens with horizon 50 and (b) pi-0-style flow matching with 8 Euler steps. Which is cheaper, and by what factor?</li>
+<li>pi-0.5 splits planning (LLM, 1 Hz) from action generation (flow expert, 20 Hz). What latency-versus-reactivity trade-off does this introduce, and how would you mitigate the worst-case scenario where the planner emits an outdated plan?</li>
+</ol>
+
+<h2 id="whats-next">What's Next</h2>
+<p>You have now seen two architectures (discrete tokens, flow matching). <a href="section-24.4.html">Section 24.4</a> backs out and asks the scaling-law question: how much does <em>data</em> matter compared to <em>architecture</em>? The RT-2-X result and the Open X-Embodiment data-scaling curves give a surprisingly clean answer.</p>
+
+<h2 id="bibliography">Bibliography</h2>
+<ol>
+<li>Black, K., et al. (2024). pi-0: A Vision-Language-Action Flow Model for General Robot Control. <em>Physical Intelligence Technical Report</em>.</li>
+<li>Physical Intelligence. (2025). pi-0.5: Scaling Robotic Foundation Models to Household Tasks. <em>Technical Report</em>.</li>
+<li>Lipman, Y., et al. (2023). Flow Matching for Generative Modeling. <em>ICLR 2023, arXiv:2210.02747</em>.</li>
+<li>Chi, C., et al. (2024). Diffusion Policy: Visuomotor Policy Learning via Action Diffusion. <em>IJRR 2024, arXiv:2303.04137</em>.</li>
+<li>Beyer, L., et al. (2024). PaliGemma: A Versatile 3B VLM for Transfer. <em>arXiv:2407.07726</em>.</li>
+<li>Open X-Embodiment Collaboration. (2024). Open X-Embodiment: Robotic Learning Datasets and RT-X Models. <em>ICRA 2024, arXiv:2310.08864</em>.</li>
+</ol>
+
+<nav class="chapter-nav">
+<a class="prev" href="section-24.2.html"><span class="nav-label">Previous</span><span class="nav-num">Section 24.2</span><span class="nav-title">OpenVLA-7B Reference Implementation</span></a>
+<a class="up" href="index.html"><span class="nav-label">In Chapter</span><span class="nav-num">Chapter 24</span><span class="nav-title">Vision-Language-Action Models</span></a>
+<a class="next" href="section-24.4.html"><span class="nav-label">Next</span><span class="nav-num">Section 24.4</span><span class="nav-title">RT-2-X &amp; the Data-Scaling Story</span></a>
+</nav>
+<footer><p>Fifteenth Edition, 2026 · <a href="../../toc.html">Contents</a></p></footer>
+</main>
+<script>
+window.addEventListener("DOMContentLoaded", function() {
+  if (window.PagefindUI) {
+    new PagefindUI({
+      element: "#search",
+      showSubResults: true,
+      showImages: false,
+      resetStyles: false,
+      pageSize: 8,
+      autofocus: false,
+      translations: { placeholder: "Search the book…" },
+    });
+  }
+});
+</script>
+</body>
+</html>
