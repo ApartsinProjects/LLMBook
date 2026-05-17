@@ -2,7 +2,7 @@
 
 Preserves:
   - front-matter section (curated; lists front-matter pages)
-  - appendices section (curated; lists current appendices A/B/O/P/Q/R/S/T)
+  - appendices section (curated; lists current appendices A/B/C/D/E/F/G after renumbering)
 
 Regenerates from disk:
   - Parts I-XIII with their chapter lists
