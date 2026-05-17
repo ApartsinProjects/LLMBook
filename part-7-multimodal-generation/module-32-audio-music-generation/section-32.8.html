@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<meta content="Section 32.8: Camera Control, Motion Control, and ControlNet for Video. Camera path conditioning, motion brush, drag-based control, and AnimateDiff motion modules." name="description"/>
+<title>Section 32.8: Camera Control, Motion Control, and ControlNet for Video</title>
+<link href="../../styles/book.css" rel="stylesheet"/>
+<link href="../../styles/pygments.css" rel="stylesheet"/>
+<link href="../../vendor/prism/prism-theme.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/prism/prism-bundle.min.js"></script>
+<script defer="" src="../../scripts/book.js"></script>
+<link href="../../pagefind/pagefind-ui.css" rel="stylesheet"/>
+<script defer="" src="../../pagefind/pagefind-ui.js"></script>
+</head>
+<body>
+<header class="chapter-header">
+<nav class="header-nav">
+<a class="book-title-link" href="../../index.html">Building Conversational AI with LLMs and Agents</a>
+<a class="toc-link" href="../../toc.html" title="Table of Contents"><span class="toc-icon">☰</span> Contents</a>
+</nav>
+<div class="header-search">
+<div id="search"></div>
+</div>
+<div class="page-breadcrumb" data-pagefind-meta="chapter"><a href="../index.html">Part VII: Multimodal Generation</a><span class="bc-sep">›</span><a href="index.html">Chapter 33: Video Generation</a></div>
+<h1>Camera Control, Motion Control, and ControlNet for Video</h1><div class="page-current">Section 32.8</div>
+</header>
+<main class="content"><span class="pagefind-meta-injected" data-pagefind-meta="part:Part VII: Multimodal Generation" hidden=""></span><span class="pagefind-meta-injected" data-pagefind-meta="chapter:Chapter 33: Video Generation" hidden=""></span>
+<blockquote class="epigraph">
+<p>"Anyone can prompt a model to make a video. The craft is making it move the way you imagined."</p>
+<cite>Cinematographer's note from a 2025 Runway workshop</cite>
+</blockquote>
+<div class="callout big-picture">
+<div class="callout-title">Big Picture</div>
+<p>A frontier video model from Section 33.2 produces a plausible shot from a prompt. A frontier video model from a craftsperson produces the shot they had in mind. The bridge between the two is the control layer: camera path conditioning (dolly, pan, orbit, crane moves), motion brush (mask out a region and indicate the direction it should move), drag-based control (click and drag to specify how an object travels through the frame), pose and skeleton conditioning (animate a character to match a reference motion), and ControlNet-style multi-channel guidance (depth, edge, segmentation maps that anchor the generation). This section walks each control modality, shows how they plug into the underlying video DiT, and demonstrates AnimateDiff as the open recipe most accessible for experimentation.</p>
+</div>
+<h2 id="1-the-control-problem-and-the-spectrum-of-solutions">1. The Control Problem and the Spectrum of Solutions</h2>
+<p>A pure text-to-video model has one input (the text prompt) and emits an uncontrolled distribution of outputs. For most production purposes this is too loose: the cinematographer wants this specific camera move, the animator wants this specific motion, the editor wants this specific timing. Adding controls to a video DiT is an example of the broader pattern from image generation (ControlNet, IP-Adapter, T2I-Adapter): inject additional conditioning signals at training time so the model learns to respect them, then expose those signals at inference time as user-controllable inputs.</p>
+<p>The spectrum of video controls spans, roughly in order of increasing specificity:</p>
+<ul>
+<li><strong>Prompt-level</strong>: "a slow dolly-in shot of..." (cheap, low fidelity)</li>
+<li><strong>Camera path</strong>: explicit 6-DoF trajectory or named-move (medium cost, high fidelity for global camera)</li>
+<li><strong>Motion brush</strong>: per-region direction arrows (medium cost, high fidelity for foreground motion)</li>
+<li><strong>Drag control</strong>: precise point trajectories (high cost, very high fidelity, fragile)</li>
+<li><strong>Pose / skeleton</strong>: full-body or facial keypoints over time (high cost, very high fidelity for characters)</li>
+<li><strong>ControlNet channels</strong>: dense per-frame depth, edges, or segmentation (highest cost, highest fidelity for structural copying)</li>
+</ul>
+<p>Production systems compose these. Veo 3 ships camera-path control natively; Runway Gen-4 ships motion brush plus drag-based control plus reference-driven character consistency; AnimateDiff (open) ships pose conditioning and ControlNet channels via plug-in motion modules. Choosing the right control modality depends on what aspect of the shot you want to lock down.</p>
+<div class="callout key-insight">
+<div class="callout-title">Control is conditioning, conditioning is tokens</div>
+<p>Every video-control modality at the architectural level is the same thing: an additional set of input tokens (or an additional cross-attention stream) that the DiT attends to during denoising. Camera path becomes a sequence of 6-DoF tokens per frame. Motion brush becomes a 2D vector field per frame. Pose becomes a skeleton-token sequence. ControlNet channels become an extra image-channel stream per frame. The architecture does not change; the conditioning vocabulary grows. This is the same trick that turned image ControlNet into the universal control framework for diffusion models in 2023, applied one dimension up.</p>
+</div>
+<h2 id="2-camera-path-conditioning">2. Camera Path Conditioning</h2>
+<p>Camera path conditioning is the most useful control modality for narrative cinematography. The user specifies a camera trajectory (a sequence of 6-DoF poses: position + orientation per frame, or a named move like "slow dolly in", "orbit clockwise", "crane up"), and the model generates a video whose implicit camera matches that path. The first credible commercial implementation was MotionCtrl (Wang et al., 2023, arXiv:2312.03641), an adapter that retrofitted camera-path conditioning onto Stable Video Diffusion. CameraCtrl (He et al., 2024) followed for SVD with cleaner training and stronger generalization. By 2025 the major commercial systems shipped native camera control: Luma Dream Machine, Pika, Kling, and Veo 3 all expose 6-DoF camera input either as a parameter to the API or as an interactive 3D widget in the UI.</p>
+<p>The training trick that makes camera control work is to extract camera trajectories from video training data using off-the-shelf SLAM or structure-from-motion (COLMAP, DROID-SLAM), then condition the DiT on the extracted camera path as an additional input. At inference, the user specifies the desired path and the model generates a video that respects it. Quality is good for short clips with simple moves; complex multi-segment paths (a dolly-in followed by a pan followed by a crane move) still have artifacts at the seams between segments.</p>
+<h2 id="3-motion-brush-and-region-direction-arrows">3. Motion Brush and Region Direction Arrows</h2>
+<p>Motion brush is the most intuitive control modality for non-technical users. The user paints a region of the first frame (the "brush") and draws an arrow indicating how that region should move over the duration of the clip. The most common implementations support multiple regions (e.g., "this person walks left, this car drives right, the background stays still") and intensity control (gentle motion vs. fast motion).</p>
+<p>The architectural implementation conditions the DiT on a per-frame 2D vector field plus per-region masks. The vector field encodes the desired motion direction and magnitude at each pixel; the masks indicate which regions are under user control versus which should follow the prompt's natural motion. Kling 2.0 introduced motion brush as a core feature in 2024; Pika 2.0 followed with a UI variation called Pikaffects. Both are particularly well-suited for stylized animation work (anime, 2D motion graphics) where the desired motion is precisely controlled.</p>
+<h2 id="4-drag-based-control-dragnuwa-and-its-descendants">4. Drag-Based Control: DragNUWA and Its Descendants</h2>
+<p>Drag-based control gives the user point-level precision: click on a pixel in the first frame, drag to where that pixel should end up at the end of the clip, and the model produces a video where that point travels along the specified trajectory. DragNUWA (Yin et al., 2023, arXiv:2308.08089) was the first widely-known implementation; DragAnything (Wu et al., 2024) extended the approach to handle multiple drag points with strict trajectory adherence. Runway Gen-4's "Motion Vector" tool is the polished commercial version of this idea.</p>
+<p>The control is precise but fragile. For simple object translations (a ball moving across a table, a character's hand reaching to grab a cup) it works well. For complex transformations (a face shape-shifting, a character's full body following a precise martial arts move) the model often produces artifacts because the drag points underspecify the desired motion. In production, drag control is most useful for hero shots with one or two key points that have to land precisely, with the rest of the motion handled by prompt or motion brush.</p>
+<h2 id="5-animatediff-and-the-open-control-recipe">5. AnimateDiff and the Open Control Recipe</h2>
+<p>AnimateDiff (Guo et al., 2023, arXiv:2307.04725) is the canonical open recipe for adding motion to image diffusion models, and remains the most accessible playground for experimenting with video control in 2026. The core idea is to take a frozen image diffusion model (Stable Diffusion 1.5, SDXL, or SD3) and add a small motion module (a set of temporal-attention layers) that turns the still-image model into a video generator. The motion module is trained on video data while the image backbone is kept frozen, which lets AnimateDiff inherit all of the ControlNet, IP-Adapter, and LoRA ecosystem of the underlying image model.</p>
+<p>AnimateDiff plus existing image ControlNets is the open community's answer to controlled video generation. A pose-driven workflow looks like this: extract per-frame DWPose skeleton from a reference video (using e.g. MMPose), condition the underlying SDXL via ControlNet on those skeleton frames, and run AnimateDiff over the conditioned diffusion process. The result is a video where the character moves in the pose extracted from the reference but rendered in the prompted style. This is the architecture behind many viral 2024 "anime in the style of X dancing the choreography of Y" memes; it is also the basis of more serious production pipelines for animated content.</p>
+<pre><code class="lang-python pygments-highlighted"><span class="c1"># Motion-controlled video generation with AnimateDiff + DWPose ControlNet</span>
+<span class="c1"># pip install diffusers accelerate controlnet_aux mmpose</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">diffusers</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">AnimateDiffPipeline</span><span class="p">,</span>
+    <span class="n">MotionAdapter</span><span class="p">,</span>
+    <span class="n">ControlNetModel</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">diffusers.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">export_to_video</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">controlnet_aux</span><span class="w"> </span><span class="kn">import</span> <span class="n">DWposeDetector</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">PIL</span><span class="w"> </span><span class="kn">import</span> <span class="n">Image</span>
+
+<span class="c1"># 1) Extract per-frame skeleton from a short reference video.</span>
+<span class="n">pose_detector</span> <span class="o">=</span> <span class="n">DWposeDetector</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span><span class="s2">"yzd-v/DWPose"</span><span class="p">)</span>
+<span class="n">reference_frames</span> <span class="o">=</span> <span class="p">[</span>            <span class="c1"># PIL.Image list, e.g. 16 frames at 512x512</span>
+    <span class="n">Image</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="sa">f</span><span class="s2">"ref/frame_</span><span class="si">{</span><span class="n">i</span><span class="si">:</span><span class="s2">03d</span><span class="si">}</span><span class="s2">.png"</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">16</span><span class="p">)</span>
+<span class="p">]</span>
+<span class="n">pose_frames</span> <span class="o">=</span> <span class="p">[</span><span class="n">pose_detector</span><span class="p">(</span><span class="n">img</span><span class="p">)</span> <span class="k">for</span> <span class="n">img</span> <span class="ow">in</span> <span class="n">reference_frames</span><span class="p">]</span>
+
+<span class="c1"># 2) Load SDXL + AnimateDiff motion adapter + DWPose ControlNet</span>
+<span class="n">adapter</span> <span class="o">=</span> <span class="n">MotionAdapter</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span>
+    <span class="s2">"guoyww/animatediff-motion-adapter-sdxl-beta"</span><span class="p">,</span>
+    <span class="n">torch_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float16</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">controlnet</span> <span class="o">=</span> <span class="n">ControlNetModel</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span>
+    <span class="s2">"thibaud/controlnet-openpose-sdxl-1.0"</span><span class="p">,</span>
+    <span class="n">torch_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float16</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">pipe</span> <span class="o">=</span> <span class="n">AnimateDiffPipeline</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span>
+    <span class="s2">"stabilityai/stable-diffusion-xl-base-1.0"</span><span class="p">,</span>
+    <span class="n">motion_adapter</span><span class="o">=</span><span class="n">adapter</span><span class="p">,</span>
+    <span class="n">controlnet</span><span class="o">=</span><span class="n">controlnet</span><span class="p">,</span>
+    <span class="n">torch_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float16</span><span class="p">,</span>
+<span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="s2">"cuda"</span><span class="p">)</span>
+
+<span class="c1"># 3) Generate: same skeleton, different style</span>
+<span class="n">prompt</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="s2">"a knight in shining silver armor performing the same motion, "</span>
+    <span class="s2">"dramatic studio lighting, photorealistic, cinematic"</span>
+<span class="p">)</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">pipe</span><span class="p">(</span>
+    <span class="n">prompt</span><span class="o">=</span><span class="n">prompt</span><span class="p">,</span>
+    <span class="n">control_image</span><span class="o">=</span><span class="n">pose_frames</span><span class="p">,</span>
+    <span class="n">num_frames</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span>
+    <span class="n">num_inference_steps</span><span class="o">=</span><span class="mi">25</span><span class="p">,</span>
+    <span class="n">guidance_scale</span><span class="o">=</span><span class="mf">7.5</span><span class="p">,</span>
+    <span class="n">controlnet_conditioning_scale</span><span class="o">=</span><span class="mf">0.85</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">export_to_video</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">frames</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="s2">"knight_motion.mp4"</span><span class="p">,</span> <span class="n">fps</span><span class="o">=</span><span class="mi">8</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"Wrote knight_motion.mp4"</span><span class="p">)</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> Wrote knight_motion.mp4</div>
+<div class="code-caption"><strong>Code Fragment 33.3.1:</strong> Motion-controlled video generation by extracting a pose skeleton from a reference clip, conditioning SDXL via DWPose ControlNet, and animating it with AnimateDiff's motion adapter. The same motion choreography can be re-rendered in any style by changing the prompt, holding the pose conditioning fixed. <code>controlnet_conditioning_scale</code> trades off pose fidelity (high) against prompt adherence (low).</div>
+<h2 id="6-the-controlnet-channels-for-video">6. The ControlNet Channels for Video</h2>
+<p>Image ControlNet (Zhang et al., 2023) introduced a family of conditioning channels: depth maps, edge maps (Canny, HED, Sobel), segmentation masks, normal maps, and pose skeletons. Each channel adds a different inductive bias for what the model should preserve. Video ControlNet (and SparseCtrl, the explicit video-extension paper by Guo et al., 2024) ports the same idea: condition the video DiT on per-frame channel sequences and the model respects the structural information they encode.</p>
+<p>The most useful channels for production video work are: <strong>depth</strong> (preserves the 3D structure of the scene; useful for stylized rerender of a real-world reference), <strong>pose</strong> (preserves human motion; useful for re-rendering dance, sports, or martial arts), <strong>Canny edges</strong> (preserves silhouettes and major lines; useful for stylized rerender that maintains composition), and <strong>segmentation</strong> (preserves region boundaries; useful for object-level animation control). Each channel can be combined with text prompts; the standard recipe is to extract the channel from a reference video, prompt the desired aesthetic, and let the model fill in everything else.</p>
+<figure>
+<table>
+<thead>
+<tr><th scope="col">Control Modality</th><th scope="col">Specificity</th><th scope="col">Effort</th><th scope="col">Best For</th></tr>
+</thead>
+<tbody>
+<tr><td>Prompt alone</td><td>Low</td><td>Trivial</td><td>Exploratory generation</td></tr>
+<tr><td>Camera path (6-DoF)</td><td>Medium (global)</td><td>Medium</td><td>Cinematic moves</td></tr>
+<tr><td>Motion brush</td><td>Medium (regional)</td><td>Low</td><td>Stylized 2D animation</td></tr>
+<tr><td>Drag points</td><td>High (point-level)</td><td>Medium</td><td>Hero-shot precision</td></tr>
+<tr><td>Pose skeleton</td><td>Very high (body)</td><td>Medium-high</td><td>Choreography, dance, sports</td></tr>
+<tr><td>Depth map</td><td>Very high (3D)</td><td>High (per-frame extraction)</td><td>Stylized rerender of real video</td></tr>
+<tr><td>Canny edges</td><td>Very high (silhouette)</td><td>High</td><td>Style transfer with composition lock</td></tr>
+<tr><td>Segmentation</td><td>Very high (regions)</td><td>High</td><td>Object-level animation</td></tr>
+</tbody>
+</table>
+<figcaption><strong>Figure 33.3.1</strong>: Video control modalities. Effort columns reflect both the per-shot human work and the per-shot compute cost. Production pipelines usually compose two or three modalities; rarely is a single channel sufficient.</figcaption>
+</figure>
+<h2 id="7-character-consistency-across-shots">7. Character Consistency Across Shots</h2>
+<p>The control modalities discussed so far operate within a single shot. The harder problem is character consistency across multiple shots (cut from a wide shot of Alice walking into a building to a medium shot of Alice opening a door; Alice should be visibly the same person, same outfit, same hair, in both shots). This is essentially the video equivalent of IP-Adapter for images.</p>
+<p>The 2025 solution that the frontier models converged on is the <strong>character token</strong>: train the model to attend to a special token derived from a few reference frames of the character, and reuse that token across all shots in a multi-shot sequence. Sora 2's cameos, Runway Gen-4's character sheets, and Pika's "Pikaframes" all implement this pattern with implementation details that differ. The open-source community uses IP-Adapter Face for the analogous capability in AnimateDiff workflows: extract a face embedding from reference images, condition the diffusion process on that embedding, and the rendered character resembles the reference across shots.</p>
+<p>Multi-shot consistency is the gating capability for using video AI in narrative work. A trailer or short film with consistent characters is qualitatively different from a sequence of plausible but visually disconnected shots. Section 33.5 covers long-form and cinematic generation, which is where these multi-shot tools matter most.</p>
+<div class="callout practical-example">
+<div class="callout-title">Real-World Scenario: Music Video Production</div>
+<p>A musician producing a 3-minute music video for an independent release used a controlled-generation pipeline rather than a live shoot. Step 1: storyboard 12 shots with rough sketches. Step 2: shoot the musician in front of a green screen for 10 minutes of varied poses, expressions, and dance moves; this provides character reference plates. Step 3: for each shot, use Runway Gen-4 with the musician's reference clip as the character anchor, a custom camera-path specification (orbit, dolly, etc.), and a prompt describing the location and lighting. Step 4: edit the 12 shots together in Premiere with the song. Step 5: ElevenLabs cleans up any audio leakage between shots. Total budget for the video was \$1,200 in API costs, two days of one editor's time, and ten minutes of the artist's time. The same video shot traditionally would have been a \$30,000-100,000 production.</p>
+</div>
+<h2 id="8-where-control-is-going">8. Where Control Is Going</h2>
+<p>Two trends define 2026's trajectory in video control. First, controls are becoming compositional: instead of choosing one control modality, the user specifies multiple (camera path plus character reference plus motion brush plus depth) and the system blends them. Sora 2 and Gen-4 both expose this; the open community is catching up via composable AnimateDiff workflows. Second, controls are becoming declarative: instead of dragging points or painting brushes, the user describes the desired control in natural language ("the camera should slowly dolly in while the character walks toward it, and the lighting should shift from warm to cold over the 5-second duration"), and an LLM agent translates the description into the underlying control tokens. This is the LLM-as-director pattern Section 33.5 will revisit; it is the most likely interface for non-technical creators in 2026 and beyond.</p>
+<div class="callout fun-note">
+<div class="callout-title">The drag-point exploit</div>
+<p>A favorite 2024 community discovery was that DragNUWA-style controls could be used to produce videos that violate intuitive physics: drag a ball's trajectory upward through the entire 4-second clip, and the model dutifully produces a ball that rises at constant velocity, defying gravity. The result is mostly used for absurdist memes (an apple floating off a table; a car rolling uphill; rain falling sideways), but it also demonstrates that the control signal can override the model's learned physics priors. This is a feature for stylized animation and a bug for documentary-style generation; the user can pick which.</p>
+</div>
+<div class="callout key-takeaway">
+<div class="callout-title">Key Takeaway</div>
+<p>Controlled video generation is conditioning with extra tokens: camera path, motion brush, drag points, pose skeleton, and ControlNet channels are all variants of the same architectural pattern. Production pipelines compose two or three modalities (commonly camera path plus character reference plus motion brush) to get intentional output rather than just plausible output. AnimateDiff plus existing image ControlNets is the open recipe for experimentation; Sora 2, Veo 3, and Runway Gen-4 ship the polished commercial versions. The interface frontier is compositional controls described in natural language and translated to underlying tokens by an LLM-as-director.</p>
+</div>
+<div class="callout self-check">
+<div class="callout-title">Self-Check</div>
+<ol>
+<li>Architecturally, "camera path conditioning" and "pose skeleton conditioning" both inject extra token streams into the DiT. Why is camera path easier to train (i.e., produces more reliable models with less data) than pose conditioning, and what would you do at the data collection step to close the gap?</li>
+<li>Motion brush gives you regional direction arrows but does not let you specify per-pixel trajectories. Where exactly does this control modality fail (give a concrete scene), and what is the smallest extension that would address the failure?</li>
+<li>The "drag-point exploit" lets users override physics priors. Decide whether this is a feature or a bug for: (a) a children's animation studio, (b) a courtroom video reconstruction service, (c) a music video for an indie artist. Justify each answer.</li>
+</ol>
+</div>
+<div class="whats-next">
+<h3>What Comes Next</h3>
+<p>Section 33.4 pivots from generating new video to editing existing video: video inpainting, style transfer, frame interpolation, and the production pipelines that stitch these tools together. The same control machinery from this section is the substrate for editing because editing is mostly "generate new content that respects some existing content."</p>
+</div>
+<details class="bibliography-collapsible" open><summary><strong>Further Reading</strong></summary>
+<section class="bibliography">
+<ul>
+<li>Zhang, L. et al. (2023). <em>Adding Conditional Control to Text-to-Image Diffusion Models (ControlNet)</em>. ICCV 2023. <a href="https://arxiv.org/abs/2302.05543" target="_blank" rel="noopener">arXiv:2302.05543</a>. The foundational paper on dense per-pixel conditioning for diffusion models; the parent of every video control modality.</li>
+<li>Guo, Y. et al. (2023). <em>AnimateDiff: Animate Your Personalized Text-to-Image Diffusion Models without Specific Tuning</em>. ICLR 2024. <a href="https://arxiv.org/abs/2307.04725" target="_blank" rel="noopener">arXiv:2307.04725</a>. The motion-module recipe that lets any frozen image diffusion model become a video generator.</li>
+<li>Wang, Z. et al. (2023). <em>MotionCtrl: A Unified and Flexible Motion Controller for Video Generation</em>. <a href="https://arxiv.org/abs/2312.03641" target="_blank" rel="noopener">arXiv:2312.03641</a>. The first credible camera-path control adapter for Stable Video Diffusion.</li>
+<li>He, H. et al. (2024). <em>CameraCtrl: Enabling Camera Control for Text-to-Video Generation</em>. <a href="https://arxiv.org/abs/2404.02101" target="_blank" rel="noopener">arXiv:2404.02101</a>. The 2024 refinement of camera-path conditioning with cleaner training data extraction.</li>
+<li>Yin, S. et al. (2023). <em>DragNUWA: Fine-grained Control in Video Generation by Integrating Text, Image, and Trajectory</em>. <a href="https://arxiv.org/abs/2308.08089" target="_blank" rel="noopener">arXiv:2308.08089</a>. The drag-trajectory control pattern; foundational for Runway Gen-4's Motion Vector tool.</li>
+<li>Guo, Y. et al. (2024). <em>SparseCtrl: Adding Sparse Controls to Text-to-Video Diffusion Models</em>. ECCV 2024. <a href="https://arxiv.org/abs/2311.16933" target="_blank" rel="noopener">arXiv:2311.16933</a>. ControlNet extensions for video with sparse-frame conditioning.</li>
+<li>Yang, J. et al. (2024). <em>DWPose: Effective Whole-body Pose Estimation</em>. <a href="https://arxiv.org/abs/2307.15880" target="_blank" rel="noopener">arXiv:2307.15880</a>. The de facto open pose detector used in most AnimateDiff control workflows.</li>
+<li>Wu, J. et al. (2024). <em>DragAnything: Motion Control for Anything using Entity Representation</em>. ECCV 2024. <a href="https://arxiv.org/abs/2403.07420" target="_blank" rel="noopener">arXiv:2403.07420</a>. Drag-point control extended to multi-entity strict trajectory adherence.</li>
+</ul>
+</section>
+</details>
+<nav class="chapter-nav">
+<a class="prev" href="section-32.7.html"><span class="nav-label">Previous</span><span class="nav-num">Section 32.7</span><span class="nav-title">Leading Video Models: Sora, Veo, Runway, Kling, and Pika</span></a>
+<a class="up" href="index.html"><span class="nav-label">In Chapter</span><span class="nav-num">Chapter 32</span><span class="nav-title">Audio and Music Generation</span></a>
+<a class="next" href="section-32.9.html"><span class="nav-label">Next</span><span class="nav-num">Section 32.9</span><span class="nav-title">Video Editing and Remixing</span></a>
+</nav>
+<footer><p>Fifteenth Edition, 2026 &middot; <a href="../../toc.html">Contents</a></p></footer>
+</main>
+<script>
+window.addEventListener("DOMContentLoaded", function() {
+  if (window.PagefindUI) {
+    new PagefindUI({
+      element: "#search",
+      showSubResults: true,
+      showImages: false,
+      resetStyles: false,
+      pageSize: 8,
+      autofocus: false,
+      translations: { placeholder: "Search the book…" },
+    });
+  }
+});
+</script>
+</body>
+</html>

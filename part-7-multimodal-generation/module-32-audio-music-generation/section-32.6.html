@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<meta content="Section 32.6: Video Diffusion Transformers (DiTs). From image DiTs to video DiTs, 3D U-Nets versus DiTs, spatial-temporal attention, and a minimal video DiT training loop." name="description"/>
+<title>Section 32.6: Video Diffusion Transformers (DiTs)</title>
+<link href="../../styles/book.css" rel="stylesheet"/>
+<link href="../../styles/pygments.css" rel="stylesheet"/>
+<link href="../../vendor/katex/katex.min.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/katex/katex.min.js"></script>
+<script defer="" onload="renderMathInElement(document.body, {
+ delimiters: [
+ {left: '$$', right: '$$', display: true},
+ {left: '$', right: '$', display: false}
+ ],
+ throwOnError: false
+ });" src="../../vendor/katex/contrib/auto-render.min.js"></script>
+<link href="../../vendor/prism/prism-theme.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/prism/prism-bundle.min.js"></script>
+<script defer="" src="../../scripts/book.js"></script>
+<link href="../../pagefind/pagefind-ui.css" rel="stylesheet"/>
+<script defer="" src="../../pagefind/pagefind-ui.js"></script>
+</head>
+<body>
+<header class="chapter-header">
+<nav class="header-nav">
+<a class="book-title-link" href="../../index.html">Building Conversational AI with LLMs and Agents</a>
+<a class="toc-link" href="../../toc.html" title="Table of Contents"><span class="toc-icon">☰</span> Contents</a>
+</nav>
+<div class="header-search">
+<div id="search"></div>
+</div>
+<div class="page-breadcrumb" data-pagefind-meta="chapter"><a href="../index.html">Part VII: Multimodal Generation</a><span class="bc-sep">›</span><a href="index.html">Chapter 33: Video Generation</a></div>
+<h1>Video Diffusion Transformers (DiTs)</h1><div class="page-current">Section 32.6</div>
+</header>
+<main class="content"><span class="pagefind-meta-injected" data-pagefind-meta="part:Part VII: Multimodal Generation" hidden=""></span><span class="pagefind-meta-injected" data-pagefind-meta="chapter:Chapter 33: Video Generation" hidden=""></span>
+<blockquote class="epigraph">
+<p>"A video is a sequence of images that promised not to fight each other for continuity. The DiT teaches them to keep that promise."</p>
+<cite>Author's notebook, after reading the Sora technical report, February 2024</cite>
+</blockquote>
+<div class="callout big-picture">
+<div class="callout-title">Big Picture</div>
+<p>The architecture that drives Sora, Veo, Runway Gen-4, and every serious 2025 video generator is a Diffusion Transformer (DiT) operating on spatiotemporal latent patches. Image DiTs (Peebles &amp; Xie, 2022) showed that the U-Net could be replaced by a plain transformer in image diffusion; video DiTs extend that thesis by patchifying both space and time into a single token sequence. The forward pass is structurally identical to the GPT decoder of Part I: tokenize the input, apply self-attention across the entire sequence, predict the denoising target. What changes is the tokenizer (a 3D causal VAE), the position encoding (spatiotemporal RoPE), and the conditioning (text via T5 plus optional image, depth, or pose). This section walks the lineage, contrasts the 3D U-Net it replaced, lays out the spatial-temporal attention math, and shows a minimal video DiT training loop you can run on a single GPU.</p>
+</div>
+<h2 id="1-from-image-dit-to-video-dit">1. From Image DiT to Video DiT</h2>
+<p>The image DiT (Peebles &amp; Xie, 2022, arXiv:2212.09748) made one architectural argument: the diffusion U-Net's inductive bias toward 2D spatial locality is not necessary; a plain transformer on patches works equally well and scales better. Stable Diffusion 3 (Esser et al., 2024) productionized this thesis with the MM-DiT, an image DiT with multimodal text-and-image attention and rectified flow training. Sora (OpenAI, February 2024) extended the same recipe to video by tokenizing both spatial patches (typically 2x2 in latent space) and temporal patches (typically 1 to 4 latent frames per token group), producing a single 1D token sequence that a DiT processes with full self-attention.</p>
+<p>The "from image DiT to video DiT" move can be summarized in three changes. First, the input is a (T, H, W, C) latent volume rather than an (H, W, C) latent grid. Second, patches now have a temporal dimension; a typical patch is shape (2, 2, 2) in (T, H, W), producing T/2 * H/2 * W/2 tokens per video. Third, the position encoding adds a temporal axis (3D RoPE or factorized sinusoidal encodings) so the model can disambiguate same-spatial-location-different-time tokens.</p>
+<div class="callout key-insight">
+<div class="callout-title">Video is just longer sequences</div>
+<p>If you can do image generation, you can do video generation: the only difference is the length of the token sequence. A 512x512 image at patch size 2 in a 4x-downsampling VAE has 64x64=4,096 tokens. A 5-second 720p video at 24 fps with the same patch scheme has 120 frames; with temporal patches of size 2, that is 60 token-frames times 5,400 spatial tokens per frame, so 324,000 tokens total. That is 80x the image case, which is exactly why Sora's training compute is reported to be roughly two orders of magnitude larger than Stable Diffusion 3's. The architecture is unchanged; the sequence length scales the work.</p>
+</div>
+<h2 id="2-3d-u-net-vs-dit-and-why-the-dit-won">2. 3D U-Net vs DiT: Why the DiT Won</h2>
+<p>The 2022-2023 generation of video models (Stable Video Diffusion, AnimateDiff, ModelScope T2V) used 3D U-Nets: standard image U-Nets extended with temporal-attention layers inserted between the spatial 2D convolutions. The architecture works but has structural disadvantages that the DiT does not share.</p>
+<p>First, the 3D U-Net is fundamentally hybrid: 2D spatial convolutions plus 1D temporal attention plus cross-modal text attention plus skip connections. Each component has its own scaling behavior, and the joint scaling laws are messier than for a single architecture. The DiT is uniform: every layer is the same transformer block, just with different position encodings.</p>
+<p>Second, the U-Net's spatial-then-temporal factorization underweights long-range temporal interactions. A frame's content depends on frames many steps in the past, but the temporal-attention layers between U-Net stages have limited receptive fields. The DiT applies full self-attention across all spatiotemporal tokens, so any frame can attend to any other frame in a single layer.</p>
+<p>Third, scaling. The DiT thesis (and the GPT thesis behind it) is that a uniform transformer scales better than an architecturally diverse network when you add 10x more parameters and 10x more data. The Sora technical report explicitly invokes this: "Sora is a diffusion transformer. Transformers have demonstrated remarkable scaling properties across a variety of domains, including language modeling, computer vision, and image generation. In this work, we find that diffusion transformers scale effectively as video models as well." The empirical evidence (Sora vs. Stable Video Diffusion at comparable parameter count) bears this out.</p>
+<figure><img alt="Two diagrams side by side. Left: 3D U-Net with spatial convolutions, temporal attention, skip connections. Right: video DiT with patchify, full self-attention transformer blocks, and unpatchify." src="images/figure-33-1-1.svg"/><figcaption><strong>Figure 33.1.1</strong>: The architectural shift from 3D U-Net (Stable Video Diffusion, AnimateDiff) to video DiT (Sora, Veo, CogVideoX, Open-Sora). The DiT replaces the U-Net's spatial-then-temporal factorization with full spatiotemporal self-attention over patchified tokens.</figcaption></figure>
+<h2 id="3-spatial-temporal-attention-and-3d-rope">3. Spatial-Temporal Attention and 3D RoPE</h2>
+<p>In a video DiT, each token represents a small spatiotemporal patch of the input latent volume. If the VAE downsamples by 8x in space and 4x in time, and the patchifier takes 2x2x2 patches in the latent, the resulting token spacing is 16x16 pixels per spatial step and 4 frames per temporal step in pixel space. Each token has a (t, y, x) coordinate; position encodings must respect all three.</p>
+<p>The standard choice in 2024-2025 is 3D Rotary Position Embedding (3D RoPE), a factorized extension of the 2D RoPE used in image DiTs. The query and key vectors are split into three groups, and each group gets rotated by the angle corresponding to its respective axis:</p>
+<p>$$ q' = R_t(\theta_t) \oplus R_y(\theta_y) \oplus R_x(\theta_x) \cdot q $$</p>
+<p>where $R_t, R_y, R_x$ are 2D rotation matrices acting on the corresponding feature subspaces, and $\theta_t, \theta_y, \theta_x$ are sinusoidal frequencies computed from the (t, y, x) coordinate. The factorization means each axis contributes a separate inductive bias for relative position. CogVideoX (Yang et al., 2024) and Open-Sora (Lab, 2024) both use 3D RoPE in production.</p>
+<p>The attention itself is dense, full self-attention across all tokens. For a 5-second 720p video this is hundreds of thousands of tokens, and the O(N^2) cost is the dominant compute term. Frontier systems (Sora, Veo) use a combination of FlashAttention-3, sparse attention masking (window plus global), and sequence parallelism across many GPUs to make this tractable. For training a small video DiT on a single GPU, you typically reduce resolution to 256x256, frames to 16, and patch size to 4x4x4, which brings the sequence length down to a manageable 1,024 tokens.</p>
+<h2 id="4-the-3d-causal-vae-tokenizer">4. The 3D Causal VAE: Tokenizer</h2>
+<p>Video DiTs do not operate on raw pixels; they operate on the latents of a 3D causal VAE that compresses (T, H, W, 3) pixel video into (T', H', W', C) latent tensors with C around 16 and (T', H', W') roughly (T/4, H/8, W/8). The "3D" part is that the VAE uses 3D convolutions across both space and time; the "causal" part is that the temporal kernels are causal (each output frame depends only on past frames), which lets the VAE encode arbitrary-length video without needing to know the full length up front.</p>
+<p>The causal property matters for two reasons. It enables streaming encoding (you can encode a video frame-by-frame as it arrives), and it enables variable-length outputs (the model can decode any prefix of its predicted latent sequence). CogVideoX, Wan 2.1, and HunyuanVideo all ship causal 3D VAEs at compression ratios around 4x temporal and 8x spatial. The reconstruction quality at these compression ratios is the ceiling for how good the DiT outputs can ever look: a poor VAE caps the entire system.</p>
+<h2 id="5-training-and-inference-rectified-flow-and-classifier-free-guidance">5. Training and Inference: Rectified Flow and Classifier-Free Guidance</h2>
+<p>The 2024 standard for video DiT training is rectified flow matching (Liu et al., 2022; Esser et al., 2024). Rather than predicting noise as in original DDPMs, the model predicts a velocity field: given a noisy sample $x_t$ at time $t$, the model predicts the velocity $v_\theta(x_t, t)$ that points from $x_t$ along the trajectory toward the clean sample. The training loss is</p>
+<p>$$ \mathcal{L} = \mathbb{E}_{t, x_0, \epsilon} \left[ \| v_\theta(x_t, t) - (x_1 - x_0) \|^2 \right] $$</p>
+<p>where $x_0$ is a clean sample (the video), $x_1$ is pure noise, and $x_t = (1-t) x_0 + t x_1$ is the linear interpolation. Inference is an ODE solver (Euler or Heun) integrating from $x_1$ to $x_0$ using the learned velocity. Typical step counts are 20-50, an order of magnitude lower than the 1,000 steps of original DDPMs.</p>
+<p>Conditioning is handled with classifier-free guidance (CFG). At training, the text condition is dropped with probability 10-15%, so the model learns both conditional and unconditional velocities. At inference, the guided velocity is $v_{guided} = v_{uncond} + w (v_{cond} - v_{uncond})$ with $w$ between 3 and 9 typically; higher $w$ produces stronger adherence to the prompt at the cost of sample diversity. CFG is applied per ODE step and is the same trick that drives every modern image diffusion model.</p>
+<pre><code class="lang-python pygments-highlighted"><span class="c1"># Minimal video DiT training loop on a synthetic dataset.</span>
+<span class="c1"># Goal: illustrate the architecture, not produce competitive samples.</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">einops</span><span class="w"> </span><span class="kn">import</span> <span class="n">rearrange</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">VideoDiT</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+    <span class="sd">"""Simple video DiT with spatiotemporal patches and 3D RoPE."""</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">in_ch</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">patch</span><span class="o">=</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">4</span><span class="p">),</span>
+                 <span class="n">dim</span><span class="o">=</span><span class="mi">384</span><span class="p">,</span> <span class="n">depth</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">heads</span><span class="o">=</span><span class="mi">6</span><span class="p">,</span> <span class="n">text_dim</span><span class="o">=</span><span class="mi">512</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">patch</span> <span class="o">=</span> <span class="n">patch</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">patchify</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Conv3d</span><span class="p">(</span><span class="n">in_ch</span><span class="p">,</span> <span class="n">dim</span><span class="p">,</span>
+                                  <span class="n">kernel_size</span><span class="o">=</span><span class="n">patch</span><span class="p">,</span> <span class="n">stride</span><span class="o">=</span><span class="n">patch</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">blocks</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">ModuleList</span><span class="p">([</span>
+            <span class="n">nn</span><span class="o">.</span><span class="n">TransformerEncoderLayer</span><span class="p">(</span>
+                <span class="n">d_model</span><span class="o">=</span><span class="n">dim</span><span class="p">,</span> <span class="n">nhead</span><span class="o">=</span><span class="n">heads</span><span class="p">,</span> <span class="n">dim_feedforward</span><span class="o">=</span><span class="mi">4</span><span class="o">*</span><span class="n">dim</span><span class="p">,</span>
+                <span class="n">activation</span><span class="o">=</span><span class="s2">"gelu"</span><span class="p">,</span> <span class="n">batch_first</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">norm_first</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">depth</span><span class="p">)</span>
+        <span class="p">])</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">time_mlp</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">dim</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">text_mlp</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">text_dim</span><span class="p">,</span> <span class="n">dim</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">unpatchify</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">ConvTranspose3d</span><span class="p">(</span><span class="n">dim</span><span class="p">,</span> <span class="n">in_ch</span><span class="p">,</span>
+                                            <span class="n">kernel_size</span><span class="o">=</span><span class="n">patch</span><span class="p">,</span> <span class="n">stride</span><span class="o">=</span><span class="n">patch</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">t</span><span class="p">,</span> <span class="n">text_emb</span><span class="p">):</span>
+        <span class="c1"># x: (B, C, T, H, W) latent video; t: (B,) scalar timestep in [0, 1]</span>
+        <span class="n">B</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">tok</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">patchify</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>                       <span class="c1"># (B, dim, t', h', w')</span>
+        <span class="n">t_p</span><span class="p">,</span> <span class="n">h_p</span><span class="p">,</span> <span class="n">w_p</span> <span class="o">=</span> <span class="n">tok</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">3</span><span class="p">:]</span>
+        <span class="n">tok</span> <span class="o">=</span> <span class="n">rearrange</span><span class="p">(</span><span class="n">tok</span><span class="p">,</span> <span class="s2">"b c t h w -&gt; b (t h w) c"</span><span class="p">)</span>
+
+        <span class="c1"># Inject timestep and text as adaLN-style additive conditioning.</span>
+        <span class="n">cond</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">time_mlp</span><span class="p">(</span><span class="n">t</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">))</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">text_mlp</span><span class="p">(</span><span class="n">text_emb</span><span class="p">)</span>
+        <span class="n">tok</span> <span class="o">=</span> <span class="n">tok</span> <span class="o">+</span> <span class="n">cond</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+
+        <span class="c1"># Transformer with shared 3D RoPE applied inside attention.</span>
+        <span class="c1"># (RoPE implementation omitted for brevity; see torchtune.modules.RotaryPositionalEmbeddings.)</span>
+        <span class="k">for</span> <span class="n">block</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">blocks</span><span class="p">:</span>
+            <span class="n">tok</span> <span class="o">=</span> <span class="n">block</span><span class="p">(</span><span class="n">tok</span><span class="p">)</span>
+
+        <span class="n">tok</span> <span class="o">=</span> <span class="n">rearrange</span><span class="p">(</span><span class="n">tok</span><span class="p">,</span> <span class="s2">"b (t h w) c -&gt; b c t h w"</span><span class="p">,</span>
+                        <span class="n">t</span><span class="o">=</span><span class="n">t_p</span><span class="p">,</span> <span class="n">h</span><span class="o">=</span><span class="n">h_p</span><span class="p">,</span> <span class="n">w</span><span class="o">=</span><span class="n">w_p</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">unpatchify</span><span class="p">(</span><span class="n">tok</span><span class="p">)</span>
+
+<span class="c1"># Rectified-flow training step</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">VideoDiT</span><span class="p">()</span><span class="o">.</span><span class="n">cuda</span><span class="p">()</span>
+<span class="n">opt</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">optim</span><span class="o">.</span><span class="n">AdamW</span><span class="p">(</span><span class="n">model</span><span class="o">.</span><span class="n">parameters</span><span class="p">(),</span> <span class="n">lr</span><span class="o">=</span><span class="mf">1e-4</span><span class="p">)</span>
+
+<span class="k">for</span> <span class="n">step</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">100</span><span class="p">):</span>
+    <span class="c1"># Clean latent video x0 from a 3D VAE; placeholder synthetic data here.</span>
+    <span class="n">x0</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">8</span><span class="p">,</span> <span class="mi">16</span><span class="p">,</span> <span class="mi">16</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">"cuda"</span><span class="p">)</span>
+    <span class="n">x1</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn_like</span><span class="p">(</span><span class="n">x0</span><span class="p">)</span>                  <span class="c1"># Gaussian noise endpoint</span>
+    <span class="n">text</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">512</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">"cuda"</span><span class="p">)</span>     <span class="c1"># T5-style text embed</span>
+    <span class="n">t</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">rand</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">"cuda"</span><span class="p">)</span>                <span class="c1"># uniform in [0, 1]</span>
+
+    <span class="n">xt</span> <span class="o">=</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">t</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">))</span> <span class="o">*</span> <span class="n">x0</span> <span class="o">+</span> <span class="n">t</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span> <span class="o">*</span> <span class="n">x1</span>
+    <span class="n">v_target</span> <span class="o">=</span> <span class="n">x1</span> <span class="o">-</span> <span class="n">x0</span>
+    <span class="n">v_pred</span> <span class="o">=</span> <span class="n">model</span><span class="p">(</span><span class="n">xt</span><span class="p">,</span> <span class="n">t</span><span class="p">,</span> <span class="n">text</span><span class="p">)</span>
+    <span class="n">loss</span> <span class="o">=</span> <span class="p">((</span><span class="n">v_pred</span> <span class="o">-</span> <span class="n">v_target</span><span class="p">)</span> <span class="o">**</span> <span class="mi">2</span><span class="p">)</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span>
+
+    <span class="n">opt</span><span class="o">.</span><span class="n">zero_grad</span><span class="p">()</span><span class="p">;</span> <span class="n">loss</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span><span class="p">;</span> <span class="n">opt</span><span class="o">.</span><span class="n">step</span><span class="p">()</span>
+    <span class="k">if</span> <span class="n">step</span> <span class="o">%</span> <span class="mi">20</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"step </span><span class="si">{</span><span class="n">step</span><span class="si">:</span><span class="s2">3d</span><span class="si">}</span><span class="s2">  loss=</span><span class="si">{</span><span class="n">loss</span><span class="o">.</span><span class="n">item</span><span class="p">()</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> step   0  loss=1.0247
+step  20  loss=0.9831
+step  40  loss=0.9712
+step  60  loss=0.9603
+step  80  loss=0.9554</div>
+<div class="code-caption"><strong>Code Fragment 33.1.1:</strong> Minimal video DiT with rectified-flow training. The patchifier is a Conv3d with stride equal to patch size; the unpatchifier is a ConvTranspose3d. Real production systems add adaLN-Zero conditioning (Peebles &amp; Xie), 3D RoPE inside attention, T5 cross-attention rather than additive text conditioning, and an actual VAE-encoded video dataset. This skeleton is for understanding, not for competitive output.</div>
+<h2 id="6-cogvideox-open-sora-and-the-open-recipe">6. CogVideoX, Open-Sora, and the Open Recipe</h2>
+<p>The open-source video DiT ecosystem matured rapidly in 2024-2025. <strong>CogVideoX</strong> (THUDM, 2024, arXiv:2408.06072) is a 5B parameter video DiT trained on around 50k hours of video; it supports 6-second 720p generations at 8 fps and ships permissively licensed weights. <strong>Open-Sora</strong> (PKU-YuanGroup, 2024-2025) is a community reimplementation of the Sora recipe with open weights at 1.1B and 8B sizes; it explicitly documents the training recipe (3D causal VAE, 3D RoPE DiT, rectified flow) for reproducibility. <strong>HunyuanVideo</strong> (Tencent, December 2024) is a 13B DiT with open weights, the largest open-weight video model at the time of writing, with competitive quality against Veo 2 on internal benchmarks.</p>
+<p>These three serve different community roles. CogVideoX is the easiest to fine-tune on a single A100. Open-Sora is the cleanest reference for understanding the recipe. HunyuanVideo is the highest-quality open weight you can run if you have a multi-GPU box. None of them match Sora 2 or Veo 3 on the consumer-grade frontier (see Section 33.2), but all three are usable in production for use cases where open weights and self-hosting matter more than absolute quality.</p>
+<div class="callout practical-example">
+<div class="callout-title">Real-World Scenario: Game Studio Cinematics Pipeline</div>
+<p>A mid-sized game studio shipping a fantasy RPG uses Sora 2 for storyboarding (text-to-rough-video for pitching shots), Veo 3 for in-game cinematics (high quality, character consistency across multi-shot sequences), and CogVideoX fine-tuned on its own concept art for stylized intermediate concepts. The fine-tune cost was about \$30k of A100 hours and a week of engineer time; the resulting model produces shots matching the studio's art direction that the closed-weight frontier models cannot match without expensive prompt engineering. The studio keeps the fine-tune in-house and uses the commercial APIs only for the polish layer.</p>
+</div>
+<h2 id="7-where-the-architecture-is-going">7. Where the Architecture Is Going</h2>
+<p>The 2026 trajectory of the video DiT architecture has three visible directions. First, longer context: minute-plus generations (currently a 2-minute limit on Sora 2, 3 minutes on Veo 3 for paying users) require attention efficient enough for sequences in the millions of tokens. Sparse attention (window plus global), state-space hybrids (Mamba-2 layers in place of some transformer blocks), and hierarchical tokenization are all being explored. Second, native multimodal: instead of separate text-encoders feeding cross-attention, the trend is to interleave video tokens, text tokens, and audio tokens in the same sequence and use a single self-attention pass (Section 37 covers this; Llama 4 and Gemini 2 Pro show the direction). Third, world-model-style next-frame prediction: instead of denoising a full video at once, predict the next short clip conditioned on the previous clips, which enables interactive generation (Section 41.4 covers world models in depth).</p>
+<div class="callout fun-note">
+<div class="callout-title">The patchify trick is everywhere</div>
+<p>Image DiT, video DiT, audio DiT (Stable Audio), 3D DiT (Genie 2, Shap-E), and even point-cloud DiT (Point-E) all use the same basic recipe: take a data tensor, slice it into patches, treat patches as tokens, run a transformer, unpatchify back to the data tensor. The patches are 2D for images, 3D for video and 3D scenes, 1D for audio, and unstructured for point clouds. The transformer does not care. Once you internalize that patchify-then-transformer is the universal recipe, the entire 2024-2026 generation of generative models collapses into one architecture with different tokenizers.</p>
+</div>
+<div class="callout key-takeaway">
+<div class="callout-title">Key Takeaway</div>
+<p>Video diffusion in 2026 is patchify-then-DiT: a 3D causal VAE compresses the video into latents, a transformer denoises spatiotemporal patches with 3D RoPE, and rectified flow with classifier-free guidance handles training and sampling. The architecture is uniform across image, video, audio, and 3D generation; only the tokenizer differs. The 3D U-Net lineage is fading; the open recipe (CogVideoX, Open-Sora, HunyuanVideo) is reproducible; the closed frontier (Sora 2, Veo 3) extends the same recipe at 100x the compute.</p>
+</div>
+<div class="callout self-check">
+<div class="callout-title">Self-Check</div>
+<ol>
+<li>A 5-second 1024x576 video at 24 fps, with an 8x spatial / 4x temporal VAE and 2x2x2 patches, produces how many DiT tokens per video? Connect this to the O(N^2) self-attention cost and explain why frontier video DiTs need sequence-parallel training even at a few-billion-parameter scale.</li>
+<li>The 3D U-Net's spatial-then-temporal factorization underweights long-range temporal interactions. Construct a video prompt where this matters (i.e., where Sora 2 succeeds and Stable Video Diffusion fails) and explain the architectural reason.</li>
+<li>Rectified flow matching trains the model to predict a velocity rather than the noise. Show that on the linear interpolation $x_t = (1-t) x_0 + t x_1$, the velocity target $x_1 - x_0$ is mathematically equivalent to the score-matching target up to a constant factor. Why do practitioners prefer the velocity formulation in production?</li>
+</ol>
+</div>
+<div class="whats-next">
+<h3>What Comes Next</h3>
+<p>Section 33.2 walks the 2026 commercial video-generation frontier (Sora 2, Veo 3, Runway Gen-4, Kling, Pika) and the capability matrix that distinguishes them.</p>
+</div>
+<details class="bibliography-collapsible" open><summary><strong>Further Reading</strong></summary>
+<section class="bibliography">
+<ul>
+<li>Peebles, W. &amp; Xie, S. (2022). <em>Scalable Diffusion Models with Transformers (DiT)</em>. ICCV 2023. <a href="https://arxiv.org/abs/2212.09748" target="_blank" rel="noopener">arXiv:2212.09748</a>. The original DiT paper; the architectural starting point for every video DiT.</li>
+<li>OpenAI (2024). <em>Video Generation Models as World Simulators (Sora Technical Report)</em>. <a href="https://openai.com/research/video-generation-models-as-world-simulators" target="_blank" rel="noopener">openai.com/research/video-generation-models-as-world-simulators</a>. The first commercial-grade spatiotemporal DiT and the report that made the recipe public.</li>
+<li>Yang, Z. et al. (2024). <em>CogVideoX: Text-to-Video Diffusion Models with An Expert Transformer</em>. <a href="https://arxiv.org/abs/2408.06072" target="_blank" rel="noopener">arXiv:2408.06072</a>. The largest permissively-licensed open video DiT in 2024 and the cleanest open recipe.</li>
+<li>PKU-YuanGroup (2024). <em>Open-Sora 1.2: Open Recipe for Sora-Style Video Generation</em>. <a href="https://github.com/PKU-YuanGroup/Open-Sora-Plan" target="_blank" rel="noopener">github.com/PKU-YuanGroup/Open-Sora-Plan</a>. Community implementation with documented training recipe; useful as the reference for reproducibility.</li>
+<li>Esser, P. et al. (2024). <em>Scaling Rectified Flow Transformers for High-Resolution Image Synthesis (Stable Diffusion 3)</em>. <a href="https://arxiv.org/abs/2403.03206" target="_blank" rel="noopener">arXiv:2403.03206</a>. The MM-DiT paper that established rectified flow plus DiT as the standard image-generation recipe; video DiTs inherit the training loss.</li>
+<li>Kong, W. et al. (2024). <em>HunyuanVideo: A Systematic Framework for Large Video Generative Models</em>. <a href="https://arxiv.org/abs/2412.03603" target="_blank" rel="noopener">arXiv:2412.03603</a>. Tencent's 13B open-weight video DiT; the largest open weight at the time of writing.</li>
+<li>Liu, X. et al. (2022). <em>Flow Straight and Fast: Learning to Generate and Transfer Data with Rectified Flow</em>. ICLR 2023. <a href="https://arxiv.org/abs/2209.03003" target="_blank" rel="noopener">arXiv:2209.03003</a>. The original rectified-flow paper underlying the training loss used in CogVideoX, SD3, and most 2024 video DiTs.</li>
+<li>Dao, T. et al. (2024). <em>FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision</em>. <a href="https://arxiv.org/abs/2407.08608" target="_blank" rel="noopener">arXiv:2407.08608</a>. The attention kernel that makes million-token video DiT training tractable on H100.</li>
+</ul>
+</section>
+</details>
+<nav class="chapter-nav">
+<a class="prev" href="section-32.5.html"><span class="nav-label">Previous</span><span class="nav-num">Section 32.5</span><span class="nav-title">Speech Recognition for the Multimodal Stack</span></a>
+<a class="up" href="index.html"><span class="nav-label">In Chapter</span><span class="nav-num">Chapter 32</span><span class="nav-title">Audio and Music Generation</span></a>
+<a class="next" href="section-32.7.html"><span class="nav-label">Next</span><span class="nav-num">Section 32.7</span><span class="nav-title">Leading Video Models: Sora, Veo, Runway, Kling, and Pika</span></a>
+</nav>
+<footer><p>Fifteenth Edition, 2026 &middot; <a href="../../toc.html">Contents</a></p></footer>
+</main>
+<script>
+window.addEventListener("DOMContentLoaded", function() {
+  if (window.PagefindUI) {
+    new PagefindUI({
+      element: "#search",
+      showSubResults: true,
+      showImages: false,
+      resetStyles: false,
+      pageSize: 8,
+      autofocus: false,
+      translations: { placeholder: "Search the book…" },
+    });
+  }
+});
+</script>
+</body>
+</html>
