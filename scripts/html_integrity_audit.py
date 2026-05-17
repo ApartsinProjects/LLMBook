@@ -329,8 +329,8 @@ def main() -> int:
                 # and very last section (Part XIII, Chapter 86, Section 86.5).
                 # These legitimately have no prev / next within the linear chain.
                 rp = rel_path.replace("\\", "/")
-                is_first_section = rp.endswith("part-1-foundations/module-00-ml-pytorch-foundations/section-0.1.html")
-                is_last_section = rp.endswith("part-13-frontiers/module-86-tools-of-the-trade/section-86.5.html")
+                is_first_section = rp.endswith("part-1-llm-building-blocks/module-00-ml-pytorch-foundations/section-0.1.html")
+                is_last_section = rp.endswith("part-16-llm-agentic-ai-research-frontiers/module-83-tools-of-the-trade/section-83.5.html")
                 for rel_key in ("prev", "up", "next"):
                     if rel_key not in nav_links:
                         if rel_key == "prev" and is_first_section:
