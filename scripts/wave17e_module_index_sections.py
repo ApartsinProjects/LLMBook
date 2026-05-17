@@ -92,7 +92,9 @@ def rebuild_module_index(module_dir):
             or 'Split from old' in existing
             or existing.startswith('Section ')
             or existing in ('RAG fundamentals.', 'Conv AI tooling.', 'Voice and realtime multimodal AI.',
-                            'Core production engineering.', 'See section for details.')
+                            'Core production engineering.', 'See section for details.',
+                            'Conversational AI.', 'Section.', 'Promoted and expanded from old section 42.8.')
+            or len(existing) < 30  # extremely short = likely placeholder
         )
         if is_placeholder:
             desc = extract_section_summary(sf)
