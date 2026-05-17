@@ -21,10 +21,10 @@ target = {
         'year': 2026,
     },
     '_meta': {
-        'proposal_version': 3,
+        'proposal_version': 4,
         'total_parts_target': 15,
         'total_chapters_target': 86,
-        'notes': 'See docs/structure-review-and-proposal.md for the analysis.',
+        'notes': 'See docs/structure-review-and-proposal.md for the analysis. v4 = Agentic AI moved to Part VI (before Retrieval/Dialogue), Part XII renamed to LLMOps & Lifecycle Management.',
     },
     'parts': []
 }
@@ -105,43 +105,47 @@ parts.append({
     ],
 })
 
+# VI — Agentic AI (moved here from VIII to support pattern parts that use agent concepts)
 parts.append({
-    'num': 6, 'roman': 'VI', 'slug': 'retrieval-information-extraction', 'title': 'Retrieval and Information Extraction',
+    'num': 6, 'roman': 'VI', 'slug': 'agentic-ai', 'title': 'Agentic AI',
+    'subtitle': 'Agent foundations, tool use (MCP / A2A), multi-agent systems, specialized agents, agent stack.',
+    '_action': 'move',
+    '_source': 'part-6-agentic-ai',
+    'chapters': [
+        {'num': 28, 'slug': 'ai-agents', 'title': 'AI Agent Foundations', '_action': 'renumber', '_source': 'module-26-ai-agents'},
+        {'num': 29, 'slug': 'tool-use-protocols', 'title': 'Tool Use, Function Calling & Protocols', '_action': 'renumber', '_source': 'module-27-tool-use-protocols'},
+        {'num': 30, 'slug': 'multi-agent-systems', 'title': 'Multi-Agent Systems', '_action': 'renumber', '_source': 'module-28-multi-agent-systems'},
+        {'num': 31, 'slug': 'specialized-agents', 'title': 'Specialized Agents', '_action': 'renumber', '_source': 'module-29-specialized-agents'},
+        {'num': 32, 'slug': 'tools-of-the-trade', 'title': 'Tools of the Trade: Agent Stack', '_action': 'renumber', '_source': 'module-30-tools-of-the-trade'},
+    ],
+})
+
+# VII — Retrieval & Information Extraction
+parts.append({
+    'num': 7, 'roman': 'VII', 'slug': 'retrieval-information-extraction', 'title': 'Retrieval and Information Extraction',
     'subtitle': 'Embeddings, structured information extraction & NER, RAG, knowledge graphs, cross-modal retrieval.',
     '_action': 'new_part',
     'chapters': [
-        {'num': 28, 'slug': 'embeddings-vector-db', 'title': 'Embeddings, Vector Databases & Semantic Search', '_action': 'renumber', '_source': 'module-22-embeddings-vector-db'},
-        {'num': 29, 'slug': 'information-extraction-ner', 'title': 'Structured Information Extraction & NER', '_action': 'promote_from_section', '_source_section': 'part-3-working-with-llms/module-15-hybrid-ml-llm/section-15.5'},
-        {'num': 30, 'slug': 'rag-fundamentals', 'title': 'RAG Fundamentals', '_action': 'split', '_source': 'module-23-rag', '_source_sections': ['23.1', '23.2', '23.4', '23.5']},
-        {'num': 31, 'slug': 'advanced-rag-knowledge-graphs', 'title': 'Advanced RAG: Knowledge Graphs, Ingestion & Attribution', '_action': 'split', '_source': 'module-23-rag', '_source_sections': ['23.3', '23.6', '23.7', '23.8', '23.9']},
-        {'num': 32, 'slug': 'cross-modal-rag', 'title': 'Cross-Modal Reasoning & Multimodal RAG', '_action': 'move', '_source': 'part-7-multimodal-generation/module-42-cross-modal-reasoning-rag'},
-        {'num': 33, 'slug': 'tools-of-the-trade', 'title': 'Tools of the Trade: Retrieval & Extraction Stack', '_action': 'split', '_source': 'module-25-tools-of-the-trade'},
+        {'num': 33, 'slug': 'embeddings-vector-db', 'title': 'Embeddings, Vector Databases & Semantic Search', '_action': 'renumber', '_source': 'module-22-embeddings-vector-db'},
+        {'num': 34, 'slug': 'information-extraction-ner', 'title': 'Structured Information Extraction & NER', '_action': 'promote_from_section', '_source_section': 'part-3-working-with-llms/module-15-hybrid-ml-llm/section-15.5'},
+        {'num': 35, 'slug': 'rag-fundamentals', 'title': 'RAG Fundamentals', '_action': 'split', '_source': 'module-23-rag', '_source_sections': ['23.1', '23.2', '23.4', '23.5']},
+        {'num': 36, 'slug': 'advanced-rag-knowledge-graphs', 'title': 'Advanced RAG: Knowledge Graphs, Ingestion & Attribution', '_action': 'split', '_source': 'module-23-rag', '_source_sections': ['23.3', '23.6', '23.7', '23.8', '23.9']},
+        {'num': 37, 'slug': 'cross-modal-rag', 'title': 'Cross-Modal Reasoning & Multimodal RAG', '_action': 'move', '_source': 'part-7-multimodal-generation/module-42-cross-modal-reasoning-rag'},
+        {'num': 38, 'slug': 'tools-of-the-trade', 'title': 'Tools of the Trade: Retrieval & Extraction Stack', '_action': 'split', '_source': 'module-25-tools-of-the-trade'},
     ],
 })
 
+# VIII — Dialogue & Conversational AI
 parts.append({
-    'num': 7, 'roman': 'VII', 'slug': 'dialogue-conversational-ai', 'title': 'Dialogue & Conversational AI',
+    'num': 8, 'roman': 'VIII', 'slug': 'dialogue-conversational-ai', 'title': 'Dialogue & Conversational AI',
     'subtitle': 'Dialogue architecture, memory, multi-turn flows, voice and realtime multimodal assistants.',
     '_action': 'new_part',
     'chapters': [
-        {'num': 34, 'slug': 'dialogue-architecture', 'title': 'Dialogue System Architecture & Personas', '_action': 'split', '_source_sections': ['24.1', '24.2']},
-        {'num': 35, 'slug': 'memory-context-management', 'title': 'Memory & Context Management', '_action': 'split', '_source_sections': ['24.3']},
-        {'num': 36, 'slug': 'multi-turn-flows', 'title': 'Multi-Turn Conversation Flows', '_action': 'split', '_source_sections': ['24.4']},
-        {'num': 37, 'slug': 'voice-realtime-assistants', 'title': 'Voice & Realtime Multimodal Assistants', '_action': 'merge', '_sources': ['section 24.5', 'part-7/module-38-streaming-realtime-multimodal']},
-        {'num': 38, 'slug': 'tools-of-the-trade', 'title': 'Tools of the Trade: Conversational AI Stack', '_action': 'split', '_source': 'module-25-tools-of-the-trade'},
-    ],
-})
-
-parts.append({
-    'num': 8, 'roman': 'VIII', 'slug': 'agentic-ai', 'title': 'Agentic AI',
-    'subtitle': 'Agent foundations, tool use (MCP / A2A), multi-agent systems, specialized agents, agent stack.',
-    '_action': 'renumber',
-    'chapters': [
-        {'num': 39, 'slug': 'ai-agents', 'title': 'AI Agent Foundations', '_action': 'renumber', '_source': 'module-26-ai-agents'},
-        {'num': 40, 'slug': 'tool-use-protocols', 'title': 'Tool Use, Function Calling & Protocols', '_action': 'renumber', '_source': 'module-27-tool-use-protocols'},
-        {'num': 41, 'slug': 'multi-agent-systems', 'title': 'Multi-Agent Systems', '_action': 'renumber', '_source': 'module-28-multi-agent-systems'},
-        {'num': 42, 'slug': 'specialized-agents', 'title': 'Specialized Agents', '_action': 'renumber', '_source': 'module-29-specialized-agents'},
-        {'num': 43, 'slug': 'tools-of-the-trade', 'title': 'Tools of the Trade: Agent Stack', '_action': 'renumber', '_source': 'module-30-tools-of-the-trade'},
+        {'num': 39, 'slug': 'dialogue-architecture', 'title': 'Dialogue System Architecture & Personas', '_action': 'split', '_source_sections': ['24.1', '24.2']},
+        {'num': 40, 'slug': 'memory-context-management', 'title': 'Memory & Context Management', '_action': 'split', '_source_sections': ['24.3']},
+        {'num': 41, 'slug': 'multi-turn-flows', 'title': 'Multi-Turn Conversation Flows', '_action': 'split', '_source_sections': ['24.4']},
+        {'num': 42, 'slug': 'voice-realtime-assistants', 'title': 'Voice & Realtime Multimodal Assistants', '_action': 'merge', '_sources': ['section 24.5', 'part-7/module-38-streaming-realtime-multimodal']},
+        {'num': 43, 'slug': 'tools-of-the-trade', 'title': 'Tools of the Trade: Conversational AI Stack', '_action': 'split', '_source': 'module-25-tools-of-the-trade'},
     ],
 })
 
@@ -188,7 +192,7 @@ parts.append({
 })
 
 parts.append({
-    'num': 12, 'roman': 'XII', 'slug': 'llmops-production-engineering', 'title': 'LLMOps & Production Engineering',
+    'num': 12, 'roman': 'XII', 'slug': 'llmops-lifecycle', 'title': 'LLMOps & Lifecycle Management',
     'subtitle': 'AI gateways and routing, workflow orchestration, containers, reliability and SLOs, model registry and lifecycle.',
     '_action': 'new_part',
     'chapters': [

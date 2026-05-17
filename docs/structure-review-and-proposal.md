@@ -1,12 +1,41 @@
-# Book Structure: Analysis and Proposed Restructure (v3)
+# Book Structure: Analysis and Proposed Restructure (v4)
 
-**Status**: proposal, awaiting review.
+**Status**: proposal, in development on branch `v2.0`. Production lives on `main` tagged `production-v1.0`.
 **Generated**: 2026-05-17, post-appendix-renumbering.
 **Revision history**:
   - v1 — initial: 13 parts → 13 parts, 87 → 78 chapters; mostly merge/dedupe.
   - v2 — split Part V into Retrieval+IE and Dialogue+Assistants (13 → 14 parts).
-  - **v3 (this version)** — split Part X (Operations) into LLM @ Scale and LLMOps; move Multimodal to V (model-cluster); better part names. **15 parts.**
+  - v3 — split Part X (Operations) into LLM @ Scale and LLMOps; move Multimodal to V (model-cluster); 15 parts.
+  - **v4 (this version)** — move Agentic AI to Part VI (right after model cluster, before Retrieval / Dialogue); rename Part XII from "Production Engineering" (fuzzy, overlaps Scale) to "LLMOps & Lifecycle Management".
 **Current state on disk**: 13 parts, 87 chapters, 413 sections, 7 appendices, audit clean.
+
+## v4 rationale: why Agentic AI moves to Part VI
+
+In v3, Agentic AI sat at Part VIII (after Retrieval and Dialogue). But agentic patterns ripple backward through the book:
+  - Retrieval has "Agentic RAG" (current sec 23.4)
+  - Dialogue has Voice Agents (current sec 24.5)
+  - Multimodal has VLA (Vision-Language-**Action**) — fundamentally an agent concept
+
+Forward references everywhere. The fix is to introduce Agentic AI *immediately after* the model cluster, so Retrieval, Dialogue, and even VLA in Multimodal can build on agent foundations rather than forward-reference them.
+
+New ordering of the patterns cluster:
+
+| Old | New |
+|---|---|
+| VI Retrieval & IE | **VI Agentic AI** (moved up from VIII) |
+| VII Dialogue & CAI | VII Retrieval & IE |
+| VIII Agentic AI | VIII Dialogue & CAI |
+
+The "model → agents → patterns that use agents" arc is now linear, not circular.
+
+## v4 rationale: rename Part XII
+
+"Production Engineering" was too broad — it could plausibly mean inference-engineering-at-scale (which belongs in Part XI). Renaming to **"LLMOps & Lifecycle Management"** disambiguates:
+
+  - XI = the *scaling* layer (compute, distributed training, hardware, edge)
+  - XII = the *operational* layer (gateways, orchestration, deployment, reliability, registry, lifecycle)
+
+No content change, just clearer scope.
 
 ---
 
@@ -29,11 +58,11 @@ The 15 parts cluster into 6 thematic blocks:
 | Block | Parts | What it covers |
 |---|---|---|
 | **A. Models** | I–V | What an LLM is, how it works, how to train and adapt it, what modalities it covers |
-| **B. Patterns on top of models** | VI–VIII | Retrieval, dialogue, agents — the application-level patterns that any LLM supports |
+| **B. Patterns on top of models** | VI–VIII | Agentic AI (foundational pattern), retrieval, dialogue — the application-level patterns. Agentic AI sits first because retrieval/dialogue use agent concepts. |
 | **C. Quality** | IX–X | Evaluation, observability, safety, security, ethics — non-functional concerns |
-| **D. Runtime** | XI–XII | Scale (compute / performance) and ops (workflow / lifecycle) |
+| **D. Runtime** | XI–XII | Scale (compute / performance) and LLMOps (workflow / lifecycle) |
 | **E. Applied** | XIII–XIV | Designing products and shipping into specific industries |
-| **F. Future** | XV | Frontier research, theory, hardware, AGI trajectories |
+| **F. Future** | XV | Frontier research, theory, AGI trajectories |
 
 This grouping is the *why* behind the order. The block boundaries are also natural pause points for a course track.
 
@@ -48,13 +77,13 @@ This grouping is the *why* behind the order. The block boundaries are also natur
 | **III** | **Working with LLMs** | 4 | LLM APIs, prompt engineering & advanced techniques, hybrid ML+LLM architectures, Working-with-LLMs Tools |
 | **IV** | **LLM Training & Adaptation** | 5 | Synthetic data generation, fine-tuning fundamentals, PEFT (LoRA / QLoRA / soft prompts), alignment (RLHF / DPO / preference tuning), Training Tools |
 | **V** | **Multimodal LLMs** | 7 | Vision-language & Omni models, image/video generation, audio & music generation, document understanding & OCR, 3D generation & neural scenes, embodied AI / VLA / robotics, Multimodal Tools |
-| **VI** | **Retrieval & Information Extraction** | 6 | Embeddings & vector databases, structured information extraction & NER, RAG fundamentals, advanced RAG / knowledge graphs, cross-modal RAG, Retrieval Tools |
-| **VII** | **Dialogue & Conversational AI** | 5 | Dialogue architecture & personas, memory & context management, multi-turn conversation flows, voice & realtime multimodal assistants, Conversational AI Tools |
-| **VIII** | **Agentic AI** | 5 | Agent foundations, tool use / MCP / A2A protocols, multi-agent systems, specialized agents (code, browser, research), Agent Tools |
+| **VI** | **Agentic AI** *(moved up from VIII)* | 5 | Agent foundations, tool use / MCP / A2A protocols, multi-agent systems, specialized agents (code, browser, research), Agent Tools |
+| **VII** | **Retrieval & Information Extraction** | 6 | Embeddings & vector databases, structured information extraction & NER, RAG fundamentals, advanced RAG / knowledge graphs, cross-modal RAG, Retrieval Tools |
+| **VIII** | **Dialogue & Conversational AI** | 5 | Dialogue architecture & personas, memory & context management, multi-turn conversation flows, voice & realtime multimodal assistants, Conversational AI Tools |
 | **IX** | **Evaluation & Observability** | 4 | Evaluation fundamentals & quality metrics, specialized evaluation (RAG / agents / multimodal), online evaluation & production monitoring, Eval Tools |
 | **X** | **Safety, Security & Ethics** | 9 | Adversarial security & red teaming, guardrails & runtime safety, agent safety & sandboxing, privacy & data protection, bias / fairness / hallucination, regulation & compliance, watermarking / provenance / transparency, frontier safety & sustainability, Safety Tools |
 | **XI** | **LLM Systems at Scale** | 5 | Compute planning & GPU procurement, distributed training systems, hardware & chip diversity, edge & on-device LLMs, Scale Tools |
-| **XII** | **LLMOps & Production Engineering** | 5 | AI gateways & model routing, workflow orchestration & durable execution, containers / Kubernetes / deployment, reliability engineering / SLOs / model registry, LLMOps Tools |
+| **XII** | **LLMOps & Lifecycle Management** *(renamed)* | 5 | AI gateways & model routing, workflow orchestration & durable execution, containers / Kubernetes / deployment, reliability engineering / SLOs / model registry, LLMOps Tools |
 | **XIII** | **Designing LLM Products** | 7 | Ideation / strategy / product hypothesis, LLM product management, prototyping via vibe-coding, building the MVP, scaling economics & ROI, shipping & scaling AI products, Product Tools |
 | **XIV** | **Industry Applications** | 8 | Legal, finance, healthcare, education, cybersecurity, government, manufacturing + creative + recommendation (merged), Industry Tools |
 | **XV** | **Frontiers** | 4 | Frontier architectures & scaling, frontier theory & cognition, AGI trajectories & open questions, Frontier Tools |
