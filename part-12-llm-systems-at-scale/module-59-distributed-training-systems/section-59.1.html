@@ -3,9 +3,21 @@
 <head>
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<meta content="Section 59.1: Distributed Training Fundamentals. Why distributed training, and the building blocks." name="description"/>
+<meta content="Section 59.1: Distributed Training Fundamentals. The three axes of parallelism, collective communication primitives, GPU interconnect topology, and the BSP model that underlies every modern training run." name="description"/>
 <title>Section 59.1: Distributed Training Fundamentals | Building Conversational AI with LLMs and Agents</title>
 <link href="../../styles/book.css" rel="stylesheet"/>
+<link href="../../styles/pygments.css" rel="stylesheet"/>
+<link href="../../vendor/katex/katex.min.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/katex/katex.min.js"></script>
+<script defer="" onload="renderMathInElement(document.body, {
+ delimiters: [
+ {left: '$$', right: '$$', display: true},
+ {left: '$', right: '$', display: false}
+ ],
+ throwOnError: false
+ });" src="../../vendor/katex/contrib/auto-render.min.js"></script>
+<link href="../../vendor/prism/prism-theme.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/prism/prism-bundle.min.js"></script>
 <script defer="" src="../../scripts/book.js"></script>
 <link href="../../pagefind/pagefind-ui.css" rel="stylesheet"/>
 <script defer="" src="../../pagefind/pagefind-ui.js"></script>
@@ -24,25 +36,359 @@
 <span class="pagefind-meta-injected" data-pagefind-meta="chapter:Chapter 59" hidden=""></span>
 <div class="callout big-picture">
 <div class="callout-title">Big Picture</div>
-<p>Why distributed training, and the building blocks.</p>
+<p>A trillion-parameter LLM cannot be trained on one accelerator: the parameters alone consume terabytes of memory, and any single GPU would need centuries of wall-clock time. Distributed training is the discipline of splitting a single mathematically identical training run across thousands of devices while preserving correctness, throughput, and reproducibility. Three orthogonal axes of parallelism (data, model, tensor) compose with a synchronization model (bulk synchronous parallel) and a communication substrate (NCCL on NVLink and InfiniBand) to make this possible. The rest of this chapter unpacks the algorithms that ride on top of these fundamentals.</p>
 </div>
-<p>Training a frontier LLM requires hundreds to thousands of accelerators working in concert. Distributed training is the discipline of splitting a single training run across many devices while preserving correctness, throughput, and reproducibility.</p>
-<div class="callout big-picture">
-<div class="callout-title">Big Picture</div>
-<p>Three orthogonal axes of parallelism: data parallelism (different examples on different devices), model parallelism (different layers on different devices), and tensor parallelism (different slices of a single layer on different devices). Production training stacks compose all three.</p>
+
+<h2 id="59-1-1-why-one-gpu-is-not-enough">59.1.1 Why One GPU Is Not Enough</h2>
+<p>The memory accounting for training a large transformer is brutal. For each parameter $\theta$ stored in <code>bfloat16</code> (2 bytes), the AdamW optimizer keeps an <code>fp32</code> master copy (4 bytes), an <code>fp32</code> first moment $m$ (4 bytes), an <code>fp32</code> second moment $v$ (4 bytes), and an <code>fp32</code> gradient buffer (4 bytes). That is $18$ bytes per parameter just for state. For a 70-billion-parameter model:</p>
+
+<div class="math-block">$$M_{\text{state}} = 70 \times 10^{9} \cdot 18 \text{ bytes} \approx 1.26 \text{ TB}$$</div>
+
+<p>Add activation memory ($\mathcal{O}(BL \cdot d_{\text{model}} \cdot n_{\text{layers}})$ for batch $B$, sequence length $L$) and the working set easily exceeds 2 TB. An H100 holds 80 GB. Even Blackwell B200 with 192 GB is not close. Frontier training therefore <em>must</em> shard state across many devices; the only open question is which axis to shard along.</p>
+
+<div class="callout key-insight">
+<div class="callout-title">Key Insight: Compute is cheap, memory bandwidth is not</div>
+<p>Doubling FLOPs is a node upgrade. Doubling per-GPU memory means a new silicon generation. This single fact drives almost every distributed-training algorithm in this chapter: the cost we are trying to amortize is not the matmul, it is the GB of state that the matmul touches. Reducing memory pressure (ZeRO, FSDP) and reducing redundant memory copies (tensor parallelism) are valuable even when they cost more raw compute, because they let you run at all.</p>
 </div>
-<h2>Data Parallelism</h2>
-<p>The same model replicated across devices; each device processes a different mini-batch slice; gradients are all-reduced before the optimizer step. This is the workhorse of distributed training.</p>
-<h2>Model and Tensor Parallelism</h2>
-<p>When a model is too large to fit on a single device. Model parallelism shards layers across devices; tensor parallelism shards within layers (e.g., the FFN matrix is split across GPUs). Communication cost is the limiter.</p>
-<h2>Pipeline Parallelism</h2>
-<p>Layers split across devices in a pipeline; micro-batches stream through to keep devices busy. GPipe, PipeDream, 1F1B are the canonical schedulers.</p>
+
+<h2 id="59-1-2-three-axes-of-parallelism">59.1.2 Three Axes of Parallelism</h2>
+<p>Every parallelism scheme partitions one of three dimensions of the training computation: the <strong>data batch</strong>, the <strong>layer stack</strong>, or the <strong>tensor itself</strong>. These three axes are orthogonal: production training runs compose all three (often called 3D parallelism, covered in Section 59.4).</p>
+
+<figure class="diagram">
+<svg aria-label="Three axes of parallelism diagram" role="img" style="font-family: 'Segoe UI', sans-serif; max-width: 100%; height: auto;" viewBox="0 0 880 400" xmlns="http://www.w3.org/2000/svg">
+  <rect width="880" height="400" fill="#ffffff"/>
+  <text x="440" y="32" font-size="20" font-weight="700" text-anchor="middle" fill="#1a1a2e">Three Orthogonal Axes of Parallelism</text>
+
+  <!-- Panel 1: Data Parallel -->
+  <g transform="translate(20, 60)">
+    <rect x="0" y="0" width="270" height="320" rx="8" fill="#eef4fa" stroke="#1a4078" stroke-width="2"/>
+    <text x="135" y="26" font-size="15" font-weight="700" text-anchor="middle" fill="#1a4078">Data Parallel</text>
+    <text x="135" y="46" font-size="11" font-style="italic" text-anchor="middle" fill="#5a4a3a">Same model, split batch</text>
+
+    <g transform="translate(30, 70)">
+      <rect x="0" y="0" width="90" height="60" rx="4" fill="#ffffff" stroke="#1a4078" stroke-width="1.5"/>
+      <text x="45" y="26" font-size="11" font-weight="600" text-anchor="middle" fill="#1a1a2e">GPU 0</text>
+      <text x="45" y="46" font-size="10" text-anchor="middle" fill="#5a4a3a">Full model</text>
+    </g>
+    <g transform="translate(150, 70)">
+      <rect x="0" y="0" width="90" height="60" rx="4" fill="#ffffff" stroke="#1a4078" stroke-width="1.5"/>
+      <text x="45" y="26" font-size="11" font-weight="600" text-anchor="middle" fill="#1a1a2e">GPU 1</text>
+      <text x="45" y="46" font-size="10" text-anchor="middle" fill="#5a4a3a">Full model</text>
+    </g>
+    <g transform="translate(30, 150)">
+      <rect x="0" y="0" width="90" height="60" rx="4" fill="#ffffff" stroke="#1a4078" stroke-width="1.5"/>
+      <text x="45" y="26" font-size="11" font-weight="600" text-anchor="middle" fill="#1a1a2e">GPU 2</text>
+      <text x="45" y="46" font-size="10" text-anchor="middle" fill="#5a4a3a">Full model</text>
+    </g>
+    <g transform="translate(150, 150)">
+      <rect x="0" y="0" width="90" height="60" rx="4" fill="#ffffff" stroke="#1a4078" stroke-width="1.5"/>
+      <text x="45" y="26" font-size="11" font-weight="600" text-anchor="middle" fill="#1a1a2e">GPU 3</text>
+      <text x="45" y="46" font-size="10" text-anchor="middle" fill="#5a4a3a">Full model</text>
+    </g>
+    <text x="135" y="240" font-size="11" text-anchor="middle" fill="#1a1a2e">batch[0:64]   batch[64:128]</text>
+    <text x="135" y="258" font-size="11" text-anchor="middle" fill="#1a1a2e">batch[128:192]  batch[192:256]</text>
+    <text x="135" y="290" font-size="11" font-weight="600" text-anchor="middle" fill="#1a4078">Comm: all-reduce gradients</text>
+    <text x="135" y="306" font-size="10" font-style="italic" text-anchor="middle" fill="#5a4a3a">once per step</text>
+  </g>
+
+  <!-- Panel 2: Pipeline / Model Parallel -->
+  <g transform="translate(305, 60)">
+    <rect x="0" y="0" width="270" height="320" rx="8" fill="#ecf6ee" stroke="#1f7a3a" stroke-width="2"/>
+    <text x="135" y="26" font-size="15" font-weight="700" text-anchor="middle" fill="#1f7a3a">Pipeline Parallel</text>
+    <text x="135" y="46" font-size="11" font-style="italic" text-anchor="middle" fill="#5a4a3a">Layers across GPUs</text>
+
+    <g transform="translate(85, 70)">
+      <rect x="0" y="0" width="100" height="40" rx="4" fill="#ffffff" stroke="#1f7a3a" stroke-width="1.5"/>
+      <text x="50" y="18" font-size="11" font-weight="600" text-anchor="middle" fill="#1a1a2e">GPU 0</text>
+      <text x="50" y="34" font-size="10" text-anchor="middle" fill="#5a4a3a">Layers 0-23</text>
+    </g>
+    <g transform="translate(85, 120)">
+      <rect x="0" y="0" width="100" height="40" rx="4" fill="#ffffff" stroke="#1f7a3a" stroke-width="1.5"/>
+      <text x="50" y="18" font-size="11" font-weight="600" text-anchor="middle" fill="#1a1a2e">GPU 1</text>
+      <text x="50" y="34" font-size="10" text-anchor="middle" fill="#5a4a3a">Layers 24-47</text>
+    </g>
+    <g transform="translate(85, 170)">
+      <rect x="0" y="0" width="100" height="40" rx="4" fill="#ffffff" stroke="#1f7a3a" stroke-width="1.5"/>
+      <text x="50" y="18" font-size="11" font-weight="600" text-anchor="middle" fill="#1a1a2e">GPU 2</text>
+      <text x="50" y="34" font-size="10" text-anchor="middle" fill="#5a4a3a">Layers 48-71</text>
+    </g>
+    <g transform="translate(85, 220)">
+      <rect x="0" y="0" width="100" height="40" rx="4" fill="#ffffff" stroke="#1f7a3a" stroke-width="1.5"/>
+      <text x="50" y="18" font-size="11" font-weight="600" text-anchor="middle" fill="#1a1a2e">GPU 3</text>
+      <text x="50" y="34" font-size="10" text-anchor="middle" fill="#5a4a3a">Layers 72-95</text>
+    </g>
+    <path d="M 135 110 L 135 120" stroke="#1f7a3a" stroke-width="2" marker-end="url(#arrgreen)"/>
+    <path d="M 135 160 L 135 170" stroke="#1f7a3a" stroke-width="2" marker-end="url(#arrgreen)"/>
+    <path d="M 135 210 L 135 220" stroke="#1f7a3a" stroke-width="2" marker-end="url(#arrgreen)"/>
+    <text x="135" y="290" font-size="11" font-weight="600" text-anchor="middle" fill="#1f7a3a">Comm: activations</text>
+    <text x="135" y="306" font-size="10" font-style="italic" text-anchor="middle" fill="#5a4a3a">point-to-point send/recv</text>
+  </g>
+
+  <!-- Panel 3: Tensor Parallel -->
+  <g transform="translate(590, 60)">
+    <rect x="0" y="0" width="270" height="320" rx="8" fill="#fef3e0" stroke="#a67c1a" stroke-width="2"/>
+    <text x="135" y="26" font-size="15" font-weight="700" text-anchor="middle" fill="#a67c1a">Tensor Parallel</text>
+    <text x="135" y="46" font-size="11" font-style="italic" text-anchor="middle" fill="#5a4a3a">One matrix split 4 ways</text>
+
+    <g transform="translate(30, 80)">
+      <rect x="0" y="0" width="210" height="120" rx="4" fill="#ffffff" stroke="#a67c1a" stroke-width="1.5"/>
+      <text x="105" y="22" font-size="11" font-weight="600" text-anchor="middle" fill="#1a1a2e">Weight matrix W (d &#215; 4d)</text>
+      <line x1="0" y1="40" x2="210" y2="40" stroke="#a67c1a" stroke-width="1" stroke-dasharray="3,3"/>
+      <line x1="52" y1="40" x2="52" y2="120" stroke="#a67c1a" stroke-width="1" stroke-dasharray="3,3"/>
+      <line x1="105" y1="40" x2="105" y2="120" stroke="#a67c1a" stroke-width="1" stroke-dasharray="3,3"/>
+      <line x1="157" y1="40" x2="157" y2="120" stroke="#a67c1a" stroke-width="1" stroke-dasharray="3,3"/>
+      <text x="26" y="80" font-size="11" font-weight="600" text-anchor="middle" fill="#a67c1a">GPU 0</text>
+      <text x="78" y="80" font-size="11" font-weight="600" text-anchor="middle" fill="#a67c1a">GPU 1</text>
+      <text x="131" y="80" font-size="11" font-weight="600" text-anchor="middle" fill="#a67c1a">GPU 2</text>
+      <text x="183" y="80" font-size="11" font-weight="600" text-anchor="middle" fill="#a67c1a">GPU 3</text>
+    </g>
+    <text x="135" y="225" font-size="11" text-anchor="middle" fill="#1a1a2e">Each GPU holds W[:, k:k+d]</text>
+    <text x="135" y="245" font-size="11" text-anchor="middle" fill="#1a1a2e">Computes partial Y, all-reduces</text>
+    <text x="135" y="290" font-size="11" font-weight="600" text-anchor="middle" fill="#a67c1a">Comm: all-reduce activations</text>
+    <text x="135" y="306" font-size="10" font-style="italic" text-anchor="middle" fill="#5a4a3a">per layer</text>
+  </g>
+
+  <defs>
+    <marker id="arrgreen" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+      <polygon points="0 0, 8 4, 0 8" fill="#1f7a3a"/>
+    </marker>
+  </defs>
+</svg>
+<figcaption><strong>Figure 59.1.1</strong>: The three axes of parallelism. Data parallel replicates the model and splits the batch; pipeline parallel splits the layer stack; tensor parallel splits a single weight matrix. Production training composes all three.</figcaption>
+</figure>
+
+<h3 id="59-1-2-1-data-parallelism">59.1.2.1 Data Parallelism</h3>
+<p>Each of $N$ devices holds a complete model replica and processes a different slice of the global mini-batch. After backward, gradients are <strong>all-reduced</strong> across devices, then each replica performs an identical optimizer step. This is the workhorse: when it fits in memory, nothing else matches its simplicity. Gradient $g$ on device $i$ updates as:</p>
+
+<div class="math-block">$$g_{\text{global}} = \frac{1}{N} \sum_{i=1}^{N} g_{i} \quad \text{(all-reduce, sum then divide)}$$</div>
+
+<p>Because the optimizer state is replicated, data parallelism scales <em>throughput</em> but not <em>model size</em>. A 70B model that fits on $k$ GPUs via tensor-parallel still fits on $k$ GPUs after going data-parallel; data parallelism gives you more samples per second, not more parameters.</p>
+
+<h3 id="59-1-2-2-model-parallelism-pipeline">59.1.2.2 Model Parallelism (Pipeline)</h3>
+<p>Partition the layer stack: GPU 0 holds layers $1 \ldots k$, GPU 1 holds layers $k+1 \ldots 2k$, and so on. Activations flow point-to-point between consecutive stages. The challenge is keeping all stages busy simultaneously, which requires <em>micro-batching</em> the work so that stage $i$ processes micro-batch $t$ while stage $i+1$ processes micro-batch $t-1$. Section 59.4 develops this in detail.</p>
+
+<h3 id="59-1-2-3-tensor-parallelism">59.1.2.3 Tensor Parallelism</h3>
+<p>Inside a single layer, the weight matrix itself is sharded across devices. For an FFN up-projection $Y = X W$ with $W \in \mathbb{R}^{d \times 4d}$, split $W$ along its columns into $W = [W_1 \mid W_2 \mid \ldots \mid W_T]$ where $T$ is the tensor-parallel degree. Each device computes $Y_t = X W_t$ locally and a collective op stitches the partial outputs into the full result. Communication happens <em>per layer</em>, so tensor parallelism requires extremely fast interconnects (typically NVLink within a single node, never across InfiniBand). Section 59.3 covers Megatron-LM's careful design of which ops are column- versus row-parallel.</p>
+
+<h2 id="59-1-3-collective-communication">59.1.3 Collective Communication Primitives</h2>
+<p>The currency of distributed training is the <strong>collective</strong>: an operation that runs in lockstep across a group of devices. NCCL (NVIDIA Collective Communications Library) implements these on NVIDIA hardware; for AMD it is RCCL, and oneCCL on Intel. The four primitives that matter for training:</p>
+
+<div class="comparison-table">
+<div class="comparison-table-title"><strong>Table 59.1.1</strong>: <em>Collective primitives and their training use.</em></div>
+<table class="complex-table">
+<tr><th scope="col">Primitive</th><th scope="col">Input on each rank</th><th scope="col">Output on each rank</th><th scope="col">Bytes moved per rank</th><th scope="col">Where it appears</th></tr>
+<tr><td><strong>All-Reduce</strong></td><td>tensor of size $S$</td><td>sum of all inputs (same size $S$)</td><td>$\approx 2(N-1)S/N$</td><td>DDP gradient sync</td></tr>
+<tr><td><strong>All-Gather</strong></td><td>shard of size $S/N$</td><td>concatenated full tensor (size $S$)</td><td>$\approx (N-1)S/N$</td><td>FSDP forward (gather params)</td></tr>
+<tr><td><strong>Reduce-Scatter</strong></td><td>tensor of size $S$</td><td>shard of size $S/N$ summed across ranks</td><td>$\approx (N-1)S/N$</td><td>FSDP backward (scatter grads)</td></tr>
+<tr><td><strong>Broadcast</strong></td><td>tensor on root rank</td><td>same tensor on every rank</td><td>$\approx S$</td><td>checkpoint load, init</td></tr>
+</table>
+</div>
+
+<p>A useful identity: <strong>all-reduce = reduce-scatter + all-gather</strong>. This decomposition is what FSDP exploits: instead of one all-reduce that materializes the full gradient on every rank, FSDP does a reduce-scatter so each rank ends up with only its shard of the gradient. The same total bytes move on the wire, but the per-rank peak memory is $N\times$ smaller. We will see this trick again and again.</p>
+
+<h3 id="59-1-3-1-ring-all-reduce">59.1.3.1 The Ring All-Reduce</h3>
+<p>The classic NCCL implementation arranges the $N$ devices in a logical ring and performs $2(N-1)$ steps. In the first $N-1$ steps (the <em>reduce-scatter</em> phase), each device sends a $S/N$-byte chunk to the next neighbor and receives a chunk from the previous one, accumulating partial sums. In the next $N-1$ steps (the <em>all-gather</em> phase), the reduced chunks circulate around the ring so every device ends up with the full sum.</p>
+
+<p>The total bandwidth per device is:</p>
+
+<div class="math-block">$$B_{\text{ring}} = 2 \cdot \frac{N-1}{N} \cdot S \xrightarrow{N \to \infty} 2S$$</div>
+
+<p>Critically, this is <em>independent of $N$</em> in the asymptotic limit: doubling the cluster size does not double the wire time for an all-reduce. That is why data-parallel training scales gracefully to thousands of GPUs; the per-step communication is bounded.</p>
+
+<h3 id="59-1-3-2-tree-all-reduce">59.1.3.2 Tree-Based All-Reduce</h3>
+<p>For very small messages (typical at startup or in inference), the ring's $\mathcal{O}(N)$ <em>latency</em> dominates. NCCL switches to a tree topology at small message sizes: the data is reduced up a binary tree in $\mathcal{O}(\log N)$ steps and broadcast back down. The crossover point depends on the latency-to-bandwidth ratio of the link, which NCCL auto-tunes per fabric.</p>
+
+<div class="callout practical-example">
+<div class="callout-title">Practical Example: 1 GB gradient all-reduce on 256 GPUs</div>
+<p>A 70B model with FSDP sharding produces a per-rank gradient shard of roughly $70 \times 10^9 \cdot 2 / 256 = 547$ MB per step. On a fabric with 25 GB/s effective per-link bandwidth (a reasonable NVLink + InfiniBand mix), the ring all-reduce wire time is $2 \cdot 547 / 25 = 43.8$ ms regardless of whether you have 256 or 2048 GPUs in the group, because the per-rank work scales as $(N-1)/N$ which is essentially 1. The wall-clock cost of synchronization is bounded; what scales linearly with $N$ is the FLOPs you get out of the same step.</p>
+</div>
+
+<h2 id="59-1-4-the-interconnect-hierarchy">59.1.4 The Interconnect Hierarchy</h2>
+<p>Not all communication paths are equal. A modern training cluster has at least three tiers, and the parallelism plan must respect this hierarchy.</p>
+
+<figure class="diagram">
+<svg aria-label="Cluster interconnect hierarchy" role="img" style="font-family: 'Segoe UI', sans-serif; max-width: 100%; height: auto;" viewBox="0 0 900 400" xmlns="http://www.w3.org/2000/svg">
+  <rect width="900" height="400" fill="#ffffff"/>
+  <text x="450" y="30" font-size="20" font-weight="700" text-anchor="middle" fill="#1a1a2e">Interconnect Hierarchy in a Training Cluster</text>
+
+  <!-- Tier 1: NVLink within node -->
+  <g transform="translate(40, 70)">
+    <rect x="0" y="0" width="380" height="160" rx="6" fill="#eef4fa" stroke="#1a4078" stroke-width="2"/>
+    <text x="190" y="22" font-size="14" font-weight="700" text-anchor="middle" fill="#1a4078">Tier 1: Intra-node (NVLink / NVSwitch)</text>
+    <text x="190" y="40" font-size="11" font-style="italic" text-anchor="middle" fill="#5a4a3a">8 GPUs in one chassis</text>
+
+    <g transform="translate(20, 60)">
+      <rect x="0" y="0" width="50" height="40" rx="3" fill="#ffffff" stroke="#1a4078"/><text x="25" y="24" font-size="10" text-anchor="middle">G0</text>
+      <rect x="60" y="0" width="50" height="40" rx="3" fill="#ffffff" stroke="#1a4078"/><text x="85" y="24" font-size="10" text-anchor="middle">G1</text>
+      <rect x="120" y="0" width="50" height="40" rx="3" fill="#ffffff" stroke="#1a4078"/><text x="145" y="24" font-size="10" text-anchor="middle">G2</text>
+      <rect x="180" y="0" width="50" height="40" rx="3" fill="#ffffff" stroke="#1a4078"/><text x="205" y="24" font-size="10" text-anchor="middle">G3</text>
+      <rect x="240" y="0" width="50" height="40" rx="3" fill="#ffffff" stroke="#1a4078"/><text x="265" y="24" font-size="10" text-anchor="middle">G4</text>
+      <rect x="300" y="0" width="50" height="40" rx="3" fill="#ffffff" stroke="#1a4078"/><text x="325" y="24" font-size="10" text-anchor="middle">G5</text>
+    </g>
+    <text x="190" y="138" font-size="12" font-weight="600" text-anchor="middle" fill="#1a4078">900 GB/s per direction (H100 NVLink 4)</text>
+  </g>
+
+  <!-- Tier 2: InfiniBand across rack -->
+  <g transform="translate(480, 70)">
+    <rect x="0" y="0" width="380" height="160" rx="6" fill="#ecf6ee" stroke="#1f7a3a" stroke-width="2"/>
+    <text x="190" y="22" font-size="14" font-weight="700" text-anchor="middle" fill="#1f7a3a">Tier 2: Inter-node (InfiniBand / RoCE)</text>
+    <text x="190" y="40" font-size="11" font-style="italic" text-anchor="middle" fill="#5a4a3a">Across racks in a pod</text>
+
+    <g transform="translate(40, 60)">
+      <rect x="0" y="0" width="80" height="50" rx="4" fill="#ffffff" stroke="#1f7a3a"/>
+      <text x="40" y="22" font-size="11" font-weight="600" text-anchor="middle">Node 0</text>
+      <text x="40" y="40" font-size="10" text-anchor="middle" fill="#5a4a3a">8 GPUs</text>
+
+      <rect x="100" y="0" width="80" height="50" rx="4" fill="#ffffff" stroke="#1f7a3a"/>
+      <text x="140" y="22" font-size="11" font-weight="600" text-anchor="middle">Node 1</text>
+      <text x="140" y="40" font-size="10" text-anchor="middle" fill="#5a4a3a">8 GPUs</text>
+
+      <rect x="200" y="0" width="80" height="50" rx="4" fill="#ffffff" stroke="#1f7a3a"/>
+      <text x="240" y="22" font-size="11" font-weight="600" text-anchor="middle">Node 2</text>
+      <text x="240" y="40" font-size="10" text-anchor="middle" fill="#5a4a3a">8 GPUs</text>
+    </g>
+    <text x="190" y="138" font-size="12" font-weight="600" text-anchor="middle" fill="#1f7a3a">400 Gb/s per port (NDR IB)</text>
+  </g>
+
+  <!-- Tier 3: spine fabric -->
+  <g transform="translate(40, 250)">
+    <rect x="0" y="0" width="820" height="120" rx="6" fill="#fef3e0" stroke="#a67c1a" stroke-width="2"/>
+    <text x="410" y="22" font-size="14" font-weight="700" text-anchor="middle" fill="#a67c1a">Tier 3: Spine fabric across pods (oversubscribed)</text>
+    <text x="410" y="42" font-size="11" font-style="italic" text-anchor="middle" fill="#5a4a3a">Whole-cluster all-reduce passes through here</text>
+
+    <g transform="translate(40, 60)">
+      <rect x="0" y="0" width="120" height="40" rx="4" fill="#ffffff" stroke="#a67c1a"/><text x="60" y="24" font-size="11" font-weight="600" text-anchor="middle">Pod A</text>
+      <rect x="180" y="0" width="120" height="40" rx="4" fill="#ffffff" stroke="#a67c1a"/><text x="240" y="24" font-size="11" font-weight="600" text-anchor="middle">Pod B</text>
+      <rect x="360" y="0" width="120" height="40" rx="4" fill="#ffffff" stroke="#a67c1a"/><text x="420" y="24" font-size="11" font-weight="600" text-anchor="middle">Pod C</text>
+      <rect x="540" y="0" width="120" height="40" rx="4" fill="#ffffff" stroke="#a67c1a"/><text x="600" y="24" font-size="11" font-weight="600" text-anchor="middle">Pod D</text>
+    </g>
+    <line x1="100" y1="80" x2="660" y2="80" stroke="#a67c1a" stroke-width="2" stroke-dasharray="6,3"/>
+  </g>
+</svg>
+<figcaption><strong>Figure 59.1.2</strong>: A cluster's interconnect is layered. Tensor parallelism wants Tier 1 (NVLink). Pipeline parallelism tolerates Tier 2 (InfiniBand). Data parallelism with FSDP is the only scheme cheap enough to cross Tier 3 routinely.</figcaption>
+</figure>
+
+<h3 id="59-1-4-1-nvlink-and-nvswitch">59.1.4.1 NVLink and NVSwitch</h3>
+<p>Within a single node (DGX, HGX, or similar), NVIDIA's NVLink interconnect provides ~900 GB/s per direction between GPUs on H100 (NVLink 4) and 1.8 TB/s on B200 (NVLink 5). An NVSwitch crossbar gives all-to-all connectivity at full bandwidth within an 8-GPU server. This is fast enough that the per-layer all-reduces of tensor parallelism are tolerable.</p>
+
+<h3 id="59-1-4-2-infiniband-and-roce">59.1.4.2 InfiniBand and RoCE</h3>
+<p>Across nodes, you use a separate fabric: either Mellanox / NVIDIA InfiniBand (NDR 400 Gb/s per port in 2026, XDR 800 Gb/s on the horizon) or RDMA-over-Converged-Ethernet (RoCE v2). Both support remote direct memory access (RDMA), which lets one GPU's network card read or write another GPU's HBM directly without CPU involvement. NCCL transparently uses RDMA when available.</p>
+
+<p>Bandwidth between any two GPUs in different nodes is roughly $400 \text{ Gb/s} = 50 \text{ GB/s}$ per direction, or about $20\times$ slower than NVLink. This factor is the single largest determinant of how to lay out your parallelism plan: tensor-parallel groups must fit inside a node; pipeline and data-parallel groups can cross nodes.</p>
+
+<h3 id="59-1-4-3-spine-and-rail-topologies">59.1.4.3 Spine and Rail Topologies</h3>
+<p>Above 256 GPUs, you cross a second tier of switches called the spine. Many production fabrics oversubscribe the spine (2:1 or 4:1) because intra-pod traffic is far more common than inter-pod, so cross-cluster bandwidth is meaningfully lower per pair. Designs like the "rail-optimized" topology (favored by Meta, Microsoft) dedicate one rail per GPU index so that <code>all_reduce</code> on GPU-3-of-each-node never contends with GPU-4's traffic.</p>
+
+<div class="callout warning">
+<div class="callout-title">Warning: Communication cost is not just bandwidth</div>
+<p>Two often-overlooked sources of slowdown: (1) <em>tail latency</em>: NCCL's all-reduce is bottlenecked by the slowest device, so one straggler GPU drops your effective throughput to that rank's speed. A single overheated GPU can degrade a 1000-GPU cluster's MFU by 5-10%. (2) <em>buffer fragmentation</em>: if NCCL cannot allocate a contiguous communication buffer (often after long-running jobs build up CUDA caching allocator fragments), it falls back to bounce-buffered transfers that are 2-3x slower. Both problems show up in NCCL flame graphs (covered in Section 59.5) and are fixed by per-rank straggler detection and by periodic <code>torch.cuda.empty_cache()</code> calls at known synchronization points.</p>
+</div>
+
+<h2 id="59-1-5-the-bsp-model-and-sync-vs-async">59.1.5 The BSP Model and Sync vs Async</h2>
+<p>The mathematical contract of standard distributed training is the <strong>bulk synchronous parallel (BSP)</strong> model, due to Leslie Valiant in 1990. A BSP step consists of:</p>
+
+<ol>
+<li><strong>Local computation</strong>: each device runs forward + backward, producing local gradients.</li>
+<li><strong>Communication</strong>: all devices participate in a collective (all-reduce, or reduce-scatter + all-gather).</li>
+<li><strong>Synchronization barrier</strong>: no device proceeds until the collective is complete.</li>
+<li><strong>Optimizer step</strong>: each device applies the now-identical gradient.</li>
+</ol>
+
+<p>BSP guarantees that all replicas remain bitwise identical after each step, which makes distributed training mathematically equivalent to a single-device run with a larger batch size. The price is the barrier: if device $i$ is slow this step, every other device idles.</p>
+
+<h3 id="59-1-5-1-asynchronous-parameter-server">59.1.5.1 The Asynchronous Alternative</h3>
+<p>For decades, distributed ML used the <em>asynchronous parameter server</em> model: workers push gradients to a central server whenever they finish, and pull the latest parameters whenever they start a new step. Workers see slightly stale parameters; the optimizer must tolerate the staleness. Hogwild! (Niu et al., 2011) showed this can work for sparse SGD, and DistBelief / TensorFlow's PS architecture (Dean et al., 2012) scaled it to thousands of CPUs at Google.</p>
+
+<p>Async lost to BSP for dense neural network training, for three reasons that still hold in 2026:</p>
+<ol>
+<li><strong>Staleness hurts large-batch optimizers</strong>. AdamW and LION are extraordinarily sensitive to gradient direction; even a few-step delay shifts the moment estimates enough to slow convergence by 10-30%.</li>
+<li><strong>Reproducibility</strong>. Async training is non-deterministic at the bit level. Debugging a divergence at step 25,000 is hard enough; debugging a non-reproducible one is hopeless.</li>
+<li><strong>Hardware uniformity</strong>. Modern clusters are homogeneous: stragglers are rare, and when they happen you want to find and fix them, not paper over them with async.</li>
+</ol>
+
+<p>Async survives at the <em>edges</em>: federated learning (Chapter 60 covers this), continual / online learning, and recently in decentralized training over the public internet (DiLoCo, OpenDiLoCo). But for frontier pre-training, BSP rules.</p>
+
+<div class="callout key-insight">
+<div class="callout-title">Key Insight: The barrier is a feature, not a bug</div>
+<p>The BSP barrier turns a thousand independent stochastic gradient estimates into a single bit-for-bit deterministic step. This is what lets you re-run training from any checkpoint and recover the same trajectory; it is what makes ablation studies meaningful; it is what makes a regression in step 12,000 something you can hunt for in git. The "async is faster" intuition trades reproducibility for a 5-15% throughput gain that mixed-precision and gradient accumulation can give back without any of the debugging cost.</p>
+</div>
+
+<h2 id="59-1-6-a-minimal-ddp-training-loop">59.1.6 A Minimal DDP Training Loop</h2>
+<p>To make all of this concrete, the canonical PyTorch DistributedDataParallel (DDP) loop fits in fewer than 40 lines. Every more advanced scheme in this chapter starts from this skeleton.</p>
+
+<div class="code-block-wrapper">
+<pre><code class="lang-python"># minimal_ddp.py — torchrun --nproc_per_node=8 minimal_ddp.py
+import os
+import torch
+import torch.distributed as dist
+import torch.nn as nn
+from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.utils.data import DataLoader, DistributedSampler
+
+def setup():
+    # torchrun sets RANK, LOCAL_RANK, WORLD_SIZE automatically
+    dist.init_process_group(backend="nccl")
+    local_rank = int(os.environ["LOCAL_RANK"])
+    torch.cuda.set_device(local_rank)
+    return local_rank
+
+def cleanup():
+    dist.destroy_process_group()
+
+def train(local_rank, model, dataset, epochs=1, lr=3e-4):
+    # 1) Build a sampler that gives each rank a disjoint slice of the data
+    sampler = DistributedSampler(dataset, shuffle=True)
+    loader = DataLoader(dataset, batch_size=8, sampler=sampler)
+
+    # 2) Move the model to this rank's GPU and wrap with DDP
+    model = model.to(local_rank)
+    model = DDP(model, device_ids=[local_rank])
+
+    optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
+
+    for epoch in range(epochs):
+        sampler.set_epoch(epoch)  # so shuffling differs across epochs
+        for batch in loader:
+            x, y = batch["input"].to(local_rank), batch["label"].to(local_rank)
+            optimizer.zero_grad(set_to_none=True)
+            loss = nn.functional.cross_entropy(model(x), y)
+            loss.backward()         # DDP hooks fire here, all-reducing grads
+            optimizer.step()        # bitwise-identical update on every rank
+
+if __name__ == "__main__":
+    local_rank = setup()
+    model = nn.Linear(1024, 10)            # stand-in for the real model
+    dataset = MyDataset()                  # any torch.utils.data.Dataset
+    train(local_rank, model, dataset)
+    cleanup()
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 59.1.1</strong>: A complete DDP training loop. Launch with <code>torchrun --nproc_per_node=8 minimal_ddp.py</code>. DDP installs hooks on each parameter that fire during <code>.backward()</code>, packing gradients into buckets and issuing one all-reduce per bucket; the overlap with the rest of the backward pass means communication and compute mostly hide one another.</div>
+</div>
+
+<p>Three things to notice:</p>
+<ul>
+<li><code>DistributedSampler</code> is essential. Without it, every rank trains on the same data and the all-reduced gradient is identical to a single-rank gradient on a smaller batch; you have spent N GPUs to achieve 1 GPU's effective step.</li>
+<li>DDP's gradient bucketing overlaps communication with compute. The first parameters whose backward finishes have their gradients all-reduced while later layers are still computing. This is why DDP can sustain &gt; 90% scaling efficiency even on modest interconnects.</li>
+<li>The optimizer step is local but produces an identical result on every rank, because every rank applies the same averaged gradient to the same starting parameters. This invariant is the BSP contract; the rest of this chapter is about preserving it under sharding.</li>
+</ul>
+
+<h2 id="59-1-7-summary">59.1.7 Summary</h2>
+<p>This section laid the foundations the rest of Chapter 59 builds on. The vocabulary you should now own: data / pipeline / tensor parallelism as the three axes; all-reduce, all-gather, and reduce-scatter as the collectives that make parallelism work; NVLink versus InfiniBand as the bandwidth tiers that determine which parallelism strategies can cross which boundaries; and BSP versus async as the consistency model, where BSP wins for frontier pre-training and async survives only at the edges. Sections 59.2 through 59.4 each pick one of the three axes and develop it in depth: ZeRO / FSDP for data parallelism with sharded state; Megatron-LM for tensor parallelism; and 1F1B for pipeline. Section 59.5 closes the loop with the operational concerns (checkpointing, fault tolerance, observability) that turn the algorithms above into a training run that actually finishes.</p>
+
 <section class="bibliography">
 <h2>Bibliography</h2>
 <ol>
-<li>Rajbhandari, S. et al. "ZeRO: Memory Optimizations Toward Training Trillion Parameter Models." SC (2020).</li><li>Shoeybi, M. et al. "Megatron-LM: Training Multi-Billion Parameter Language Models Using Model Parallelism." (2019).</li><li>Zhao, Y. et al. "PyTorch FSDP: Experiences on Scaling Fully Sharded Data Parallel." (2023).</li>
+<li>Valiant, L. G. <em>"A bridging model for parallel computation."</em> Communications of the ACM 33.8 (1990): 103-111. The BSP model.</li>
+<li>Goyal, P. et al. <em>"Accurate, Large Minibatch SGD: Training ImageNet in 1 Hour."</em> arXiv:1706.02677 (2017). Synchronous data parallelism at scale.</li>
+<li>Sergeev, A. and Del Balso, M. <em>"Horovod: fast and easy distributed deep learning in TensorFlow."</em> arXiv:1802.05799 (2018). The ring-allreduce framework that proved sync DP scales.</li>
+<li>NVIDIA. <em>"NCCL: Optimized primitives for collective multi-GPU communication."</em> <a href="https://github.com/NVIDIA/nccl">github.com/NVIDIA/nccl</a> and <a href="https://docs.nvidia.com/deeplearning/nccl/">NCCL docs</a>.</li>
+<li>Niu, F., Recht, B., Re, C., Wright, S. <em>"Hogwild!: A Lock-Free Approach to Parallelizing Stochastic Gradient Descent."</em> NeurIPS (2011). The async case.</li>
+<li>Dean, J. et al. <em>"Large Scale Distributed Deep Networks."</em> NeurIPS (2012). DistBelief, the parameter-server era.</li>
+<li>Li, S. et al. <em>"PyTorch Distributed: Experiences on Accelerating Data Parallel Training."</em> VLDB (2020). The canonical DDP paper.</li>
+<li>Patarasuk, P. and Yuan, X. <em>"Bandwidth optimal all-reduce algorithms for clusters of workstations."</em> JPDC (2009). The bandwidth-optimality proof for ring all-reduce.</li>
 </ol>
 </section>
+
 <nav class="section-nav"></nav>
 <nav class="chapter-nav">
 <a class="prev" href="../module-58-frontier-systems-hardware/section-58.5.html"><span class="nav-label">Previous</span><span class="nav-num">Section 58.5</span><span class="nav-title">Training-Inference Co-Design</span></a>
