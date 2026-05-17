@@ -1,41 +1,15 @@
-# Book Structure: Analysis and Proposed Restructure (v4)
+# Book Structure: Analysis and Proposed Restructure (v5)
 
 **Status**: proposal, in development on branch `v2.0`. Production lives on `main` tagged `production-v1.0`.
 **Generated**: 2026-05-17, post-appendix-renumbering.
 **Revision history**:
   - v1 — initial: 13 parts → 13 parts, 87 → 78 chapters; mostly merge/dedupe.
-  - v2 — split Part V into Retrieval+IE and Dialogue+Assistants (13 → 14 parts).
-  - v3 — split Part X (Operations) into LLM @ Scale and LLMOps; move Multimodal to V (model-cluster); 15 parts.
-  - **v4 (this version)** — move Agentic AI to Part VI (right after model cluster, before Retrieval / Dialogue); rename Part XII from "Production Engineering" (fuzzy, overlaps Scale) to "LLMOps & Lifecycle Management".
+  - v2 — split Part V into Retrieval+IE and Dialogue+Assistants.
+  - v3 — split Part X into LLM @ Scale and LLMOps; move Multimodal to V.
+  - v4 — move Agentic AI to Part VI; rename Part XII to LLMOps & Lifecycle Management.
+  - **v5 (this version)** — deep section-level content analysis + content-level fixes added to the plan (not just structural moves). See section 5 (content findings) and section 7 (per-chapter intervention list).
+
 **Current state on disk**: 13 parts, 87 chapters, 413 sections, 7 appendices, audit clean.
-
-## v4 rationale: why Agentic AI moves to Part VI
-
-In v3, Agentic AI sat at Part VIII (after Retrieval and Dialogue). But agentic patterns ripple backward through the book:
-  - Retrieval has "Agentic RAG" (current sec 23.4)
-  - Dialogue has Voice Agents (current sec 24.5)
-  - Multimodal has VLA (Vision-Language-**Action**) — fundamentally an agent concept
-
-Forward references everywhere. The fix is to introduce Agentic AI *immediately after* the model cluster, so Retrieval, Dialogue, and even VLA in Multimodal can build on agent foundations rather than forward-reference them.
-
-New ordering of the patterns cluster:
-
-| Old | New |
-|---|---|
-| VI Retrieval & IE | **VI Agentic AI** (moved up from VIII) |
-| VII Dialogue & CAI | VII Retrieval & IE |
-| VIII Agentic AI | VIII Dialogue & CAI |
-
-The "model → agents → patterns that use agents" arc is now linear, not circular.
-
-## v4 rationale: rename Part XII
-
-"Production Engineering" was too broad — it could plausibly mean inference-engineering-at-scale (which belongs in Part XI). Renaming to **"LLMOps & Lifecycle Management"** disambiguates:
-
-  - XI = the *scaling* layer (compute, distributed training, hardware, edge)
-  - XII = the *operational* layer (gateways, orchestration, deployment, reliability, registry, lifecycle)
-
-No content change, just clearer scope.
 
 ---
 
@@ -47,7 +21,8 @@ No content change, just clearer scope.
 | **B. No duplication** | Each subject appears once in the ToC; cross-refs handle repetition |
 | **C. Reasonable counts** | 5–7 chapters per part, 3–8 sections per chapter |
 | **D. Consistent abstraction** | Sibling chapters cover comparable scope |
-| **E. Reading order** | The narrative flows from model → patterns → quality → runtime → applied → frontier |
+| **E. Reading order** | Model → patterns → quality → runtime → applied → frontier |
+| **F. Content density** | Sections in the 5–60 KB body-text band; no stubs, no monsters |
 
 ---
 
@@ -58,213 +33,205 @@ The 15 parts cluster into 6 thematic blocks:
 | Block | Parts | What it covers |
 |---|---|---|
 | **A. Models** | I–V | What an LLM is, how it works, how to train and adapt it, what modalities it covers |
-| **B. Patterns on top of models** | VI–VIII | Agentic AI (foundational pattern), retrieval, dialogue — the application-level patterns. Agentic AI sits first because retrieval/dialogue use agent concepts. |
-| **C. Quality** | IX–X | Evaluation, observability, safety, security, ethics — non-functional concerns |
-| **D. Runtime** | XI–XII | Scale (compute / performance) and LLMOps (workflow / lifecycle) |
-| **E. Applied** | XIII–XIV | Designing products and shipping into specific industries |
-| **F. Future** | XV | Frontier research, theory, AGI trajectories |
-
-This grouping is the *why* behind the order. The block boundaries are also natural pause points for a course track.
+| **B. Patterns on top of models** | VI–VIII | Agentic AI (foundational pattern), retrieval, dialogue — the application patterns. Agents come first because retrieval/dialogue use agent concepts. |
+| **C. Quality** | IX–X | Evaluation, observability, safety, security, ethics |
+| **D. Runtime** | XI–XII | Scale (compute/performance) and LLMOps (workflow/lifecycle) |
+| **E. Applied** | XIII–XIV | Designing products and shipping into industries |
+| **F. Future** | XV | Frontier research, theory, AGI |
 
 ---
 
-## 3. Proposed structure (final)
+## 3. Final per-part structure
 
 | # | Part | Ch | What it contains |
 |---|---|---:|---|
-| **I** | **Foundations** | 7 | Math / ML / PyTorch prerequisites, NLP basics, tokenization, attention, transformer architecture, decoding strategies, Foundations Tools |
-| **II** | **Understanding LLMs** | 5 | Pre-training & scaling laws, modern LLM landscape, reasoning models & test-time compute, inference optimization & efficient serving, interpretability + Understanding Tools |
-| **III** | **Working with LLMs** | 4 | LLM APIs, prompt engineering & advanced techniques, hybrid ML+LLM architectures, Working-with-LLMs Tools |
-| **IV** | **LLM Training & Adaptation** | 5 | Synthetic data generation, fine-tuning fundamentals, PEFT (LoRA / QLoRA / soft prompts), alignment (RLHF / DPO / preference tuning), Training Tools |
-| **V** | **Multimodal LLMs** | 7 | Vision-language & Omni models, image/video generation, audio & music generation, document understanding & OCR, 3D generation & neural scenes, embodied AI / VLA / robotics, Multimodal Tools |
-| **VI** | **Agentic AI** *(moved up from VIII)* | 5 | Agent foundations, tool use / MCP / A2A protocols, multi-agent systems, specialized agents (code, browser, research), Agent Tools |
-| **VII** | **Retrieval & Information Extraction** | 6 | Embeddings & vector databases, structured information extraction & NER, RAG fundamentals, advanced RAG / knowledge graphs, cross-modal RAG, Retrieval Tools |
-| **VIII** | **Dialogue & Conversational AI** | 5 | Dialogue architecture & personas, memory & context management, multi-turn conversation flows, voice & realtime multimodal assistants, Conversational AI Tools |
-| **IX** | **Evaluation & Observability** | 4 | Evaluation fundamentals & quality metrics, specialized evaluation (RAG / agents / multimodal), online evaluation & production monitoring, Eval Tools |
-| **X** | **Safety, Security & Ethics** | 9 | Adversarial security & red teaming, guardrails & runtime safety, agent safety & sandboxing, privacy & data protection, bias / fairness / hallucination, regulation & compliance, watermarking / provenance / transparency, frontier safety & sustainability, Safety Tools |
-| **XI** | **LLM Systems at Scale** | 5 | Compute planning & GPU procurement, distributed training systems, hardware & chip diversity, edge & on-device LLMs, Scale Tools |
-| **XII** | **LLMOps & Lifecycle Management** *(renamed)* | 5 | AI gateways & model routing, workflow orchestration & durable execution, containers / Kubernetes / deployment, reliability engineering / SLOs / model registry, LLMOps Tools |
-| **XIII** | **Designing LLM Products** | 7 | Ideation / strategy / product hypothesis, LLM product management, prototyping via vibe-coding, building the MVP, scaling economics & ROI, shipping & scaling AI products, Product Tools |
-| **XIV** | **Industry Applications** | 8 | Legal, finance, healthcare, education, cybersecurity, government, manufacturing + creative + recommendation (merged), Industry Tools |
-| **XV** | **Frontiers** | 4 | Frontier architectures & scaling, frontier theory & cognition, AGI trajectories & open questions, Frontier Tools |
+| **I** | **Foundations** | 7 | Math/ML/PyTorch, NLP basics, tokenization, attention, transformers, decoding, Foundations Tools |
+| **II** | **Understanding LLMs** | 5 | Pre-training & scaling, modern landscape, reasoning, inference optimization, interpretability+Tools |
+| **III** | **Working with LLMs** | 4 | APIs, prompt engineering, hybrid ML+LLM, Tools |
+| **IV** | **LLM Training & Adaptation** | 5 | Synthetic data, SFT, PEFT, alignment, Tools |
+| **V** | **Multimodal LLMs** *(moved earlier)* | 7 | VLM/Omni, image+video, audio, document/OCR, 3D/scenes, embodied AI/VLA/robotics, Tools |
+| **VI** | **Agentic AI** *(moved up)* | 5 | Foundations, tools/MCP/A2A, multi-agent, specialized, Tools |
+| **VII** | **Retrieval & Information Extraction** | 6 | Embeddings, **NER (promoted)**, RAG fundamentals, advanced RAG/KG, cross-modal RAG, Tools |
+| **VIII** | **Dialogue & Conversational AI** | 5 | Architecture, memory, multi-turn, voice & realtime, Tools |
+| **IX** | **Evaluation & Observability** | 4 | Quality metrics, specialized eval, online monitoring, Tools |
+| **X** | **Safety, Security & Ethics** | 9 | Adversarial, guardrails, agent safety, privacy, bias/hallucination, regulation, provenance, frontier safety, Tools |
+| **XI** | **LLM Systems at Scale** | 5 | Compute planning, distributed training, hardware, edge, Tools |
+| **XII** | **LLMOps & Lifecycle Management** *(renamed)* | 5 | Gateways, orchestration, K8s, reliability/registry, Tools |
+| **XIII** | **Designing LLM Products** | 7 | Ideation/strategy, PM, prototyping, MVP, economics, shipping, Tools |
+| **XIV** | **Industry Applications** | 8 | Legal, finance, healthcare, education, cyber, gov, manuf+creative+rec (merged), Tools |
+| **XV** | **Frontiers** | 4 | Architectures, theory, AGI trajectories, Tools |
 
-**Totals**: 15 parts, **86 chapters**, ~370 sections (target). Every part lands in the 4–9 chapter band.
-
----
-
-## 4. Why the order changes
-
-### Multimodal moved from VIII → V (model-cluster)
-
-**Argument**: A multimodal LLM is an extension of the LLM itself — a different *kind* of model, not a different *use* of one. The model cluster (Foundations → Understanding → Working → Training → Multimodal) covers the spectrum of "what LLMs are." The pattern cluster (Retrieval → Dialogue → Agents) covers "what you build with them."
-
-**Side benefits**:
-- Cross-Modal RAG (currently Part VII Ch 42) moves naturally into Retrieval (VI Ch 5), which makes the retrieval-as-pattern story contiguous.
-- The voice/streaming-realtime content (currently Part VII Ch 38) moves into Dialogue (VII Ch 4) as the realtime-API basis for voice assistants.
-- Embodied AI / VLA (current Ch 39, 40, 41) consolidates into one Multimodal chapter; the agent-overlap (VLA is an agentic pattern) becomes a cross-reference from Part VIII.
-
-### Operations split into XI (Scale) + XII (LLMOps)
-
-**Argument**: Old Part X mixed two different disciplines into one bag.
-
-- **Scale** = computational concerns at the inference/training/hardware layer (vLLM, distributed training systems, GPU procurement, edge silicon, chip diversity).
-- **Ops** = workflow / lifecycle / process discipline (gateways, orchestration, containers, reliability engineering, model registry).
-
-They share vocabulary (both touch Kubernetes, both touch monitoring) but the *concerns* are different — one is "make it fast on the GPU," the other is "make it reliable in production."
-
-**Side benefits**:
-- Hardware content currently in Part XIII Frontiers (Ch 84 "Frontier Systems & Hardware") finds a stable home in Part XI ("Hardware & chip diversity" chapter) — hardware isn't really frontier-only, it's a scaling concern.
-- Distributed training systems currently buried as Part II sections 7.6, 7.8 get a chapter in Part XI.
-- The 11-section monster Ch 62 (currently in Part X) cleanly splits across the two new parts.
-
-### Why XI (Scale) before XII (LLMOps)
-
-You provision compute and serving infrastructure (Scale) before you wire up the operational disciplines that run on top (Ops). Same direction as the bottom-up reading order in the rest of the book.
+**Totals**: 15 parts, **86 chapters**, ~370 sections target. Every part in 4–9 chapter band.
 
 ---
 
-## 5. Where NER / structured extraction lives
+## 4. Section size distribution (current state)
 
-In the new Part VI Ch 2: **Structured Information Extraction & NER** *(was buried as section 15.5 inside a hybrid-architecture chapter)*. Pairs naturally with the surrounding chapters:
+```
+Total: 413 sections, 10,168 KB body text
+Average section: 24 KB
+```
 
-- VI.1 Embeddings & Vector DBs (unstructured → similarity)
-- **VI.2 Structured IE & NER (unstructured → structured)**
-- VI.3 RAG Fundamentals (retrieval-as-context)
-- VI.4 Advanced RAG / Knowledge Graphs (entity → graph → graph-augmented retrieval)
-- VI.5 Cross-Modal RAG (extending retrieval to images / video / audio)
-- VI.6 Retrieval Tools
+| Part | # Sec | Total | Avg | Min | Max | Verdict |
+|---|---:|---:|---:|---:|---:|---|
+| I (Foundations)   | 28 | 1111 KB | 39 KB |  4 KB |  66 KB | OK |
+| II (Understanding)| 35 | 1367 KB | 39 KB |  3 KB |  65 KB | OK |
+| III (Working)     | 20 |  682 KB | 34 KB |  2 KB |  79 KB | Has monster (15.5) |
+| IV (Training)     | 31 | 1159 KB | 37 KB |  2 KB | 114 KB | Has monster (21.2) |
+| V (Retrieval+CAI) | 24 |  885 KB | 36 KB |  2 KB |  75 KB | Has monster (25.2) |
+| VI (Agents)       | 25 |  547 KB | 21 KB |  2 KB |  45 KB | OK |
+| **VII (Multimodal)** | **66** | **1007 KB** | **15 KB** |  3 KB |  42 KB | **Thin avg → indicates over-splitting + Ch 31, Ch 41 duplicates** |
+| VIII (Eval)       | 26 |  740 KB | 28 KB |  1 KB |  80 KB | Has monster (48.2) |
+| IX (Safety)       | 36 |  777 KB | 21 KB |  1 KB |  86 KB | Has monster (49.1) + 4 single-sec ch |
+| X (Operations)    | 15 |  342 KB | 22 KB |  6 KB |  41 KB | OK |
+| XI (Designing)    | 35 |  680 KB | 19 KB |  1 KB |  51 KB | Has duplicate-content chapters |
+| **XII (Industries)** | **49** | **487 KB** |  **9 KB** |  1 KB |  41 KB | **Thin avg → industry chapters under-developed** |
+| XIII (Frontiers)  | 23 |  378 KB | 16 KB |  5 KB |  44 KB | OK |
 
-Knowledge-graph construction (currently scattered across 15.5, 23.3, 23.7) becomes a contiguous arc: NER (VI.2) → graph construction (VI.4) → graph-augmented retrieval (VI.4).
-
----
-
-## 6. Summary of structural changes
-
-The table below maps every change from current disk state (13 parts, 87 chapters) to the proposed structure (15 parts, 86 chapters).
-
-| New # | Part | Old # / source | Ch (before → after) | Notes |
-|---:|---|---|---:|---|
-| I    | Foundations | I | 7 → 7 | unchanged |
-| II   | Understanding LLMs | II | 6 → 5 | merge old Ch 11 + Ch 12 |
-| III  | Working with LLMs | III | 4 → 4 | sec 15.5, 15.6 move to new VI |
-| IV   | LLM Training & Adaptation | IV | 5 → 5 | unchanged |
-| **V** | **Multimodal LLMs** | **VII** | **13 → 7** | drop Ch 31 (overview duplicate) and Ch 41 (aggregator); merge Ch 35+37 (VLM+Omni), Ch 39+40 (VLA+Robotics); move Ch 38 (streaming) to new VII; move Ch 42 (cross-modal RAG) to new VI |
-| **VI** | **Retrieval & Information Extraction** | **V (partial) + III sec 15.5** | new | 6-chapter split from old V; NER promoted from sec 15.5 to chapter |
-| **VII** | **Dialogue & Conversational AI** | **V (partial) + old VII Ch 38** | new | 5-chapter split from old V; absorbs streaming-realtime chapter from Multimodal |
-| VIII | Agentic AI | VI | 5 → 5 | unchanged |
-| IX   | Evaluation & Observability | VIII | 5 → 4 | merge Ch 45 (1-section orphan) into Ch 44; rename Ch 47 sections to start at .1 |
-| X    | Safety, Security & Ethics | IX | 12 → 9 | merge Ch 53+54, Ch 56+57, Ch 58+59 |
-| **XI** | **LLM Systems at Scale** | **X (partial) + II 7.6/7.8 + XIII Ch 84** | new | Compute, distributed training, hardware, edge |
-| **XII** | **LLMOps & Production Engineering** | **X (partial)** | new | Gateways, orchestration, K8s, reliability, registry |
-| XIII | Designing LLM Products | XI | 9 → 7 | merge Ch 63+65+68 (three near-duplicate ideation chapters) |
-| XIV  | Industry Applications | XII | 10 → 8 | merge Ch 78+79+80 |
-| XV   | Frontiers | XIII | 5 → 4 | move hardware chapter (Ch 84) into new XI |
-| **TOTAL** | | | **87 → 86** | |
+**Key signals:**
+- Parts VII and XII have anomalously thin section averages (15 KB and 9 KB) — duplicates and underdeveloped industry chapters
+- Five "monster" sections (>75 KB) need splitting: 15.5, 21.2, 25.2, 48.2, 49.1
+- 13 chapters have structural issues (oversized, undersized, or stub sections)
 
 ---
 
-## 7. Execution plan
+## 5. Content findings (section-level deep analysis)
 
-Each phase is independently reversible and ends in an integrity-clean state (P0=P1=P2=P3=0, linear nav 100%, ToC matches disk).
+### 5.1 Duplicate content (same topic in multiple places)
 
-### Phase 0 — Templatization & manifest setup *(prep work, makes every future restructure easier)*
+| Topic | Current locations | Action |
+|---|---|---|
+| **Reasoning models** | 8.3 (section), Ch 9 (whole chapter, same title), 10.6 (section), 13.4 (subset) | Drop 8.3; keep Ch 9 as canonical; tighten 10.6 to inference-only |
+| **Test-time compute** | 8.3, 9.1, 9.5, 10.6 | Consolidate into Ch 9 only |
+| **Embodied AI / VLA / Robotics** | Ch 39 (VLA), Ch 40 (Robotics), Ch 41.1+41.2+41.8 (aggregator duplicates) | Merge 39+40 + unique-from-41 into new V Ch 6 |
+| **3D Gaussian Splatting** | Ch 36 (5 sec dedicated), 41.3+41.5 (duplicate) | Drop 41.3, 41.5; keep Ch 36 only |
+| **World models** | 41.4 (unique), Ch 33 (video gen has overlap) | Keep 41.4 content, re-home in new V Ch 5 |
+| **Audio/Speech/Voice** | Ch 32 (Audio gen), Ch 38 (Streaming), 24.5 (Voice Agents), 31.2 (overview duplicate) | Move 38.x → Dialogue Ch 4 (with 24.5); keep 32 as audio-gen; drop 31.2 |
+| **Multimodal Reasoning** | 35.5, 41.7, 42.3, 42.4 | Consolidate in new VII Ch 5 (Cross-Modal RAG) |
+| **Memory** | 10.2 (KV cache), 24.3 (Dialogue memory), 26.6 (Agent memory), 83.2 (Theory) | Each is distinct in scope; add cross-link table; no merge |
+| **Code Generation** | 29.1 (Code Agents), 29.4 (Coding Workflows), 46.4 (Code Eval) | Consolidate 29.1+29.4; cross-link 46.4 |
+| **Hardware** | 4.4 (GPU Foundations), 10.7 (Kernels), 61.x (Compute), 84 (Frontier Hardware) | Move Ch 84 → new XI Ch 3 (Hardware); keep 4.4 (foundations), 10.7 (kernel theory) |
+| **Industry "X & LLMs" overview sections** | 73.6 (Finance), 74.6 (Healthcare), 76.6 (Cyber) — generic chapter overviews that duplicate the chapter | Delete all three; chapter index already serves this role |
+| **Ch 79 "Education, Legal & Creative"** (sec 79.2) | Cross-cuts Education (Ch 75) and Legal (Ch 72) | Delete; topic belongs in respective domain chapters |
+| **Ideation / Strategy / Product-Hypothesis** | Ch 63 (Ideation, 3 sec), Ch 65 (Strategy, 2 sec), Ch 68 (From Idea to Hypothesis, 7 sec) | Merge into one chapter, ~6 sections |
 
-The book already has templating infrastructure that has fallen behind disk reality during recent restructures. Phase 0 brings it back in sync and turns it into the single source of truth.
+### 5.2 Quality issues by chapter
 
-**Artifacts:**
+| Chapter | Issue | Fix |
+|---|---|---|
+| **Ch 7** (Pre-training) | 9 sections (over band); sec 7.6 (Distributed Training) and 7.8 (Production Training Systems) belong in new Part XI | Move 7.6 + 7.8 to new XI Ch 2; Ch 7 retains 7 sections |
+| **Ch 15** (Hybrid ML+LLM) | 6 sec; sec 15.5 (NER) at 79 KB is monster, sec 15.6 (Dataset Engineering) loosely connected | Promote 15.5 → new VII Ch 2; 15.6 stays in 15 OR moves to IV (training data prep) |
+| **Ch 21** (Training Tools) | Sec 21.2 is 114 KB monster — too many deep-dives merged in during ToT consolidation | Split into 21.2a (training frameworks: HuggingFace, Accelerate, PEFT, TRL) and 21.2b (experiment tracking: W&B, MLflow, hyperparameter opt) |
+| **Ch 23** (RAG) | 9 sections (over band) | Split: 23.1–23.4 → new VII Ch 3 (RAG Fundamentals); 23.6–23.9 + 23.3 → new VII Ch 4 (Advanced RAG / KG) |
+| **Ch 31** (Multimodal overview) | 4 sections, all overview-duplicates of Ch 32–35, Ch 37 | Delete chapter entirely |
+| **Ch 41** (Embodied AI aggregator) | 8 sections, 6 of which duplicate Ch 36/39/40/42 | Extract 41.4 (World Models) → new V Ch 5; delete rest |
+| **Ch 44** (Eval Foundations) | 11 sections (over band) | Split: 44.1–44.6 stay as Eval Foundations; 44.7–44.11 → new IX Ch 2 (Eval Methodology) |
+| **Ch 45** (Testing Quality Gates orphan) | 1 section starting at 45.6 | Merge into Ch 44 |
+| **Ch 47** (Online Eval) | 4 sections starting at 47.4 (broken numbering) | Renumber to 47.1–47.4 |
+| **Ch 49** (Adversarial Security) | 2 sections; sec 49.1 is 86 KB monster | Split 49.1 into 3 sections (threats taxonomy, common attacks, attack-surface model); keep 49.2 |
+| **Ch 52** (Privacy) | 2 sections | Expand: split 52.1 into privacy attacks (52.1) + differential privacy (52.2); rename 52.2 to 52.3 (Unlearning) |
+| **Ch 53, 54, 58, 59** (Safety singletons) | 1 section each; Ch 59 starts at 59.5 | Merge into adjacent chapters per v3 plan (Bias+Hallucination, Environmental+Frontier-Safety) |
+| **Ch 62** (Production Engineering) | 11 sections | Split into 4 chapters across new XI and XII per v3 plan |
+| **Ch 65** (Strategy) | 2 sections | Merge with Ch 63 (Ideation) + Ch 68 (Hypothesis) per v3 plan |
+| **Ch 68** (From Idea to Hypothesis) | 7 sections that duplicate Ch 63 scope | Merge into combined Ideation chapter |
+| **Ch 70** (Shipping) | 6 sections; 70.5 "Application Architecture & Deployment" overlaps with Part X (Ops) | Move 70.5 → new XII (LLMOps); keep 70 product-focused |
+| **Ch 72–78** (Industry chapters) | Some have stale ".6" overview sections that duplicate the chapter | Delete 73.6, 74.6, 76.6 (or merge their unique content into earlier sections) |
+| **Ch 79** (Creative Industries) | 3 sections, one cross-cutting Education/Legal/Creative — duplicates | Drop 79.2; rebuild as Creative-only |
 
-| File | Purpose |
-|---|---|
-| `book_structure.yaml` | **Manifest of current state** — every part / chapter / section. Refresh from disk in Phase 0; thereafter it's the source of truth. |
-| `book_structure.target.yaml` | **Declarative target state** — same shape, plus `_action` and `_source(s)` per chapter so the migration is described, not coded. |
-| `templates/section.html`, `chapter-index.html`, `part-index.html` | Skeleton HTML with `{{PLACEHOLDER}}` tokens for new content. |
-| `templates/README.md` | The conventions doc — callouts, exercise badges, cross-ref classes, mandatory elements. |
-| `agents/book-skills/templates/*` | Mirror set used by the authoring agents. |
+### 5.3 Content gaps (topics that deserve more / better treatment)
 
-**Scripts that turn the manifest into reality:**
-
-| Script | Role |
-|---|---|
-| `scripts/structure_diff.py` | Show the migration plan: parts/chapters that are unchanged / rename / merge / split / move / new. Always the first command run. |
-| `scripts/_scaffold_new_chapters.py` | Create new chapter dirs/files for entries with `_action: new_part` or `new`. |
-| `scripts/_resolve_template_placeholders.py` | Fill `{{PLACEHOLDER}}` tokens with concrete values. |
-| `scripts/rebuild_curated_toc.py` | Regenerate `toc.html` from disk. |
-| `scripts/rebuild_linear_nav.py` | Recompute prev / up / next anchors for every section. |
-| `scripts/_rebuild_part_indexes.py`, `_rebuild_chapter_indexes.py` | Regenerate the index pages from current state. |
-| `scripts/html_integrity_audit.py` | The gate that runs after every phase. |
-
-**Phase 0 acceptance tests:**
-
-1. `python scripts/structure_diff.py` runs and shows the v3 migration plan with no errors.
-2. `book_structure.yaml` exactly matches disk: 13 parts, 87 chapters, 413 sections, 7 appendices.
-3. `book_structure.target.yaml` is loadable and exactly matches the v3 proposal: 15 parts, 86 chapters, 7 appendices.
-4. All scripts in the table above are present and executable.
-
-**Why this matters for the future:** after Phase 0, any new restructure is a four-step operation: (1) edit `book_structure.target.yaml`, (2) run `structure_diff.py` to see the plan, (3) run the migration scripts, (4) run the audit. No ad-hoc shell scripts, no hand-rolled regexes that break months later. This is the lesson learned from the seven restructures in this session — every one of them invented its own pattern, which is why we have stale labels and orphan numbering to clean up now.
+| Topic | Current treatment | Proposed |
+|---|---|---|
+| **Long context** | 18.7 (training), 44.9 (eval benchmarks) | Add a unified treatment in II Ch 1 (Pre-training & Scaling) section on "Long Context Foundations" |
+| **Code agents** | 29.1 (Code Gen Agents), 29.4 (Workflows), 46.4 (Code Eval) | Consolidate into VI Ch 4 (Specialized Agents) sec on "Code Generation Agents: Models, Workflows, Evaluation" |
+| **Cost / FinOps** | 15.4 (Cost-Performance), 69.1–69.3 (Economics), 71.x (Tools), 70.1 (Unit econ) | Strengthen XIII Ch 5 (Scaling Economics) as the canonical home; cross-link rest |
+| **Tool use** | 27.1 (Function Calling), 27.2 (MCP), 27.4 (Custom Tools), 13.2 (Structured Output) | Strengthen VI Ch 2 (Tool Use Protocols); reduce 13.2 to API-level structured output only |
+| **Evaluation** of new modalities | 35.5, 46.5 (Multimodal Eval), 26.4 (Agent Eval), 46.1 (RAG Eval) | All consolidate into IX Ch 2 (Specialized Evaluation) |
 
 ---
+
+## 6. Branch & workflow status
+
+```
+main (production)
+├── tag: production-v1.0
+│       (audit-clean baseline: 13 parts, 87 chapters)
+│
+└── v2.0 (current development branch)
+    └── work proceeds here through Phases 0-7
+```
+
+All commits from here forward land on `v2.0`. Once Phases 1–7 complete with audit-clean state, `v2.0` merges to `main` and we tag `production-v2.0`.
+
+Phase 0 (templatization & manifests) is already complete on `v2.0`:
+- `book_structure.yaml` refreshed (13 parts, 87 chapters, 413 sections)
+- `book_structure.target.yaml` declares the v5 target (15 parts, 86 chapters)
+- `scripts/structure_diff.py` shows the migration plan
+- `scripts/_refresh_book_structure_yaml.py` closes the loop after each phase
+
+---
+
+## 7. Execution plan (per-phase, with chapter-level intervention list)
+
+Each phase ends in audit-clean state (P0=P1=P2=P3=0, linear nav 100%, ToC matches disk).
+
+### Phase 0 — Templatization & manifest setup ✅ *(done)*
 
 ### Phase 1 — Lossy deletions (re-home unique content first)
-1. Re-home unique content from Ch 31 (Multimodal overview), Ch 41 (Embodied AI aggregator), Ch 45 (orphan section 45.6).
-2. Delete Ch 31 and Ch 41 (Part VII shells).
-3. Merge Ch 45's single section into Ch 44.
+1. **Ch 31 (Multimodal overview)**: 4 sections deleted entirely; part-index already serves this role.
+2. **Ch 41 (Embodied AI aggregator)**: extract 41.4 (World Models) and 41.7 (Multimodal Reasoning) as candidate sections for new homes; delete other 6 sections; delete shell.
+3. **Ch 45 (Testing Quality Gates orphan)**: merge sec 45.6 into Ch 44.
+4. **Industry overview sections**: delete 73.6 (Finance & Trading), 74.6 (Healthcare overview), 76.6 (Cyber overview), 79.2 (Education/Legal/Creative cross-cut).
+5. **Section 8.3** (Reasoning & Test-Time Compute): delete (Ch 9 covers it canonically).
 
-### Phase 2 — Sibling merges within parts
-4. Part II: merge Ch 11 + Ch 12 (Interpretability + Tools).
-5. Part VII (current): merge Ch 35 + Ch 37 (VLM + Omni).
-6. Part VII: merge Ch 39 + Ch 40 (VLA + Robotics).
-7. Part IX: merge Ch 53 + Ch 54 (Bias + Hallucination).
-8. Part IX: merge Ch 56 + Ch 57 (Watermarking + Transparency).
-9. Part IX: merge Ch 58 + Ch 59 (Environmental + Frontier Safety).
-10. Part XI (current): merge Ch 63 + Ch 65 + Ch 68 (Ideation/Strategy/Hypothesis).
-11. Part XII (current): merge Ch 78 + Ch 79 + Ch 80 (Manufacturing/Creative/Recommendation).
+### Phase 2 — Monster section splits (quality fixes)
+6. **Sec 15.5** (79 KB Structured Information Extraction): keep whole when promoting to new VII Ch 2, but split internally into 4 H2 subsections for readability.
+7. **Sec 21.2** (114 KB Libraries): split into 21.2 (training frameworks: HuggingFace ecosystem) and 21.3 (experiment tracking: W&B / MLflow / HPO). 21.3 displaces current Datasets section to 21.4, etc.
+8. **Sec 25.2** (75 KB Libraries): split into 25.2 (retrieval frameworks: LangChain core, document loaders) and 25.6 (orchestration: LlamaIndex, Haystack, DSPy).
+9. **Sec 48.2** (80 KB Libraries): split into 48.2 (eval frameworks) and 48.6 (observability deep dives).
+10. **Sec 49.1** (86 KB LLM Security Threats): split into 49.1 (threat taxonomy), 49.2 (common attack patterns), 49.3 (attack-surface modeling).
 
-### Phase 3 — Cross-part content moves (Part V split, Multimodal reorder)
-12. Move Part III sec 15.5 (Structured IE & NER) to become a chapter in new Part VI.
-13. Move current Part VII Ch 38 (Streaming Multimodal) to new Part VII (Dialogue) as Voice & Realtime chapter.
-14. Move current Part VII Ch 42 (Cross-Modal RAG) to new Part VI.
-15. Split old Part V into new Part VI (Retrieval & IE, 6 ch) and new Part VII (Dialogue & CAI, 5 ch).
-16. Split old Ch 23 (9 sections) across new Part VI Ch 3 (RAG Fundamentals) and Ch 4 (Advanced RAG / KG).
-17. Move current Part VII (Multimodal) into the new Part V slot (model cluster).
+### Phase 3 — Sibling merges within parts
+11. Part II: merge Ch 11 (Interpretability) + Ch 12 (Tools) → 1 chapter.
+12. Part VII (current Multimodal): merge Ch 35 (VLM) + Ch 37 (Omni) → "Vision-Language and Omni Models".
+13. Part VII: merge Ch 39 (VLA) + Ch 40 (Robotics) + extract from Ch 41 → "Embodied AI: VLA & Robotics".
+14. Part IX (Safety): merge Ch 53 (Bias) + Ch 54 (Hallucination) → "Bias, Fairness, Hallucination & Truthfulness".
+15. Part IX: merge Ch 56 (Watermarking) + Ch 57 (Transparency) → "Watermarking, Provenance & Transparency".
+16. Part IX: merge Ch 58 (Environmental) + Ch 59 (Frontier Safety) → "Frontier Safety, Sustainability & Open Problems".
+17. Part XI (Designing): merge Ch 63 (Ideation) + Ch 65 (Strategy) + Ch 68 (Hypothesis) → "Ideation, Strategy & Product Hypothesis".
+18. Part XII (Industries): merge Ch 78 (Manufacturing) + Ch 79 (Creative) + Ch 80 (Recommendation) → "LLMs in Manufacturing, Creative & Recommendation".
+19. Part VIII (Eval): merge Ch 44 (Eval Foundations) + Ch 45 (Testing) → consolidated; split into two chapters by content-clustering.
 
-### Phase 4 — Part X (Operations) split
-18. Move current Part II sec 7.6, 7.8 (Distributed Training Systems) into new Part XI Ch 2.
-19. Move current Part XIII Ch 84 (Frontier Systems & Hardware) into new Part XI Ch 3.
-20. Split current Part X Ch 62 (11 sections) across:
-    - New Part XI Ch 4 (Edge / On-Device)
-    - New Part XII Ch 1 (Gateways)
-    - New Part XII Ch 2 (Orchestration)
-    - New Part XII Ch 3 (Containers / K8s)
-    - New Part XII Ch 4 (Reliability / SLOs / Registry)
-21. Move current Part X Ch 61 (Compute Planning) into new Part XI Ch 1.
+### Phase 4 — Cross-part content moves
+20. Move sec 15.5 (NER, 79 KB) from Part III Ch 15 → new Part VII Ch 2 as full chapter.
+21. Move sec 15.6 (Dataset Engineering) → Part IV Ch 16 (Synthetic Data) or as a new section in Part IV.
+22. Move Part VII Ch 38 (Streaming Multimodal, 4 sec) → new Part VIII Ch 4 (Voice & Realtime).
+23. Move Part VII Ch 42 (Cross-Modal RAG, 4 sec) → new Part VII Ch 5.
+24. Move Part II sec 7.6 + 7.8 (Distributed Training Systems) → new Part XI Ch 2.
+25. Move Part XIII Ch 84 (Frontier Hardware) → new Part XI Ch 3.
+26. Move Part XI sec 70.5 (Application Architecture & Deployment) → new Part XII (LLMOps).
 
-### Phase 5 — Cascade renumbering
-After all moves/deletions, run the canonical renumbering cascade so chapters are 0–N contiguous. Part numbering shifts: current VI–XIII become VIII–XV.
+### Phase 5 — Part V split + Part X (Operations) split
+27. Split old Part V into new V (Retrieval & IE, 6 ch) and new VI/VIII positions.
+28. Promote Multimodal (old Part VII) to new Part V position.
+29. Split old Ch 62 (11 sections) across new XI Ch 4 (Edge) and new XII Ch 1–4 (Gateways, Orchestration, Containers, Reliability).
 
-Mechanics (proven from the Parts 10–13 and Appendix C–G renumberings):
-- `.__tmp__` intermediates to avoid collisions
-- In-file metadata rewrite (title, meta, breadcrumb, page-current, pagefind-meta, anchor IDs, body refs)
-- Cross-file href rewrite across the entire book
-- Regenerate toc.html, part indexes, chapter indexes
-- Rebuild linear nav chain
+### Phase 6 — Cascade renumbering
+30. Run canonical renumbering: all chapters 0–85 contiguous, all sections X.1–X.N contiguous within each chapter.
+31. Cross-file href rewrite (using `.__tmp__` pattern).
+32. Rebuild toc.html, part indexes, chapter indexes, linear nav.
 
-### Phase 6 — Audit gates between every phase
+### Phase 7 — Manifest re-sync (close the loop)
+33. Run `scripts/_refresh_book_structure_yaml.py` → `book_structure.yaml` matches new disk reality.
+34. `git diff book_structure.yaml book_structure.target.yaml` should show **zero** semantic diff (success criterion).
+
+### Audit gates between every phase
 - P0 critical = 0
 - P1 broken refs = 0
 - P2 placeholders = 0
 - P3 prose drift = 0
-- Linear nav chain 100% coverage
+- Linear nav 100% coverage
 - ToC matches disk
-
-### Phase 7 — Re-sync manifest (closes the loop)
-After all moves and renumbering, re-run the yaml refresh so `book_structure.yaml` matches the new disk reality. This is the manifest the *next* restructure will diff against. Without Phase 7, the next round inherits stale state and we're back to ad-hoc scripts.
-
-```
-python scripts/_refresh_book_structure_yaml.py  # captures new state
-git diff book_structure.yaml book_structure.target.yaml  # should show ZERO diff
-```
-
-The zero-diff check is the success criterion: target became reality.
 
 ---
 
@@ -272,41 +239,30 @@ The zero-diff check is the success criterion: target became reality.
 
 | Risk | Mitigation |
 |---|---|
-| Content loss during chapter merges | Extract unique H2 subsections from the absorbed chapter as new H2 blocks in the absorber; only delete the shell after content moved. |
-| Broken cross-references during reorder | Phase boundaries each end with the full integrity audit. Cascade renumbering script handles slug + section-number rewrites in one pass. |
-| Reader / search bookmark rot | Where chapters are merged, the new file's H2 anchor IDs preserve sensible anchors. Major moves get explicit `<a id="old-X-Y">` aliases for backward compatibility. |
-| Two new parts increase numeric churn | One cascade renumbering at Phase 5 absorbs all shifts in a single audit-gated pass. |
-| Hardware content split between Part XI and XV | Part XV Frontiers covers *frontier* hardware (chips not yet shipping, decentralized training research). Part XI covers production-ready hardware decisions (chip diversity, GPU procurement). Clear boundary. |
+| Content loss during chapter merges | Two-pass: extract unique H2 subsections from the absorbed chapter, append into the absorber as new H2 blocks, only delete the shell after content moved. |
+| Content duplication after merges | Phase 2 splits the monster sections that resulted from EARLIER merges; same pattern applies — extract distinct H2 subsections, redistribute. |
+| Bookmark / search rot | Where chapters merge, new H2 anchor IDs preserve sensible anchors. Major moves get `<a id="old-X-Y">` aliases for backward compatibility. |
+| Numbering cascade complexity | All in one pass at Phase 6 with `.__tmp__` intermediates (proven from the Parts 10–13 and Appendix C–G renumberings). |
+| Industry chapter overview deletions | Each "X.6" section flagged for deletion is checked for unique content first; anything not already in earlier sections is preserved. |
 
 ---
 
-## 9. Open questions
+## 9. Decision needed
 
-1. **Part III at 4 chapters** — below the 5-chapter target. Acceptable as a deliberately compact "first foray" before the deeper parts split the workload, OR should we expand to 5 (e.g., split Ch 14 Prompt Engineering into "Foundational Prompts" + "Advanced Prompts")? Recommendation: **keep at 4**.
+Confirm the v5 plan and I execute Phases 1–7 in order with audit gates between phases. Estimated outcome:
 
-2. **Part IX (Evaluation) at 4 chapters** — same band-edge question. Recommendation: **keep at 4**; evaluation breaks cleanly into 4 cohesive topics.
-
-3. **Part XV (Frontiers) at 4 chapters** after losing the Hardware chapter to Part XI. Recommendation: **keep at 4**; Frontiers is intrinsically a small, opinionated part.
-
-4. **Should Appendices be promoted into a "Part XVI"?** They currently sit as `appendices/` outside the Roman numbering. Recommendation: **keep as-is**; Appendices have different reading dynamics (reference vs. linear).
-
----
-
-## 10. Decision needed
-
-Confirm the proposed structure and I execute Phases 0–7 in order with audit gates between phases. Estimated outcome:
-
-- **13 parts → 15 parts** (+2 from the two splits, Multimodal reordered)
+- **13 parts → 15 parts** (+2 from splits; Multimodal reordered; Agents promoted)
 - **87 chapters → 86 chapters** (≈ same total, much better distributed)
-- **413 sections → ~370 sections** (-10%)
+- **413 sections → ~360 sections** (-13% via dedup; quality fixes throughout)
 - Every part in 4–9 chapter band, every chapter in 3–8 section band
-- NER / structured extraction promoted to chapter status in Part VI
-- Knowledge-graph arc contiguous in Part VI
-- Voice / realtime unified in Part VII (no longer split across Conversation and Multimodal)
-- Hardware content centralized in Part XI (no longer split across Part II, X, XIII, XV)
+- Five monster sections split into proportionate sub-sections
+- Six duplicate aggregator sections eliminated
+- NER promoted to chapter status, knowledge-graph arc contiguous
+- Voice/realtime unified in Dialogue (no longer split with Multimodal)
+- Hardware centralized in Part XI (no longer split across Part II, X, XIII, XV)
 - Distributed training systems promoted to chapter status in Part XI
-- Scale vs Ops separated by discipline
-- Multimodal recognized as a model-cluster topic, not an application-cluster topic
+- Scale vs Ops separated by discipline; Production Engineering → LLMOps & Lifecycle Management
+- Agents promoted to model-cluster-adjacent position so retrieval/dialogue can build on agent foundations
 - Zero duplicated topics across the table of contents
 
-Estimated execution time at the script-level: 6 phases × audit gate, comparable in scope to the previous Parts 10–13 renumbering.
+All work lands on `v2.0`. Production remains live on `main` (`production-v1.0`) until merge.
