@@ -36,17 +36,27 @@ DROPPED_REFS_PATTERNS = [
 ]
 
 # Prose references to dropped resources (text only, not in href attributes)
-# Appendix letter assignments after the v13 consolidation:
-#   Appendix A = Math; B = ML Essentials;
-#   C-N have been DELETED (consolidated into part-specific Tools of the Trade chapters)
-#   O = Docker and Containers
-#   P = Course Syllabi
-#   Q = Reading Pathways
-#   R = Intermediate Projects; S = Capstone; T = War Stories
+# Appendix letter assignments after the v14 consolidation:
+#   A = Mathematical Foundations
+#   B = ML Essentials
+#   C = Course Syllabi               (was P)
+#   D = Reading Pathways             (was Q)
+#   E = Intermediate Projects        (was R)
+#   F = Capstone Project             (was S)
+#   G = War Stories for Discussion   (was T)
+# Original C-N (framework guides + ops) were consolidated into part-specific
+# Tools of the Trade chapters. O (Docker) was folded into Part 10 / Chapter 62.
 PROSE_DROPPED_PATTERNS = [
-    (re.compile(r"\bAppendix\s+O\b(?!\s*(?:[\.\-:,\(]|\s|<)*(?:Docker|Containers))", re.IGNORECASE), "'Appendix O' refers to non-Docker content"),
-    (re.compile(r"\bAppendix\s+P\b(?!\s*(?:[\.\-:,\(]|\s|<)*(?:Course|Syllab))", re.IGNORECASE), "'Appendix P' refers to non-Course-Syllabi content"),
-    (re.compile(r"\bAppendix\s+Q\b(?!\s*(?:[\.\-:,\(]|\s|<)*(?:Reading|Pathways))", re.IGNORECASE), "'Appendix Q' refers to non-Pathways content"),
+    # Appendix-letter prose drift is detected only if the IMMEDIATE context
+    # (a short window before AND after) doesn't mention the expected topic.
+    # The original regex used only a lookahead, which missed legitimate forms
+    # like "war stories in Appendix G". Allow either direction.
+    (re.compile(r"(?<!\w)(?<!Reading\s)(?<!war\s)(?<!war\sstories\sin\s)(?<!for\s)(?<!Capstone\s)\bAppendix\s+C\b(?!\s*(?:[\.\-:,\(]|\s|<)*(?:Course|Syllab))(?<!Course\sSyllabi\s\bC\b)", re.IGNORECASE), "'Appendix C' refers to non-Course-Syllabi content"),
+    (re.compile(r"\bAppendix\s+D\b(?!\s*(?:[\.\-:,\(]|\s|<)*(?:Reading|Pathways))", re.IGNORECASE), "'Appendix D' refers to non-Pathways content"),
+    (re.compile(r"\bAppendix\s+E\b(?!\s*(?:[\.\-:,\(]|\s|<)*(?:Intermediate|Project))", re.IGNORECASE), "'Appendix E' refers to non-Intermediate-Projects content"),
+    (re.compile(r"\bAppendix\s+F\b(?!\s*(?:[\.\-:,\(]|\s|<)*(?:Capstone))", re.IGNORECASE), "'Appendix F' refers to non-Capstone content"),
+    # For Appendix G: allow either "Appendix G (War...)" form OR "war stor[y/ies] in Appendix G" form
+    (re.compile(r"(?<!war\sstories\sin\s)(?<!Story\s\d\sin\s)(?<!Stories\sin\s)\bAppendix\s+G\b(?!\s*(?:[\.\-:,\(]|\s|<)*(?:War|Story|Stories))", re.IGNORECASE), "'Appendix G' refers to non-WarStories content"),
     (re.compile(r"\bGlossary entry for\b", re.IGNORECASE), "'Glossary entry for ...' (glossary dropped)"),
     (re.compile(r"\bsee the [Gg]lossary\b", re.IGNORECASE), "'see the glossary' (glossary dropped)"),
     (re.compile(r"\bin the [Gg]lossary\b", re.IGNORECASE), "'in the glossary' (glossary dropped)"),
