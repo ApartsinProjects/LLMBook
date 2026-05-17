@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<meta content="Section 62.5: Edge and On-Device LLM Deployment. A comprehensive chapter from the Building Conversational AI textbook." name="description"/>
+<title>Section 62.5: Edge and On-Device LLM Deployment</title>
+<link href="../../styles/book.css" rel="stylesheet"/>
+<link href="../../styles/pygments.css" rel="stylesheet"/>
+<link href="../../vendor/prism/prism-theme.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/prism/prism-bundle.min.js"></script>
+<script defer="" src="../../scripts/book.js"></script>
+<link href="../../pagefind/pagefind-ui.css" rel="stylesheet"/>
+<script defer="" src="../../pagefind/pagefind-ui.js"></script>
+</head>
+<body>
+<header class="chapter-header">
+<nav class="header-nav">
+<a class="book-title-link" href="../../index.html">Building Conversational AI with LLMs and Agents</a>
+<a class="toc-link" href="../../toc.html" title="Table of Contents"><span class="toc-icon">☰</span> Contents</a>
+</nav>
+<div class="header-search">
+<div id="search"></div>
+</div>
+
+<div class="page-breadcrumb" data-pagefind-meta="chapter"><a href="../index.html">Part X: LLM Operations and Production Infrastructure</a><span class="bc-sep">›</span><a href="index.html">Chapter 62: Production Engineering for LLM Systems</a></div>
+<h1>Edge and On-Device LLM Deployment</h1><div class="page-current">Section 62.5</div>
+
+</header>
+<main class="content"><span class="pagefind-meta-injected" data-pagefind-meta="part:Part X: LLM Operations and Production Infrastructure" hidden=""></span><span class="pagefind-meta-injected" data-pagefind-meta="chapter:Chapter 62: Production Engineering for LLM Systems" hidden=""></span>
+<blockquote class="epigraph">
+<p>The fastest API call is the one you never make. The most private data is the data that never leaves the device.</p>
+<cite>Every engineer who has waited for a cloud inference round trip on a spotty connection</cite>
+</blockquote>
+<div class="callout big-picture">
+<div class="callout-title">Big Picture</div>
+<p><strong>Not every LLM inference should travel to the cloud.</strong> Privacy constraints, unreliable connectivity, latency requirements, and per-query API costs at scale all create demand for on-device inference. This section surveys the leading edge deployment frameworks (llama.cpp, Ollama, MLX, ExecuTorch), the quantization techniques that make large models fit on consumer hardware, and the battery and thermal constraints that shape mobile inference strategies. The <a href="../../part-2-understanding-llms/module-10-inference-optimization/index.html">inference optimization techniques from Chapter 09</a> provide the theoretical foundation, while this section focuses on the practical tools and tradeoffs for deploying models at the edge.</p>
+</div>
+<div class="prerequisites">
+<h3 id="prerequisites">Prerequisites</h3>
+<p>This section builds on <a href="../../part-2-understanding-llms/module-10-inference-optimization/index.html">inference optimization</a> from <a class="prereq-link" href="../../part-2-understanding-llms/module-10-inference-optimization/index.html">Chapter 09</a>, <a href="../../part-11-designing-llm-products/module-70-shipping-products/section-65.5.html">deployment architecture</a> from <a class="prereq-link" href="../../part-11-designing-llm-products/module-70-shipping-products/section-65.5.html">Section 45.1</a>, and <a href="../../part-4-training-adapting/module-19-peft/index.html">quantization fundamentals</a> from <a class="prereq-link" href="../../part-4-training-adapting/module-20-alignment-rlhf-dpo/index.html">Chapter 20</a>.</p>
+</div>
+<figure class="illustration">
+<img alt="A tiny cartoon robot sitting on a smartphone, running a miniaturized version of a large brain that has been compressed to fit inside the small device, with the large original brain visible in the background inside a data center." src="images/edge-deployment-miniature.png"/>
+<figcaption style="text-align: center; font-style: italic; color: #666; margin-top: 0.5rem;"><strong>Figure 53.5.1</strong>: Edge deployment moves the model to the user's hardware, eliminating network latency, removing per-query API costs, and keeping sensitive data on the device.</figcaption>
+</figure>
+<h2 id="51-5-1-why-edge-deployment-matters">53.5.1 Why Edge Deployment Matters</h2>
+<p>Not every LLM inference should travel to the cloud. When a physician uses an AI assistant
+ in a hospital without reliable internet, when a mobile app needs sub-100ms autocomplete
+ without per-query API costs, or when a defense contractor cannot send data to a third-party
+ server, on-device inference is not a nice-to-have; it is a requirement. Edge deployment
+ moves the model to the user's hardware, eliminating network latency, removing per-query
+ API costs, enabling offline operation, and keeping sensitive data on the device.
+ </p>
+<p>The economics are compelling at scale. An application serving 10 million daily queries at
+ \$0.002 per query spends \$20,000 per day on API costs. If a quantized 3B-parameter model
+ running on the user's device can handle 80% of those queries with acceptable quality, the
+ savings are substantial. The trade-off is clear: smaller models with lower quality versus
+ larger cloud models with higher quality, and the art of edge deployment is finding the
+ right balance for your use case.
+ </p>
+<div class="callout key-insight">
+<div class="callout-title">Key Insight</div>
+<p>Edge deployment is not about replacing cloud models. The most effective production architectures use a <strong>tiered approach</strong>: a small on-device model handles simple queries (autocomplete, classification, formatting) with zero latency and zero cost, while complex queries (multi-step reasoning, long-context synthesis) are routed to cloud models. The on-device model also serves as a fallback when the network is unavailable, providing degraded but functional service rather than a blank screen.</p>
+</div>
+<div class="callout fun-note">
+<div class="callout-title">Fun Fact</div>
+<p>Apple's on-device language model for iOS 18 runs a 3B-parameter model that fits in 1.5 GB of memory after quantization. It handles autocomplete, message summarization, and notification prioritization without sending a single token to the cloud. Your phone is now running a language model that would have been considered state-of-the-art in 2021, and it does so while you are checking your email in airplane mode.</p>
+</div>
+<h3 id="use-case-matrix">Use Case Matrix</h3>
+<table class="complex-table">
+<caption><strong>Table 53.5.1:</strong> <em>Apple's on-device language model for iOS 18 runs a 3B-parameter model that fits in 1.5 GB of memory after quantization.</em></caption>
+
+<thead>
+<tr>
+<th scope="col">Use Case</th>
+<th scope="col">Primary Driver</th>
+<th scope="col">Typical Model Size</th>
+<th scope="col">Target Hardware</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Medical records assistant</td>
+<td>Privacy (HIPAA)</td>
+<td>3B to 8B</td>
+<td>Workstation GPU</td>
+</tr>
+<tr>
+<td>Mobile keyboard autocomplete</td>
+<td>Latency, cost</td>
+<td>0.5B to 1B</td>
+<td>Phone NPU/GPU</td>
+</tr>
+<tr>
+<td>Offline field assistant</td>
+<td>No connectivity</td>
+<td>1B to 3B</td>
+<td>Laptop CPU</td>
+</tr>
+<tr>
+<td>Smart home device</td>
+<td>Latency, privacy</td>
+<td>0.1B to 0.5B</td>
+<td>ARM SoC</td>
+</tr>
+<tr>
+<td>Enterprise document processing</td>
+<td>Data sovereignty</td>
+<td>8B to 70B</td>
+<td>On-premise GPU cluster</td>
+</tr>
+</tbody>
+</table>
+<h2 id="51-5-2-llama-cpp-universal-c-c-inference">53.5.2 llama.cpp: Universal C/C++ Inference</h2>
+<p>
+ llama.cpp, created by Georgi Gerganov, is the foundational project for running LLMs on
+ consumer hardware. Written in pure C/C++ with no Python dependencies, it compiles and runs
+ on virtually any platform: Linux, macOS, Windows, Android, iOS, and even Raspberry Pi.
+ The project introduced the GGUF (GPT-Generated Unified Format) quantization format, which
+ has become the standard for distributing quantized models. llama.cpp supports dozens of
+ model architectures (Llama, Mistral, Phi, Qwen, Gemma, and many others) and provides
+ both a CLI interface and a built-in HTTP server compatible with the OpenAI API format.
+ </p>
+<div class="code-block-wrapper">
+<pre><code class="lang-python pygments-highlighted"><span class="c1"># Build llama.cpp from source</span>
+<span class="n">git</span> <span class="n">clone</span> <span class="n">https</span><span class="p">:</span><span class="o">//</span><span class="n">github</span><span class="o">.</span><span class="n">com</span><span class="o">/</span><span class="n">ggerganov</span><span class="o">/</span><span class="n">llama</span><span class="o">.</span><span class="n">cpp</span>
+<span class="n">cd</span> <span class="n">llama</span><span class="o">.</span><span class="n">cpp</span>
+<span class="n">cmake</span> <span class="o">-</span><span class="n">B</span> <span class="n">build</span> <span class="o">-</span><span class="n">DGGML_CUDA</span><span class="o">=</span><span class="n">ON</span> <span class="c1"># For NVIDIA GPUs; omit for CPU-only</span>
+<span class="n">cmake</span> <span class="o">--</span><span class="n">build</span> <span class="n">build</span> <span class="o">--</span><span class="n">config</span> <span class="n">Release</span> <span class="o">-</span><span class="n">j</span> <span class="err">$</span><span class="p">(</span><span class="n">nproc</span><span class="p">)</span>
+<span class="c1"># Download a GGUF model (example: Llama 3.2 3B at Q4_K_M quantization)</span>
+<span class="c1"># Models are available on Hugging Face in GGUF format</span>
+<span class="n">wget</span> <span class="n">https</span><span class="p">:</span><span class="o">//</span><span class="n">huggingface</span><span class="o">.</span><span class="n">co</span><span class="o">/</span><span class="n">bartowski</span><span class="o">/</span><span class="n">Llama</span><span class="o">-</span><span class="mf">3.2</span><span class="o">-</span><span class="mi">3</span><span class="n">B</span><span class="o">-</span><span class="n">Instruct</span><span class="o">-</span><span class="n">GGUF</span><span class="o">/</span><span class="n">resolve</span><span class="o">/</span><span class="n">main</span><span class="o">/</span><span class="n">Llama</span><span class="o">-</span><span class="mf">3.2</span><span class="o">-</span><span class="mi">3</span><span class="n">B</span><span class="o">-</span><span class="n">Instruct</span><span class="o">-</span><span class="n">Q4_K_M</span><span class="o">.</span><span class="n">gguf</span>
+<span class="c1"># Run interactive chat</span>
+<span class="o">./</span><span class="n">build</span><span class="o">/</span><span class="nb">bin</span><span class="o">/</span><span class="n">llama</span><span class="o">-</span><span class="n">cli</span> \
+<span class="o">-</span><span class="n">m</span> <span class="n">Llama</span><span class="o">-</span><span class="mf">3.2</span><span class="o">-</span><span class="mi">3</span><span class="n">B</span><span class="o">-</span><span class="n">Instruct</span><span class="o">-</span><span class="n">Q4_K_M</span><span class="o">.</span><span class="n">gguf</span> \
+<span class="o">--</span><span class="n">chat</span><span class="o">-</span><span class="n">template</span> <span class="n">llama3</span> \
+<span class="o">-</span><span class="n">c</span> <span class="mi">4096</span> \
+<span class="o">-</span><span class="n">ngl</span> <span class="mi">99</span> <span class="c1"># Offload all layers to GPU</span>
+<span class="c1"># Start an OpenAI-compatible API server</span>
+<span class="o">./</span><span class="n">build</span><span class="o">/</span><span class="nb">bin</span><span class="o">/</span><span class="n">llama</span><span class="o">-</span><span class="n">server</span> \
+<span class="o">-</span><span class="n">m</span> <span class="n">Llama</span><span class="o">-</span><span class="mf">3.2</span><span class="o">-</span><span class="mi">3</span><span class="n">B</span><span class="o">-</span><span class="n">Instruct</span><span class="o">-</span><span class="n">Q4_K_M</span><span class="o">.</span><span class="n">gguf</span> \
+<span class="o">--</span><span class="n">host</span> <span class="mf">0.0.0.0</span> <span class="o">--</span><span class="n">port</span> <span class="mi">8080</span> \
+<span class="o">-</span><span class="n">c</span> <span class="mi">4096</span> <span class="o">-</span><span class="n">ngl</span> <span class="mi">99</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> Quantization in LLMs reduces the numerical precision of model weights from
+16-bit or 32-bit floating point to lower bit widths like 8-bit or 4-bit
+integers. This dramatically reduces memory requirements and speeds up inference,
+often with minimal impact on output quality for well-calibrated quantization
+methods.
+
+Edge deployment refers to running AI models directly on end-user devices
+such as smartphones, laptops, or IoT hardware rather than in cloud data
+centers. This approach reduces latency, improves privacy by keeping data
+on-device, and eliminates dependency on network connectivity...
+
+</div>
+<div class="code-caption"><strong>Code Fragment 53.5.1:</strong> Build llama.cpp from source</div>
+</div>
+<h3 id="gguf-quantization-levels">GGUF Quantization Levels</h3>
+<p>GGUF models come in various quantization levels that trade quality for memory and speed.
+ The naming convention encodes the bit width and quantization method. Understanding these
+ trade-offs is essential for choosing the right model variant for your hardware constraints.
+ </p>
+<table class="complex-table">
+<caption><strong>Table 53.5.2:</strong> <em>GGUF models come in various quantization levels that trade quality for memory and speed.</em></caption>
+
+<thead>
+<tr>
+<th scope="col">Quantization</th>
+<th scope="col">Bits per Weight</th>
+<th scope="col">Size (7B model)</th>
+<th scope="col">Quality Impact</th>
+<th scope="col">Best For</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Q8_0</td>
+<td>8.0</td>
+<td>~7.2 GB</td>
+<td>Near-lossless</td>
+<td>Maximum quality, ample RAM</td>
+</tr>
+<tr>
+<td>Q6_K</td>
+<td>6.6</td>
+<td>~5.5 GB</td>
+<td>Very small loss</td>
+<td>High quality, moderate RAM</td>
+</tr>
+<tr>
+<td>Q5_K_M</td>
+<td>5.7</td>
+<td>~4.8 GB</td>
+<td>Small loss</td>
+<td>Good balance for most uses</td>
+</tr>
+<tr>
+<td>Q4_K_M</td>
+<td>4.8</td>
+<td>~4.1 GB</td>
+<td>Moderate loss</td>
+<td>Most popular; fits 8GB VRAM</td>
+</tr>
+<tr>
+<td>Q3_K_M</td>
+<td>3.9</td>
+<td>~3.3 GB</td>
+<td>Noticeable loss</td>
+<td>Tight memory constraints</td>
+</tr>
+<tr>
+<td>Q2_K</td>
+<td>3.4</td>
+<td>~2.8 GB</td>
+<td>Significant loss</td>
+<td>Extreme constraints only</td>
+</tr>
+</tbody>
+</table>
+<div class="callout warning">
+<div class="callout-title">Quantization Quality Cliff</div>
+<p>Quality degradation from quantization is not linear. Models typically maintain near-full quality down to Q5_K_M (5 to 6 bits), show modest degradation at Q4_K_M (4 to 5 bits), and then experience a steeper quality drop below 4 bits. The exact cliff depends on model architecture and size: larger models (70B+) tolerate aggressive quantization better than smaller models (3B) because they have more redundancy. Always benchmark your specific use case at multiple quantization levels rather than relying on general guidelines.</p>
+</div>
+<h2 id="51-5-3-ollama-developer-friendly-local-model-management">53.5.3 Ollama: Developer-Friendly Local Model Management</h2>
+<p>Ollama wraps llama.cpp (and other backends) in a user-friendly interface inspired by
+ Docker. Instead of downloading GGUF files manually and managing command-line flags, Ollama
+ provides a <code>pull</code>/<code>run</code> workflow that handles model downloads, GPU
+ detection, memory management, and API serving automatically. It supports macOS, Linux, and
+ Windows, and exposes an OpenAI-compatible API by default on port 11434.
+ </p>
+<div class="code-block-wrapper">
+<pre><code class="lang-bash pygments-highlighted"><span class="c1"># Install Ollama (macOS/Linux)</span>
+curl<span class="w"> </span>-fsSL<span class="w"> </span>https://ollama.com/install.sh<span class="w"> </span><span class="p">|</span><span class="w"> </span>sh
+
+<span class="c1"># Pull and run a model</span>
+ollama<span class="w"> </span>pull<span class="w"> </span>llama3.2:3b
+ollama<span class="w"> </span>run<span class="w"> </span>llama3.2:3b<span class="w"> </span><span class="s2">"Explain edge deployment in one paragraph."</span>
+
+<span class="c1"># List available models</span>
+ollama<span class="w"> </span>list
+
+<span class="c1"># Run with a specific quantization</span>
+ollama<span class="w"> </span>pull<span class="w"> </span>llama3.2:3b-instruct-q5_K_M
+ollama<span class="w"> </span>run<span class="w"> </span>llama3.2:3b-instruct-q5_K_M</code></pre>
+<div class="code-caption"><strong>Code Fragment 53.5.2:</strong> Ollama installation, model pulling, and listing workflow. The <code>pull</code>/<code>run</code> commands mirror Docker semantics, and the quantization tag (<code>q5_K_M</code>) selects a specific quality/size tradeoff at download time.</div>
+</div>
+<h3 id="custom-modelfiles">Custom Modelfiles</h3>
+<p>Ollama's Modelfile system allows you to create custom model configurations with specific
+ system prompts, parameters, and templates. This is useful for packaging a <a href="../../part-4-training-adapting/module-18-fine-tuning-fundamentals/section-18.1.html">fine-tuned</a> or
+ customized model as a reusable unit that team members can pull and run identically.
+ </p>
+<div class="code-block-wrapper">
+<pre><code class="lang-dockerfile pygments-highlighted"><span class="c"># Modelfile: a custom medical assistant configuration</span>
+<span class="k">FROM</span><span class="w"> </span><span class="s">llama3.2:3b-instruct-q5_K_M</span>
+
+PARAMETER<span class="w"> </span>temperature<span class="w"> </span><span class="m">0</span>.3
+PARAMETER<span class="w"> </span>top_p<span class="w"> </span><span class="m">0</span>.9
+PARAMETER<span class="w"> </span>num_ctx<span class="w"> </span><span class="m">4096</span>
+PARAMETER<span class="w"> </span>stop<span class="w"> </span><span class="s2">"&lt;|eot_id|&gt;"</span>
+
+SYSTEM<span class="w"> </span><span class="s2">"""You are a medical terminology assistant running on a hospital</span>
+workstation.<span class="w"> </span>You<span class="w"> </span><span class="nb">help</span><span class="w"> </span>clinicians<span class="w"> </span>look<span class="w"> </span>up<span class="w"> </span>drug<span class="w"> </span>interactions,<span class="w"> </span>medical
+terminology,<span class="w"> </span>and<span class="w"> </span>clinical<span class="w"> </span>guidelines.<span class="w"> </span>You<span class="w"> </span>always<span class="w"> </span>include<span class="w"> </span>a<span class="w"> </span>disclaimer
+that<span class="w"> </span>your<span class="w"> </span>outputs<span class="w"> </span>are<span class="w"> </span><span class="k">for</span><span class="w"> </span>reference<span class="w"> </span>only<span class="w"> </span>and<span class="w"> </span><span class="k">do</span><span class="w"> </span>not<span class="w"> </span>constitute<span class="w"> </span>medical
+advice.<span class="w"> </span>All<span class="w"> </span>data<span class="w"> </span>stays<span class="w"> </span>on<span class="w"> </span>this<span class="w"> </span>device<span class="p">;</span><span class="w"> </span>no<span class="w"> </span>information<span class="w"> </span>is<span class="w"> </span>sent<span class="w"> </span>externally.<span class="s2">"""</span>
+
+TEMPLATE<span class="w"> </span><span class="s2">"""{{ if .System }}&lt;|start_header_id|&gt;system&lt;|end_header_id|&gt;</span>
+
+<span class="o">{{</span><span class="w"> </span>.System<span class="w"> </span><span class="o">}}</span>&lt;<span class="p">|</span>eot_id<span class="p">|</span>&gt;<span class="o">{{</span><span class="w"> </span>end<span class="w"> </span><span class="o">}}{{</span><span class="w"> </span><span class="k">if</span><span class="w"> </span>.Prompt<span class="w"> </span><span class="o">}}</span>&lt;<span class="p">|</span>start_header_id<span class="p">|</span>&gt;user&lt;<span class="p">|</span>end_header_id<span class="p">|</span>&gt;
+
+<span class="o">{{</span><span class="w"> </span>.Prompt<span class="w"> </span><span class="o">}}</span>&lt;<span class="p">|</span>eot_id<span class="p">|</span>&gt;<span class="o">{{</span><span class="w"> </span>end<span class="w"> </span><span class="o">}}</span>&lt;<span class="p">|</span>start_header_id<span class="p">|</span>&gt;assistant&lt;<span class="p">|</span>end_header_id<span class="p">|</span>&gt;
+
+<span class="o">{{</span><span class="w"> </span>.Response<span class="w"> </span><span class="o">}}</span>&lt;<span class="p">|</span>eot_id<span class="p">|</span>&gt;<span class="s2">"""</span></code></pre>
+<div class="code-caption"><strong>Code Fragment 53.5.3:</strong> A Modelfile that customizes a Llama 3.2 model for medical terminology lookups. The <code>PARAMETER</code> directives set a low temperature (0.3) for factual consistency, and the <code>SYSTEM</code> block injects a domain-specific persona with a mandatory disclaimer.</div>
+</div>
+<div class="code-block-wrapper">
+<pre><code class="lang-bash pygments-highlighted"><span class="c1"># Build and run the custom model</span>
+ollama<span class="w"> </span>create<span class="w"> </span>medical-assistant<span class="w"> </span>-f<span class="w"> </span>Modelfile
+ollama<span class="w"> </span>run<span class="w"> </span>medical-assistant<span class="w"> </span><span class="s2">"What are the contraindications for metformin?"</span></code></pre>
+<div class="code-caption"><strong>Code Fragment 53.5.4:</strong> Building and running the custom Modelfile. The <code>ollama create</code> command packages the base model, parameters, and system prompt into a single named unit that any team member can launch with <code>ollama run</code>.</div>
+</div>
+<h3 id="programmatic-access">Programmatic Access</h3>
+<p>This snippet shows how to query benchmark results programmatically through the API.</p>
+<div class="code-block-wrapper">
+<pre><code class="lang-python pygments-highlighted">"""Using Ollama's API from Python (OpenAI-compatible endpoint)."""
+
+from openai import OpenAI
+
+# Ollama exposes an OpenAI-compatible API on localhost:11434
+client = OpenAI(base_url="http://localhost:11434/v1", api_key="ollama")
+
+response = client.chat.completions.create(
+ model="llama3.2:3b",
+ messages=[
+ {"role": "system", "content": "You are a helpful assistant."},
+ {"role": "user", "content": "What is quantization in LLMs?"},
+ ],
+ temperature=0.7,
+ max_tokens=500,
+)
+print(response.choices[0].message.content)
+
+# Streaming works identically to the OpenAI API
+stream = client.chat.completions.create(
+ model="llama3.2:3b",
+ messages=[{"role": "user", "content": "Explain edge deployment."}],
+ stream=True,
+)
+for chunk in stream:
+ if chunk.choices[0].delta.content:
+     print(chunk.choices[0].delta.content, end="", flush=True)</code></pre>
+<div class="code-caption"><strong>Code Fragment 53.5.5:</strong> Ollama exposes an OpenAI-compatible API on localhost:11434</div>
+</div>
+<h2 id="51-5-4-mlx-optimized-inference-on-apple-silicon">53.5.4 MLX: Optimized Inference on Apple Silicon</h2>
+<p>Apple's MLX framework is designed specifically for Apple Silicon (M1 through M4 chips),
+ exploiting the unified memory architecture that allows the CPU, GPU, and Neural Engine to
+ share the same memory without copying. For Mac users, MLX often delivers better performance
+ than llama.cpp because it uses Metal shaders optimized for Apple's GPU architecture. The
+ companion library <code>mlx-lm</code> provides a high-level interface for text generation
+ with <a href="../../part-2-understanding-llms/module-12-tools-of-the-trade/section-12.6.html">Hugging Face</a> model compatibility.
+ </p>
+<div class="code-block-wrapper">
+<pre><code class="lang-python pygments-highlighted"><span class="c1"># Install MLX and mlx-lm</span>
+<span class="n">pip</span> <span class="n">install</span> <span class="n">mlx</span> <span class="n">mlx</span><span class="o">-</span><span class="n">lm</span>
+<span class="c1"># Run a model directly from Hugging Face</span>
+<span class="n">mlx_lm</span><span class="o">.</span><span class="n">generate</span> \
+<span class="o">--</span><span class="n">model</span> <span class="n">mlx</span><span class="o">-</span><span class="n">community</span><span class="o">/</span><span class="n">Llama</span><span class="o">-</span><span class="mf">3.2</span><span class="o">-</span><span class="mi">3</span><span class="n">B</span><span class="o">-</span><span class="n">Instruct</span><span class="o">-</span><span class="mi">4</span><span class="n">bit</span> \
+<span class="o">--</span><span class="n">prompt</span> <span class="s2">"Explain the benefits of on-device inference."</span> \
+<span class="o">--</span><span class="nb">max</span><span class="o">-</span><span class="n">tokens</span> <span class="mi">200</span>
+<span class="c1"># Convert a Hugging Face model to MLX format with quantization</span>
+<span class="n">mlx_lm</span><span class="o">.</span><span class="n">convert</span> \
+<span class="o">--</span><span class="n">hf</span><span class="o">-</span><span class="n">path</span> <span class="n">meta</span><span class="o">-</span><span class="n">llama</span><span class="o">/</span><span class="n">Llama</span><span class="o">-</span><span class="mf">3.2</span><span class="o">-</span><span class="mi">3</span><span class="n">B</span><span class="o">-</span><span class="n">Instruct</span> \
+<span class="o">--</span><span class="n">mlx</span><span class="o">-</span><span class="n">path</span> <span class="o">./</span><span class="n">llama</span><span class="o">-</span><span class="mf">3.2</span><span class="o">-</span><span class="mi">3</span><span class="n">b</span><span class="o">-</span><span class="n">mlx</span><span class="o">-</span><span class="mi">4</span><span class="n">bit</span> \
+<span class="o">--</span><span class="n">quantize</span> \
+<span class="o">--</span><span class="n">q</span><span class="o">-</span><span class="n">bits</span> <span class="mi">4</span> \
+<span class="o">--</span><span class="n">q</span><span class="o">-</span><span class="n">group</span><span class="o">-</span><span class="n">size</span> <span class="mi">64</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> Prompt: 12 tokens, 1148.3 tokens/s
+Generation: 300 tokens, 87.2 tokens/s
+
+MLX offers several advantages for on-device inference on Apple Silicon.
+First, it leverages the unified memory architecture, allowing the CPU and
+GPU to share the same memory without costly data transfers. Second, it
+uses Metal shaders optimized for Apple's GPU cores, achieving higher
+throughput than generic GGML-based solutions. Third, it supports lazy
+evaluation and graph compilation, which reduces overhead for repeated
+inference calls...
+
+</div>
+
+<div class="code-caption"><strong>Code Fragment 53.5.10:</strong> Apple's MLX framework is designed specifically for Apple Silicon (M1 through M4 chips), exploiting the unified memory architecture that allows the CPU.</div></div>
+<div class="code-block-wrapper">
+<pre><code class="lang-python pygments-highlighted"><span class="sd">"""MLX text generation with streaming."""</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">mlx_lm</span><span class="w"> </span><span class="kn">import</span> <span class="n">load</span><span class="p">,</span> <span class="n">generate</span>
+
+<span class="c1"># Load a quantized model (downloads from HF if not cached)</span>
+<span class="n">model</span><span class="p">,</span> <span class="n">tokenizer</span> <span class="o">=</span> <span class="n">load</span><span class="p">(</span><span class="s2">"mlx-community/Llama-3.2-3B-Instruct-4bit"</span><span class="p">)</span>
+
+<span class="c1"># Generate text</span>
+<span class="n">prompt</span> <span class="o">=</span> <span class="n">tokenizer</span><span class="o">.</span><span class="n">apply_chat_template</span><span class="p">(</span>
+ <span class="p">[{</span><span class="s2">"role"</span><span class="p">:</span> <span class="s2">"user"</span><span class="p">,</span> <span class="s2">"content"</span><span class="p">:</span> <span class="s2">"What are the advantages of MLX?"</span><span class="p">}],</span>
+ <span class="n">tokenize</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+ <span class="n">add_generation_prompt</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">response</span> <span class="o">=</span> <span class="n">generate</span><span class="p">(</span>
+ <span class="n">model</span><span class="p">,</span>
+ <span class="n">tokenizer</span><span class="p">,</span>
+ <span class="n">prompt</span><span class="o">=</span><span class="n">prompt</span><span class="p">,</span>
+ <span class="n">max_tokens</span><span class="o">=</span><span class="mi">300</span><span class="p">,</span>
+ <span class="n">temp</span><span class="o">=</span><span class="mf">0.7</span><span class="p">,</span>
+ <span class="n">verbose</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="c1"># Prints tokens/sec performance</span>
+<span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">response</span><span class="p">)</span></code></pre>
+<div class="code-caption"><strong>Code Fragment 53.5.6:</strong> Load a quantized model (downloads from HF if not cached)</div>
+</div>
+<p>MLX's unified memory model means that a MacBook Pro with 36GB of RAM can run a 4-bit
+ quantized 30B model entirely in memory without the CPU-to-GPU transfer bottleneck that
+ limits performance on discrete GPU systems. For development and prototyping workflows
+ on Apple hardware, MLX provides the fastest path from model selection to running inference.
+ </p>
+<h2 id="51-5-5-executorch-pytorch-models-on-mobile-and-edge">53.5.5 ExecuTorch: PyTorch Models on Mobile and Edge</h2>
+<p>Meta's ExecuTorch is the production runtime for deploying PyTorch models on mobile phones,
+ IoT devices, and other resource-constrained hardware. Unlike llama.cpp (which requires
+ models in GGUF format) or MLX (which targets Apple Silicon), ExecuTorch takes standard
+ PyTorch models and exports them to an optimized format (.pte) that runs on Android, iOS,
+ and embedded Linux with hardware-specific acceleration. ExecuTorch supports Qualcomm
+ Hexagon DSPs, Apple Core ML, MediaTek APUs, and ARM CPU backends.
+ </p>
+<div class="code-block-wrapper">
+<pre><code class="lang-python pygments-highlighted"><span class="sd">"""Export a model for ExecuTorch deployment (simplified workflow)."""</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">executorch.exir</span><span class="w"> </span><span class="kn">import</span> <span class="n">to_edge</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">AutoModelForCausalLM</span><span class="p">,</span> <span class="n">AutoTokenizer</span>
+
+<span class="c1"># Load a small model suitable for mobile</span>
+<span class="n">model_name</span> <span class="o">=</span> <span class="s2">"microsoft/phi-2"</span> <span class="c1"># 2.7B parameters</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">AutoModelForCausalLM</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span>
+ <span class="n">model_name</span><span class="p">,</span> <span class="n">torch_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float16</span>
+<span class="p">)</span>
+<span class="n">tokenizer</span> <span class="o">=</span> <span class="n">AutoTokenizer</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span><span class="n">model_name</span><span class="p">)</span>
+
+<span class="c1"># Trace the model for export</span>
+<span class="n">example_input</span> <span class="o">=</span> <span class="n">tokenizer</span><span class="p">(</span><span class="s2">"Hello"</span><span class="p">,</span> <span class="n">return_tensors</span><span class="o">=</span><span class="s2">"pt"</span><span class="p">)</span>
+<span class="n">traced</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">export</span><span class="o">.</span><span class="n">export</span><span class="p">(</span>
+ <span class="n">model</span><span class="p">,</span>
+ <span class="p">(</span><span class="n">example_input</span><span class="p">[</span><span class="s2">"input_ids"</span><span class="p">],),</span>
+ <span class="n">dynamic_shapes</span><span class="o">=</span><span class="p">{</span>
+ <span class="s2">"input_ids"</span><span class="p">:</span> <span class="p">{</span><span class="mi">1</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">export</span><span class="o">.</span><span class="n">Dim</span><span class="p">(</span><span class="s2">"seq_len"</span><span class="p">,</span> <span class="nb">min</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="nb">max</span><span class="o">=</span><span class="mi">512</span><span class="p">)}</span>
+ <span class="p">},</span>
+<span class="p">)</span>
+
+<span class="c1"># Convert to ExecuTorch edge format</span>
+<span class="n">edge_program</span> <span class="o">=</span> <span class="n">to_edge</span><span class="p">(</span><span class="n">traced</span><span class="p">)</span>
+
+<span class="c1"># Delegate to hardware-specific backends</span>
+<span class="c1"># For Qualcomm: edge_program = edge_program.to_backend(QnnBackend())</span>
+<span class="c1"># For CoreML: edge_program = edge_program.to_backend(CoreMLBackend())</span>
+
+<span class="c1"># Export the final .pte file</span>
+<span class="n">et_program</span> <span class="o">=</span> <span class="n">edge_program</span><span class="o">.</span><span class="n">to_executorch</span><span class="p">()</span>
+<span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="s2">"phi2_mobile.pte"</span><span class="p">,</span> <span class="s2">"wb"</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+ <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">et_program</span><span class="o">.</span><span class="n">buffer</span><span class="p">)</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="s2">"Exported model size:"</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">et_program</span><span class="o">.</span><span class="n">buffer</span><span class="p">)</span> <span class="o">/</span> <span class="mf">1e6</span><span class="p">,</span> <span class="s2">"MB"</span><span class="p">)</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> Exported model size: 1427.3 MB
+
+</div>
+<div class="code-caption"><strong>Code Fragment 53.5.7:</strong> Using torch, executorch, to_edge, transformers</div>
+</div>
+<p>ExecuTorch's primary advantage over llama.cpp for mobile deployment is its integration
+ with the PyTorch ecosystem. If your model is already in PyTorch (as most research models
+ are), ExecuTorch provides a direct export path without format conversion. It also supports
+ hardware-specific optimizations through a delegate system, where computation-heavy
+ operations are offloaded to specialized accelerators (NPUs, DSPs) that llama.cpp cannot
+ access.
+ </p>
+<div class="callout key-insight">
+<div class="callout-title">Choosing Your Edge Runtime</div>
+<p>The choice between llama.cpp, Ollama, MLX, and ExecuTorch depends on your target platform and deployment constraints. <strong>llama.cpp</strong> is the universal choice: it runs everywhere and supports the widest range of models. <strong>Ollama</strong> wraps llama.cpp for developer convenience and is ideal for local development and prototyping. <strong>MLX</strong> is the best option for Apple Silicon Macs, offering superior performance through Metal optimization. <strong>ExecuTorch</strong> is the right choice when you need to deploy on mobile phones or IoT devices with hardware-specific acceleration. Many production systems use multiple runtimes: Ollama for developer machines, ExecuTorch for the mobile app, and a cloud API as the fallback.</p>
+</div>
+<h2 id="51-5-6-battery-and-thermal-constraints-on-mobile">53.5.6 Battery and Thermal Constraints on Mobile</h2>
+<p>Running LLM inference on a mobile device introduces constraints that do not exist in
+ server environments. Battery drain is the most visible: sustained LLM inference can consume
+ 3 to 5 watts on a modern smartphone, draining the battery at a rate of roughly 1% per
+ minute of continuous generation. Thermal throttling is equally important; most mobile SoCs
+ reduce clock speeds after 30 to 60 seconds of sustained compute to prevent overheating,
+ which degrades generation speed mid-response.
+ </p>
+<p>Practical mitigations include: (1) using speculative decoding with a tiny draft model to
+ reduce the number of full-model forward passes, (2) capping generation length to prevent
+ extended inference sessions, (3) batching requests when possible to amortize model loading
+ overhead, (4) monitoring device temperature and gracefully degrading to shorter responses
+ or cloud fallback when thermal limits approach, and (5) using the smallest model variant
+ that meets quality requirements. The quality difference between a Q4_K_M and Q5_K_M
+ quantization on a 3B model is often imperceptible to users, but the memory and power
+ savings can extend battery life by 15 to 20%.
+ </p>
+<h3 id="lab-quantization-quality-vs-latency-benchmark" class="lab-title">Lab: Quantization Quality vs. Latency Benchmark</h3>
+<div class="lab">
+<h3 id="step-1-set-up-the-environment">Step 1: Set Up the Environment</h3>
+<p>This snippet installs the required dependencies and configures environment variables for the benchmark.</p>
+<div class="code-block-wrapper">
+<pre><code class="lang-bash pygments-highlighted"><span class="c1"># Ensure Ollama is installed and running</span>
+ollama<span class="w"> </span>--version
+
+<span class="c1"># Pull two quantization levels of the same model</span>
+ollama<span class="w"> </span>pull<span class="w"> </span>llama3.2:3b-instruct-q4_K_M
+ollama<span class="w"> </span>pull<span class="w"> </span>llama3.2:3b-instruct-q8_0</code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> Benchmarking llama3.2:3b-instruct-q4_K_M...
+ Average: 42.3 tokens/sec
+
+Benchmarking llama3.2:3b-instruct-q8_0...
+ Average: 31.7 tokens/sec
+
+</div>
+<div class="code-caption"><strong>Code Fragment 53.5.8:</strong> Ensure Ollama is installed and running</div>
+</div>
+<h3 id="step-2-run-the-benchmark">Step 2: Run the Benchmark</h3>
+<p>This snippet executes the benchmark suite and collects the results.</p>
+<div class="code-block-wrapper">
+<pre><code class="lang-python pygments-highlighted"><span class="sd">"""Benchmark two quantization levels on the same prompts."""</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">openai</span><span class="w"> </span><span class="kn">import</span> <span class="n">OpenAI</span>
+
+<span class="n">client</span> <span class="o">=</span> <span class="n">OpenAI</span><span class="p">(</span><span class="n">base_url</span><span class="o">=</span><span class="s2">"http://localhost:11434/v1"</span><span class="p">,</span> <span class="n">api_key</span><span class="o">=</span><span class="s2">"ollama"</span><span class="p">)</span>
+
+<span class="n">PROMPTS</span> <span class="o">=</span> <span class="p">[</span>
+ <span class="s2">"Explain the concept of quantization in neural networks in 3 sentences."</span><span class="p">,</span>
+ <span class="s2">"Write a Python function that computes the Fibonacci sequence iteratively."</span><span class="p">,</span>
+ <span class="s2">"Summarize the key differences between TCP and UDP protocols."</span><span class="p">,</span>
+ <span class="s2">"What are the main causes of the French Revolution? List 5 factors."</span><span class="p">,</span>
+ <span class="s2">"Translate this to formal English: 'gonna grab some food brb'"</span><span class="p">,</span>
+ <span class="s2">"Write a SQL query to find the top 10 customers by total order value."</span><span class="p">,</span>
+ <span class="s2">"Explain photosynthesis to a 10-year-old in simple terms."</span><span class="p">,</span>
+ <span class="s2">"What are three common logical fallacies? Give an example of each."</span><span class="p">,</span>
+ <span class="s2">"Write a bash one-liner to count the number of .py files recursively."</span><span class="p">,</span>
+ <span class="s2">"Compare and contrast microservices and monolithic architectures."</span><span class="p">,</span>
+<span class="p">]</span>
+
+<span class="n">MODELS</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"llama3.2:3b-instruct-q4_K_M"</span><span class="p">,</span> <span class="s2">"llama3.2:3b-instruct-q8_0"</span><span class="p">]</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">benchmark_model</span><span class="p">(</span><span class="n">model_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">prompts</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
+ <span class="n">results</span> <span class="o">=</span> <span class="p">[]</span>
+ <span class="k">for</span> <span class="n">prompt</span> <span class="ow">in</span> <span class="n">prompts</span><span class="p">:</span>
+     <span class="n">start</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">perf_counter</span><span class="p">()</span>
+     <span class="n">response</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">chat</span><span class="o">.</span><span class="n">completions</span><span class="o">.</span><span class="n">create</span><span class="p">(</span>
+         <span class="n">model</span><span class="o">=</span><span class="n">model_name</span><span class="p">,</span>
+         <span class="n">messages</span><span class="o">=</span><span class="p">[{</span><span class="s2">"role"</span><span class="p">:</span> <span class="s2">"user"</span><span class="p">,</span> <span class="s2">"content"</span><span class="p">:</span> <span class="n">prompt</span><span class="p">}],</span>
+         <span class="n">max_tokens</span><span class="o">=</span><span class="mi">300</span><span class="p">,</span>
+         <span class="n">temperature</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span> <span class="c1"># Deterministic for comparison</span>
+     <span class="p">)</span>
+     <span class="n">elapsed</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">perf_counter</span><span class="p">()</span> <span class="o">-</span> <span class="n">start</span>
+     <span class="n">output</span> <span class="o">=</span> <span class="n">response</span><span class="o">.</span><span class="n">choices</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">message</span><span class="o">.</span><span class="n">content</span>
+     <span class="n">token_count</span> <span class="o">=</span> <span class="n">response</span><span class="o">.</span><span class="n">usage</span><span class="o">.</span><span class="n">completion_tokens</span>
+
+     <span class="n">results</span><span class="o">.</span><span class="n">append</span><span class="p">({</span>
+         <span class="s2">"prompt"</span><span class="p">:</span> <span class="n">prompt</span><span class="p">[:</span><span class="mi">60</span><span class="p">],</span>
+         <span class="s2">"output"</span><span class="p">:</span> <span class="n">output</span><span class="p">,</span>
+         <span class="s2">"tokens"</span><span class="p">:</span> <span class="n">token_count</span><span class="p">,</span>
+         <span class="s2">"time_s"</span><span class="p">:</span> <span class="nb">round</span><span class="p">(</span><span class="n">elapsed</span><span class="p">,</span> <span class="mi">2</span><span class="p">),</span>
+         <span class="s2">"tok_per_s"</span><span class="p">:</span> <span class="nb">round</span><span class="p">(</span><span class="n">token_count</span> <span class="o">/</span> <span class="n">elapsed</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span>
+     <span class="p">})</span>
+
+     <span class="n">avg_tps</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="n">r</span><span class="p">[</span><span class="s2">"tok_per_s"</span><span class="p">]</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">results</span><span class="p">)</span> <span class="o">/</span> <span class="nb">len</span><span class="p">(</span><span class="n">results</span><span class="p">)</span>
+     <span class="k">return</span> <span class="p">{</span>
+         <span class="s2">"model"</span><span class="p">:</span> <span class="n">model_name</span><span class="p">,</span>
+         <span class="s2">"avg_tokens_per_sec"</span><span class="p">:</span> <span class="n">avg_tps</span><span class="p">,</span>
+         <span class="s2">"results"</span><span class="p">:</span> <span class="n">results</span><span class="p">,</span>
+     <span class="p">}</span>
+
+<span class="c1"># Run benchmarks</span>
+<span class="k">for</span> <span class="n">model</span> <span class="ow">in</span> <span class="n">MODELS</span><span class="p">:</span>
+ <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="se">\n</span><span class="s2">Benchmarking </span><span class="si">{</span><span class="n">model</span><span class="si">}</span><span class="s2">..."</span><span class="p">)</span>
+ <span class="n">report</span> <span class="o">=</span> <span class="n">benchmark_model</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">PROMPTS</span><span class="p">)</span>
+ <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">" Average: </span><span class="si">{</span><span class="n">report</span><span class="p">[</span><span class="s1">'avg_tokens_per_sec'</span><span class="p">]</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2"> tokens/sec"</span><span class="p">)</span>
+ <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="sa">f</span><span class="s2">"benchmark_</span><span class="si">{</span><span class="n">model</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s1">':'</span><span class="p">,</span><span class="w"> </span><span class="s1">'_'</span><span class="p">)</span><span class="si">}</span><span class="s2">.json"</span><span class="p">,</span> <span class="s2">"w"</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+     <span class="n">json</span><span class="o">.</span><span class="n">dump</span><span class="p">(</span><span class="n">report</span><span class="p">,</span> <span class="n">f</span><span class="p">,</span> <span class="n">indent</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span></code></pre>
+<div class="code-caption"><strong>Code Fragment 53.5.9:</strong> Implementation of benchmark_model</div>
+</div>
+<h3 id="step-3-evaluate-quality">Step 3: Evaluate Quality</h3>
+<p>Compare the outputs from both quantization levels side by side. For each of the 10 prompts,
+ rate the Q4_K_M output on a 1 to 5 scale relative to the Q8_0 output: 5 means identical
+ quality, 4 means minor differences that do not affect usefulness, 3 means noticeable
+ degradation, 2 means significant quality loss, and 1 means the output is unusable. Compute
+ the average quality score and report it alongside the latency numbers. Typical results for
+ a 3B model show average quality scores of 4.2 to 4.7, confirming that Q4_K_M is viable
+ for most applications.
+ </p>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 28.7.1: Three-Way Quantization Comparison <span class="exercise-type project" title="Project">Project</span></div>
+<p>Extend the lab benchmark to include Q5_K_M as a third quantization level. Plot tokens/sec vs. quality score for all three levels. Is Q5_K_M the best compromise, or does Q4_K_M offer sufficient quality at meaningfully better speed?</p>
+<details open="">
+<summary>Answer Sketch</summary>
+<p>Q5_K_M typically sits midway between Q4_K_M and Q8_0 on both metrics. The quality difference between Q4_K_M and Q5_K_M is usually small (0.1 to 0.3 points on the 5-point scale), while the speed difference is also modest (5 to 15% faster for Q4_K_M). For applications where every millisecond matters (autocomplete, real-time suggestions), Q4_K_M is preferred. For applications where quality is paramount but memory is limited (medical reference, legal document review), Q5_K_M provides a better balance.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 28.7.2: Tiered Deployment Architecture <span class="exercise-type design" title="Design">Design</span></div>
+<p>Design a tiered inference system for a mobile application that uses a Q4_K_M model on-device for simple queries and routes complex queries to a cloud API. Define the routing criteria, implement a complexity classifier, and measure the cost savings compared to sending all queries to the cloud.</p>
+<details open="">
+<summary>Answer Sketch</summary>
+<p>Route queries to the on-device model when: (1) the query is under 50 tokens, (2) the task is classification, extraction, or short-form generation, and (3) the device battery is above 20%. Route to the cloud when: the query requires multi-step reasoning, long-form generation (over 500 tokens), or references context beyond the on-device model's knowledge. A simple keyword/length classifier can achieve 85%+ routing accuracy. At 70% on-device routing, total API costs drop by approximately 70%, with user-perceived quality dropping less than 5% (measured by blind comparison).</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 28.7.3: MLX vs. llama.cpp on Apple Silicon <span class="exercise-type project" title="Project">Project</span></div>
+<p>If you have access to an Apple Silicon Mac, benchmark the same model using both MLX and llama.cpp. Compare tokens/sec, time to first token, memory usage, and power consumption (using the <code>powermetrics</code> tool). Which runtime is faster for your hardware?</p>
+<details open="">
+<summary>Answer Sketch</summary>
+<p>On M1/M2 Macs, MLX typically outperforms llama.cpp by 10 to 30% in tokens/sec for 4-bit quantized models, with the gap widening for larger models that benefit more from Metal's unified memory access patterns. llama.cpp may show better time-to-first-token for small models due to lower initialization overhead. Power consumption is similar because both frameworks saturate the same GPU cores; the difference in tokens/sec means MLX completes the same work using less total energy per response.</p>
+</details>
+</div>
+<div class="callout self-check">
+<div class="callout-title">Self-Check</div>
+<p class="quiz-question">1. What is the key architectural advantage of llama.cpp that makes it run on such a wide range of hardware (CPUs, GPUs, mobile devices)?</p>
+<details><summary>Show Answer</summary><div class="answer"><code>llama.cpp</code> is pure C++ with no Python runtime or CUDA dependency in its core path. Optional GPU backends (CUDA, Metal, Vulkan, ROCm) are compile-time choices, so the same source tree builds for Mac, Linux x86, ARM mobile, and Windows. Quantization is baked into the GGUF model-file format (Q4_K_M, Q8_0, …), so the runtime does not have to compute quantization tables dynamically. The result is a single self-contained binary plus a GGUF file: drops onto almost any device with a C++17 compiler and runs.</div></details>
+<p class="quiz-question">2. Ollama exposes an OpenAI-compatible API. Why is API compatibility important for edge deployment, and how does it simplify the transition from cloud to local inference?</p>
+<details><summary>Show Answer</summary><div class="answer">API compatibility means existing client tooling works unchanged when you swap a hosted endpoint for a local one. An application written against the OpenAI Python SDK can switch its <code>base_url</code> from <code>api.openai.com</code> to <code>localhost:11434</code> and get back the same response shape. No code change beyond environment variables, no rewriting prompts, no retraining client libraries. The cloud-to-edge transition becomes a configuration change rather than an engineering project, which is the practical reason Ollama spread so quickly.</div></details>
+<p class="quiz-question">3. MLX exploits Apple Silicon's unified memory architecture. Explain why this gives MLX a performance advantage over llama.cpp on Mac hardware for large models.</p>
+<details><summary>Show Answer</summary><div class="answer">On Apple Silicon, the CPU and GPU share the same physical memory pool. MLX exploits this by skipping the explicit host-to-device copies that CUDA-style discrete-GPU runtimes have to perform for every input and output. For large models the savings compound: bandwidth is not spent shuffling weights between host and device, and you can run models that exceed an equivalent discrete-GPU's VRAM because you have access to the whole machine's memory. <code>llama.cpp</code> on Mac still operates as if the GPU were discrete and pays the copy cost.</div></details>
+<p class="quiz-question">4. In the quantization benchmark lab, you compared Q4_K_M and Q8_0 variants. What quality/latency trade-offs would you expect, and how would you decide which to deploy in production?</p>
+<details><summary>Show Answer</summary><div class="answer">Q4_K_M packs weights at ~4 bits each (about 2× smaller and 1.5-2× faster than Q8_0 at inference) but loses some accuracy; Q8_0 keeps 8-bit precision with much better fidelity at higher memory and latency cost. Decide based on your task's error tolerance: for chat and summarization on a 7B-13B model, Q4_K_M is usually indistinguishable from FP16 to a human reader; for code generation, math, or anything where small errors compound (citations, formulas), the precision gap matters and Q8_0 is worth the cost. Measure perplexity AND downstream task accuracy on a representative eval set before deciding, because perplexity alone underestimates real-world impact.</div></details>
+</div>
+<div class="callout key-insight">
+<div class="callout-title">Key Takeaways</div>
+<ul>
+<li><strong>Edge deployment</strong> brings LLM inference to devices where cloud connectivity is unreliable, latency-sensitive, or privacy-constrained.</li>
+<li><strong>llama.cpp</strong> provides universal C/C++ inference with GGUF quantization, running models from laptops to Raspberry Pi devices.</li>
+<li><strong>Ollama</strong> wraps llama.cpp in a developer-friendly interface with model management, an OpenAI-compatible API, and one-command setup.</li>
+<li><strong>MLX</strong> delivers optimized inference on Apple Silicon, leveraging the unified memory architecture for efficient model loading.</li>
+<li><strong>ExecuTorch</strong> extends PyTorch to mobile and edge devices with ahead-of-time compilation and hardware-specific delegates.</li>
+<li><strong>Battery and thermal constraints</strong> on mobile devices require adaptive inference strategies that reduce model activity when resources are scarce.</li>
+</ul>
+</div>
+<div class="whats-next">
+<h2 id="what-comes-next">What Comes Next</h2>
+<p>With edge deployment patterns established, the next part of the book addresses <a href="../../part-9-safety-security-ethics/index.html">Safety &amp; Strategy</a>, beginning with <a href="../../part-9-safety-security-ethics/module-49-adversarial-security-red-team/index.html">Chapter 47: Safety, Ethics, and Regulation</a>. Privacy and data sovereignty requirements for on-device models connect directly to the regulatory frameworks covered there.</p>
+</div>
+<details class="bibliography-collapsible" open>
+<summary><strong>Further Reading</strong></summary>
+<section class="bibliography">
+<h3 id="inference-runtimes">Inference Runtimes</h3>
+<div class="bib-entry-card">
+<div class="bib-ref">Gerganov, G. (2023). "llama.cpp: LLM Inference in C/C++." <a href="https://github.com/ggerganov/llama.cpp" rel="noopener" target="_blank">github.com/ggerganov/llama.cpp</a></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Ollama. (2024). "Ollama: Get Up and Running with Large Language Models." <a href="https://ollama.com" rel="noopener" target="_blank">ollama.com</a></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Apple Machine Learning Research. (2024). "MLX: An Array Framework for Apple Silicon." <a href="https://github.com/ml-explore/mlx" rel="noopener" target="_blank">github.com/ml-explore/mlx</a></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Meta. (2024). "ExecuTorch: End-to-End Solution for Enabling On-Device AI." <a href="https://pytorch.org/executorch/" rel="noopener" target="_blank">pytorch.org/executorch</a></div>
+</div>
+<h3 id="quantization">Quantization</h3>
+<div class="bib-entry-card">
+<div class="bib-ref">Dettmers, T., Pagnoni, A., Holtzman, A., Zettlemoyer, L. (2023). "<a href="../../part-4-training-adapting/module-19-peft/section-19.2.html">QLoRA</a>: Efficient Finetuning of Quantized Language Models." <a href="https://arxiv.org/abs/2305.14314" rel="noopener" target="_blank">arXiv:2305.14314</a></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Frantar, E., Ashkboos, S., Hoefler, T., Alistarh, D. (2023). "GPTQ: Accurate Post-Training Quantization for Generative Pre-Trained Transformers." <a href="https://arxiv.org/abs/2210.17323" rel="noopener" target="_blank">arXiv:2210.17323</a></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Lin, J., Tang, J., Tang, H., et al. (2024). "AWQ: Activation-aware Weight Quantization for LLM Compression and Acceleration." <a href="https://arxiv.org/abs/2306.00978" rel="noopener" target="_blank">arXiv:2306.00978</a></div>
+</div>
+</section>
+</details>
+<nav class="chapter-nav">
+<a class="prev" href="section-62.4.html"><span class="nav-label">Previous</span><span class="nav-num">Section 62.4</span><span class="nav-title">Workflow Orchestration and Durable Execution</span></a>
+<a class="up" href="index.html"><span class="nav-label">In Chapter</span><span class="nav-num">Chapter 62</span><span class="nav-title">Production Engineering for LLM Systems</span></a>
+<a class="next" href="section-62.6.html"><span class="nav-label">Next</span><span class="nav-num">Section 62.6</span><span class="nav-title">Reliability Engineering for LLM Applications</span></a>
+</nav>
+<footer><p>Fifteenth Edition, 2026 · <a href="../../toc.html">Contents</a></p></footer>
+</main>
+<script>
+window.addEventListener("DOMContentLoaded", function() {
+  if (window.PagefindUI) {
+    new PagefindUI({
+      element: "#search",
+      showSubResults: true,
+      showImages: false,
+      resetStyles: false,
+      pageSize: 8,
+      autofocus: false,
+      translations: {
+        placeholder: "Search the book\u2026",
+      },
+      processResult: function (result) {
+        try {
+          var part = (result && result.meta && result.meta.part) ? result.meta.part : "";
+          var chap = (result && result.meta && result.meta.chapter) ? result.meta.chapter : "";
+          var partShort = part.split(":")[0].trim();
+          var chapShort = chap.split(":")[0].trim();
+          var crumb = [partShort, chapShort].filter(Boolean).join(" \u203a ");
+          if (crumb && result.meta && result.meta.title
+              && result.meta.title.indexOf("[" + partShort) !== 0) {
+            result.meta.title = "[" + crumb + "]  " + result.meta.title;
+          }
+        } catch (e) { /* fall through */ }
+        return result;
+      },
+    });
+  }
+});
+</script>
+</body>
+</html>
