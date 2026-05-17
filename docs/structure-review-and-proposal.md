@@ -1,13 +1,14 @@
-# Book Structure: Analysis and Proposed Restructure (v5)
+# Book Structure: Analysis and Proposed Restructure (v6)
 
 **Status**: proposal, in development on branch `v2.0`. Production lives on `main` tagged `production-v1.0`.
 **Generated**: 2026-05-17, post-appendix-renumbering.
 **Revision history**:
   - v1 — initial: 13 parts → 13 parts, 87 → 78 chapters; mostly merge/dedupe.
   - v2 — split Part V into Retrieval+IE and Dialogue+Assistants.
-  - v3 — split Part X into LLM @ Scale and LLMOps; move Multimodal to V.
-  - v4 — move Agentic AI to Part VI; rename Part XII to LLMOps & Lifecycle Management.
-  - **v5 (this version)** — deep section-level content analysis + content-level fixes added to the plan (not just structural moves). See section 5 (content findings) and section 7 (per-chapter intervention list).
+  - v3 — split old Part X into LLM @ Scale and LLMOps; move Multimodal to V.
+  - v4 — move Agentic AI to Part VI; rename old Part XII to LLMOps & Lifecycle Management.
+  - v5 — deep section-level content analysis + content-level interventions.
+  - **v6 (this version)** — split Safety part into X (Security) + XI (Ethics & Governance); rename every part to include LLM or Agentic AI; rename Frontiers to "LLM & Agentic AI Frontiers"; restructure appendices (7 → 4: absorb Math + ML Essentials into main book; merge Projects + Capstone).
 
 **Current state on disk**: 13 parts, 87 chapters, 413 sections, 7 appendices, audit clean.
 
@@ -41,27 +42,45 @@ The 15 parts cluster into 6 thematic blocks:
 
 ---
 
-## 3. Final per-part structure
+## 3. Final per-part structure (v6)
 
-| # | Part | Ch | What it contains |
-|---|---|---:|---|
-| **I** | **Foundations** | 7 | Math/ML/PyTorch, NLP basics, tokenization, attention, transformers, decoding, Foundations Tools |
-| **II** | **Understanding LLMs** | 5 | Pre-training & scaling, modern landscape, reasoning, inference optimization, interpretability+Tools |
-| **III** | **Working with LLMs** | 4 | APIs, prompt engineering, hybrid ML+LLM, Tools |
-| **IV** | **LLM Training & Adaptation** | 5 | Synthetic data, SFT, PEFT, alignment, Tools |
-| **V** | **Multimodal LLMs** *(moved earlier)* | 7 | VLM/Omni, image+video, audio, document/OCR, 3D/scenes, embodied AI/VLA/robotics, Tools |
-| **VI** | **Agentic AI** *(moved up)* | 5 | Foundations, tools/MCP/A2A, multi-agent, specialized, Tools |
-| **VII** | **Retrieval & Information Extraction** | 6 | Embeddings, **NER (promoted)**, RAG fundamentals, advanced RAG/KG, cross-modal RAG, Tools |
-| **VIII** | **Dialogue & Conversational AI** | 5 | Architecture, memory, multi-turn, voice & realtime, Tools |
-| **IX** | **Evaluation & Observability** | 4 | Quality metrics, specialized eval, online monitoring, Tools |
-| **X** | **Safety, Security & Ethics** | 9 | Adversarial, guardrails, agent safety, privacy, bias/hallucination, regulation, provenance, frontier safety, Tools |
-| **XI** | **LLM Systems at Scale** | 5 | Compute planning, distributed training, hardware, edge, Tools |
-| **XII** | **LLMOps & Lifecycle Management** *(renamed)* | 5 | Gateways, orchestration, K8s, reliability/registry, Tools |
-| **XIII** | **Designing LLM Products** | 7 | Ideation/strategy, PM, prototyping, MVP, economics, shipping, Tools |
-| **XIV** | **Industry Applications** | 8 | Legal, finance, healthcare, education, cyber, gov, manuf+creative+rec (merged), Tools |
-| **XV** | **Frontiers** | 4 | Architectures, theory, AGI trajectories, Tools |
+| # | Part | Block | Ch | What it contains |
+|---|---|---|---:|---|
+| **I** | **LLM & Agentic AI Foundations** | A. Models | 7 | Math, ML/PyTorch, NLP basics, tokenization, attention, transformers, decoding, Foundations Tools |
+| **II** | **Understanding LLMs** | A. Models | 5 | Pre-training & scaling, modern landscape, reasoning, inference optimization, interpretability+Tools |
+| **III** | **Working with LLMs** | A. Models | 4 | APIs, prompt engineering, hybrid ML+LLM, Tools |
+| **IV** | **LLM Training & Adaptation** | A. Models | 5 | Synthetic data, SFT, PEFT, alignment, Tools |
+| **V** | **Multimodal LLMs** | A. Models | 7 | VLM/Omni, image+video, audio, document/OCR, 3D/scenes, embodied AI/VLA/robotics, Tools |
+| **VI** | **Agentic AI** | B. Patterns | 5 | Foundations, tools/MCP/A2A, multi-agent, specialized, Tools |
+| **VII** | **LLM Retrieval & Information Extraction** | B. Patterns | 6 | Embeddings, NER, RAG fundamentals, advanced RAG/KG, cross-modal RAG, Tools |
+| **VIII** | **LLM Dialogue & Conversational AI** | B. Patterns | 5 | Architecture, memory, multi-turn, voice & realtime, Tools |
+| **IX** | **LLM Evaluation & Observability** | C. Quality | 4 | Quality metrics, specialized eval, online monitoring, Tools |
+| **X** | **LLM Security & Runtime Safety** *(split from old IX)* | C. Quality | 5 | Adversarial, guardrails, agent safety, privacy, Tools |
+| **XI** | **LLM Ethics, Trust & Governance** *(split from old IX)* | C. Quality | 5 | Bias/hallucination, provenance/transparency, regulation/compliance, frontier safety, Tools |
+| **XII** | **LLM Systems at Scale** | D. Runtime | 5 | Compute planning, distributed training, hardware, edge, Tools |
+| **XIII** | **LLMOps & Lifecycle Management** | D. Runtime | 5 | Gateways, orchestration, K8s, reliability/registry, Tools |
+| **XIV** | **Designing LLM Products** | E. Applied | 7 | Ideation/strategy, PM, prototyping, MVP, economics, shipping, Tools |
+| **XV** | **LLM Applications Across Industries** | E. Applied | 8 | Legal, finance, healthcare, education, cyber, gov, manuf+creative+rec (merged), Tools |
+| **XVI** | **LLM & Agentic AI Frontiers** | F. Future | 4 | Architectures, theory, AGI trajectories, Tools |
 
-**Totals**: 15 parts, **86 chapters**, ~370 sections target. Every part in 4–9 chapter band.
+**Totals**: 16 parts, **87 chapters**, ~390 sections target. Every part in 4–9 chapter band.
+
+### Appendices restructure (7 → 4)
+
+| Apx | Title | Was | Change |
+|---|---|---|---|
+| **A** | Course Syllabi | C | absorbed math/ML moved to main book; renumbered C→A |
+| **B** | Reading Pathways | D | renumbered D→B |
+| **C** | Projects & Capstone | **MERGE** E + F | one combined appendix for project tracks |
+| **D** | War Stories for Discussion | G | renumbered G→D |
+
+**Material absorbed into main book**:
+- Apx A (Math) sections A.1, A.3 → Part I Ch 0 new sec 0.1 (Math: Linear Algebra & Calculus)
+- Apx A sections A.2, A.4, A.6 → Part I Ch 0 new sec 0.2 (Probability, Statistics & Information Theory)
+- Apx B.1–B.3 (ML basics) → merge into existing Ch 0.3 "What Every LLM Engineer Needs From Classical ML" (formerly 0.1)
+- Apx B.4 (Evaluation Metrics — 22 inbound refs) → Part IX Ch 1 (Evaluation Foundations) as opening "Metric Definitions" section; the 22 cross-refs rewrite to the new home
+
+**Why**: Math + ML Essentials material was originally main-book content (A.6 literally confesses "originated as Chapter 04"). The 22 perplexity-references-as-glossary pattern is glossary usage, not appendix usage. Remaining 4 appendices are pure pedagogy support — clean theme.
 
 ---
 

@@ -21,10 +21,11 @@ target = {
         'year': 2026,
     },
     '_meta': {
-        'proposal_version': 4,
-        'total_parts_target': 15,
-        'total_chapters_target': 86,
-        'notes': 'See docs/structure-review-and-proposal.md for the analysis. v4 = Agentic AI moved to Part VI (before Retrieval/Dialogue), Part XII renamed to LLMOps & Lifecycle Management.',
+        'proposal_version': 6,
+        'total_parts_target': 16,
+        'total_chapters_target': 87,
+        'total_appendices_target': 4,
+        'notes': 'v6: split safety into X (Security) + XI (Ethics & Governance); rename every part with LLM or Agentic AI; restructure appendices 7->4 (absorb Math + ML into main book).',
     },
     'parts': []
 }
@@ -32,11 +33,11 @@ target = {
 parts = []
 
 parts.append({
-    'num': 1, 'roman': 'I', 'slug': 'foundations', 'title': 'Foundations',
-    'subtitle': 'Math/ML/PyTorch prerequisites, NLP basics, tokenization, attention, transformers, decoding, foundations tools.',
-    '_action': 'unchanged',
+    'num': 1, 'roman': 'I', 'slug': 'llm-agentic-ai-foundations', 'title': 'LLM & Agentic AI Foundations',
+    'subtitle': 'Math, ML/PyTorch prerequisites, NLP basics, tokenization, attention, transformers, decoding.',
+    '_action': 'rename', '_source': 'part-1-foundations',
     'chapters': [
-        {'num': 0, 'slug': 'ml-pytorch-foundations', 'title': 'ML and PyTorch Foundations', '_action': 'unchanged'},
+        {'num': 0, 'slug': 'math-ml-pytorch-foundations', 'title': 'Math, ML and PyTorch Foundations', '_action': 'absorb_appendices', '_absorbs': ['appendix-a-mathematical-foundations', 'appendix-b-ml-essentials sec b.1-b.3'], '_source': 'module-00-ml-pytorch-foundations'},
         {'num': 1, 'slug': 'foundations-nlp-text-representation', 'title': 'Foundations of NLP & Text Representation', '_action': 'unchanged'},
         {'num': 2, 'slug': 'tokenization-subword-models', 'title': 'Tokenization and Subword Models', '_action': 'unchanged'},
         {'num': 3, 'slug': 'sequence-models-attention', 'title': 'Sequence Models & the Attention Mechanism', '_action': 'unchanged'},
@@ -120,9 +121,9 @@ parts.append({
     ],
 })
 
-# VII — Retrieval & Information Extraction
+# VII — LLM Retrieval & Information Extraction
 parts.append({
-    'num': 7, 'roman': 'VII', 'slug': 'retrieval-information-extraction', 'title': 'Retrieval and Information Extraction',
+    'num': 7, 'roman': 'VII', 'slug': 'llm-retrieval-information-extraction', 'title': 'LLM Retrieval & Information Extraction',
     'subtitle': 'Embeddings, structured information extraction & NER, RAG, knowledge graphs, cross-modal retrieval.',
     '_action': 'new_part',
     'chapters': [
@@ -135,9 +136,9 @@ parts.append({
     ],
 })
 
-# VIII — Dialogue & Conversational AI
+# VIII — LLM Dialogue & Conversational AI
 parts.append({
-    'num': 8, 'roman': 'VIII', 'slug': 'dialogue-conversational-ai', 'title': 'Dialogue & Conversational AI',
+    'num': 8, 'roman': 'VIII', 'slug': 'llm-dialogue-conversational-ai', 'title': 'LLM Dialogue & Conversational AI',
     'subtitle': 'Dialogue architecture, memory, multi-turn flows, voice and realtime multimodal assistants.',
     '_action': 'new_part',
     'chapters': [
@@ -150,100 +151,113 @@ parts.append({
 })
 
 parts.append({
-    'num': 9, 'roman': 'IX', 'slug': 'evaluation-observability', 'title': 'Evaluation & Observability',
+    'num': 9, 'roman': 'IX', 'slug': 'llm-evaluation-observability', 'title': 'LLM Evaluation & Observability',
     'subtitle': 'Quality metrics, specialized evaluation, online monitoring, eval tools.',
     '_action': 'rename',
     'chapters': [
-        {'num': 44, 'slug': 'evaluation-foundations', 'title': 'LLM Evaluation Fundamentals & Quality Metrics', '_action': 'merge', '_sources': ['module-44-evaluation-foundations', 'module-45-testing-quality-gates']},
+        {'num': 44, 'slug': 'evaluation-foundations', 'title': 'LLM Evaluation Fundamentals & Quality Metrics', '_action': 'merge_and_absorb', '_sources': ['module-44-evaluation-foundations', 'module-45-testing-quality-gates'], '_absorbs': ['appendix-b-ml-essentials section b.4 (Evaluation Metrics, 22 inbound refs)']},
         {'num': 45, 'slug': 'specialized-evaluation', 'title': 'Specialized Evaluation: RAG, Agents, Multimodal', '_action': 'renumber', '_source': 'module-46-specialized-evaluation'},
         {'num': 46, 'slug': 'online-eval-observability', 'title': 'Online Evaluation, Observability & Production Monitoring', '_action': 'renumber_and_repair', '_source': 'module-47-online-eval-observability', '_repair_section_numbering': True},
         {'num': 47, 'slug': 'tools-of-the-trade', 'title': 'Tools of the Trade: Eval & Observability Stack', '_action': 'renumber', '_source': 'module-48-tools-of-the-trade'},
     ],
 })
 
+# X — LLM Security & Runtime Safety (NEW SPLIT — technical defenses)
 parts.append({
-    'num': 10, 'roman': 'X', 'slug': 'safety-security-ethics', 'title': 'Safety, Security & Ethics',
-    'subtitle': 'Adversarial threats, guardrails, agent safety, privacy, bias, regulation, provenance, frontier safety.',
-    '_action': 'rename',
+    'num': 10, 'roman': 'X', 'slug': 'llm-security-runtime-safety', 'title': 'LLM Security & Runtime Safety',
+    'subtitle': 'Adversarial threats, guardrails, agent safety, privacy, security tooling.',
+    '_action': 'new_part_from_split',
+    '_source': 'part-9-safety-security-ethics (technical chapters)',
     'chapters': [
-        {'num': 48, 'slug': 'adversarial-security-red-team', 'title': 'Adversarial Security & Red Teaming', '_action': 'renumber', '_source': 'module-49-adversarial-security-red-team'},
+        {'num': 48, 'slug': 'adversarial-security-red-team', 'title': 'Adversarial Security & Red Teaming', '_action': 'renumber_and_split_monster', '_source': 'module-49-adversarial-security-red-team', '_split_section': '49.1 (86KB monster)'},
         {'num': 49, 'slug': 'guardrails-runtime-safety', 'title': 'Guardrails & Runtime Safety', '_action': 'renumber', '_source': 'module-50-guardrails-runtime-safety'},
         {'num': 50, 'slug': 'agent-safety-autonomy', 'title': 'Agent Safety & Sandboxing', '_action': 'renumber', '_source': 'module-51-agent-safety-autonomy'},
-        {'num': 51, 'slug': 'privacy-data-protection', 'title': 'Privacy & Data Protection', '_action': 'renumber', '_source': 'module-52-privacy-data-protection'},
-        {'num': 52, 'slug': 'bias-fairness-truthfulness', 'title': 'Bias, Fairness, Hallucination & Truthfulness', '_action': 'merge', '_sources': ['module-53-bias-fairness', 'module-54-hallucination-truthfulness']},
-        {'num': 53, 'slug': 'regulation-compliance', 'title': 'Regulation, Compliance & Governance', '_action': 'renumber', '_source': 'module-55-regulation-compliance'},
+        {'num': 51, 'slug': 'privacy-data-protection', 'title': 'Privacy & Data Protection', '_action': 'renumber_and_expand', '_source': 'module-52-privacy-data-protection'},
+        {'num': 52, 'slug': 'tools-of-the-trade', 'title': 'Tools of the Trade: Security Stack', '_action': 'split', '_source': 'module-60-tools-of-the-trade (security portions)'},
+    ],
+})
+
+# XI — LLM Ethics, Trust & Governance (NEW SPLIT — behavioral / policy)
+parts.append({
+    'num': 11, 'roman': 'XI', 'slug': 'llm-ethics-trust-governance', 'title': 'LLM Ethics, Trust & Governance',
+    'subtitle': 'Bias and hallucination, provenance and transparency, regulation and compliance, frontier safety.',
+    '_action': 'new_part_from_split',
+    '_source': 'part-9-safety-security-ethics (behavioral/policy chapters)',
+    'chapters': [
+        {'num': 53, 'slug': 'bias-fairness-truthfulness', 'title': 'Bias, Fairness, Hallucination & Truthfulness', '_action': 'merge', '_sources': ['module-53-bias-fairness', 'module-54-hallucination-truthfulness']},
         {'num': 54, 'slug': 'provenance-transparency', 'title': 'Watermarking, Provenance & Transparency', '_action': 'merge', '_sources': ['module-56-watermarking-provenance', 'module-57-transparency-documentation']},
-        {'num': 55, 'slug': 'frontier-safety-sustainability', 'title': 'Frontier Safety, Sustainability & Open Problems', '_action': 'merge', '_sources': ['module-58-environmental-sustainability', 'module-59-frontier-safety-open-problems']},
-        {'num': 56, 'slug': 'tools-of-the-trade', 'title': 'Tools of the Trade: Safety & Guardrails Stack', '_action': 'renumber', '_source': 'module-60-tools-of-the-trade'},
+        {'num': 55, 'slug': 'regulation-compliance', 'title': 'Regulation, Compliance & Governance', '_action': 'renumber', '_source': 'module-55-regulation-compliance'},
+        {'num': 56, 'slug': 'frontier-safety-sustainability', 'title': 'Frontier Safety, Sustainability & Open Problems', '_action': 'merge', '_sources': ['module-58-environmental-sustainability', 'module-59-frontier-safety-open-problems']},
+        {'num': 57, 'slug': 'tools-of-the-trade', 'title': 'Tools of the Trade: Responsible AI Stack', '_action': 'split', '_source': 'module-60-tools-of-the-trade (ethics portions)'},
     ],
 })
 
 parts.append({
-    'num': 11, 'roman': 'XI', 'slug': 'llm-systems-at-scale', 'title': 'LLM Systems at Scale',
+    'num': 12, 'roman': 'XII', 'slug': 'llm-systems-at-scale', 'title': 'LLM Systems at Scale',
     'subtitle': 'Compute planning, distributed training systems, hardware and chip diversity, edge and on-device LLMs.',
     '_action': 'new_part',
     'chapters': [
-        {'num': 57, 'slug': 'compute-planning', 'title': 'Compute Planning & GPU Procurement', '_action': 'renumber', '_source': 'module-61-compute-planning'},
-        {'num': 58, 'slug': 'distributed-training-systems', 'title': 'Distributed Training Systems', '_action': 'extract', '_pulls_from': ['part-2/module-07-pretraining-scaling-laws sec 7.6, 7.8']},
-        {'num': 59, 'slug': 'hardware-chip-diversity', 'title': 'Hardware & Chip Diversity', '_action': 'move', '_source': 'part-13-frontiers/module-84-frontier-systems-hardware'},
-        {'num': 60, 'slug': 'edge-on-device', 'title': 'Edge & On-Device LLMs', '_action': 'extract', '_source_section': 'module-62 sec 62.5'},
-        {'num': 61, 'slug': 'tools-of-the-trade', 'title': 'Tools of the Trade: Scale Stack', '_action': 'new'},
+        {'num': 58, 'slug': 'compute-planning', 'title': 'Compute Planning & GPU Procurement', '_action': 'renumber', '_source': 'module-61-compute-planning'},
+        {'num': 59, 'slug': 'distributed-training-systems', 'title': 'Distributed Training Systems', '_action': 'extract', '_pulls_from': ['part-2/module-07-pretraining-scaling-laws sec 7.6, 7.8']},
+        {'num': 60, 'slug': 'hardware-chip-diversity', 'title': 'Hardware & Chip Diversity', '_action': 'move', '_source': 'part-13-frontiers/module-84-frontier-systems-hardware'},
+        {'num': 61, 'slug': 'edge-on-device', 'title': 'Edge & On-Device LLMs', '_action': 'extract', '_source_section': 'module-62 sec 62.5'},
+        {'num': 62, 'slug': 'tools-of-the-trade', 'title': 'Tools of the Trade: Scale Stack', '_action': 'new'},
     ],
 })
 
 parts.append({
-    'num': 12, 'roman': 'XII', 'slug': 'llmops-lifecycle', 'title': 'LLMOps & Lifecycle Management',
+    'num': 13, 'roman': 'XIII', 'slug': 'llmops-lifecycle', 'title': 'LLMOps & Lifecycle Management',
     'subtitle': 'AI gateways and routing, workflow orchestration, containers, reliability and SLOs, model registry and lifecycle.',
     '_action': 'new_part',
     'chapters': [
-        {'num': 62, 'slug': 'ai-gateways-routing', 'title': 'AI Gateways & Model Routing', '_action': 'extract', '_source_section': 'module-62 sec 62.3'},
-        {'num': 63, 'slug': 'workflow-orchestration', 'title': 'Workflow Orchestration & Durable Execution', '_action': 'extract', '_source_section': 'module-62 sec 62.4'},
-        {'num': 64, 'slug': 'containers-kubernetes', 'title': 'Containers, Kubernetes & Deployment', '_action': 'extract', '_source_sections': ['62.7', '62.8', '62.9', '62.10', '62.11']},
-        {'num': 65, 'slug': 'reliability-registry-lifecycle', 'title': 'Reliability Engineering, SLOs & Model Registry', '_action': 'merge_sections', '_source_sections': ['62.1', '62.2', '62.6']},
-        {'num': 66, 'slug': 'tools-of-the-trade', 'title': 'Tools of the Trade: LLMOps Stack', '_action': 'new'},
+        {'num': 63, 'slug': 'ai-gateways-routing', 'title': 'AI Gateways & Model Routing', '_action': 'extract', '_source_section': 'module-62 sec 62.3'},
+        {'num': 64, 'slug': 'workflow-orchestration', 'title': 'Workflow Orchestration & Durable Execution', '_action': 'extract', '_source_section': 'module-62 sec 62.4'},
+        {'num': 65, 'slug': 'containers-kubernetes', 'title': 'Containers, Kubernetes & Deployment', '_action': 'extract', '_source_sections': ['62.7', '62.8', '62.9', '62.10', '62.11']},
+        {'num': 66, 'slug': 'reliability-registry-lifecycle', 'title': 'Reliability Engineering, SLOs & Model Registry', '_action': 'merge_sections', '_source_sections': ['62.1', '62.2', '62.6']},
+        {'num': 67, 'slug': 'tools-of-the-trade', 'title': 'Tools of the Trade: LLMOps Stack', '_action': 'new'},
     ],
 })
 
 parts.append({
-    'num': 13, 'roman': 'XIII', 'slug': 'designing-llm-products', 'title': 'Designing LLM Products',
+    'num': 14, 'roman': 'XIV', 'slug': 'designing-llm-products', 'title': 'Designing LLM Products',
     'subtitle': 'Ideation and strategy, product management, prototyping, MVP, economics, shipping, product tools.',
     '_action': 'rename',
     'chapters': [
-        {'num': 67, 'slug': 'ideation-strategy', 'title': 'Ideation, Strategy & Product Hypothesis', '_action': 'merge', '_sources': ['module-63-ideation', 'module-65-strategy-prioritization', 'module-68-prototype-to-production']},
-        {'num': 68, 'slug': 'product-management', 'title': 'LLM Product Management', '_action': 'renumber', '_source': 'module-64-product-management'},
-        {'num': 69, 'slug': 'vibe-coding', 'title': 'Prototyping via Vibe-Coding', '_action': 'renumber', '_source': 'module-66-vibe-coding'},
-        {'num': 70, 'slug': 'mvp', 'title': 'Building the MVP', '_action': 'renumber', '_source': 'module-67-mvp'},
-        {'num': 71, 'slug': 'llm-economics', 'title': 'Scaling Economics: Unit Costs & ROI', '_action': 'renumber', '_source': 'module-69-llm-economics'},
-        {'num': 72, 'slug': 'shipping-products', 'title': 'Shipping and Scaling AI Products', '_action': 'renumber', '_source': 'module-70-shipping-products'},
-        {'num': 73, 'slug': 'tools-of-the-trade', 'title': 'Tools of the Trade: Product Toolkit', '_action': 'renumber', '_source': 'module-71-tools-of-the-trade'},
+        {'num': 68, 'slug': 'ideation-strategy', 'title': 'Ideation, Strategy & Product Hypothesis', '_action': 'merge', '_sources': ['module-63-ideation', 'module-65-strategy-prioritization', 'module-68-prototype-to-production']},
+        {'num': 69, 'slug': 'product-management', 'title': 'LLM Product Management', '_action': 'renumber', '_source': 'module-64-product-management'},
+        {'num': 70, 'slug': 'vibe-coding', 'title': 'Prototyping via Vibe-Coding', '_action': 'renumber', '_source': 'module-66-vibe-coding'},
+        {'num': 71, 'slug': 'mvp', 'title': 'Building the MVP', '_action': 'renumber', '_source': 'module-67-mvp'},
+        {'num': 72, 'slug': 'llm-economics', 'title': 'Scaling Economics: Unit Costs & ROI', '_action': 'renumber', '_source': 'module-69-llm-economics'},
+        {'num': 73, 'slug': 'shipping-products', 'title': 'Shipping and Scaling AI Products', '_action': 'renumber', '_source': 'module-70-shipping-products'},
+        {'num': 74, 'slug': 'tools-of-the-trade', 'title': 'Tools of the Trade: Product Toolkit', '_action': 'renumber', '_source': 'module-71-tools-of-the-trade'},
     ],
 })
 
 parts.append({
-    'num': 14, 'roman': 'XIV', 'slug': 'industry-applications', 'title': 'Industry Applications',
+    'num': 15, 'roman': 'XV', 'slug': 'llm-applications-across-industries', 'title': 'LLM Applications Across Industries',
     'subtitle': 'LLM use across legal, finance, healthcare, education, cybersecurity, government, and other domains.',
     '_action': 'rename',
     'chapters': [
-        {'num': 74, 'slug': 'legal-llms', 'title': 'LLMs in Legal Practice', '_action': 'renumber', '_source': 'module-72-legal-llms'},
-        {'num': 75, 'slug': 'finance-llms', 'title': 'LLMs in Finance', '_action': 'renumber', '_source': 'module-73-finance-llms'},
-        {'num': 76, 'slug': 'healthcare-llms', 'title': 'LLMs in Healthcare & Biomedical', '_action': 'renumber', '_source': 'module-74-healthcare-llms'},
-        {'num': 77, 'slug': 'education-llms', 'title': 'LLMs in Education', '_action': 'renumber', '_source': 'module-75-education-llms'},
-        {'num': 78, 'slug': 'cybersecurity-llms', 'title': 'LLMs in Cybersecurity', '_action': 'renumber', '_source': 'module-76-cybersecurity-llms'},
-        {'num': 79, 'slug': 'government-llms', 'title': 'LLMs in Government & Public Sector', '_action': 'renumber', '_source': 'module-77-government-llms'},
-        {'num': 80, 'slug': 'manufacturing-creative-recommendation', 'title': 'LLMs in Manufacturing, Creative & Recommendation', '_action': 'merge', '_sources': ['module-78-manufacturing-llms', 'module-79-creative-industries', 'module-80-recommendation-search']},
-        {'num': 81, 'slug': 'tools-of-the-trade', 'title': 'Tools of the Trade: Industry Solution Stack', '_action': 'renumber', '_source': 'module-81-tools-of-the-trade'},
+        {'num': 75, 'slug': 'legal-llms', 'title': 'LLMs in Legal Practice', '_action': 'renumber', '_source': 'module-72-legal-llms'},
+        {'num': 76, 'slug': 'finance-llms', 'title': 'LLMs in Finance', '_action': 'renumber', '_source': 'module-73-finance-llms'},
+        {'num': 77, 'slug': 'healthcare-llms', 'title': 'LLMs in Healthcare & Biomedical', '_action': 'renumber', '_source': 'module-74-healthcare-llms'},
+        {'num': 78, 'slug': 'education-llms', 'title': 'LLMs in Education', '_action': 'renumber', '_source': 'module-75-education-llms'},
+        {'num': 79, 'slug': 'cybersecurity-llms', 'title': 'LLMs in Cybersecurity', '_action': 'renumber', '_source': 'module-76-cybersecurity-llms'},
+        {'num': 80, 'slug': 'government-llms', 'title': 'LLMs in Government & Public Sector', '_action': 'renumber', '_source': 'module-77-government-llms'},
+        {'num': 81, 'slug': 'manufacturing-creative-recommendation', 'title': 'LLMs in Manufacturing, Creative & Recommendation', '_action': 'merge', '_sources': ['module-78-manufacturing-llms', 'module-79-creative-industries', 'module-80-recommendation-search']},
+        {'num': 82, 'slug': 'tools-of-the-trade', 'title': 'Tools of the Trade: Industry Solution Stack', '_action': 'renumber', '_source': 'module-81-tools-of-the-trade'},
     ],
 })
 
 parts.append({
-    'num': 15, 'roman': 'XV', 'slug': 'frontiers', 'title': 'Frontiers',
+    'num': 16, 'roman': 'XVI', 'slug': 'llm-agentic-ai-frontiers', 'title': 'LLM & Agentic AI Frontiers',
     'subtitle': 'Frontier architectures, theory and cognition, AGI trajectories, frontier research tooling.',
-    '_action': 'renumber',
+    '_action': 'rename',
     'chapters': [
-        {'num': 82, 'slug': 'frontier-architectures', 'title': 'Frontier Architectures & Scaling', '_action': 'renumber', '_source': 'module-82-frontier-architectures'},
-        {'num': 83, 'slug': 'frontier-theory', 'title': 'Frontier Theory & Cognition', '_action': 'renumber', '_source': 'module-83-frontier-theory'},
-        {'num': 84, 'slug': 'agi-trajectories', 'title': 'AGI Trajectories & Open Questions', '_action': 'renumber', '_source': 'module-85-agi-trajectories'},
-        {'num': 85, 'slug': 'tools-of-the-trade', 'title': 'Tools of the Trade: Frontier Research Stack', '_action': 'renumber', '_source': 'module-86-tools-of-the-trade'},
+        {'num': 83, 'slug': 'frontier-architectures', 'title': 'Frontier Architectures & Scaling', '_action': 'renumber', '_source': 'module-82-frontier-architectures'},
+        {'num': 84, 'slug': 'frontier-theory', 'title': 'Frontier Theory & Cognition', '_action': 'renumber', '_source': 'module-83-frontier-theory'},
+        {'num': 85, 'slug': 'agi-trajectories', 'title': 'AGI Trajectories & Open Questions', '_action': 'renumber', '_source': 'module-85-agi-trajectories'},
+        {'num': 86, 'slug': 'tools-of-the-trade', 'title': 'Tools of the Trade: Frontier Research Stack', '_action': 'renumber', '_source': 'module-86-tools-of-the-trade'},
     ],
 })
 
@@ -251,15 +265,22 @@ target['parts'] = parts
 
 target['appendices'] = {
     'group': 'appendices',
-    '_action': 'unchanged',
+    '_action': 'restructure',
+    '_notes': 'Apx A (Math) and B (ML Essentials) absorbed into Part I Ch 0 of main book. Apx B.4 (Eval Metrics) moves to Part IX Ch 1. Remaining 4 appendices are pure pedagogy support.',
     'items': [
-        {'letter': 'A', 'slug': 'mathematical-foundations', 'title': 'Mathematical Foundations'},
-        {'letter': 'B', 'slug': 'ml-essentials', 'title': 'Machine Learning Essentials'},
-        {'letter': 'C', 'slug': 'course-syllabi', 'title': 'Course Syllabi'},
-        {'letter': 'D', 'slug': 'reading-pathways', 'title': 'Reading Pathways'},
-        {'letter': 'E', 'slug': 'intermediate-projects', 'title': 'Intermediate Projects'},
-        {'letter': 'F', 'slug': 'capstone-project', 'title': 'Capstone Project'},
-        {'letter': 'G', 'slug': 'war-stories', 'title': 'War Stories for Discussion'},
+        {'letter': 'A', 'slug': 'course-syllabi', 'title': 'Course Syllabi',
+         '_action': 'rename_letter', '_source': 'appendix-c-course-syllabi'},
+        {'letter': 'B', 'slug': 'reading-pathways', 'title': 'Reading Pathways',
+         '_action': 'rename_letter', '_source': 'appendix-d-reading-pathways'},
+        {'letter': 'C', 'slug': 'projects-and-capstone', 'title': 'Projects & Capstone',
+         '_action': 'merge', '_sources': ['appendix-e-intermediate-projects', 'appendix-f-capstone-project']},
+        {'letter': 'D', 'slug': 'war-stories', 'title': 'War Stories for Discussion',
+         '_action': 'rename_letter', '_source': 'appendix-g-war-stories'},
+    ],
+    '_absorbed_into_main_book': [
+        {'from': 'appendix-a-mathematical-foundations', 'to': 'part-1/module-00-ml-pytorch-foundations new sec 0.1 (Math) + 0.2 (Probability & Info Theory)'},
+        {'from': 'appendix-b-ml-essentials sec b.1-b.3', 'to': 'part-1/module-00 sec 0.3 (Classical ML — already exists, absorbs unique content)'},
+        {'from': 'appendix-b-ml-essentials sec b.4 (Evaluation Metrics, 22 inbound refs)', 'to': 'part-9-llm-evaluation-observability/module-44 opening section (Evaluation Metric Definitions)'},
     ],
 }
 
