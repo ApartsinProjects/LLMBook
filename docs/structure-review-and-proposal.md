@@ -1,4 +1,4 @@
-# Book Structure: Analysis and Proposed Restructure (v7)
+# Book Structure: Analysis and Proposed Restructure (v8)
 
 **Status**: proposal, in development on branch `v2.0`. Production lives on `main` tagged `production-v1.0`.
 **Generated**: 2026-05-17, post-appendix-renumbering.
@@ -9,7 +9,11 @@
   - v4 — move Agentic AI to Part VI; rename old Part XII to LLMOps & Lifecycle Management.
   - v5 — deep section-level content analysis + content-level interventions.
   - v6 — split Safety into X (Security) + XI (Ethics & Governance); rename every part with LLM or Agentic; restructure appendices (7→4); absorb Math + ML Essentials into main book.
-  - **v7 (this version)** — drop pedagogy appendices (Projects, Capstone, War Stories); rename Part I to "LLM Building Blocks"; grammar polish on Part VII/VIII/IX titles; rename XIV to "Designing LLM & Agent-based Products" and consolidate XIV from 7 to 5 chapters; rename XVI to "LLM & Agentic AI Research Frontiers".
+  - v7 — drop pedagogy appendices (Projects, Capstone, War Stories); rename Part I to "LLM Building Blocks"; rename XIV; consolidate XIV from 7 to 5 chapters; rename XVI to "LLM & Agentic AI Research Frontiers".
+  - **v8 (this version)** — grammar fixes for parts whose topic is "X *built with* LLMs" rather than "X *of* LLMs":
+      - VII: "LLM Retrieval & Information Extraction" → **"Retrieval & Information Extraction with LLMs"**
+      - VIII: "LLM Conversational AI" → **"Conversational AI with LLMs"**
+      - XV: "LLM Applications Across Industries" → **"Applications of LLMs Across Industries"**
 
 **Current state on disk**: 13 parts, 87 chapters, 413 sections, 7 appendices, audit clean.
 
@@ -43,7 +47,7 @@ The 15 parts cluster into 6 thematic blocks:
 
 ---
 
-## 3. Final per-part structure (v7)
+## 3. Final per-part structure (v8)
 
 | # | Part | Block | Ch | What it contains |
 |---|---|---|---:|---|
@@ -53,25 +57,33 @@ The 15 parts cluster into 6 thematic blocks:
 | **IV** | **LLM Training & Adaptation** | A. Models | 5 | Synthetic data, SFT, PEFT, alignment, Tools |
 | **V** | **Multimodal LLMs** | A. Models | 7 | VLM/Omni, image+video, audio, document/OCR, 3D/scenes, embodied AI/VLA/robotics, Tools |
 | **VI** | **Agentic AI** | B. Patterns | 5 | Foundations, tools/MCP/A2A, multi-agent, specialized, Tools |
-| **VII** | **LLM Retrieval & Information Extraction** | B. Patterns | 6 | Embeddings, NER, RAG fundamentals, advanced RAG/KG, cross-modal RAG, Tools |
-| **VIII** | **LLM Conversational AI** | B. Patterns | 5 | Dialogue architecture, memory, multi-turn, voice & realtime, Tools |
+| **VII** | **Retrieval & Information Extraction with LLMs** | B. Patterns | 6 | Embeddings, NER, RAG fundamentals, advanced RAG/KG, cross-modal RAG, Tools |
+| **VIII** | **Conversational AI with LLMs** | B. Patterns | 5 | Dialogue architecture, memory, multi-turn, voice & realtime, Tools |
 | **IX** | **LLM Evaluation & Observability** | C. Quality | 4 | Quality metrics, specialized eval, online monitoring, Tools |
 | **X** | **LLM Security & Runtime Safety** | C. Quality | 5 | Adversarial, guardrails, agent safety, privacy, Tools |
 | **XI** | **LLM Ethics, Trust & Governance** | C. Quality | 5 | Bias/hallucination, provenance/transparency, regulation/compliance, frontier safety, Tools |
 | **XII** | **LLM Systems at Scale** | D. Runtime | 5 | Compute planning, distributed training, hardware, edge, Tools |
 | **XIII** | **LLMOps & Lifecycle Management** | D. Runtime | 5 | Gateways, orchestration, K8s, reliability/registry, Tools |
 | **XIV** | **Designing LLM & Agent-based Products** | E. Applied | 5 | Ideation+PM, prototype+MVP, economics, shipping, Tools (consolidated from 7) |
-| **XV** | **LLM Applications Across Industries** | E. Applied | 8 | Legal, finance, healthcare, education, cyber, gov, manuf+creative+rec (merged), Tools |
+| **XV** | **Applications of LLMs Across Industries** | E. Applied | 8 | Legal, finance, healthcare, education, cyber, gov, manuf+creative+rec (merged), Tools |
 | **XVI** | **LLM & Agentic AI Research Frontiers** | F. Future | 4 | Architectures, theory, AGI trajectories, Tools |
 
 **Totals**: 16 parts, **85 chapters**, ~375 sections target. Every part in 4–9 chapter band. All part names use "LLM" or "Agentic" prefix in adjective-noun pattern for consistency.
 
-### Naming conventions (v7 polished)
+### Naming conventions (v8 polished)
 
-- **Pattern A**: `LLM X` — adjective-noun (Training, Security, Systems at Scale, Conversational AI, Evaluation, Retrieval)
-- **Pattern B**: bare title where context is clear (Understanding LLMs, Working with LLMs, Multimodal LLMs, Agentic AI)
-- **Pattern C**: gerund (Designing LLM & Agent-based Products)
-- All 16 parts contain "LLM" or "Agentic" in the title — no risk of being mistaken for a generic AI textbook.
+Three grammatical patterns, used where each is semantically correct:
+
+- **Pattern A — "LLM X"** *(of-relation: X is something LLMs have/do)*
+  Building Blocks, Training & Adaptation, Evaluation & Observability, Security & Runtime Safety, Ethics & Governance, Systems at Scale.
+- **Pattern B — "X with LLMs"** *(built-with relation: X is built using LLMs)*
+  Retrieval & Information Extraction with LLMs, Conversational AI with LLMs, Applications of LLMs Across Industries.
+- **Pattern C — bare or gerund** *(context makes scope clear)*
+  Understanding LLMs, Working with LLMs, Multimodal LLMs, Agentic AI, LLMOps & Lifecycle Management, Designing LLM & Agent-based Products, LLM & Agentic AI Research Frontiers.
+
+Every part contains "LLM" or "Agentic" in the title — no risk of being mistaken for a generic AI textbook.
+
+**The v8 grammar fix**: v7 used "LLM Retrieval" / "LLM Conversational AI" — both read as "retrieval/CAI **of** LLMs" but the actual scope is "retrieval/CAI **built with** LLMs." v8 switches these to Pattern B with the "with LLMs" suffix, matching the book title pattern ("Building Conversational AI **with** LLMs and Agents"). Part XV gets the same fix: "Applications of LLMs" reads more naturally than "LLM Applications."
 
 ### Appendices restructure (7 → 2)
 

@@ -21,11 +21,11 @@ target = {
         'year': 2026,
     },
     '_meta': {
-        'proposal_version': 7,
+        'proposal_version': 8,
         'total_parts_target': 16,
         'total_chapters_target': 85,
         'total_appendices_target': 2,
-        'notes': 'v7: drop pedagogy appendices (Projects, Capstone, War Stories); rename Part I to LLM Building Blocks; consistent adjective-noun naming (LLM X); consolidate Part XIV from 7 to 5 chapters.',
+        'notes': 'v8: grammar fixes for parts whose scope is "X built with LLMs" rather than "X of LLMs": VII -> "Retrieval & Information Extraction with LLMs", VIII -> "Conversational AI with LLMs", XV -> "Applications of LLMs Across Industries".',
     },
     'parts': []
 }
@@ -121,9 +121,10 @@ parts.append({
     ],
 })
 
-# VII — LLM Retrieval & Information Extraction (already canonical pattern, kept)
+# VII — Retrieval & Information Extraction with LLMs
+# (v8 grammar fix: was "LLM Retrieval" which reads as "retrieval OF LLMs"; actual scope is "retrieval USING LLMs")
 parts.append({
-    'num': 7, 'roman': 'VII', 'slug': 'llm-retrieval-information-extraction', 'title': 'LLM Retrieval & Information Extraction',
+    'num': 7, 'roman': 'VII', 'slug': 'retrieval-information-extraction-with-llms', 'title': 'Retrieval & Information Extraction with LLMs',
     'subtitle': 'Embeddings, structured information extraction & NER, RAG, knowledge graphs, cross-modal retrieval.',
     '_action': 'new_part',
     'chapters': [
@@ -136,9 +137,10 @@ parts.append({
     ],
 })
 
-# VIII — LLM Conversational AI (simplified from "LLM Dialogue & Conversational AI" — dialogue is conversational AI)
+# VIII — Conversational AI with LLMs
+# (v8 grammar fix: was "LLM Conversational AI" which reads as "Conversational AI OF LLMs"; actual scope is "Conversational AI BUILT WITH LLMs". Matches book title "Building Conversational AI with LLMs and Agents")
 parts.append({
-    'num': 8, 'roman': 'VIII', 'slug': 'llm-conversational-ai', 'title': 'LLM Conversational AI',
+    'num': 8, 'roman': 'VIII', 'slug': 'conversational-ai-with-llms', 'title': 'Conversational AI with LLMs',
     'subtitle': 'Dialogue architecture, memory and context management, multi-turn flows, voice and realtime multimodal assistants.',
     '_action': 'new_part',
     'chapters': [
@@ -232,8 +234,10 @@ parts.append({
     ],
 })
 
+# XV — Applications of LLMs Across Industries
+# (v8 grammar fix: "LLM Applications" was ambiguous; "Applications OF LLMs" reads naturally and is unambiguous)
 parts.append({
-    'num': 15, 'roman': 'XV', 'slug': 'llm-applications-across-industries', 'title': 'LLM Applications Across Industries',
+    'num': 15, 'roman': 'XV', 'slug': 'applications-of-llms-across-industries', 'title': 'Applications of LLMs Across Industries',
     'subtitle': 'LLM use across legal, finance, healthcare, education, cybersecurity, government, and other domains.',
     '_action': 'rename',
     'chapters': [
