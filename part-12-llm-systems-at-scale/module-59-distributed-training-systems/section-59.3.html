@@ -39,27 +39,27 @@
 <p>FSDP shards across the data dimension; tensor parallelism shards <em>within</em> a layer. Megatron-LM (Shoeybi et al., 2019) showed that a transformer's MLP and attention blocks can be partitioned across $T$ GPUs with exactly <strong>two all-reduces per transformer block</strong>: one after the MLP down-projection, one after the attention output projection. Sequence parallelism extends this to dropout and layer-norm so activation memory also shards. The combination is what every Megatron / DeepSpeed / NeMo frontier training stack runs internally. Tensor parallelism is bandwidth-hungry: it works inside a node on NVLink and dies on InfiniBand. The 8-way tensor-parallel limit you see everywhere is the NVLink fanout, not a software choice.</p>
 </div>
 
-<h2 id="59-3-59-3-1-why-not-just-fsdp">59.3.593.1 Why Not Just FSDP?</h2>
+<h2 id="59-3-1-why-not-just-fsdp">59.3.1 Why Not Just FSDP?</h2>
 <p>FSDP makes parameters fit. It does not make <em>activations</em> fit. Activation memory scales with batch size, sequence length, and the number of layers; for a 70B model with $B \cdot L = 8 \cdot 8192 = 65\text{k}$ tokens, the per-rank activation working set can reach 200 GB even after checkpointing. FSDP replicates this full activation set on every rank because, from FSDP's perspective, each rank is running the full model on its own data slice.</p>
 
 <p>Tensor parallelism solves this by sharding the <em>computation</em>, not just the storage. Each rank performs a sliver of every matmul; both the parameters and the activations are intrinsically $T\times$ smaller on each rank. The penalty is one extra collective per matmul, but with NVLink that is a tiny fraction of the matmul wall-time.</p>
 
-<h2 id="59-3-59-3-2-column-and-row-parallel-matmul">59.3.593.2 Column-Parallel and Row-Parallel Matmul</h2>
+<h2 id="59-3-2-column-and-row-parallel-matmul">59.3.2 Column-Parallel and Row-Parallel Matmul</h2>
 <p>Tensor parallelism rests on two ways to split a matrix multiplication $Y = XW$ where $X \in \mathbb{R}^{B \times d_{\text{in}}}$ and $W \in \mathbb{R}^{d_{\text{in}} \times d_{\text{out}}}$.</p>
 
-<h3 id="59-3-59-3-2-1-column-parallel">59.3.59.32.1 Column-Parallel</h3>
+<h3 id="59-3-2-1-column-parallel">59.3.2.1 Column-Parallel</h3>
 <p>Split $W$ along its <em>columns</em>:</p>
 <div class="math-block">$$W = \begin{bmatrix} W^{(1)} & W^{(2)} & \cdots & W^{(T)} \end{bmatrix}, \quad W^{(t)} \in \mathbb{R}^{d_{\text{in}} \times d_{\text{out}}/T}$$</div>
 
 <p>Each rank $t$ holds $W^{(t)}$ and computes $Y^{(t)} = X W^{(t)}$. The full output is the column-wise concatenation $Y = [Y^{(1)} \mid Y^{(2)} \mid \cdots \mid Y^{(T)}]$, with each rank owning its slice. <strong>No forward communication is required</strong> when the input $X$ is replicated; the backward pass requires an all-reduce on $\partial L / \partial X$ because each rank computed a partial gradient. We write this as the <em>identity-then-all-reduce</em> pattern, often called $f$ in the Megatron literature: $f$ is identity in forward, all-reduce in backward.</p>
 
-<h3 id="59-3-59-3-2-2-row-parallel">59.3.59.32.2 Row-Parallel</h3>
+<h3 id="59-3-2-2-row-parallel">59.3.2.2 Row-Parallel</h3>
 <p>Split $W$ along its <em>rows</em>:</p>
 <div class="math-block">$$W = \begin{bmatrix} W^{(1)} \\ W^{(2)} \\ \vdots \\ W^{(T)} \end{bmatrix}, \quad W^{(t)} \in \mathbb{R}^{d_{\text{in}}/T \times d_{\text{out}}}$$</div>
 
 <p>Now each rank's input must be the corresponding slice: $X^{(t)} \in \mathbb{R}^{B \times d_{\text{in}}/T}$. Each rank computes $Y^{(t)} = X^{(t)} W^{(t)}$, and the partial outputs sum to the full output: $Y = \sum_{t} Y^{(t)}$. The forward pass requires an <strong>all-reduce</strong> across ranks; the backward pass is identity. This is the <em>all-reduce-then-identity</em> pattern, the $g$ function: $g$ is all-reduce in forward, identity in backward.</p>
 
-<h3 id="59-3-59-3-2-3-the-key-trick-pair-them">59.3.59.32.3 The Key Trick: Pair Them</h3>
+<h3 id="59-3-2-3-the-key-trick-pair-them">59.3.2.3 The Key Trick: Pair Them</h3>
 <p>A column-parallel matmul leaves the output sharded across ranks. A row-parallel matmul takes a sharded input. So <strong>two consecutive matmuls can be pipelined with only one all-reduce between them</strong>, by choosing the first column-parallel and the second row-parallel. The MLP and attention blocks of a transformer are <em>exactly</em> this pattern.</p>
 
 <figure class="diagram">
@@ -159,7 +159,7 @@
 <figcaption><strong>Figure 59.3.1</strong>: Megatron-LM's tensor-parallel MLP. The up-projection $W_1$ is column-parallel (no forward comm), GELU is elementwise (local), and the down-projection $W_2$ is row-parallel (one forward all-reduce). A symmetric pattern handles the backward pass with one all-reduce on $\partial L / \partial X$.</figcaption>
 </figure>
 
-<h2 id="59-3-59-3-3-the-mlp-block">59.3.593.3 The MLP Block in Detail</h2>
+<h2 id="59-3-3-the-mlp-block">59.3.3 The MLP Block in Detail</h2>
 <p>The transformer FFN is $Y = \text{GELU}(X W_1) W_2$ with $W_1 \in \mathbb{R}^{d \times 4d}$ and $W_2 \in \mathbb{R}^{4d \times d}$. Megatron's recipe:</p>
 
 <ul>
@@ -171,7 +171,7 @@
 
 <p>One all-reduce, one matmul pair. The activation memory between $W_1$ and $W_2$ is $(B, 4d/T)$ per rank instead of $(B, 4d)$ on a single device: a $T\times$ saving on the largest intermediate of the MLP.</p>
 
-<h2 id="59-3-59-3-4-the-attention-block">59.3.593.4 The Attention Block in Detail</h2>
+<h2 id="59-3-4-the-attention-block">59.3.4 The Attention Block in Detail</h2>
 <p>Multi-head attention splits naturally along the head dimension. With $H$ heads of dimension $d_h$ where $H \cdot d_h = d$:</p>
 
 <ul>
@@ -183,7 +183,7 @@
 
 <p>So an attention block also costs exactly <strong>one all-reduce</strong>. A whole transformer block (attention + MLP) is two all-reduces. For a 96-layer model with $T=8$, that is 192 NVLink all-reduces per step on the forward pass plus 192 on the backward. Each all-reduce is a few microseconds on NVSwitch, so even at $T=8$ tensor parallelism the per-step communication is bounded by single-digit milliseconds.</p>
 
-<h3 id="59-3-59-3-4-1-multi-query-and-grouped-query">59.3.59.34.1 Multi-Query and Grouped-Query Attention</h3>
+<h3 id="59-3-4-1-multi-query-and-grouped-query">59.3.4.1 Multi-Query and Grouped-Query Attention</h3>
 <p>Modern attention variants like multi-query attention (MQA, 1 KV head shared by all Q heads) and grouped-query attention (GQA, $G$ KV heads, each shared by $H/G$ Q heads) interact with tensor parallelism. The Q projection always shards normally; the K and V projections must respect the smaller head count. Llama-3 70B uses GQA with $G=8$ and $H=64$; with $T=8$ TP, each rank gets exactly one KV head and eight Q heads. This alignment is no accident: model architects pick KV head counts as multiples of the planned tensor-parallel degree, and tensor-parallel degree is chosen to match GQA group count.</p>
 
 <div class="callout key-insight">
@@ -191,7 +191,7 @@
 <p>The reason tensor parallelism is cheap for transformers is that multi-head attention <em>already</em> partitions the computation: $H$ heads are intrinsically independent. Splitting them across $T$ ranks is mechanical (no extra reductions inside attention). The only synchronization is at the output projection, which is the same all-reduce you would do for the MLP. Tensor parallelism is the answer to "where does the natural symmetry of the transformer want to be sharded?".</p>
 </div>
 
-<h2 id="59-3-59-3-5-a-toy-tensor-parallel-matmul">59.3.593.5 A Toy Tensor-Parallel Matmul</h2>
+<h2 id="59-3-5-a-toy-tensor-parallel-matmul">59.3.5 A Toy Tensor-Parallel Matmul</h2>
 <p>To make the mechanics crystal clear, here is a minimal PyTorch implementation of a column-parallel linear followed by a row-parallel linear, which together form one Megatron-style MLP. The pattern in production code (Megatron-LM, NeMo, vLLM serving) is identical; this strips it to its essentials.</p>
 
 <div class="code-block-wrapper">
@@ -275,7 +275,7 @@ if __name__ == "__main__":
 <div class="code-caption"><strong>Code Fragment 59.3.1</strong>: A from-scratch tensor-parallel MLP. The autograd functions <code>_CopyToTPRegion</code> ($f$ in Megatron's notation) and <code>_AllReduceFromTPRegion</code> ($g$) install the right collectives on the right pass. Production code uses Megatron's <code>ColumnParallelLinear</code> and <code>RowParallelLinear</code> which add bias handling, async comm, and fused kernels, but the pattern above is the entire idea.</div>
 </div>
 
-<h2 id="59-3-59-3-6-sequence-parallelism-the-fsdp-trick">59.3.593.6 Sequence Parallelism: The FSDP Trick</h2>
+<h2 id="59-3-6-sequence-parallelism-the-fsdp-trick">59.3.6 Sequence Parallelism: The FSDP Trick</h2>
 <p>Tensor parallelism shards the parameters and the matmul activations. But it leaves three operations <em>replicated</em>: dropout, layer-norm, and the residual add. Each of these holds an activation of shape $(B, L, d)$ on every rank. For a 70B model with $L=8192$, $d=8192$, $B=8$ in BF16, that is about $4.3$ GB per layer per rank, replicated $T$ times for no reason.</p>
 
 <p>Sequence parallelism (Korthikanti et al., 2022) recognizes that this replication is wasteful: layer-norm and dropout are elementwise (sequence-independent), so they can be sharded along the sequence dimension just as the MLP is sharded along the hidden dimension. The two are <em>composable</em>: alternating between sequence-sharded and hidden-sharded activations across the layer.</p>
@@ -295,7 +295,7 @@ if __name__ == "__main__":
 <p>Meta's 32k-context fine-tune of Llama-2 70B (the long-context base for many open-source models) used 8-way tensor parallelism + sequence parallelism. Without sequence parallelism, the dropout and layer-norm activations alone would have been roughly $32{,}768 \cdot 8192 \cdot 2 \cdot 80 \cdot 8 \approx 343$ GB per rank. With sequence parallelism, each rank held $1/T = 1/8$ of the sequence dimension at those points, dropping to $\approx 43$ GB per rank, which fit alongside KV caches in an 80 GB H100. Sequence parallelism was the difference between "8 H100s per model replica" and "32 H100s per model replica"; the cost saving was roughly $4\times$.</p>
 </div>
 
-<h2 id="59-3-59-3-7-when-tensor-parallelism-breaks">59.3.593.7 When Tensor Parallelism Breaks</h2>
+<h2 id="59-3-7-when-tensor-parallelism-breaks">59.3.7 When Tensor Parallelism Breaks</h2>
 <p>Tensor parallelism has hard limits:</p>
 
 <ul>
@@ -312,12 +312,12 @@ if __name__ == "__main__":
 <p>If you write a custom module and forget to use Megatron's parallel primitives (or huggingface's <code>tensor_parallel</code>), you get silently incorrect outputs: the column-parallel output is sharded, your custom code treats it as full, and the gradient is wrong. The failure mode is gradient norm exploding or staying flat at random initialization quality. Always run a small TP=2 test against TP=1 and assert numerical equivalence before scaling up. The <code>megatron.core.tensor_parallel</code> module provides a <code>VocabParallelEmbedding</code>, <code>ColumnParallelLinear</code>, <code>RowParallelLinear</code>, and <code>VocabParallelCrossEntropy</code> that cover the standard transformer; if you build anything else, the test-against-TP=1 discipline is the only safety net.</p>
 </div>
 
-<h2 id="59-3-59-3-8-tensor-parallelism-for-the-embedding">59.3.593.8 Tensor Parallelism for the Embedding and Output Head</h2>
+<h2 id="59-3-8-tensor-parallelism-for-the-embedding">59.3.8 Tensor Parallelism for the Embedding and Output Head</h2>
 <p>The transformer's two largest weight matrices are not the FFN ones; they are the embedding (and the tied output) layer. For Llama-3 70B with vocabulary size $V = 128{,}000$ and $d = 8192$, the embedding is $V \cdot d = 1.05$ B parameters, or roughly 2 GB in BF16. With tensor parallelism, you typically <strong>shard the embedding by vocabulary</strong> (vocab-parallel) rather than by hidden dimension.</p>
 
 <p>The mechanics: rank $t$ holds the rows of the embedding table corresponding to vocabulary slice $[t \cdot V/T : (t+1) \cdot V/T]$. At lookup time, each rank masks out tokens that are not in its slice (returning zero), then an all-reduce sums the contributions. For the output head, the logit computation is column-parallel by vocabulary; the cross-entropy loss is also <em>vocab-parallel</em>, with a clever local-softmax trick that avoids ever materializing the full $V$-dimensional logit on a single rank. Megatron-Core's <code>VocabParallelCrossEntropy</code> implements this; it is one of the most important optimizations for high-vocab models because the output head's softmax memory is otherwise prohibitive.</p>
 
-<h2 id="59-3-59-3-9-asynchronous-tensor-parallel-comm">59.3.593.9 Asynchronous Tensor-Parallel Communication</h2>
+<h2 id="59-3-9-asynchronous-tensor-parallel-comm">59.3.9 Asynchronous Tensor-Parallel Communication</h2>
 <p>The naive tensor-parallel forward does a synchronous all-reduce at the end of each block, then proceeds to the next block. Modern implementations overlap the all-reduce with the next block's <em>start</em>: while the first MLP's all-reduce is still in flight, the second block's QKV projection begins (it does not depend on the first block's output yet, only on the residual stream which was the input).</p>
 
 <p>This trick saves 10-20% wall-time on tensor parallelism at $T=8$. The implementation requires either CUDA streams (the all-reduce on a comm stream, the next block's matmul on the compute stream, with a wait at the residual add) or NVIDIA's newer SHARP (Scalable Hierarchical Aggregation and Reduction Protocol) which runs the reduction in switch silicon rather than on the GPUs. NCCL 2.20+ exposes SHARP as a tunable option; it is on by default on InfiniBand fabrics that support it.</p>
@@ -327,12 +327,12 @@ if __name__ == "__main__":
 <p>SHARP performs the reduction in the network switch silicon, taking the GPUs out of the critical path. The catch: SHARP only helps when the reduction is the latency bottleneck, which is the tensor-parallel case where every layer has an all-reduce. For DDP / FSDP, the per-step communication is large but the latency is not the bottleneck (bandwidth is). SHARP-enabled fabrics yield 5-10% MFU improvements on TP-heavy 3D parallel plans; you would not notice it on pure FSDP.</p>
 </div>
 
-<h2 id="59-3-59-3-10-tensor-parallelism-for-non-transformer-arch">59.3.593.10 Tensor Parallelism Beyond Transformers</h2>
+<h2 id="59-3-10-tensor-parallelism-for-non-transformer-arch">59.3.10 Tensor Parallelism Beyond Transformers</h2>
 <p>The Megatron pattern (column-parallel + row-parallel matmul) is general; it applies to any neural network whose primary operation is matrix multiplication. State-Space Models (Mamba, S4) shard the recurrence dimension. Mixture-of-Expert layers (MoE) shard <em>by expert</em>, which is more naturally called <em>expert parallelism</em> than tensor parallelism but is mathematically the same operation: split one big matrix multiplication across ranks, all-reduce the result. The Switch Transformer paper (Fedus et al., 2022) was the first to scale this beyond hundreds of experts; the GShard paper (Lepikhin et al., 2020) introduced the all-to-all collective that routes tokens to experts.</p>
 
 <p>Hybrid attention / SSM models (Jamba, Samba) require <em>different</em> tensor-parallel layouts for different layer types: the attention block uses head-parallel TP, the SSM block uses recurrence-parallel TP. The 2026 best practice is to keep these in the same physical TP group but route them through different fused kernels. Megatron-Core's recent releases support this directly.</p>
 
-<h2 id="59-3-59-3-11-summary">59.3.593.11 Summary</h2>
+<h2 id="59-3-11-summary">59.3.11 Summary</h2>
 <p>Tensor parallelism shards within a layer using column-parallel + row-parallel matmul pairs, costing exactly two all-reduces per transformer block. Multi-head attention is naturally compatible because heads are pre-sharded; GQA models pick their KV-head count to match the planned tensor-parallel degree. Sequence parallelism extends the technique to the elementwise ops (dropout, layer-norm) by splitting the activation along the sequence dimension and pairing reduce-scatter + all-gather around them, saving activation memory at the same wire cost. The hard upper bound on $T$ is NVLink fanout, which is why $T=8$ is the universal choice and why the next axis (pipeline parallelism in Section 59.4) takes over for models that need more sharding than one node can provide.</p>
 
 <section class="bibliography">

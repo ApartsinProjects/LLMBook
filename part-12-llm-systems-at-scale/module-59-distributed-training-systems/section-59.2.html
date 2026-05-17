@@ -39,7 +39,7 @@
 <p>The single biggest waste in plain data parallelism is that every rank stores identical copies of every optimizer state, gradient, and parameter. With $N$ replicas, $(N-1)/N$ of that memory is redundant. ZeRO (DeepSpeed, 2019) and its PyTorch reimplementation FSDP shard this state across ranks and materialize each layer's full tensors only just-in-time during forward and backward. The same total bytes traverse the wire as a vanilla all-reduce; the savings come from never holding the full state on any one rank. ZeRO Stage 3 / FSDP Full-Shard is what makes 70B models trainable on commodity 80 GB GPUs.</p>
 </div>
 
-<h2 id="59-2-59-2-1-the-memory-budget-of-mixed-precision-training">59.2.592.1 The Memory Budget of Mixed-Precision Training</h2>
+<h2 id="59-2-1-the-memory-budget-of-mixed-precision-training">59.2.1 The Memory Budget of Mixed-Precision Training</h2>
 <p>Before we can shard anything, we need to know what we are sharding. The per-rank memory footprint of a transformer training step decomposes into four bucket classes. Let $P$ be the parameter count, $N$ the data-parallel world size.</p>
 
 <div class="comparison-table">
@@ -58,7 +58,7 @@
 
 <p>The 14 bytes per parameter beyond the BF16 params are <em>almost entirely redundant under data parallelism</em>. Every rank performs identical AdamW updates on identical inputs, so storing 1.12 TB on each of 16 GPUs is a 17.92 TB of cluster memory for a 1.12 TB working set. ZeRO erases that redundancy stage by stage.</p>
 
-<h2 id="59-2-59-2-2-the-zero-progression">59.2.592.2 The ZeRO Progression</h2>
+<h2 id="59-2-2-the-zero-progression">59.2.2 The ZeRO Progression</h2>
 <p>Rajbhandari et al. (SC'20) introduced ZeRO (Zero Redundancy Optimizer) as a series of three orthogonal sharding stages, each picking off one of the buckets above. Each later stage subsumes the earlier ones and adds more communication for more memory savings.</p>
 
 <figure class="diagram">
@@ -147,19 +147,19 @@
 <figcaption><strong>Figure 59.2.1</strong>: ZeRO progressively shards the per-rank state. Dashed boxes are sharded (only $1/N$ stored per rank); solid boxes are fully replicated. The memory savings come at the cost of additional collectives, but the wire-time per step grows only modestly.</figcaption>
 </figure>
 
-<h3 id="59-2-59-2-2-1-zero-stage-1-shard-optimizer-state">59.2.59.22.1 ZeRO Stage 1: Shard Optimizer State</h3>
+<h3 id="59-2-2-1-zero-stage-1-shard-optimizer-state">59.2.2.1 ZeRO Stage 1: Shard Optimizer State</h3>
 <p>The AdamW master weights, first moment, and second moment are 12 bytes per parameter and used only inside <code>optimizer.step()</code>. Stage 1 partitions them across the $N$ data-parallel ranks: rank $i$ stores $1/N$ of every optimizer tensor.</p>
 
 <p>Forward and backward run as in DDP, producing a full BF16 gradient on every rank. Before the optimizer step, an <strong>all-reduce</strong> averages gradients (same as DDP). Then each rank applies the optimizer to <em>its</em> shard of the master weights, producing a $1/N$ shard of updated BF16 parameters. A final <strong>all-gather</strong> reconstructs the full BF16 parameter tensor on every rank.</p>
 
 <p>Memory per rank drops from $16$ B/param to $4 + 12/N$ B/param. At $N=64$, that is roughly $4.2$ B/param: a 70B model fits in $\approx 290$ GB of state per rank, or about $3.6$ H100s. Communication grows by one all-gather (size $S$, replacing the implicit broadcast inside DDP). For most workloads, Stage 1 is nearly free.</p>
 
-<h3 id="59-2-59-2-2-2-zero-stage-2-shard-gradients">59.2.59.22.2 ZeRO Stage 2: Also Shard Gradients</h3>
+<h3 id="59-2-2-2-zero-stage-2-shard-gradients">59.2.2.2 ZeRO Stage 2: Also Shard Gradients</h3>
 <p>The gradient is fully needed only on the rank that owns the corresponding optimizer-state shard. So replace the all-reduce with a <strong>reduce-scatter</strong>: each rank ends up holding only $1/N$ of the gradient (the part corresponding to its optimizer shard). Memory per rank drops to $2 + 14/N$ B/param.</p>
 
 <p>The communication math is striking: a reduce-scatter moves the same total $S(N-1)/N$ bytes as the reduce-scatter half of an all-reduce. We have saved roughly half the gradient memory ($\approx 70$ GB for a 70B model at $N=64$) by replacing two collectives with one half-as-expensive collective.</p>
 
-<h3 id="59-2-59-2-2-3-zero-stage-3-shard-parameters">59.2.59.22.3 ZeRO Stage 3: Also Shard Parameters</h3>
+<h3 id="59-2-2-3-zero-stage-3-shard-parameters">59.2.2.3 ZeRO Stage 3: Also Shard Parameters</h3>
 <p>The big one. At any moment, only the parameters of the <em>current</em> layer need to materialize as full tensors; the rest can stay sharded. Stage 3 (also called <strong>FSDP Full-Shard</strong>) wraps each transformer block so that:</p>
 
 <ol>
@@ -177,10 +177,10 @@
 <p>The mathematical identity that powers ZeRO is that <em>all-reduce = reduce-scatter then all-gather</em>. In DDP both halves run on every rank; in ZeRO Stage 3 only the all-gather runs (during the next forward), and only on layers about to execute. Compared to DDP the total bytes moved are the same; the peak per-rank memory is $N\times$ lower. This single observation is responsible for nearly every memory-efficient parallelism scheme of the past five years.</p>
 </div>
 
-<h2 id="59-2-59-2-3-pytorch-fsdp">59.2.592.3 PyTorch FSDP: ZeRO Re-Implemented Natively</h2>
+<h2 id="59-2-3-pytorch-fsdp">59.2.3 PyTorch FSDP: ZeRO Re-Implemented Natively</h2>
 <p>FSDP (Zhao et al., 2023) is the PyTorch-native reimplementation of ZeRO Stage 3, designed to feel like DDP from the user's perspective. FSDP differs from DeepSpeed ZeRO in two important ways: (a) it integrates with <code>torch.compile</code>, AOT autograd, and the rest of the PyTorch ecosystem natively; (b) it uses explicit <em>wrapping policies</em> to control sharding granularity, which gives finer control over the activation-vs-comm trade-off.</p>
 
-<h3 id="59-2-59-2-3-1-wrapping-policies">59.2.59.23.1 Wrapping Policies</h3>
+<h3 id="59-2-3-1-wrapping-policies">59.2.3.1 Wrapping Policies</h3>
 <p>FSDP shards parameters at the granularity of <em>wrap units</em>. A wrap unit is one all-gather: every parameter inside the unit is gathered together. There are three common policies:</p>
 
 <ul>
@@ -189,7 +189,7 @@
 <li><strong>Transformer-block wrap</strong> (the default for LLMs): each transformer block (e.g., <code>LlamaDecoderLayer</code>) becomes its own FSDP unit. The peak materialized memory is one block's worth of params plus the gradient working set, which for a 70B model with 80 layers is about $1.75$ GB. This is what every modern LLM training recipe uses.</li>
 </ul>
 
-<h3 id="59-2-59-2-3-2-minimal-fsdp-training-loop">59.2.59.23.2 A Minimal FSDP Training Loop</h3>
+<h3 id="59-2-3-2-minimal-fsdp-training-loop">59.2.3.2 A Minimal FSDP Training Loop</h3>
 
 <div class="code-block-wrapper">
 <pre><code class="lang-python"># fsdp_minimal.py: torchrun --nproc_per_node=8 fsdp_minimal.py
@@ -255,13 +255,13 @@ if __name__ == "__main__":
 <div class="code-caption"><strong>Code Fragment 59.2.1</strong>: A complete FSDP loop. The only difference from DDP is the wrap step; all the magic happens in the <code>FSDP(...)</code> constructor's hook installation. <code>BackwardPrefetch.BACKWARD_PRE</code> issues the next block's all-gather <em>before</em> the current block's backward finishes, hiding the gather behind compute.</div>
 </div>
 
-<h3 id="59-2-59-2-3-3-prefetching-and-overlap">59.2.59.23.3 Prefetching and Overlap</h3>
+<h3 id="59-2-3-3-prefetching-and-overlap">59.2.3.3 Prefetching and Overlap</h3>
 <p>The naive FSDP forward pass is: gather block $k$, compute block $k$, free block $k$, gather block $k+1$, compute block $k+1$, &hellip;. Each gather is a synchronous wait. With <code>forward_prefetch=True</code>, FSDP issues the gather for block $k+1$ while compute on block $k$ is still running; the same trick for <code>BackwardPrefetch.BACKWARD_PRE</code> on the way back down. With good overlap, the communication is essentially free up to about a $30\%$ slowdown over DDP for the largest models, which is the lever that decides whether FSDP is the right choice.</p>
 
-<h3 id="59-2-59-2-3-4-cpu-offload">59.2.59.23.4 CPU Offload</h3>
+<h3 id="59-2-3-4-cpu-offload">59.2.3.4 CPU Offload</h3>
 <p>If HBM is still tight even after sharding, FSDP supports <code>CPUOffload(offload_params=True)</code>: the $1/N$ parameter shards live on host memory and are paged in to HBM only during a forward or backward gather. CPU memory is plentiful (1-2 TB per node is common); the cost is PCIe traffic on every layer's gather. PCIe Gen5 x16 is $63$ GB/s, far slower than NVLink, so CPU offload roughly halves training throughput. It is a "I cannot run otherwise" feature, not a default.</p>
 
-<h2 id="59-2-59-2-4-memory-arithmetic-llama-70b-and-405b">59.2.592.4 Memory Arithmetic: Llama 70B and 405B</h2>
+<h2 id="59-2-4-memory-arithmetic-llama-70b-and-405b">59.2.4 Memory Arithmetic: Llama 70B and 405B</h2>
 <p>To make the trade-offs concrete, here is the per-rank memory math for two scales on H100s with 80 GB. We assume mixed precision (BF16 + FP32 master), AdamW, transformer-block wrap, and gradient checkpointing.</p>
 
 <div class="comparison-table">
@@ -283,19 +283,19 @@ if __name__ == "__main__":
 <p>Meta's Llama-3 405B was trained on 16,000 H100s. The training plan was FSDP Hybrid-Shard inside each pod ($N=128$ per shard group, replicated across pods) combined with tensor parallelism inside each node ($T=8$). At pod scale, per-rank FSDP state was $405 \times 10^9 \cdot 16 / 128 \approx 50$ GB, leaving 30 GB on each H100 for activations, KV caches in eval, and the working set of NCCL buffers. With tensor parallelism cutting the per-replica work by another factor of 8, the effective model state per GPU was $\approx 6$ GB. This recipe is the modern frontier-LLM default.</p>
 </div>
 
-<h2 id="59-2-59-2-5-zero-plus-plus-and-recent-improvements">59.2.592.5 ZeRO++ and Recent Improvements</h2>
+<h2 id="59-2-5-zero-plus-plus-and-recent-improvements">59.2.5 ZeRO++ and Recent Improvements</h2>
 <p>The three classic ZeRO stages have been refined by half a decade of follow-up work. The most impactful additions:</p>
 
-<h3 id="59-2-59-2-5-1-quantized-weights-on-the-wire">59.2.59.25.1 Quantized Weights on the Wire</h3>
+<h3 id="59-2-5-1-quantized-weights-on-the-wire">59.2.5.1 Quantized Weights on the Wire</h3>
 <p>ZeRO++ (Wang et al., 2023) observed that the all-gather of BF16 parameters is bandwidth-bound. By <strong>block-quantizing</strong> the parameter shards to INT4 or INT8 before transmission and dequantizing on the receiver, you reduce the wire bytes by $4\times$ at minimal accuracy loss. Quantization is per-block (one scale per ~128 elements) to preserve dynamic range. The communication-overhead reduction translates directly to throughput.</p>
 
-<h3 id="59-2-59-2-5-2-hierarchical-communication">59.2.59.25.2 Hierarchical Communication (Hybrid-Shard)</h3>
+<h3 id="59-2-5-2-hierarchical-communication">59.2.5.2 Hierarchical Communication (Hybrid-Shard)</h3>
 <p>When the data-parallel group spans multiple nodes, a flat all-gather has to cross the slow inter-node fabric for every gather. <strong>Hybrid-Shard</strong> partitions the world into intra-node groups: each node fully shards within itself ($N=8$ for an H100 server), and across nodes runs plain DDP. Memory savings are $8\times$, all collectives stay on NVLink, and inter-node traffic is the one DDP all-reduce per step. This is what Meta uses for Llama-3.</p>
 
-<h3 id="59-2-59-2-5-3-overlap-and-pipelining">59.2.59.25.3 Overlap and Pipelining Improvements</h3>
+<h3 id="59-2-5-3-overlap-and-pipelining">59.2.5.3 Overlap and Pipelining Improvements</h3>
 <p>FSDP2 (PyTorch 2.3+, 2024) and DTensor-based sharding (2025) replaced the original wrapper-based implementation with a per-parameter sharding model that prefetches and overlaps more aggressively. Combined with <code>torch.compile</code>, FSDP2 closes most of the throughput gap with hand-tuned Megatron-DeepSpeed configurations.</p>
 
-<h2 id="59-2-59-2-6-fsdp-vs-tensor-parallelism">59.2.592.6 FSDP vs Tensor Parallelism: When to Choose Which</h2>
+<h2 id="59-2-6-fsdp-vs-tensor-parallelism">59.2.6 FSDP vs Tensor Parallelism: When to Choose Which</h2>
 <p>FSDP and Megatron-style tensor parallelism (Section 59.3) both make a too-large model fit. They are not interchangeable; the right choice depends on cluster topology and model shape.</p>
 
 <div class="comparison-table">
@@ -318,7 +318,7 @@ if __name__ == "__main__":
 <p>With <code>no_sync()</code> active across gradient-accumulation micro-steps, FSDP avoids the reduce-scatter on intermediate backwards. But the gradient sharding state stays in BF16 across accumulation steps, which can underflow on long sequences. The fix is to use <code>MixedPrecision(reduce_dtype=torch.float32)</code> for gradient reduction, or to enable <code>FullStateDictType.SHARDED_STATE_DICT</code> only at checkpoint time. Most "training diverged at step 5000 with no obvious cause" stories in 2024 were variants of this; the fix is in the FSDP2 default config.</p>
 </div>
 
-<h2 id="59-2-59-2-7-activation-checkpointing-and-fsdp">59.2.592.7 Activation Checkpointing and FSDP</h2>
+<h2 id="59-2-7-activation-checkpointing-and-fsdp">59.2.7 Activation Checkpointing and FSDP</h2>
 <p>FSDP shards parameters and gradients, but it does not shard <em>activations</em>. The forward pass produces $\mathcal{O}(B L d \cdot n_\text{layers})$ activation memory which is fully materialized on every rank. For a Llama-3 70B model at $B=4, L=8192$ this is roughly 160 GB per rank, well over an 80 GB H100's budget.</p>
 
 <p>Activation (gradient) checkpointing recomputes activations during backward rather than storing them. Wrap the transformer block in <code>torch.utils.checkpoint</code> and only the block's input is stored; the intermediate activations are recomputed from that input during backward. Memory drops by roughly $4\times$ per checkpointed block (the savings depend on what the block computes internally); compute cost rises by about $33\%$ (the recomputed forward).</p>
@@ -329,7 +329,7 @@ if __name__ == "__main__":
 <li><strong>Order of operations with FSDP</strong>. The activation checkpointing wrapper must be <em>inside</em> the FSDP wrapping. If you wrap with FSDP first and then with checkpoint, the recompute phase re-triggers parameter all-gathers, which is what you absolutely want to avoid. The standard pattern is <code>FSDP(checkpoint_wrapper(LlamaDecoderLayer))</code>, not the reverse.</li>
 </ul>
 
-<h2 id="59-2-59-2-8-fsdp-and-meta-device-initialization">59.2.592.8 Meta-Device Initialization: Skipping the OOM at Startup</h2>
+<h2 id="59-2-8-fsdp-and-meta-device-initialization">59.2.8 Meta-Device Initialization: Skipping the OOM at Startup</h2>
 <p>For 70B+ models, even <em>constructing</em> the model on a single rank to wrap it with FSDP overflows memory. <code>AutoModelForCausalLM.from_pretrained("llama-70b")</code> materializes 140 GB of BF16 parameters; one rank cannot hold that.</p>
 
 <p>The standard workaround is the <strong>meta device</strong>: construct the model with <code>device="meta"</code>, which allocates only tensor metadata (shape, dtype) but no actual storage. Then FSDP's wrap pass shards the meta tensors, materializes only the local shard on each rank's GPU, and finally loads parameters shard-by-shard from disk. Total per-rank materialization is $\approx P/N$ bytes, never the full $P$.</p>
@@ -359,7 +359,7 @@ load_sharded_state_dict(model, checkpoint_path)
 <div class="code-caption"><strong>Code Fragment 59.2.2</strong>: Meta-device initialization. The <code>with torch.device("meta")</code> context defers all tensor materialization until FSDP's wrap pass, at which point only the local shard is allocated on each rank.</div>
 </div>
 
-<h2 id="59-2-59-2-9-deepspeed-zero-vs-pytorch-fsdp-2026-status">59.2.592.9 DeepSpeed-ZeRO vs PyTorch FSDP: 2026 Status</h2>
+<h2 id="59-2-9-deepspeed-zero-vs-pytorch-fsdp-2026-status">59.2.9 DeepSpeed-ZeRO vs PyTorch FSDP: 2026 Status</h2>
 <p>The two stacks have converged in capability but diverge in ecosystem fit:</p>
 
 <div class="comparison-table">
@@ -378,7 +378,7 @@ load_sharded_state_dict(model, checkpoint_path)
 
 <p>In 2026, FSDP2 is the default in new training stacks (Megatron-Core uses it under the hood for the DP axis); DeepSpeed remains the path of least resistance when starting from HuggingFace Trainer recipes. Both reach 35-45% MFU on H100s at 70B scale; the gap between them is now within measurement noise.</p>
 
-<h2 id="59-2-59-2-10-summary">59.2.592.10 Summary</h2>
+<h2 id="59-2-10-summary">59.2.10 Summary</h2>
 <p>ZeRO and FSDP take the redundant replication out of plain data parallelism. Stage 1 shards optimizer state; Stage 2 shards gradients; Stage 3 / FSDP Full-Shard shards parameters and materializes each layer just-in-time. The peak per-rank state is $16/N$ bytes per parameter at Stage 3, a $64\times$ reduction over DDP at $N=64$, against a roughly $50\%$ throughput cost that prefetching and overlap can mostly hide. Hybrid-Shard combines FSDP within a node with DDP across nodes, exploiting the bandwidth hierarchy. The next section turns to the orthogonal axis: tensor parallelism, which shards <em>within</em> a layer rather than <em>across</em> the data dimension.</p>
 
 <section class="bibliography">
