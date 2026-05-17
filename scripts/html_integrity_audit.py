@@ -36,21 +36,28 @@ DROPPED_REFS_PATTERNS = [
 ]
 
 # Prose references to dropped resources (text only, not in href attributes)
-# Appendix N/P prose drift: filter out the cases where the new appendix labels are correct.
-# Appendix N is now "Docker and Containers"; Appendix P is now "Reading Pathways".
+# Appendix letter assignments after the v13 consolidation:
+#   Appendix A = Math; B = ML Essentials;
+#   C-N have been DELETED (consolidated into part-specific Tools of the Trade chapters)
+#   O = Docker and Containers
+#   P = Course Syllabi
+#   Q = Reading Pathways
+#   R = Intermediate Projects; S = Capstone; T = War Stories
 PROSE_DROPPED_PATTERNS = [
-    (re.compile(r"\bAppendix\s+N\b(?!\s*(?:[\.\-:,]|\s|<)*(?:Docker|Containers))", re.IGNORECASE), "'Appendix N' refers to non-Docker content"),
-    (re.compile(r"\bAppendix\s+P\b(?!\s*(?:[\.\-:,]|\s|<)*(?:Reading|Pathways))", re.IGNORECASE), "'Appendix P' refers to non-Pathways content"),
+    (re.compile(r"\bAppendix\s+O\b(?!\s*(?:[\.\-:,\(]|\s|<)*(?:Docker|Containers))", re.IGNORECASE), "'Appendix O' refers to non-Docker content"),
+    (re.compile(r"\bAppendix\s+P\b(?!\s*(?:[\.\-:,\(]|\s|<)*(?:Course|Syllab))", re.IGNORECASE), "'Appendix P' refers to non-Course-Syllabi content"),
+    (re.compile(r"\bAppendix\s+Q\b(?!\s*(?:[\.\-:,\(]|\s|<)*(?:Reading|Pathways))", re.IGNORECASE), "'Appendix Q' refers to non-Pathways content"),
     (re.compile(r"\bGlossary entry for\b", re.IGNORECASE), "'Glossary entry for ...' (glossary dropped)"),
     (re.compile(r"\bsee the [Gg]lossary\b", re.IGNORECASE), "'see the glossary' (glossary dropped)"),
     (re.compile(r"\bin the [Gg]lossary\b", re.IGNORECASE), "'in the glossary' (glossary dropped)"),
 ]
 
-# Tags / contexts where Appendix N/P mentions are expected and benign:
+# Tags / contexts where Appendix O/P/Q mentions are expected and benign:
 # - inside <span class="nav-num">, <span class="bc-current">, <span class="mod-num">, <span class="toc-chapter-num">
-# - in <title>, <h1> of the Appendix N/P pages themselves
+# - in <title>, <h1>, data-pagefind-meta of any appendix landing page
+# - inside aria-label attributes (toc-chapter-num)
 PROSE_BENIGN_NEAR_PATTERNS = re.compile(
-    r"""(?:nav-num|bc-current|mod-num|toc-chapter-num|aria-label\s*=\s*["']Appendix\s+[NP]|data-pagefind-meta="chapter:Appendix\s+[NP]|<title>[^<]*Appendix\s+[NP])""",
+    r"""(?:nav-num|bc-current|mod-num|toc-chapter-num|aria-label\s*=\s*["']Appendix\s+[A-Z]|data-pagefind-meta="(?:chapter|appendix):Appendix\s+[A-Z]|data-pagefind-meta="part:Appendix\s+[A-Z]|<title>[^<]*Appendix\s+[A-Z])""",
     re.IGNORECASE,
 )
 
@@ -307,8 +314,18 @@ def main() -> int:
 
                 # Validate targets exist
                 nav_line = line_of(content, nav_match.start())
+                # Identify book endpoints: very first section (Part I, Chapter 0, Section 0.1)
+                # and very last section (Part XIII, Chapter 86, Section 86.5).
+                # These legitimately have no prev / next within the linear chain.
+                rp = rel_path.replace("\\", "/")
+                is_first_section = rp.endswith("part-1-foundations/module-00-ml-pytorch-foundations/section-0.1.html")
+                is_last_section = rp.endswith("part-13-frontiers/module-86-tools-of-the-trade/section-86.5.html")
                 for rel_key in ("prev", "up", "next"):
                     if rel_key not in nav_links:
+                        if rel_key == "prev" and is_first_section:
+                            continue  # first section has no prev
+                        if rel_key == "next" and is_last_section:
+                            continue  # last section has no next
                         p1.append(f"{rel_path}:{nav_line} - nav missing '{rel_key}' link")
                         continue
                     href = nav_links[rel_key]
