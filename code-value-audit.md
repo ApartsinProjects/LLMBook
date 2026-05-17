@@ -6,14 +6,14 @@ This audit flags Python code fragments that add no pedagogical or technical valu
 
 Each fragment is scored across nine value signals. A fragment is flagged when it matches at least one strong no-value pattern (e.g. mock/fake API), reaches a weighted score of 4, or trips two or more signals.
 
-- Total Python fragments scanned: **1050**
-- Fragments skipped (captions legitimately describe schemas / data models): **27**
-- Fragments with parse errors (excluded): **120**
-- Fragments flagged as low-value: **2**
+- Total Python fragments scanned: **1017**
+- Fragments skipped (captions legitimately describe schemas / data models): **31**
+- Fragments with parse errors (excluded): **49**
+- Fragments flagged as low-value: **4**
 
 **Calibration note:** This audit is intentionally conservative. The initial loose-threshold run produced 46 candidates, of which ~40 were false positives from real PEFT/transformers code where the detector misjudged method names like `load_adapter`, `get_or_create_collection`, `search_by_metadata` as 'invented' (they are real third-party SDK methods). The tightened rules require either an explicit mock/fake function or a fragment with imports of zero known libraries AND an English-sentence-shaped method name (e.g. `solve_the_problem`).
 
-**Parse-error caveat:** 120 fragments failed AST parsing (typically due to broken indentation in fragment extraction) and were excluded. Most are high-value implementation code (federated LoRA, bootstrap tests, etc.) but a few could harbour low-value patterns the audit cannot reach. The `code-fragment-fix-report.md` and `missing-imports-audit.md` cover related issues in those fragments.
+**Parse-error caveat:** 49 fragments failed AST parsing (typically due to broken indentation in fragment extraction) and were excluded. Most are high-value implementation code (federated LoRA, bootstrap tests, etc.) but a few could harbour low-value patterns the audit cannot reach. The `code-fragment-fix-report.md` and `missing-imports-audit.md` cover related issues in those fragments.
 
 ## Signal weights (higher = stronger signal of no-value)
 
@@ -29,9 +29,9 @@ Each fragment is scored across nine value signals. A fragment is flagged when it
 
 ## Signal frequency across flagged fragments
 
-- `string_template_only`: 1
-- `no_imports_no_calls`: 1
-- `mock_or_fake_api`: 1
+- `string_template_only`: 3
+- `no_imports_no_calls`: 3
+- `identity_print_demo`: 1
 
 ## Top 30 Worst Offenders
 
@@ -39,12 +39,14 @@ Sorted by weighted score (sum of signal weights), then by number of signals trip
 
 | # | File | Line | Fragment | Score | # signals | Top signals | Caption (truncated) |
 |---|---|---|---|---|---|---|---|
-| 1 | `part-5-retrieval-conversation/module-20-conversational-ai/section-20.1.html` | 298 | 20.1.2 | 7 | 2 | `string_template_only`, `no_imports_no_calls` | Building a stateful dialogue manager that tracks conversation phase, collects required slo... |
-| 2 | `appendices/appendix-k-langchain/section-k.1.html` | 262 | L.1.7 | 6 | 1 | `mock_or_fake_api` | Pattern: pass the question through while also running a retrieval step |
+| 1 | `part-8-conversational-ai-with-llms/module-37-conversational-ai/section-37.1.html` | 299 | 37.1.2 | 7 | 2 | `string_template_only`, `no_imports_no_calls` | Building a stateful dialogue manager that tracks conversation phase, collects required slo... |
+| 2 | `part-5-multimodal-llms/module-24-vla-models/section-24.7.html` | 99 | 24.7.1 | 7 | 2 | `string_template_only`, `no_imports_no_calls` | A reference SayCan planner in ~30 lines. The LLM scores skill descriptions against the ins... |
+| 3 | `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.7.html` | 70 | 6.7.4 | 7 | 2 | `string_template_only`, `no_imports_no_calls` | Consider a standard few-shot prompting scenario. |
+| 4 | `part-1-llm-building-blocks/module-01-foundations-nlp-text-representation/section-1.7.html` | 154 | 1.7.11 | 4 | 1 | `identity_print_demo` | The ChatML format (used by some OpenAI models) wraps each message with role tags:. |
 
 ## Rewrite Sketches (Top 10)
 
-### 1. `part-5-retrieval-conversation/module-20-conversational-ai/section-20.1.html` (Code Fragment 20.1.2, line 298)
+### 1. `part-8-conversational-ai-with-llms/module-37-conversational-ai/section-37.1.html` (Code Fragment 37.1.2, line 299)
 
 **Caption:** Building a stateful dialogue manager that tracks conversation phase, collects required slots, and transitions between states based on user input.
 
@@ -70,31 +72,71 @@ You CAN:
 
 **Rewrite sketch (effort S):** Pair the template with a render+call. Use `langchain_core.prompts.ChatPromptTemplate.from_messages(...).invoke({...})` (or python's `.format(**vars)`), then ship the rendered messages to `client.chat.completions.create(...)` and print the model's reply. Show both the template AND the resulting LLM output side by side. Lesson: templates are abstract until you see what they produce; the reader needs to see one filled-in instance and its response.
 
-### 2. `appendices/appendix-k-langchain/section-k.1.html` (Code Fragment L.1.7, line 262)
+### 2. `part-5-multimodal-llms/module-24-vla-models/section-24.7.html` (Code Fragment 24.7.1, line 99)
 
-**Caption:** Pattern: pass the question through while also running a retrieval step
+**Caption:** A reference SayCan planner in ~30 lines. The LLM scores skill descriptions against the instruction and history; the affordance function scores them against the observation; we pick the max of the sum (which is the log of the product). The skill library is the input; the entire conceptual content of SayCan is on lines 9-13.
 
-**Signals tripped:** mock_or_fake_api (score: 6)
+**Signals tripped:** string_template_only, no_imports_no_calls (score: 7)
 
 ```python
-from langchain_core.runnables import RunnablePassthrough, RunnableParallel
+SAYCAN_PROMPT = """You are a robot planning assistant. The robot has a fixed library of skills.
+Given a goal and the steps already taken, score each candidate skill's likelihood of being the right next step.
 
-# Pattern: pass the question through while also running a retrieval step
-# (retriever would be a real vectorstore retriever in practice)
-def mock_retriever(query: dict) -> str:
-    return "Python was created by Guido van Rossum in 1991."
+Goal: {instruction}
 
-setup = RunnableParallel(
-    context=lambda x: mock_retriever(x),
-    question=RunnablePassthrough()
-)
+Steps so far:
+{history}
 
-rag_prompt = ChatPromptTemplate.from_template(
-    "Context: {context}\n\nAnswer this question: {question}"
-# ... (truncated)
+Candidate next skills:
+{candidate_descriptions}
+
+For each candidate, output a number from 0.0 to 1.0 representing how likely it is to be the right next step.
+Output strictly as a JSON object mapping skill name to score, no other text.
+"""
 ```
 
-**Rewrite sketch (effort M):** Replace the canned response with a real call. Use the `openai` Python SDK (`client.chat.completions.create(model='gpt-4o-mini', messages=[...])`) or `anthropic` (`client.messages.create(model='claude-3-5-sonnet', max_tokens=512, messages=[...])`). Show the actual response object the reader will see in their terminal, so they recognise the shape (`.choices[0].message.content` or `.content[0].text`). Lesson: how a real LLM call looks at the SDK layer and what fields the response carries (usage tokens, finish_reason, model id).
+**Rewrite sketch (effort S):** Pair the template with a render+call. Use `langchain_core.prompts.ChatPromptTemplate.from_messages(...).invoke({...})` (or python's `.format(**vars)`), then ship the rendered messages to `client.chat.completions.create(...)` and print the model's reply. Show both the template AND the resulting LLM output side by side. Lesson: templates are abstract until you see what they produce; the reader needs to see one filled-in instance and its response.
+
+### 3. `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.7.html` (Code Fragment 6.7.4, line 70)
+
+**Caption:** Consider a standard few-shot prompting scenario.
+
+**Signals tripped:** string_template_only, no_imports_no_calls (score: 7)
+
+```python
+# Few-shot classification example
+prompt = """
+Review: "This movie was absolutely wonderful!"
+Sentiment: Positive
+Review: "Terrible acting and a boring plot."
+Sentiment: Negative
+Review: "The cinematography was stunning but the story fell flat."
+Sentiment: Mixed
+Review: "I laughed and cried, a true masterpiece."
+Sentiment:"""
+```
+
+**Rewrite sketch (effort S):** Pair the template with a render+call. Use `langchain_core.prompts.ChatPromptTemplate.from_messages(...).invoke({...})` (or python's `.format(**vars)`), then ship the rendered messages to `client.chat.completions.create(...)` and print the model's reply. Show both the template AND the resulting LLM output side by side. Lesson: templates are abstract until you see what they produce; the reader needs to see one filled-in instance and its response.
+
+### 4. `part-1-llm-building-blocks/module-01-foundations-nlp-text-representation/section-1.7.html` (Code Fragment 1.7.11, line 154)
+
+**Caption:** The ChatML format (used by some OpenAI models) wraps each message with role tags:.
+
+**Signals tripped:** identity_print_demo (score: 4)
+
+```python
+# ChatML template structure
+template = """<|im_start|>system
+You are a helpful assistant.<|im_end|>
+<|im_start|>user
+What is tokenization?<|im_end|>
+<|im_start|>assistant
+"""
+# The model generates its response here, ending with <|im_end|>
+print(template)
+```
+
+**Rewrite sketch (effort XS):** Pick an input the reader can transform: e.g., tokenise a sentence with `transformers.AutoTokenizer.from_pretrained('gpt2').encode('...')` and print BOTH the original string AND the token-id list. Make the before/after asymmetric so the reader sees the work. Lesson: a demo earns its place by showing a transformation, not by echoing its inputs. Suggested library/API: **openai (chat.completions.create)**.
 
 ## Recommended Editorial Priority
 
@@ -102,8 +144,10 @@ Findings by top-level folder (sorted by count):
 
 | Folder | Flagged | Highest-score example |
 |---|---|---|
-| `part-5-retrieval-conversation` | 1 | Fragment 20.1.2 (7 pts) |
-| `appendices` | 1 | Fragment L.1.7 (6 pts) |
+| `part-8-conversational-ai-with-llms` | 1 | Fragment 37.1.2 (7 pts) |
+| `part-5-multimodal-llms` | 1 | Fragment 24.7.1 (7 pts) |
+| `part-2-understanding-llms` | 1 | Fragment 6.7.4 (7 pts) |
+| `part-1-llm-building-blocks` | 1 | Fragment 1.7.11 (4 pts) |
 
 **Priority guidance:**
 
