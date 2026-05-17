@@ -1,4 +1,4 @@
-# Book Structure: Analysis and Proposed Restructure (v6)
+# Book Structure: Analysis and Proposed Restructure (v7)
 
 **Status**: proposal, in development on branch `v2.0`. Production lives on `main` tagged `production-v1.0`.
 **Generated**: 2026-05-17, post-appendix-renumbering.
@@ -8,7 +8,8 @@
   - v3 — split old Part X into LLM @ Scale and LLMOps; move Multimodal to V.
   - v4 — move Agentic AI to Part VI; rename old Part XII to LLMOps & Lifecycle Management.
   - v5 — deep section-level content analysis + content-level interventions.
-  - **v6 (this version)** — split Safety part into X (Security) + XI (Ethics & Governance); rename every part to include LLM or Agentic AI; rename Frontiers to "LLM & Agentic AI Frontiers"; restructure appendices (7 → 4: absorb Math + ML Essentials into main book; merge Projects + Capstone).
+  - v6 — split Safety into X (Security) + XI (Ethics & Governance); rename every part with LLM or Agentic; restructure appendices (7→4); absorb Math + ML Essentials into main book.
+  - **v7 (this version)** — drop pedagogy appendices (Projects, Capstone, War Stories); rename Part I to "LLM Building Blocks"; grammar polish on Part VII/VIII/IX titles; rename XIV to "Designing LLM & Agent-based Products" and consolidate XIV from 7 to 5 chapters; rename XVI to "LLM & Agentic AI Research Frontiers".
 
 **Current state on disk**: 13 parts, 87 chapters, 413 sections, 7 appendices, audit clean.
 
@@ -42,45 +43,69 @@ The 15 parts cluster into 6 thematic blocks:
 
 ---
 
-## 3. Final per-part structure (v6)
+## 3. Final per-part structure (v7)
 
 | # | Part | Block | Ch | What it contains |
 |---|---|---|---:|---|
-| **I** | **LLM & Agentic AI Foundations** | A. Models | 7 | Math, ML/PyTorch, NLP basics, tokenization, attention, transformers, decoding, Foundations Tools |
+| **I** | **LLM Building Blocks** | A. Models | 7 | Math, ML/PyTorch, NLP basics, tokenization, attention, transformers, decoding, Foundations Tools |
 | **II** | **Understanding LLMs** | A. Models | 5 | Pre-training & scaling, modern landscape, reasoning, inference optimization, interpretability+Tools |
 | **III** | **Working with LLMs** | A. Models | 4 | APIs, prompt engineering, hybrid ML+LLM, Tools |
 | **IV** | **LLM Training & Adaptation** | A. Models | 5 | Synthetic data, SFT, PEFT, alignment, Tools |
 | **V** | **Multimodal LLMs** | A. Models | 7 | VLM/Omni, image+video, audio, document/OCR, 3D/scenes, embodied AI/VLA/robotics, Tools |
 | **VI** | **Agentic AI** | B. Patterns | 5 | Foundations, tools/MCP/A2A, multi-agent, specialized, Tools |
 | **VII** | **LLM Retrieval & Information Extraction** | B. Patterns | 6 | Embeddings, NER, RAG fundamentals, advanced RAG/KG, cross-modal RAG, Tools |
-| **VIII** | **LLM Dialogue & Conversational AI** | B. Patterns | 5 | Architecture, memory, multi-turn, voice & realtime, Tools |
+| **VIII** | **LLM Conversational AI** | B. Patterns | 5 | Dialogue architecture, memory, multi-turn, voice & realtime, Tools |
 | **IX** | **LLM Evaluation & Observability** | C. Quality | 4 | Quality metrics, specialized eval, online monitoring, Tools |
-| **X** | **LLM Security & Runtime Safety** *(split from old IX)* | C. Quality | 5 | Adversarial, guardrails, agent safety, privacy, Tools |
-| **XI** | **LLM Ethics, Trust & Governance** *(split from old IX)* | C. Quality | 5 | Bias/hallucination, provenance/transparency, regulation/compliance, frontier safety, Tools |
+| **X** | **LLM Security & Runtime Safety** | C. Quality | 5 | Adversarial, guardrails, agent safety, privacy, Tools |
+| **XI** | **LLM Ethics, Trust & Governance** | C. Quality | 5 | Bias/hallucination, provenance/transparency, regulation/compliance, frontier safety, Tools |
 | **XII** | **LLM Systems at Scale** | D. Runtime | 5 | Compute planning, distributed training, hardware, edge, Tools |
 | **XIII** | **LLMOps & Lifecycle Management** | D. Runtime | 5 | Gateways, orchestration, K8s, reliability/registry, Tools |
-| **XIV** | **Designing LLM Products** | E. Applied | 7 | Ideation/strategy, PM, prototyping, MVP, economics, shipping, Tools |
+| **XIV** | **Designing LLM & Agent-based Products** | E. Applied | 5 | Ideation+PM, prototype+MVP, economics, shipping, Tools (consolidated from 7) |
 | **XV** | **LLM Applications Across Industries** | E. Applied | 8 | Legal, finance, healthcare, education, cyber, gov, manuf+creative+rec (merged), Tools |
-| **XVI** | **LLM & Agentic AI Frontiers** | F. Future | 4 | Architectures, theory, AGI trajectories, Tools |
+| **XVI** | **LLM & Agentic AI Research Frontiers** | F. Future | 4 | Architectures, theory, AGI trajectories, Tools |
 
-**Totals**: 16 parts, **87 chapters**, ~390 sections target. Every part in 4–9 chapter band.
+**Totals**: 16 parts, **85 chapters**, ~375 sections target. Every part in 4–9 chapter band. All part names use "LLM" or "Agentic" prefix in adjective-noun pattern for consistency.
 
-### Appendices restructure (7 → 4)
+### Naming conventions (v7 polished)
+
+- **Pattern A**: `LLM X` — adjective-noun (Training, Security, Systems at Scale, Conversational AI, Evaluation, Retrieval)
+- **Pattern B**: bare title where context is clear (Understanding LLMs, Working with LLMs, Multimodal LLMs, Agentic AI)
+- **Pattern C**: gerund (Designing LLM & Agent-based Products)
+- All 16 parts contain "LLM" or "Agentic" in the title — no risk of being mistaken for a generic AI textbook.
+
+### Appendices restructure (7 → 2)
 
 | Apx | Title | Was | Change |
 |---|---|---|---|
-| **A** | Course Syllabi | C | absorbed math/ML moved to main book; renumbered C→A |
-| **B** | Reading Pathways | D | renumbered D→B |
-| **C** | Projects & Capstone | **MERGE** E + F | one combined appendix for project tracks |
-| **D** | War Stories for Discussion | G | renumbered G→D |
+| **A** | Course Syllabi | C | renumbered, content unchanged |
+| **B** | Reading Pathways | D | renumbered, content unchanged |
+
+**Dropped from book** (per editorial decision):
+- ~~Old C (Projects & Capstone)~~ — pedagogy material not aligned with reference-book scope
+- ~~Old D (War Stories for Discussion)~~ — discussion material moved out
+- ~~Old A (Math)~~ — absorbed into Part I Ch 0
+- ~~Old B (ML Essentials)~~ — absorbed into Part I Ch 0 and Part IX Ch 1 (B.4 Evaluation Metrics)
 
 **Material absorbed into main book**:
-- Apx A (Math) sections A.1, A.3 → Part I Ch 0 new sec 0.1 (Math: Linear Algebra & Calculus)
-- Apx A sections A.2, A.4, A.6 → Part I Ch 0 new sec 0.2 (Probability, Statistics & Information Theory)
-- Apx B.1–B.3 (ML basics) → merge into existing Ch 0.3 "What Every LLM Engineer Needs From Classical ML" (formerly 0.1)
-- Apx B.4 (Evaluation Metrics — 22 inbound refs) → Part IX Ch 1 (Evaluation Foundations) as opening "Metric Definitions" section; the 22 cross-refs rewrite to the new home
+- Apx A (Math) → Part I Ch 0 new sections 0.1 (Linear Algebra & Calculus) + 0.2 (Probability & Information Theory)
+- Apx B.1–B.3 (ML basics) → merge into existing Ch 0.3 "What Every LLM Engineer Needs From Classical ML"
+- Apx B.4 (Evaluation Metrics — 22 inbound refs) → Part IX Ch 1 opening section; 22 cross-refs rewrite
 
-**Why**: Math + ML Essentials material was originally main-book content (A.6 literally confesses "originated as Chapter 04"). The 22 perplexity-references-as-glossary pattern is glossary usage, not appendix usage. Remaining 4 appendices are pure pedagogy support — clean theme.
+**Net result**: 2 appendices, both pure pedagogy support (instructor syllabi, learner pathways). Reference material lives in the main book where readers actually find it.
+
+### Part XIV consolidation: 7 → 5 chapters
+
+The Designing LLM & Agent-based Products part collapses two pairs of adjacent chapters for density:
+
+| New Ch | Title | Merges |
+|---:|---|---|
+| 1 | Ideation, Strategy & Product Management | old 67 (Ideation+Strategy+Hypothesis) + 68 (PM) |
+| 2 | Prototyping via Vibe-Coding & MVP Development | old 69 (Vibe-coding) + 70 (MVP) |
+| 3 | Scaling Economics: Unit Costs & ROI | unchanged from old 71 |
+| 4 | Shipping and Scaling AI Products | unchanged from old 72 |
+| 5 | Tools of the Trade: Product Toolkit | unchanged from old 73 |
+
+Each merged chapter is now ~6 sections instead of 3 — denser, more comprehensive treatment of the topic.
 
 ---
 
