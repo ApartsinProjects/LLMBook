@@ -138,6 +138,43 @@ The table below maps every change from current disk state (13 parts, 87 chapters
 
 Each phase is independently reversible and ends in an integrity-clean state (P0=P1=P2=P3=0, linear nav 100%, ToC matches disk).
 
+### Phase 0 — Templatization & manifest setup *(prep work, makes every future restructure easier)*
+
+The book already has templating infrastructure that has fallen behind disk reality during recent restructures. Phase 0 brings it back in sync and turns it into the single source of truth.
+
+**Artifacts:**
+
+| File | Purpose |
+|---|---|
+| `book_structure.yaml` | **Manifest of current state** — every part / chapter / section. Refresh from disk in Phase 0; thereafter it's the source of truth. |
+| `book_structure.target.yaml` | **Declarative target state** — same shape, plus `_action` and `_source(s)` per chapter so the migration is described, not coded. |
+| `templates/section.html`, `chapter-index.html`, `part-index.html` | Skeleton HTML with `{{PLACEHOLDER}}` tokens for new content. |
+| `templates/README.md` | The conventions doc — callouts, exercise badges, cross-ref classes, mandatory elements. |
+| `agents/book-skills/templates/*` | Mirror set used by the authoring agents. |
+
+**Scripts that turn the manifest into reality:**
+
+| Script | Role |
+|---|---|
+| `scripts/structure_diff.py` | Show the migration plan: parts/chapters that are unchanged / rename / merge / split / move / new. Always the first command run. |
+| `scripts/_scaffold_new_chapters.py` | Create new chapter dirs/files for entries with `_action: new_part` or `new`. |
+| `scripts/_resolve_template_placeholders.py` | Fill `{{PLACEHOLDER}}` tokens with concrete values. |
+| `scripts/rebuild_curated_toc.py` | Regenerate `toc.html` from disk. |
+| `scripts/rebuild_linear_nav.py` | Recompute prev / up / next anchors for every section. |
+| `scripts/_rebuild_part_indexes.py`, `_rebuild_chapter_indexes.py` | Regenerate the index pages from current state. |
+| `scripts/html_integrity_audit.py` | The gate that runs after every phase. |
+
+**Phase 0 acceptance tests:**
+
+1. `python scripts/structure_diff.py` runs and shows the v3 migration plan with no errors.
+2. `book_structure.yaml` exactly matches disk: 13 parts, 87 chapters, 413 sections, 7 appendices.
+3. `book_structure.target.yaml` is loadable and exactly matches the v3 proposal: 15 parts, 86 chapters, 7 appendices.
+4. All scripts in the table above are present and executable.
+
+**Why this matters for the future:** after Phase 0, any new restructure is a four-step operation: (1) edit `book_structure.target.yaml`, (2) run `structure_diff.py` to see the plan, (3) run the migration scripts, (4) run the audit. No ad-hoc shell scripts, no hand-rolled regexes that break months later. This is the lesson learned from the seven restructures in this session — every one of them invented its own pattern, which is why we have stale labels and orphan numbering to clean up now.
+
+---
+
 ### Phase 1 — Lossy deletions (re-home unique content first)
 1. Re-home unique content from Ch 31 (Multimodal overview), Ch 41 (Embodied AI aggregator), Ch 45 (orphan section 45.6).
 2. Delete Ch 31 and Ch 41 (Part VII shells).
@@ -190,6 +227,16 @@ Mechanics (proven from the Parts 10–13 and Appendix C–G renumberings):
 - Linear nav chain 100% coverage
 - ToC matches disk
 
+### Phase 7 — Re-sync manifest (closes the loop)
+After all moves and renumbering, re-run the yaml refresh so `book_structure.yaml` matches the new disk reality. This is the manifest the *next* restructure will diff against. Without Phase 7, the next round inherits stale state and we're back to ad-hoc scripts.
+
+```
+python scripts/_refresh_book_structure_yaml.py  # captures new state
+git diff book_structure.yaml book_structure.target.yaml  # should show ZERO diff
+```
+
+The zero-diff check is the success criterion: target became reality.
+
 ---
 
 ## 8. Risks and mitigations
@@ -218,7 +265,7 @@ Mechanics (proven from the Parts 10–13 and Appendix C–G renumberings):
 
 ## 10. Decision needed
 
-Confirm the proposed structure and I execute Phases 1–6 in order with audit gates between phases. Estimated outcome:
+Confirm the proposed structure and I execute Phases 0–7 in order with audit gates between phases. Estimated outcome:
 
 - **13 parts → 15 parts** (+2 from the two splits, Multimodal reordered)
 - **87 chapters → 86 chapters** (≈ same total, much better distributed)
