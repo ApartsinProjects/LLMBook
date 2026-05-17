@@ -40,8 +40,8 @@ DROPPED_REFS_PATTERNS = [
 # Appendix letter assignments after the v14 consolidation:
 #   A = Mathematical Foundations
 #   B = ML Essentials
-#   C = Course Syllabi               (was P)
-#   D = Reading Pathways             (was Q)
+#   B = Course Syllabi               (was C; renamed in Wave 9F)
+#   C = Reading Pathways             (was D; renamed in Wave 9F)
 #   E = Intermediate Projects        (was R)
 #   F = Capstone Project             (was S)
 #   G = War Stories for Discussion   (was T)
@@ -52,12 +52,15 @@ PROSE_DROPPED_PATTERNS = [
     # (a short window before AND after) doesn't mention the expected topic.
     # The original regex used only a lookahead, which missed legitimate forms
     # like "war stories in Appendix G". Allow either direction.
-    (re.compile(r"(?<!\w)(?<!Reading\s)(?<!war\s)(?<!war\sstories\sin\s)(?<!for\s)(?<!Capstone\s)\bAppendix\s+C\b(?!\s*(?:[\.\-:,\(]|\s|<)*(?:Course|Syllab))(?<!Course\sSyllabi\s\bC\b)", re.IGNORECASE), "'Appendix C' refers to non-Course-Syllabi content"),
-    (re.compile(r"\bAppendix\s+D\b(?!\s*(?:[\.\-:,\(]|\s|<)*(?:Reading|Pathways))", re.IGNORECASE), "'Appendix D' refers to non-Pathways content"),
-    (re.compile(r"\bAppendix\s+E\b(?!\s*(?:[\.\-:,\(]|\s|<)*(?:Intermediate|Project))", re.IGNORECASE), "'Appendix E' refers to non-Intermediate-Projects content"),
-    (re.compile(r"\bAppendix\s+F\b(?!\s*(?:[\.\-:,\(]|\s|<)*(?:Capstone))", re.IGNORECASE), "'Appendix F' refers to non-Capstone content"),
-    # For Appendix G: allow either "Appendix G (War...)" form OR "war stor[y/ies] in Appendix G" form
-    (re.compile(r"(?<!war\sstories\sin\s)(?<!Story\s\d\sin\s)(?<!Stories\sin\s)\bAppendix\s+G\b(?!\s*(?:[\.\-:,\(]|\s|<)*(?:War|Story|Stories))", re.IGNORECASE), "'Appendix G' refers to non-WarStories content"),
+    # Appendix B is now Course Syllabi (Wave 9F: B (ML Essentials) dropped, C renamed to B)
+    (re.compile(r"\bAppendix\s+B\b(?!\s*(?:[\.\-:,\(]|\s|<)*(?:Course|Syllab))", re.IGNORECASE), "'Appendix B' refers to non-Course-Syllabi content"),
+    # Appendix C is now Reading Pathways (Wave 9F: D renamed to C)
+    (re.compile(r"\bAppendix\s+C\b(?!\s*(?:[\.\-:,\(]|\s|<)*(?:Reading|Pathway))", re.IGNORECASE), "'Appendix C' refers to non-Reading-Pathways content"),
+    # Appendices D, E, F, G no longer exist in v9 structure
+    (re.compile(r"\bAppendix\s+D\b", re.IGNORECASE), "'Appendix D' (no longer exists; renamed to C)"),
+    (re.compile(r"\bAppendix\s+E\b", re.IGNORECASE), "'Appendix E' (no longer exists; dropped in Wave 7)"),
+    (re.compile(r"\bAppendix\s+F\b", re.IGNORECASE), "'Appendix F' (no longer exists; dropped in Wave 7)"),
+    (re.compile(r"\bAppendix\s+G\b", re.IGNORECASE), "'Appendix G' (no longer exists; dropped in Wave 7)"),
     (re.compile(r"\bGlossary entry for\b", re.IGNORECASE), "'Glossary entry for ...' (glossary dropped)"),
     (re.compile(r"\bsee the [Gg]lossary\b", re.IGNORECASE), "'see the glossary' (glossary dropped)"),
     (re.compile(r"\bin the [Gg]lossary\b", re.IGNORECASE), "'in the glossary' (glossary dropped)"),
