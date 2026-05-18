@@ -25,12 +25,12 @@ Issue = namedtuple("Issue", ["priority", "check_id", "filepath", "line", "messag
 
 # Bare divs with callout-ish class but no "callout" prefix
 BARE_DIV = re.compile(
-    r'<div\s+class\s*=\s*"(note|warning|tip|info|caution|important|fun-note|key-insight|key-takeaway|big-picture|library-shortcut|production-pattern|research-frontier|practical-example|numeric-example|postmortem|thesis-thread|self-check|exercise|lab|algorithm|cross-ref|looking-back)(\s|")',
+    r'<div\s+class\s*=\s*"(note|warning|tip|info|caution|important|fun-note|key-insight|key-takeaway|big-picture|library-shortcut|production-pattern|research-frontier|practical-example|numeric-example|postmortem|self-check|exercise|lab|algorithm|cross-ref|looking-back)(\s|")',
     re.IGNORECASE,
 )
 # Heading text that should be a callout title
 H3_PSEUDO = re.compile(
-    r'<h[23][^>]*>\s*(Key Takeaway|Key Insight|Fun Fact|Big Picture|Production Pattern|Research Frontier|Library Shortcut|Numeric Example|Practical Example|Self-Check|Postmortem|Looking Back|Thesis Thread|Real-World Scenario)s?\s*</h[23]>',
+    r'<h[23][^>]*>\s*(Key Takeaway|Key Insight|Fun Fact|Big Picture|Production Pattern|Research Frontier|Library Shortcut|Numeric Example|Practical Example|Self-Check|Postmortem|Looking Back|Real-World Scenario)s?\s*</h[23]>',
     re.IGNORECASE,
 )
 # Inline prose patterns

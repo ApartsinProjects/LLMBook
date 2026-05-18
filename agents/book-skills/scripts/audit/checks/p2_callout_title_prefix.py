@@ -23,7 +23,6 @@ Mapping (callout class -> required title prefix, case-insensitive):
   cross-ref          -> "See Also" (canonical, single variant; see p2_see_also_canonical.py)
   looking-back       -> "Looking Back"
   postmortem         -> "Postmortem"
-  thesis-thread      -> "Thesis Thread"
   whats-next         -> "What's Next" or "What Comes Next"
 """
 import re
@@ -57,7 +56,6 @@ CANONICAL_PREFIXES = {
     "cross-ref": ["see also"],
     "looking-back": ["looking back", "recap", "review"],
     "postmortem": ["postmortem", "post-mortem", "incident", "lessons learned"],
-    "thesis-thread": ["thesis thread", "thesis"],
     "whats-next": ["what's next", "what comes next", "whats next", "next:"],
 }
 

@@ -28,7 +28,7 @@ CANONICAL_TYPES = {
     "algorithm", "big-picture", "cross-ref", "exercise", "fun-note", "key-insight",
     "key-takeaway", "lab", "library-shortcut", "looking-back", "note",
     "numeric-example", "postmortem", "practical-example",
-    "production-pattern", "research-frontier", "self-check", "thesis-thread",
+    "production-pattern", "research-frontier", "self-check",
     "tip", "warning", "whats-next",
 }
 

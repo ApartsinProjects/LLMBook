@@ -259,14 +259,13 @@ def locate_singletons(html: str) -> list[tuple[int, int, int, str]]:
 
 # -------------------- rewrite logic --------------------
 
-def needs_reorder(spans: list[tuple[int, int, int, str]]) -> bool:
-    # spans is already sorted by start; needs reorder iff ranks not non-decreasing
-    last_rank = -1
-    for r, s, e, n in spans:
-        if r < last_rank:
-            return True
-        last_rank = r
-    return False
+# Singletons split into two groups:
+#   - OPENER (ranks 0-1): big-picture, prerequisites; stay at top, do not move.
+#   - CLOSER (ranks 2-8): research-frontier, lab, key-takeaway, self-check,
+#     exercises, whats-next, bibliography; collected and re-inserted in
+#     canonical order at the position of the LAST closer singleton.
+OPENER_RANKS = {0, 1}
+CLOSER_RANKS = {2, 3, 4, 5, 6, 7, 8}
 
 
 class OverlapError(Exception):
@@ -276,23 +275,42 @@ class OverlapError(Exception):
     """
 
 
+def needs_reorder(spans: list[tuple[int, int, int, str]]) -> bool:
+    """True iff the CLOSER singletons (ranks 2..8) are not in canonical order
+    by start position. Openers are not considered (we never reorder them).
+    """
+    closers = [t for t in spans if t[0] in CLOSER_RANKS]
+    # closers is in start-position order already; check non-decreasing rank
+    last_rank = -1
+    for r, s, e, n in closers:
+        if r < last_rank:
+            return True
+        last_rank = r
+    return False
+
+
 def reorder_html(html: str, spans: list[tuple[int, int, int, str]]) -> str:
-    """Snip each span out and re-insert all of them in canonical order at the
-    position where the LAST singleton originally ended. This pulls any
-    inter-singleton body content (plural callouts, prose) UP above the
-    canonical singleton block, which matches the canonical "body before
-    singletons" rule.
+    """Re-order the CLOSER singletons (research-frontier .. bibliography) into
+    canonical order, leaving OPENER singletons (big-picture, prerequisites)
+    untouched.
+
+    Strategy: snip out only the CLOSER singletons, then re-insert them in
+    canonical order at the position where the LAST closer singleton
+    originally ended (i.e., where the bibliography or whats-next or
+    exercises used to be). Inter-singleton content (plural callouts, prose)
+    moves UP so it precedes the closer block, matching the canonical
+    "body before singletons" rule.
 
     Concretely, given an original layout
-        [pre][s1][mid1][s2][mid2][s3][post]
-    where s1..s3 are singletons in original order (not necessarily canonical
+        [opener][body1][c1][body2][c2][body3][c3][post]
+    where c1..c3 are CLOSER singletons in original order (not canonical
     order), the result is
-        [pre][mid1][mid2][CANONICAL singletons in canonical order][post]
+        [opener][body1][body2][body3][CANONICAL closers in canonical order][post]
     """
     if not spans:
         return html
 
-    # Validate no overlaps.
+    # Validate no overlaps in the full list.
     spans_sorted_by_start = sorted(spans, key=lambda t: t[1])
     for i in range(len(spans_sorted_by_start) - 1):
         if spans_sorted_by_start[i][2] > spans_sorted_by_start[i + 1][1]:
@@ -304,26 +322,32 @@ def reorder_html(html: str, spans: list[tuple[int, int, int, str]]) -> str:
                 f'{inner[3]} (line {html.count(chr(10), 0, inner[1])+1})'
             )
 
-    # Total length of all singleton bodies; insertion point in the snipped
-    # string is `last_end - total_singleton_length`.
-    total_singleton_len = sum(e - s for _, s, e, _ in spans_sorted_by_start)
-    last_end = spans_sorted_by_start[-1][2]
-    insert_pos = last_end - total_singleton_len
+    # Partition into openers (untouched) and closers (re-ordered).
+    closers = [t for t in spans_sorted_by_start if t[0] in CLOSER_RANKS]
+    if len(closers) < 2:
+        # Nothing to reorder among closers.
+        return html
 
-    # Snip all singleton spans out.
+    # Total length of closer bodies; insertion point in the snipped string is
+    # `last_closer_end - total_closer_length`.
+    total_closer_len = sum(e - s for _, s, e, _ in closers)
+    last_closer_end = closers[-1][2]
+    insert_pos = last_closer_end - total_closer_len
+
+    # Snip all CLOSER spans out (keep openers in place).
     pieces = []
     cursor = 0
-    for _, s, e, _ in spans_sorted_by_start:
+    for _, s, e, _ in closers:
         pieces.append(html[cursor:s])
         cursor = e
     pieces.append(html[cursor:])
     stripped = ''.join(pieces)
 
-    # Order blocks canonically and join with '\n'.
-    blocks_by_rank = sorted(spans_sorted_by_start, key=lambda t: t[0])
-    payload = '\n'.join(html[s:e] for _, s, e, _ in blocks_by_rank)
+    # Order closers canonically and join with '\n'.
+    closers_by_rank = sorted(closers, key=lambda t: t[0])
+    payload = '\n'.join(html[s:e] for _, s, e, _ in closers_by_rank)
 
-    # Add buffer newlines around the inserted block.
+    # Add buffer newlines.
     prefix = stripped[:insert_pos]
     suffix = stripped[insert_pos:]
     if prefix and not prefix.endswith('\n'):
@@ -416,6 +440,8 @@ def main():
             skipped += 1
         else:
             no_change += 1
+            if no_change <= 30:
+                print(f'NO-CHANGE: {fp.name}: {summary}')
 
     print()
     print(f'Total targets:    {len(targets)}')
