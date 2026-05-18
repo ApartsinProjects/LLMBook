@@ -212,19 +212,53 @@ Ratio: 295x memory-bound</div>
 <h2 id="9-2-3-pagedattention">9.2.3 PagedAttention</h2>
 <div class="callout algorithm">
 <div class="callout-title">Algorithm: Under the Hood: vLLM's Block Table</div>
-<p>PagedAttention treats KV cache like virtual memory. Each sequence holds a <em>block table</em>: a list of physical block indices, NOT a contiguous tensor. Each physical block holds 16 token KV entries; multiple sequences can share blocks via reference counting (e.g., a system prompt shared across thousands of requests has ref_count = N, copy-on-write triggers only when one sequence diverges).</p><div class="code-block-wrapper"><pre><code class="pygments-highlighted lang-python"><span class="c1"># Input: logical KV-cache blocks per sequence, physical block pool, page size</span>
-<span class="c1"># Output: block-table mapping logical to physical blocks with copy-on-write for shared prefixes</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">field</span>
+<p>PagedAttention treats KV cache like virtual memory. Each sequence holds a <em>block table</em>: a list of physical block indices, NOT a contiguous tensor. Each physical block holds 16 token KV entries; multiple sequences can share blocks via reference counting (e.g., a system prompt shared across thousands of requests has ref_count = N, copy-on-write triggers only when one sequence diverges).</p><div class="code-block-wrapper"><pre><code class="pygments-highlighted lang-python"><span class="c1"># Sketch of vLLM's block-table data model and the CoW path it</span>
+<span class="c1"># walks when two sequences share a system prompt.</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span><span class="p">,</span> <span class="n">field</span>
+
 <span class="nd">@dataclass</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">PhysicalBlock</span><span class="p">:</span>
     <span class="n">block_id</span><span class="p">:</span> <span class="nb">int</span>
-    <span class="n">ref_count</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span> <span class="c1"># &gt;1 means shared, needs CoW</span>
+    <span class="n">ref_count</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>                  <span class="c1"># &gt;1 means shared, needs CoW on write</span>
     <span class="n">token_ids</span><span class="p">:</span> <span class="nb">list</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>
-    <span class="nd">@dataclass</span>
-    <span class="k">class</span><span class="w"> </span><span class="nc">SequenceState</span><span class="p">:</span>
-        <span class="n">seq_id</span><span class="p">:</span> <span class="nb">int</span>
-        <span class="n">logical_blocks</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">PhysicalBlock</span><span class="p">]</span> <span class="c1"># the block table</span>
+
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">SequenceState</span><span class="p">:</span>
+    <span class="n">seq_id</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">logical_blocks</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">PhysicalBlock</span><span class="p">]</span>     <span class="c1"># the block table</span>
+
+<span class="c1"># Two sequences arrive sharing the same 32-token system prompt.</span>
+<span class="c1"># Two shared blocks (16 tokens each) cover that prefix.</span>
+<span class="n">shared_blocks</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="n">PhysicalBlock</span><span class="p">(</span><span class="n">block_id</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">ref_count</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">token_ids</span><span class="o">=</span><span class="nb">list</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">16</span><span class="p">))),</span>
+    <span class="n">PhysicalBlock</span><span class="p">(</span><span class="n">block_id</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">ref_count</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">token_ids</span><span class="o">=</span><span class="nb">list</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="mi">16</span><span class="p">,</span> <span class="mi">32</span><span class="p">))),</span>
+<span class="p">]</span>
+
+<span class="n">seq_a</span> <span class="o">=</span> <span class="n">SequenceState</span><span class="p">(</span><span class="n">seq_id</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">logical_blocks</span><span class="o">=</span><span class="nb">list</span><span class="p">(</span><span class="n">shared_blocks</span><span class="p">))</span>
+<span class="n">seq_b</span> <span class="o">=</span> <span class="n">SequenceState</span><span class="p">(</span><span class="n">seq_id</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">logical_blocks</span><span class="o">=</span><span class="nb">list</span><span class="p">(</span><span class="n">shared_blocks</span><span class="p">))</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">cow_append</span><span class="p">(</span><span class="n">seq</span><span class="p">,</span> <span class="n">block_idx</span><span class="p">,</span> <span class="n">new_token</span><span class="p">,</span> <span class="n">free_block_id</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">"""Write a token into a shared block: copy first, then write."""</span>
+    <span class="n">block</span> <span class="o">=</span> <span class="n">seq</span><span class="o">.</span><span class="n">logical_blocks</span><span class="p">[</span><span class="n">block_idx</span><span class="p">]</span>
+    <span class="k">if</span> <span class="n">block</span><span class="o">.</span><span class="n">ref_count</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="n">block</span><span class="o">.</span><span class="n">ref_count</span> <span class="o">-=</span> <span class="mi">1</span>
+        <span class="n">new_block</span> <span class="o">=</span> <span class="n">PhysicalBlock</span><span class="p">(</span>
+            <span class="n">block_id</span><span class="o">=</span><span class="n">free_block_id</span><span class="p">,</span>
+            <span class="n">ref_count</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+            <span class="n">token_ids</span><span class="o">=</span><span class="nb">list</span><span class="p">(</span><span class="n">block</span><span class="o">.</span><span class="n">token_ids</span><span class="p">),</span>          <span class="c1"># copy-on-write</span>
+        <span class="p">)</span>
+        <span class="n">seq</span><span class="o">.</span><span class="n">logical_blocks</span><span class="p">[</span><span class="n">block_idx</span><span class="p">]</span> <span class="o">=</span> <span class="n">new_block</span>
+        <span class="n">block</span> <span class="o">=</span> <span class="n">new_block</span>
+    <span class="n">block</span><span class="o">.</span><span class="n">token_ids</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">new_token</span><span class="p">)</span>
+
+<span class="c1"># Sequence A diverges on a private continuation; B's blocks stay shared.</span>
+<span class="n">cow_append</span><span class="p">(</span><span class="n">seq_a</span><span class="p">,</span> <span class="n">block_idx</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">new_token</span><span class="o">=</span><span class="mi">999</span><span class="p">,</span> <span class="n">free_block_id</span><span class="o">=</span><span class="mi">42</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"A block 1 id:"</span><span class="p">,</span> <span class="n">seq_a</span><span class="o">.</span><span class="n">logical_blocks</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">block_id</span><span class="p">,</span>
+      <span class="s2">"refs:"</span><span class="p">,</span> <span class="n">seq_a</span><span class="o">.</span><span class="n">logical_blocks</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">ref_count</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"B block 1 id:"</span><span class="p">,</span> <span class="n">seq_b</span><span class="o">.</span><span class="n">logical_blocks</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">block_id</span><span class="p">,</span>
+      <span class="s2">"refs:"</span><span class="p">,</span> <span class="n">seq_b</span><span class="o">.</span><span class="n">logical_blocks</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">ref_count</span><span class="p">)</span>
+<span class="c1"># A block 1 id: 42 refs: 1   (forked)</span>
+<span class="c1"># B block 1 id: 1  refs: 1   (still on the original)</span>
 </code></pre></div><p>Without paged attention, KV memory waste from fragmentation can be 30-60% of GPU RAM (over-allocated blocks for short sequences). With paged attention, fragmentation drops below 4% even under heavy multi-tenancy.</p>
 </div>
 <div class="callout fun-note">
