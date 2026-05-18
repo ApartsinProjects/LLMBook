@@ -213,6 +213,34 @@ RoPE (Su et al., 2021) has become the dominant positional encoding scheme in mod
  $$\text{RoPE}(x, \text{pos})_{2i} = x_{2i} \cos(\text{pos} \cdot \theta_i) - x_{2i+1} \sin(\text{pos} \cdot \theta_i)$$
  $$\text{RoPE}(x, \text{pos})_{2i+1} = x_{2i} \sin(\text{pos} \cdot \theta_i) + x_{2i+1} \cos(\text{pos} \cdot \theta_i)$$
 </div>
+<div class="callout algorithm">
+<div class="callout-title">Algorithm 3.3.1: Rotary Position Embedding (RoPE)</div>
+<pre><code class="pygments-highlighted lang-text">Algorithm: Apply RoPE to Q or K
+Input:  vector x in R^{T x d_k} (one head), base frequency theta_0 = 10000
+Output: rotated x' in R^{T x d_k}
+
+  // 1. Precompute per-pair inverse frequencies (i = 0..d_k/2 - 1)
+  For i = 0..d_k/2 - 1:
+      theta_i := theta_0^{ -2 i / d_k }         // decays geometrically with dim index
+
+  // 2. Build cos/sin tables of shape (T, d_k/2)
+  For pos = 0..T-1, for i = 0..d_k/2 - 1:
+      cos_table[pos, i] := cos(pos * theta_i)
+      sin_table[pos, i] := sin(pos * theta_i)
+
+  // 3. For each token position, rotate each 2-dim pair
+  For pos = 0..T-1, for i = 0..d_k/2 - 1:
+      a := x[pos, 2 i]
+      b := x[pos, 2 i + 1]
+      x'[pos, 2 i]     := a * cos_table[pos, i] - b * sin_table[pos, i]
+      x'[pos, 2 i + 1] := a * sin_table[pos, i] + b * cos_table[pos, i]
+  Return x'
+
+Property (relative position): for any two positions m, n with rotation matrix R_pos,
+    < R_m q, R_n k > = q^T R_{n - m} k
+so the post-rotation dot product depends only on (n - m), not on m or n alone.</code></pre>
+<p>Source: Su et al., "RoFormer: Enhanced Transformer with Rotary Position Embedding" (<a href="https://arxiv.org/abs/2104.09864" rel="noopener" target="_blank">arXiv:2104.09864</a>, 2021). This relative-position property is what makes context-window extension via NTK-aware scaling and YaRN possible: rescaling theta_i shifts <em>every</em> position's rotation in a coherent way, so the trained relative-distance behavior generalizes to longer sequences.</p>
+</div>
 <pre><code class="pygments-highlighted lang-python"><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 <span class="c1"># Rotary Position Embedding (RoPE): rotate pairs of dimensions by</span>
 <span class="c1"># position-dependent angles so relative distance is encoded in dot products.</span>
@@ -407,6 +435,37 @@ RoPE (Su et al., 2021) has become the dominant positional encoding scheme in mod
 <li><strong>Multi-Query Attention (MQA)</strong> (Shazeer, 2019): All heads share a single set of keys and values. Only the queries differ per head. This reduces the KV cache by a factor of <span class="math">$h$</span> (the number of heads).</li>
 <li><strong>Grouped-Query Attention (GQA)</strong> (Ainslie et al., 2023): A compromise where heads are divided into groups, and each group shares one set of keys and values. With <span class="math">$h=32$</span> heads and <span class="math">$g=8$</span> groups, the KV cache is reduced by 4x. Used in LLaMA 2, Mistral, and Gemma. For a survey of which <a href="../../part-2-understanding-llms/module-07-modern-llm-landscape/section-7.2.html">production models use GQA, see Section 7.2</a>.</li>
 </ul>
+<div class="callout algorithm">
+<div class="callout-title">Algorithm 3.3.2: MHA, GQA, and MQA as a Single Parameter Family</div>
+<pre><code class="pygments-highlighted lang-text">Algorithm: Generalized grouped attention (parameterized by g)
+Input:  X in R^{B x T x d_model}, n_q query heads, n_kv key/value heads with
+        n_q mod n_kv == 0 and group size g = n_q / n_kv
+Output: Y in R^{B x T x d_model}
+
+  // Projections: queries have full rank, KV is shared in groups
+  Q := X @ W_Q                                  // (B, T, n_q,  d_k)
+  K := X @ W_K                                  // (B, T, n_kv, d_k)
+  V := X @ W_V                                  // (B, T, n_kv, d_k)
+
+  // Broadcast each KV head over its group of g queries
+  K_full := repeat_interleave(K, g, axis = 'head')   // (B, T, n_q, d_k)
+  V_full := repeat_interleave(V, g, axis = 'head')   // (B, T, n_q, d_k)
+
+  // Per-head scaled-dot-product attention (Algorithm 3.1.1) using K_full, V_full
+  Y := concat_heads( SoftmaxAttention(Q_h, K_full_h, V_full_h) for h in 1..n_q ) @ W_O
+  Return Y
+
+Specializations:
+    n_kv = n_q  (g = 1)        => MHA   (standard multi-head attention)
+    n_kv = n_q / g  (1 < g)    => GQA   (LLaMA-2 70B uses n_q=64, n_kv=8, g=8)
+    n_kv = 1     (g = n_q)     => MQA   (PaLM, Falcon)
+
+KV cache per token (FP16): 2 * n_kv * d_k * 2 bytes
+    MHA  (n_q=32, d_k=128): 16,384 bytes/token   (baseline)
+    GQA  (n_kv=8):            4,096 bytes/token   (4x reduction)
+    MQA  (n_kv=1):              512 bytes/token   (32x reduction)</code></pre>
+<p>Sources: Shazeer, "Fast Transformer Decoding: One Write-Head Is All You Need" (<a href="https://arxiv.org/abs/1911.02150" rel="noopener" target="_blank">arXiv:1911.02150</a>, 2019) for MQA; Ainslie et al., "GQA: Training Generalized Multi-Query Transformer Models from Multi-Head Checkpoints" (<a href="https://arxiv.org/abs/2305.13245" rel="noopener" target="_blank">arXiv:2305.13245</a>, 2023) for GQA. The same kernel implements all three by varying a single parameter (n_kv), which is why production inference stacks treat them as one fused op.</p>
+</div>
 <pre><code class="pygments-highlighted lang-python"><span class="kn">from</span><span class="w"> </span><span class="nn">torch</span><span class="w"> </span><span class="kn">import</span> <span class="n">nn</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 <span class="c1"># Grouped-Query Attention (GQA): multiple query heads share fewer KV heads.</span>

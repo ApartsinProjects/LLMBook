@@ -289,6 +289,42 @@ gtag('config', 'G-PWPHBQL2VL');
 <div class="code-caption"><strong>Code Fragment 9.7.4:</strong> Fused softmax in Triton. All three passes (max, exp, normalize) happen in registers, eliminating two intermediate round-trips to HBM. For a 4096x4096 matrix, this saves ~64 MB of memory traffic per attention head.</div>
 <h2 id="9-7-3-flashattention-tiled-attention-in-sram">9.7.3 FlashAttention: Tiled Attention in SRAM</h2>
 <p>FlashAttention (Dao et al., 2022) is the most impactful custom kernel in the LLM ecosystem. The core insight is that the standard attention computation, $\text{softmax}(QK^T / \sqrt{d_k})V$, creates an $N \times N$ attention matrix (where $N$ is the sequence length) that must be materialized in HBM. For $N = 8192$ and FP16, this matrix is 128 MB per attention head. FlashAttention avoids materializing this matrix entirely by tiling the computation into blocks that fit in SRAM.</p>
+<div class="callout algorithm">
+<div class="callout-title">Algorithm 9.7.1: Online Softmax Recurrence (Milakov and Gimelshein, 2018)</div>
+<pre><code class="pygments-highlighted lang-text">Algorithm: Numerically stable softmax in a single pass over blocks
+Input:  blocks {s_1, s_2, ..., s_B}, each a vector of attention scores in a row
+Output: softmax-weighted values, plus the normalizing constant l
+
+  // State carried between blocks: m = running max, l = running denominator
+  m := -infinity
+  l := 0
+  o := 0                        // running weighted sum of values (same dim as V row)
+
+  For each block (s_j, v_j) in stream order:
+      m_new := max(m, max(s_j))                            // updated max for this row
+      alpha := exp(m - m_new)                              // rescale factor for old state
+      l := alpha * l + sum( exp(s_j - m_new) )             // updated denominator
+      o := alpha * o + exp(s_j - m_new) @ v_j              // updated weighted-sum
+      m := m_new
+
+  // After all blocks processed
+  Return o / l, m, l                                       // final attention output
+
+Why it is mathematically equivalent to the offline softmax.
+   With S = concat(s_1, ..., s_B), v = concat(v_1, ..., v_B), and m* = max(S):
+     p = exp(S - m*) / sum(exp(S - m*))
+     softmax(S) @ v = sum_i p_i v_i.
+   The recurrence maintains the invariant
+     l_j = sum_{k <= j} exp(s_k - m_j),
+     o_j = sum_{k <= j} exp(s_k - m_j) v_k,
+   so after the last block, o_B / l_B = softmax(S) v.
+
+Properties used by FlashAttention:
+   - Numerical stability: each exp argument is <= 0, never overflows
+   - Streaming: any block ordering is correct (commutative)
+   - O(block_size) working state, so it fits in SRAM (~100 KB)</code></pre>
+<p>Source: Milakov and Gimelshein, "Online Normalizer Calculation for Softmax" (NVIDIA, <a href="https://arxiv.org/abs/1805.02867" rel="noopener" target="_blank">arXiv:1805.02867</a>, 2018). This recurrence is the algebraic core of FlashAttention (Dao et al., 2022, <a href="https://arxiv.org/abs/2205.14135" rel="noopener" target="_blank">arXiv:2205.14135</a>): the softmax-then-multiply pipeline of standard attention is rewritten as one fused streaming pass that maintains (m, l, o) per query row across all K/V blocks. FlashAttention-2 (Dao 2023, <a href="https://arxiv.org/abs/2307.08691" rel="noopener" target="_blank">arXiv:2307.08691</a>) reuses this exact recurrence and only changes the work partitioning across GPU warps for better parallelism.</p>
+</div>
 <p>The algorithm processes the attention computation in tiles. For each tile of Q (a block of query rows), it iterates over all tiles of K and V, accumulating partial results in SRAM. The running softmax normalization is maintained using the "online softmax" trick: as each new block of K is processed, the running maximum and sum statistics are updated, and previous partial results are rescaled. This ensures numerical correctness without ever materializing the full attention matrix.</p>
 <p>FlashAttention's memory complexity is $O(N)$ instead of $O(N^2)$, enabling much longer sequence lengths. FlashAttention-2 further improved throughput by 2x through better work partitioning across GPU warps, and FlashAttention-3 (for Hopper GPUs) exploits hardware-level asynchronous operations for another 1.5x improvement.</p>
 <div class="callout note">
