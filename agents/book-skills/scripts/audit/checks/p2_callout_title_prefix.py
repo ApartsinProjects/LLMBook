@@ -20,7 +20,7 @@ Mapping (callout class -> required title prefix, case-insensitive):
   production-pattern -> "Production Pattern"
   research-frontier  -> "Research Frontier" or "Open Questions"
   library-shortcut   -> "Library Shortcut"
-  cross-ref          -> "Cross-Reference" or "See Also" or "Canonical reference"
+  cross-ref          -> "See Also" (canonical, single variant; see p2_see_also_canonical.py)
   looking-back       -> "Looking Back"
   postmortem         -> "Postmortem"
   pathway            -> "Learning Objectives" or "Pathway"
@@ -54,7 +54,8 @@ CANONICAL_PREFIXES = {
     "production-pattern": ["production pattern", "production-pattern"],
     "research-frontier": ["research frontier", "open question", "open questions", "frontier"],
     "library-shortcut": ["library shortcut", "shortcut", "library:"],
-    "cross-ref": ["cross-reference", "cross reference", "see also", "canonical reference", "related"],
+    # Cross-ref has a single canonical title enforced by p2_see_also_canonical.py.
+    "cross-ref": ["see also"],
     "looking-back": ["looking back", "recap", "review"],
     "postmortem": ["postmortem", "post-mortem", "incident", "lessons learned"],
     "pathway": ["learning objective", "pathway", "objectives"],

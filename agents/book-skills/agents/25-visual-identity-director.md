@@ -68,7 +68,7 @@ The book uses 15 callout types. All styling, icons, and tooltips are defined cen
 | # | Class | Border Color | Title Color | Icon File | Purpose |
 |---|-------|-------------|-------------|-----------|---------|
 | 1 | `big-picture` | #7c3aed (purple) | #7c3aed | callout-big-picture.png | Why this topic matters; once near top |
-| 2 | `key-insight` | #43a047 (green) | #2e7d32 | callout-key-insight.png | Core concept worth remembering |
+| 2 | `key-insight` | #43a047 (green) | #2e7d32 | callout-key-insight.png | Single inline aha-moment, one paragraph |
 | 3 | `note` | #1976d2 (blue) | #1565c0 | callout-note.png | Supplementary detail or clarification |
 | 4 | `warning` | #f9a825 (amber) | #e65100 | callout-warning.png | Common mistakes or pitfalls |
 | 5 | `practical-example` | #5dade2 (grey-blue) | #2980b9 | callout-practical-example.png | Real-world production scenario |
@@ -77,7 +77,7 @@ The book uses 15 callout types. All styling, icons, and tooltips are defined cen
 | 8 | `algorithm` | #4a55a2 (indigo) | #2e3990 | callout-algorithm.png | Step-by-step pseudocode |
 | 9 | `tip` | #00acc1 (cyan) | #006064 | callout-tip.png | Practical shortcut or best practice |
 | 10 | `exercise` | #e64a19 (deep orange) | #c62828 | callout-exercise.png | Hands-on exercise with solution |
-| 11 | `key-takeaway` | #f9a825 (gold) | #f57f17 | callout-key-takeaway.svg | Essential takeaway to remember |
+| 11 | `key-takeaway` | #f9a825 (gold) | #f57f17 | callout-key-takeaway.svg | End-of-section bulleted recap, multiple takeaways |
 | 12 | `library-shortcut` | #00897b (teal) | #00695c | callout-library-shortcut.svg | Library that solves task in fewer lines |
 | 13 | `pathway` | #7e57c2 (purple) | #5e35b1 | callout-pathway.svg | Recommended learning path |
 | 14 | `self-check` | #3949ab (indigo) | #283593 | callout-self-check.svg | Quick comprehension quiz |
@@ -97,6 +97,18 @@ The book uses 15 callout types. All styling, icons, and tooltips are defined cen
 - Exercise callouts use `<details><summary>` for collapsible solutions.
 - Self-check callouts use `.quiz-question` for question text.
 - Algorithm callouts use `<pre>` inside the callout for pseudocode, with `.algo-line-keyword` and `.algo-line-comment` spans.
+
+**Key Insight vs Key Takeaway: when to use which.**
+
+These two callouts look similar at a glance (both gold-adjacent palettes, both signal something important) but they play different pedagogical roles. Keep both, but never substitute one for the other.
+
+- Use `key-insight` (green, lightbulb icon) for a single inline aha-moment in the middle of a section. It contains ONE paragraph that names the mental model in plain language. Place it right after the body text that earns the realization. It is the "stop and notice this" beat, not a recap.
+- Use `key-takeaway` (gold, checklist icon) for an end-of-section bulleted recap. It contains a short `<ul>` or `<ol>` listing the multiple things the reader should walk away knowing. Place it as the last substantive block of the section, before "What Comes Next" or similar navigation. It is the "before you go, here are the takeaways" beat.
+
+Common mistakes to avoid:
+- A `key-insight` callout that wraps a `<ul>` of bullets is misclassified; convert it to `key-takeaway` (or split the bullets into separate insight beats).
+- A `key-takeaway` callout that contains only a single `<p>` (no bullets) is misclassified; either rewrite it as a bulleted recap, or convert it to `key-insight` if it captures one mental model.
+- A section ending with a `key-insight` instead of a `key-takeaway` reads as if the section never landed; flip it to a takeaway so the reader closes the section with a list of names for what they just learned.
 
 **Adding a new callout type (for future books):**
 1. Add CSS block in `book.css`: background gradient, border-color, title color
