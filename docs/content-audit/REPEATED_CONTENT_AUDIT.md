@@ -11,7 +11,7 @@ canonical homes and lists duplicates for the editor to reconcile manually.
 - Scanned **386** main-track section HTML files under `part-*/module-*/section-*.html`.
 - Excluded: `tools-of-the-trade` modules, `appendices/`, `front-matter/`, `capstone/`, `KDP/`, vendor dirs.
 - For each section extracted:
-  - **4,208** non-boilerplate callouts (skipped Prerequisites, Key Takeaways, etc.)
+  - **4,222** non-boilerplate callouts (skipped Prerequisites, Key Takeaways, etc.)
   - **1,287** code-fragment captions
   - **4,808** prose paragraphs (>= 200 chars, outside callouts/blockquotes/bibliography)
 
@@ -433,8 +433,9 @@ Each cluster lists: type, canonical home (proposed), and duplicate locations.
 
 **After** (replace with cross-ref to canonical `part-1-llm-building-blocks/module-01-foundations-nlp-text-representation/section-1.4.html`):
 ```html
-<div class="code-caption"><strong>Code Fragment 1.7.15</strong>: 
-  (rewrite this caption with section-specific content explaining what THIS code does.</div>
+<div class="code-caption"><strong>Code Fragment 1.7.15</strong>:
+  (rewrite this caption with section-specific content explaining what THIS code does.)
+</div>
 ```
 
 ### Sketch 4: `part-7-retrieval-information-extraction-with-llms/module-32-rag/section-32.1.html` (cluster type: code_caption_exact)
@@ -448,8 +449,9 @@ Each cluster lists: type, canonical home (proposed), and duplicate locations.
 
 **After** (replace with cross-ref to canonical `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.1.html`):
 ```html
-<div class="code-caption"><strong>Code Fragment 32.1.7</strong>: 
-  (rewrite this caption with section-specific content explaining what THIS code does.</div>
+<div class="code-caption"><strong>Code Fragment 32.1.7</strong>:
+  (rewrite this caption with section-specific content explaining what THIS code does.)
+</div>
 ```
 
 ### Sketch 5: `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.4.html` (cluster type: callout_body)
@@ -477,8 +479,8 @@ Each cluster lists: type, canonical home (proposed), and duplicate locations.
 
 ## Top-5 Most-Egregious Clusters (one-liners)
 
-1. **code_caption_fuzzy**: "against based cache cached call cosine..." -- across **8** sections, **9** occurrences.
-2. **code_caption_fuzzy**: "debugging extending similar systems through..." -- across **8** sections, **8** occurrences.
-3. **code_caption_exact**: "install the required packages for this lab...." -- across **5** sections, **5** occurrences.
-4. **code_caption_exact**: "code example..." -- across **5** sections, **7** occurrences.
-5. **callout_body**: "in production, prefer langchain_text_splitters.recursivechar..." -- across **3** sections, **3** occurrences.
+1. **Code-caption fuzzy >=5 shared tokens** -- across **8** sections, **9** occurrences. Example: "A semantic cache that uses embedding similarity to match incoming queries agains..."
+2. **Code-caption fuzzy >=5 shared tokens** -- across **8** sections, **8** occurrences. Example: "This snippet demonstrates this approach. Study the implementation details to und..."
+3. **Code-caption exact fingerprint** -- across **5** sections, **5** occurrences. Example: "Install the required packages for this lab...."
+4. **Code-caption exact fingerprint** -- across **5** sections, **7** occurrences. Example: "Code example..."
+5. **Callout-body fingerprint match** -- across **3** sections, **3** occurrences. Example: "In production, prefer langchain_text_splitters.RecursiveCharacterTextSplitter(ch..."

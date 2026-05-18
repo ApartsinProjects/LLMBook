@@ -315,6 +315,20 @@ def detect_duplicates(html: str) -> list[tuple[str, int]]:
         n = len(re.findall(pat, html, re.IGNORECASE))
         if n > 1:
             dups.append((name, n))
+    # Detect *separated* dual exercises markup. When <section class="exercises">
+    # wraps <h2 id="exercises"> closely (typical legitimate pattern), the two
+    # are nearly adjacent. When they appear in different positions (corruption
+    # pattern, e.g. one empty leftover section plus a real h2 elsewhere), the
+    # gap is large.
+    section_m = re.search(r'<section\s+class="exercises"', html, re.IGNORECASE)
+    h2_m = re.search(r'<h2\s+id="exercises"', html, re.IGNORECASE)
+    if section_m and h2_m:
+        gap = abs(section_m.start() - h2_m.start())
+        # 200 chars covers <section class="exercises">\n<h2 id="exercises">
+        # plus a margin. Anything larger suggests the two markups belong to
+        # different blocks.
+        if gap > 200:
+            dups.append(('exercises (separated dual markup)', 2))
     return dups
 
 
@@ -496,7 +510,6 @@ def main():
             skipped += 1
         else:
             no_change += 1
-            print(f'NO-CHANGE: {fp.name}: {summary}')
 
     print()
     print(f'Total targets:    {len(targets)}')

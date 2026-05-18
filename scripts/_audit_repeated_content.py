@@ -771,8 +771,9 @@ def render_report(sections: list[dict], clusters: dict, fuzzy_caption_clusters: 
         out.append("```html")
         if cluster["type"].startswith("code_caption_exact") or cluster["type"] == "code_caption_long":
             # Lame caption case: just rewrite with section-specific content
-            out.append(f'<div class="code-caption"><strong>{target.get("label","Code Fragment X.Y.Z")}</strong>: ')
-            out.append('  (rewrite this caption with section-specific content explaining what THIS code does.</div>')
+            out.append(f'<div class="code-caption"><strong>{target.get("label","Code Fragment X.Y.Z")}</strong>:')
+            out.append("  (rewrite this caption with section-specific content explaining what THIS code does.)")
+            out.append("</div>")
         else:
             out.append(f'<div class="callout cross-ref">')
             out.append(f'  <div class="callout-title">See Also</div>')
@@ -787,12 +788,26 @@ def render_report(sections: list[dict], clusters: dict, fuzzy_caption_clusters: 
     # ----------------------------------------------------------
     # Top-5 single-line summary
     # ----------------------------------------------------------
+    type_human = {
+        "callout_body": "Callout-body fingerprint match",
+        "callout_title_nonstructural": "Non-structural callout title match",
+        "code_caption_exact": "Code-caption exact fingerprint",
+        "code_caption_long": "Code-caption long fingerprint",
+        "code_caption_fuzzy": "Code-caption fuzzy >=5 shared tokens",
+        "prose": "Prose paragraph match",
+    }
     out.append("## Top-5 Most-Egregious Clusters (one-liners)")
     out.append("")
     for idx, cluster in enumerate(ranked[:5], 1):
         sections_set = {it["section"] for it in cluster["items"]}
-        sig = (cluster["key"] or "")[:60]
-        out.append(f"{idx}. **{cluster['type']}**: \"{sig}...\" -- across **{len(sections_set)}** sections, **{len(cluster['items'])}** occurrences.")
+        # Show an example caption/preview for clarity
+        first_preview = ""
+        for it in cluster["items"]:
+            first_preview = (it.get("preview") or it.get("caption") or "")[:80]
+            if first_preview:
+                break
+        type_name = type_human.get(cluster["type"], cluster["type"])
+        out.append(f"{idx}. **{type_name}** -- across **{len(sections_set)}** sections, **{len(cluster['items'])}** occurrences. Example: \"{first_preview}...\"")
     out.append("")
 
     return "\n".join(out)
