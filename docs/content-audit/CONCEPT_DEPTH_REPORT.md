@@ -17,47 +17,45 @@ Depth categories:
 |---|---:|---:|---:|---:|
 | drift | 23 | 0 | 0 | 23 |
 | rag | 14 | 0 | 0 | 14 |
-| diffusion | 10 | 0 | 0 | 10 |
-| lora | 8 | 0 | 0 | 8 |
 | quantization | 8 | 0 | 0 | 8 |
-| pruning | 8 | 0 | 0 | 8 |
 | perplexity | 7 | 0 | 0 | 7 |
-| chain-of-thought | 7 | 0 | 0 | 7 |
+| lora | 8 | 0 | 1 | 7 |
+| diffusion | 10 | 0 | 4 | 6 |
+| pruning | 8 | 0 | 2 | 6 |
+| chain-of-thought | 7 | 0 | 2 | 5 |
 | self-consistency | 5 | 0 | 0 | 5 |
-| rlhf | 5 | 0 | 0 | 5 |
-| kv cache | 5 | 0 | 0 | 5 |
-| bpe | 4 | 0 | 0 | 4 |
+| rlhf | 5 | 0 | 1 | 4 |
 | position bias | 4 | 0 | 0 | 4 |
 | tf-idf | 3 | 0 | 0 | 3 |
-| speculative decoding | 3 | 0 | 0 | 3 |
-| context length | 3 | 0 | 0 | 3 |
-| dpo | 4 | 1 | 0 | 3 |
+| bpe | 4 | 0 | 1 | 3 |
+| kv cache | 5 | 0 | 2 | 3 |
 | knowledge distillation | 3 | 0 | 0 | 3 |
-| ppo | 2 | 0 | 0 | 2 |
 | self-attention | 2 | 0 | 0 | 2 |
 | cross-attention | 2 | 0 | 0 | 2 |
-| rope | 2 | 0 | 0 | 2 |
+| speculative decoding | 3 | 0 | 1 | 2 |
 | differential privacy | 2 | 0 | 0 | 2 |
-| constitutional ai | 2 | 0 | 0 | 2 |
 | context window | 2 | 0 | 0 | 2 |
-| yarn | 2 | 0 | 0 | 2 |
+| context length | 3 | 0 | 1 | 2 |
+| dpo | 4 | 1 | 1 | 2 |
 | qlora | 2 | 0 | 0 | 2 |
-| kto | 2 | 0 | 0 | 2 |
 | orpo | 2 | 0 | 0 | 2 |
 | react | 2 | 0 | 0 | 2 |
+| self-rag | 2 | 0 | 0 | 2 |
+| ragas | 2 | 0 | 0 | 2 |
+| bleu | 2 | 0 | 0 | 2 |
+| bertscore | 2 | 0 | 0 | 2 |
+| meteor | 2 | 0 | 0 | 2 |
 
 ## Sections with shallow orphan introductions (top 50)
 
 | Section | Entity | Phrase | depth | link |
 |---|---|---|---:|---:|
-| S0.4 | PPO | Proximal Policy Optimization (PPO) | 0 | n |
 | S1.2 | TF-IDF | TF-IDF is still used today | 0 | n |
 | S1.2 | TF-IDF | With BoW/TF-IDF, we CAN: | 0 | n |
 | S1.4 | TF-IDF | TF-IDF | 0 | n |
-| S1.6 | BPE | byte-level BPE | 0 | n |
 | S1.6 | BPE | Byte-level BPE | 0 | n |
 | S10.8 | Quantization | Quantization speed | 0 | n |
-| S11.1 | drift | API version drift: | 0 | n |
+| S11.1 | drift | API version drift | 0 | n |
 | S12.2 | Chain-of-Thought | "Chain-of-Thought Prompting Elicits Reasoning in L | 0 | n |
 | S12.2 | Self-Consistency | "Self-Consistency Improves Chain of Thought Reason | 0 | n |
 | S12.2 | Self-consistency | Self-consistency | 0 | n |
@@ -66,7 +64,6 @@ Depth categories:
 | S12.2 | chain-of-thought | Reasoning tokens and internal chain-of-thought. | 0 | n |
 | S13.5 | position bias | position bias | 0 | n |
 | S16.1 | RAG | RAG | 0 | n |
-| S16.7 | Context length | Context length and context utilization | 0 | n |
 | S16.7 | RoPE | RoPE scaling methods (especially YaRN) | 0 | n |
 | S17.1 | LoRA | LoRA | 0 | n |
 | S17.1 | LoRA | Why does LoRA work with so few parameters? | 0 | n |
@@ -76,7 +73,6 @@ Depth categories:
 | S17.2 | LoRA | LoRA+ | 0 | n |
 | S17.2 | QLoRA | QLoRA | 0 | n |
 | S17.3 | RLHF | RLHF/DPO | 0 | n |
-| S17.4 | LoRA | LoRA | 0 | n |
 | S17.4 | QLoRA | QLoRA | 1 | n |
 | S17.5a | Knowledge distillation | Knowledge distillation | 0 | n |
 | S17.5b | Chain-of-thought | Chain-of-thought
@@ -92,8 +88,6 @@ Depth categories:
 | S18.2b | IPO | IPO | 1 | n |
 | S18.2b | KTO | KTO | 0 | n |
 | S18.2b | ORPO | ORPO | 0 | n |
-| S18.3 | Constitutional AI | Constitutional AI | 0 | n |
-| S19.2 | KTO | KTO | 0 | n |
 | S19.2 | ORPO | ORPO | 0 | n |
 | S2.3a | cross-attention | cross-attention | 0 | n |
 | S2.3a | self-attention | self-attention | 0 | n |
@@ -101,5 +95,11 @@ Depth categories:
 | S2.3b | Multi-head attention | Multi-head attention | 1 | n |
 | S20.3 | diffusion | latent audio diffusion | 0 | n |
 | S20.9 | diffusion | video-native diffusion inpainting | 0 | n |
+| S21.4 | Drift | Q3: Drift detection. | 0 | n |
+| S25.2 | Diffusion | Diffusion Transformer (DiT) and Flow Matching | 0 | n |
+| S26.2 | ReAct | Simple ReAct loop: | 0 | n |
+| S26.3 | ReAct | Step 2: Build the ReAct prompt template. | 1 | n |
+| S3.1a | perplexity | perplexity | 0 | n |
+| S3.1b | Self-Attention | Masked Multi-Head Self-Attention | 1 | n |
 
-... and 125 more orphans.
+... and 104 more orphans.
