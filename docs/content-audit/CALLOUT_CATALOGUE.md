@@ -58,15 +58,22 @@ The canonical section flow:
                                        note, tip, warning, fun-note,
                                        library-shortcut, production-pattern,
                                        algorithm, postmortem, see-also)
-  5.  research-frontier               (callout, single, optional)
-  6.  lab                             (callout, single, optional)
-  7.  key-takeaway                    (callout, single, end-of-section summary)
-  8.  self-check                      (callout, single, Q&A quiz)
-  9.  exercises                       (section.exercises with multiple callout.exercise)
-  10. whats-next                      (callout, single, transition)
-  11. bibliography                    (details.bibliography-collapsible, single)
-  12. chapter-nav                     (nav.chapter-nav)
-  13. footer                          (inside </main>)
+  5.  lab                             (callout, single, optional)
+  6.  key-takeaway                    (callout, single, end-of-section summary)
+  7.  self-check                      (callout, single, Q&A quiz)
+  8.  exercises                       (section.exercises with multiple callout.exercise)
+  9.  whats-next                      (callout, single, transition)
+  10. bibliography                    (details.bibliography-collapsible, single)
+  11. chapter-nav                     (nav.chapter-nav)
+  12. footer                          (inside </main>)
+
+  POSITION-FLEXIBLE: research-frontier (callout, single, optional) may
+  appear EITHER at the opening (as "open questions in this field" framing
+  near the top, before the body content) OR at the closing (as a
+  "Looking Forward / What's Next on the Frontier" closer, after self-check
+  / exercises / whats-next). Both placements are pedagogically valid; the
+  plugin does NOT enforce position for this callout type, only that it is
+  after prerequisites and before bibliography.
 </main>
 ```
 

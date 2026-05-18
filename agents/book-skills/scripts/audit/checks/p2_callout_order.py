@@ -3,10 +3,10 @@
 Recommended order (from docs/content-audit/CALLOUT_CATALOGUE.md):
 
   epigraph -> big-picture -> prerequisites -> body callouts ->
-  research-frontier -> lab -> key-takeaway -> self-check ->
+  lab -> key-takeaway -> self-check ->
   exercises -> whats-next -> bibliography -> chapter-nav
 
-This check verifies the SINGLETON sentinels (the seven structural callouts
+This check verifies the SINGLETON sentinels (the structural callouts
 that should appear at most once and in a specific position):
 
   big-picture must come BEFORE prerequisites
@@ -14,7 +14,16 @@ that should appear at most once and in a specific position):
   self-check must come BEFORE exercises (when both present)
   exercises must come BEFORE whats-next (when both present)
   whats-next must come BEFORE bibliography (already checked by SECTION_ORDER)
-  research-frontier should come BEFORE key-takeaway (when both present)
+
+`research-frontier` is position-flexible: it can appear EITHER as an
+"open questions in this field" framing near the top, OR as a "looking
+forward / what next on the frontier" closer near the end. Both
+placements are pedagogically valid. The duplicate-singleton
+reconciliation wave consolidated multiple research-frontier callouts
+into one and frequently placed the merged result at section end as a
+"Looking Forward" closer. This plugin does not enforce position for
+research-frontier; it only checks that it appears AFTER prerequisites
+and BEFORE bibliography.
 
 Plural callouts (key-insight, note, tip, warning, etc.) are not ordered.
 """
@@ -27,11 +36,14 @@ DESCRIPTION = "Singleton callouts appear out of recommended order"
 
 Issue = namedtuple("Issue", ["priority", "check_id", "filepath", "line", "message"])
 
-# Order: lower index = earlier in section
+# Order: lower index = earlier in section.
+# research-frontier is intentionally OMITTED from the ordered list because
+# its position is flexible (either opening framing or closing "Looking
+# Forward"). It is still checked against prerequisites (must come AFTER)
+# and bibliography (must come BEFORE) by the SECTION_ORDER plugin.
 SINGLETON_ORDER = [
     ('big-picture',         r'<div\s+class="callout big-picture"'),
     ('prerequisites',       r'<div\s+class="prerequisites"'),
-    ('research-frontier',   r'<div\s+class="callout research-frontier"'),
     ('lab',                 r'<div\s+class="callout lab"'),
     ('key-takeaway',        r'<div\s+class="callout key-takeaway"'),
     ('self-check',          r'<div\s+class="callout self-check"'),

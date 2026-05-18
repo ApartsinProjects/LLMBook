@@ -99,15 +99,26 @@ def run(filepath, html, context):
         block = html[tag_close + 1:block_end]
 
         if _has_class(classes, "key-insight"):
-            # Misuse: list inside key-insight.
+            # Misuse: PURE list inside key-insight (no surrounding prose).
+            # A bullet-list-only key-insight is structurally a key-takeaway.
+            # But the "structured insight" shape (intro paragraph + enumerated
+            # points + closing paragraph) is a legitimate insight pattern,
+            # especially after the duplicate-singleton reconciliation demoted
+            # several research-frontier / big-picture callouts to key-insight.
+            # Threshold: flag only when paragraph count is 0 (pure list) or
+            # 1 (list with just one line of prose, which reads as a recap).
             if _has_list(block):
                 n_items = _count_list_items(block)
-                issues.append(Issue(
-                    PRIORITY, CHECK_ID, filepath, line,
-                    f'key-insight callout contains a list ({n_items} items); '
-                    f'use key-takeaway for bulleted end-of-section recaps, '
-                    f'or split the bullets into individual key-insight paragraphs'
-                ))
+                n_paragraphs = _count_paragraphs(block)
+                if n_paragraphs <= 1:
+                    issues.append(Issue(
+                        PRIORITY, CHECK_ID, filepath, line,
+                        f'key-insight callout is a bare list ({n_items} items, '
+                        f'{n_paragraphs} paragraph); use key-takeaway for '
+                        f'bulleted end-of-section recaps, or wrap the bullets '
+                        f'with an intro and closing paragraph to make it a '
+                        f'structured insight'
+                    ))
         elif _has_class(classes, "key-takeaway"):
             # Misuse: only one <p> and no list.
             n_paragraphs = _count_paragraphs(block)

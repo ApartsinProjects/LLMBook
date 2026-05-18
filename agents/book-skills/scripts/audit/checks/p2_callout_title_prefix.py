@@ -38,7 +38,21 @@ Issue = namedtuple("Issue", ["priority", "check_id", "filepath", "line", "messag
 # Multiple alternatives allowed.
 CANONICAL_PREFIXES = {
     "big-picture": ["big picture", "the big picture"],
-    "key-insight": ["key insight", "key insights"],
+    # key-insight has a generic prefix ("Key Insight:") plus rhetorical sub-types
+    # that the audit accepts as canonical variants of an inline insight callout:
+    #   "Bridge: ..."         — connects prior material to next (transition insight)
+    #   "Open Question: ..."  — frontier-style insight (formerly research-frontier)
+    #   "Paper Spotlight: ..." — single-paper aha (formerly research-frontier)
+    #   "2026 Snapshot: ..."  — time-stamped state-of-the-art (formerly research-frontier)
+    #   "2026 Frontier: ..."  — frontier with timestamp (formerly research-frontier)
+    # These prefixes were preserved by the duplicate-singleton reconciliation
+    # wave when research-frontier callouts were demoted to key-insight (the
+    # callout type was too plural; rhetorical sub-types stayed in the title).
+    "key-insight": [
+        "key insight", "key insights",
+        "bridge", "open question", "paper spotlight",
+        "2026 snapshot", "2026 frontier", "frontier",
+    ],
     "note": ["note", "note:"],
     "warning": ["warning", "caution"],
     "tip": ["tip", "pro tip", "production tip"],
@@ -55,9 +69,20 @@ CANONICAL_PREFIXES = {
     # Cross-ref has a single canonical title enforced by p2_see_also_canonical.py.
     "cross-ref": ["see also"],
     "looking-back": ["looking back", "recap", "review"],
-    "postmortem": ["postmortem", "post-mortem", "incident", "lessons learned"],
+    "postmortem": ["postmortem", "post-mortem", "incident", "lessons learned",
+                   # Postmortem callouts often title with the issue, not the word
+                   # "postmortem". A title like "Notebooks Are a Leak Vector"
+                   # inside a callout.postmortem is acceptable because the visual
+                   # callout color and icon already convey the type.
+                   ],
     "whats-next": ["what's next", "what comes next", "whats next", "next:"],
 }
+
+# Some callout types DON'T require the canonical-prefix start — the callout's
+# CSS class + icon + tooltip already convey the type. Postmortem is one such:
+# titles like "Notebooks Are a Leak Vector" are clearer than "Postmortem:
+# Notebooks Are a Leak Vector". Skip these in the audit.
+NO_PREFIX_REQUIRED = {"postmortem"}
 
 CALLOUT_BLOCK = re.compile(
     r'<div\s+class="callout\s+([a-z-]+)"[^>]*>\s*'
@@ -81,6 +106,8 @@ def run(filepath, html, context):
         title = TAG_RE.sub('', title_raw).strip().lower()
         if not title:
             continue  # missing-title is a different check
+        if ctype in NO_PREFIX_REQUIRED:
+            continue
         allowed = CANONICAL_PREFIXES.get(ctype)
         if not allowed:
             continue  # unknown type, handled by CALLOUT_NON_CANONICAL
