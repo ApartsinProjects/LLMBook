@@ -49,6 +49,26 @@ Each row is one h2-bounded subsection of a section file.
 | 4.15 | S15.7 | 15.7.3 LLM-Powered Augmentation | 217 | 4 | 32.5 | 0.5 | 0.35 | 0.5 | 0.0 | 0.0 |
 | 4.1 | S56.3 | 56.3.9 Benchmarks by deployment stage | 446 | 2 | 82.5 | 0.5 | 0.6 | 1.8 | 0.0 | 0.0 |
 | 4.1 | S57.1 | 57.1.1 The three workload categories | 174 | 2 | 38.0 | 0.5 | 0.52 | 2.9 | 1.1 | 0.0 |
+| 4.1 | S59.3 | 59.3.3 The MLP Block in Detail | 166 | 2 | 29.0 | 0.5 | 0.61 | 1.8 | 0.0 | 0.0 |
+| 4.1 | S61.5 | 61.5.5 Newsletters and podcasts | 162 | 1 | 12.0 | 1.0 | 0.9 | 5.6 | 1.2 | 0.0 |
+| 4.1 | S41.4 | 41.4.4 Persona and character models | 323 | 1 | 25.0 | 1.0 | 0.91 | 3.1 | 0.3 | 0.0 |
+| 4.1 | S41.4 | 41.4.13 What to look for in a model card | 217 | 1 | 19.0 | 1.0 | 0.87 | 3.7 | 0.9 | 0.0 |
+| 4.05 | S48.3 | 48.3.1 What the Output Layer Must Catch | 207 | 2 | 32.0 | 0.5 | 0.65 | 1.9 | 0.0 | 0.0 |
+| 4.05 | S22.7 | 22.7.1 Three Points on the Spectrum | 211 | 2 | 33.5 | 0.5 | 0.64 | 2.4 | 0.5 | 0.0 |
+| 4.05 | S36.5 | 36.5.11 Meetups, summits, and workshops | 175 | 1 | 9.0 | 1.0 | 0.92 | 5.1 | 1.1 | 0.0 |
+| 4.04 | S15.7 | 15.7.4 Domain-Specific Augmentation Strategies | 199 | 1 | 20.0 | 1.0 | 0.26 | 1.5 | 0.5 | 0.0 |
+| 4.01 | S54.9 | 54.9.1 The Three Purposes of Logging | 379 | 3 | 39.7 | 0.33 | 0.66 | 2.1 | 0.8 | 0.0 |
+| 4.0 | S55.1 | 55.1.8 Practical Checklist for Green AI | 237 | 1 | 62.0 | 0.0 | 0.7 | 1.3 | 1.3 | 0.0 |
+| 4.0 | S56.5 | 56.5.2 Conferences and academic venues | 364 | 1 | 15.0 | 1.0 | 0.95 | 3.0 | 0.0 | 0.0 |
+| 4.0 | S67.13 | 67.13.3 AI Coding Assistants: Trust but Verify | 260 | 2 | 58.0 | 0.0 | 0.52 | 1.2 | 1.2 | 0.0 |
+| 4.0 | S78.10 | Operational Discipline Checklist | 120 | 0 | 0.0 | 0.0 | 0.97 | 0.0 | 0.0 | 0.0 |
+| 4.0 | S33.2 | 33.2.4 Video RAG and Chunking Strategies | 146 | 2 | 29.0 | 0.5 | 0.56 | 2.7 | 0.7 | 0.0 |
+| 4.0 | S44.7 | 44.7.3 Braintrust: The Polished Default | 299 | 2 | 67.0 | 0.0 | 0.53 | 0.3 | 0.3 | 0.0 |
+| 3.95 | S61.5 | 61.5.11 Survey papers and state-of-the-field reports | 129 | 1 | 15.0 | 1.0 | 0.84 | 3.1 | 0.0 | 0.0 |
+| 3.95 | S33.3 | 33.3.4 When Hybrid Wins | 140 | 2 | 27.0 | 0.5 | 0.59 | 2.1 | 0.0 | 0.0 |
+| 3.95 | S33.4 | 33.4.5 Failure Patterns at Scale | 235 | 2 | 36.0 | 0.5 | 0.64 | 2.1 | 0.0 | 0.0 |
+| 3.93 | S57.4 | 57.4.2 Benchmarking LLM Inference | 369 | 5 | 36.4 | 0.4 | 0.42 | 2.2 | 0.5 | 0.3 |
+| 3.91 | S56.4 | 56.4.9 Model evaluation checklist | 549 | 4 | 16.5 | 1.0 | 0.49 | 7.7 | 0.9 | 0.0 |
 
 
-Total candidates above threshold: 1328.
+Total candidates above threshold: 1326.
