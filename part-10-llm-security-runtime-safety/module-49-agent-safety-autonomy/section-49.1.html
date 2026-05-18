@@ -61,6 +61,79 @@ gtag('config', 'G-PWPHBQL2VL');
 <div class="callout-title">Postmortem: The Agent That Called Search 3,847 Times</div>
 <p>A research-summarization agent shipped on Friday. By Monday morning, the on-call engineer woke up to a &#36;4,200 bill for the weekend. The agent had hit a degenerate state where each search returned a result it could not synthesize, prompting it to "search more deeply", looping for 18 hours straight on a single user query. Lesson: agents need <em>two</em> orthogonal limits: a per-task tool-call budget (hard cap, e.g., 20 calls) <em>and</em> a per-task wall-clock budget (e.g., 5 minutes). Either alone is insufficient: a fast tool can blow through a wall-clock budget; a slow tool can hide inside a high call-count budget. Both should fire alarms before they terminate the agent.</p>
 </div>
+
+<div class="callout key-insight">
+<div class="callout-title">Key Insight: Cost-Controller Math for Agent Loops</div>
+<p>A cost controller is a small online algorithm sitting around an agent loop. Let <span class="math">$n$</span> be the step index, <span class="math">$c_t$</span> the (input + output) tokens consumed at step <span class="math">$t$</span>, and <span class="math">$\ell_t$</span> the wall-clock seconds. The agent terminates at the first step where either budget is exhausted:</p>
+<div class="math-block">$$\text{stop at } n^\star \;=\; \min\!\Big\{n : \underbrace{\sum_{t=1}^{n} c_t}_{\text{token-budget}} > B_{\mathrm{tok}} \;\;\text{or}\;\; \underbrace{\sum_{t=1}^{n} \ell_t}_{\text{latency-budget}} > B_{\mathrm{lat}}\Big\}.$$</div>
+<p>Two budgets are required because the failure surfaces are orthogonal: a fast tool (e.g., a cached search) can saturate <span class="math">$B_{\mathrm{tok}}$</span> in seconds; a slow tool (e.g., a long web fetch) can saturate <span class="math">$B_{\mathrm{lat}}$</span> with very few tokens. Dollar cost <span class="math">$D_n = \sum_{t \le n} p_t \cdot c_t$</span> with model-specific price <span class="math">$p_t$</span> in &#36;/token is the right user-visible reporting quantity. Operationally, alert at <span class="math">$0.7\,B$</span>, throttle at <span class="math">$0.9\,B$</span>, hard-stop at <span class="math">$1.0\,B$</span>; this prevents the cliff-edge cost overshoot the Friday-night postmortem describes.</p>
+</div>
+
+<div class="callout algorithm">
+<div class="callout-title">Algorithm 49.1.1: Cost-Controlled Agent Loop</div>
+<pre><code class="pygments-highlighted lang-text">Algorithm: COST-CONTROLLED-AGENT-LOOP
+Input:  Agent policy pi, tool set T, task x,
+        token budget B_tok, latency budget B_lat,
+        alert threshold alpha (e.g., 0.7),
+        throttle threshold beta (e.g., 0.9)
+Output: Final answer y or termination reason r
+
+  tokens_used = 0
+  seconds_used = 0
+  trajectory = empty
+  For step = 1 to N_max:
+    start = clock()
+    a_step = pi(trajectory, x)               // plan + reason
+    If a_step is a tool call:
+      result = T[a_step.name](a_step.args)
+    Else:
+      Return a_step.answer                    // model finished
+    tokens_used  = tokens_used  + a_step.tokens
+    seconds_used = seconds_used + (clock() - start)
+    Append (a_step, result) to trajectory
+    // Soft alerts and throttling
+    If tokens_used > alpha * B_tok or seconds_used > alpha * B_lat:
+      Emit warning to monitor
+    If tokens_used > beta  * B_tok or seconds_used > beta  * B_lat:
+      Switch pi to cheaper model checkpoint   // throttle
+    // Hard stop
+    If tokens_used > B_tok:  Return r = "TOKEN_BUDGET_EXCEEDED"
+    If seconds_used > B_lat: Return r = "LATENCY_BUDGET_EXCEEDED"
+  Return r = "STEP_LIMIT_EXCEEDED"</code></pre>
+<p>The alert/throttle/stop ladder is the same control-theoretic pattern used by congestion control (TCP slow-start), with the difference that the cost signal is observed exactly rather than inferred from packet loss. See also <a href="https://arxiv.org/abs/2210.03629" rel="noopener" target="_blank">ReAct (Yao et al., 2022)</a> for the underlying tool-use loop.</p>
+</div>
+
+<div class="callout algorithm">
+<div class="callout-title">Algorithm 49.1.2: ReAct-with-Guardrails (Pre-Tool and Post-Tool Gates)</div>
+<pre><code class="pygments-highlighted lang-text">Algorithm: REACT-WITH-GUARDRAILS
+Input:  Agent policy pi, tool set T, task x,
+        pre-tool gate G_pre(a) -> {ALLOW, DENY, REVIEW},
+        post-tool gate G_post(a, r) -> {ALLOW, DENY, REVIEW}
+Output: Final answer y or refusal token <STOP>
+
+  trajectory = empty
+  For step = 1 to N_max:
+    a = pi(trajectory, x)                     // Thought + Action
+    If a is a final answer: Return a
+    // PRE-TOOL GATE: arg validation, allow-list, scope check
+    verdict_pre = G_pre(a)
+    If verdict_pre == DENY:
+      Append (a, "BLOCKED: pre-tool") to trajectory
+      Continue                                // let model re-plan
+    If verdict_pre == REVIEW:
+      verdict_pre = await human_approval(a)
+    // EXECUTE under sandbox + rate-limit
+    r = T[a.name].run(a.args)
+    // POST-TOOL GATE: PII scan, indirect-injection check
+    verdict_post = G_post(a, r)
+    If verdict_post == DENY:
+      r = "BLOCKED: post-tool"
+    If verdict_post == REVIEW:
+      r = await human_review(r)
+    Append (a, r) to trajectory                // Observation
+  Return <STOP></code></pre>
+<p>The pre-tool gate inspects the proposed action without executing it (allow-list of tool names, JSON-schema validation of arguments, capability check against the session's authenticated principal); the post-tool gate inspects the <em>result</em> the tool returned before that result is fed back into the model's context (Presidio PII scan, Llama-Guard indirect-injection check, Prompt-Guard-2 on retrieved text). The two gates are not interchangeable: pre-tool stops the dangerous call from happening at all; post-tool stops a poisoned observation from steering the next planning step. Both are required to prevent the kind of indirect-injection leakage demonstrated in <a href="https://arxiv.org/abs/2302.12173" rel="noopener" target="_blank">Greshake et al., 2023</a>.</p>
+</div>
 <div class="callout postmortem">
 <div class="callout-title">Postmortem: The Coupon-Code Exfiltration</div>
 <p>An e-commerce customer-support agent (team A, mid-2025) was prompted to "be helpful" and had a tool that could look up <em>any</em> order by order ID. A clever user pasted a fake order-confirmation email into the chat asking the agent to "check order #X for me" where X was a series of customer IDs. The agent dutifully ran the tool, returning order histories, shipping addresses, and partial credit-card numbers (last 4 digits) for users who were not the chat session's authenticated user. The team thought their session-auth layer was protecting them; it was, for the chat session itself, but the tool the agent could invoke had its own permissions and the agent bypassed the session by passing the looked-up customer ID directly. <strong>Fix:</strong> tool-level authorization that pinned every tool call to the session's authenticated user. <strong>Lesson:</strong> agents inherit the union of permissions of every tool they can call. Audit per-tool, not per-session.</p>

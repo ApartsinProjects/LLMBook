@@ -30,12 +30,12 @@ class. Empty callouts are listed in section 3 (also caught by
 | `algorithm` | 62 | 23 | 37.1% |
 | `lab` | 45 | 45 | 100.0% |
 | `looking-back` | 41 | 1 | 2.4% |
-| `numeric-example` | 36 | 30 | 83.3% |
 | `production-pattern` | 36 | 1 | 2.8% |
+| `numeric-example` | 36 | 30 | 83.3% |
 | `postmortem` | 28 | 1 | 3.6% |
 | `thesis-thread` | 2 | 2 | 100.0% |
-| `worked-example` | 1 | 0 | 0.0% |
 | `reproducibility-checklist` | 1 | 0 | 0.0% |
+| `worked-example` | 1 | 0 | 0.0% |
 | **TOTAL** | **5349** | **821** | **15.3%** |
 
 ## 2. Title-text deviations
