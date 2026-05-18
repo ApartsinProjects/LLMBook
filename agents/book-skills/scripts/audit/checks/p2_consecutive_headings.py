@@ -44,6 +44,28 @@ def _is_canonical_pair(cur_text: str, nxt_text: str) -> bool:
     return False
 
 
+META_WRAPPER_OPEN_RE = re.compile(
+    r'<div\s+class="(?:prerequisites|prereqs|learning-objectives|objectives|'
+    r'learning-outcomes|outcomes|takeaways)"',
+    re.IGNORECASE,
+)
+
+
+def _inside_meta_wrapper(html: str, pos: int) -> bool:
+    """Return True if `pos` is inside an open prerequisites/objectives/takeaways div."""
+    window = html[max(0, pos - 800):pos]
+    last_open = None
+    for m in META_WRAPPER_OPEN_RE.finditer(window):
+        last_open = m
+    if not last_open:
+        return False
+    # The last </div> that occurs AFTER the open close it
+    rel = window[last_open.end():]
+    if '</div>' in rel:
+        return False
+    return True
+
+
 def run(filepath, html, context):
     issues = []
     headings = list(HEADING_RE.finditer(html))
@@ -51,6 +73,12 @@ def run(filepath, html, context):
     for idx in range(len(headings) - 1):
         current = headings[idx]
         nxt = headings[idx + 1]
+
+        # Skip if the NEXT heading is inside a meta wrapper (prereqs/takeaways).
+        # Those wrappers visually separate the meta from the section content,
+        # so heading-immediately-after-h2 is canonical.
+        if _inside_meta_wrapper(html, nxt.start()):
+            continue
 
         # Get the text between end of current heading and start of next
         between = html[current.end():nxt.start()]
