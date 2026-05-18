@@ -3,9 +3,16 @@
 Last refresh: 2026-05-18 session continuation. Reviews all 35 audit reports
 in `docs/content-audit/` to ensure nothing is lost on context compaction.
 
-## Done this session segment (47 commits on v2.0; cumulative 7906 → 2128 issues = 73.1%)
+## Done this session segment (57 commits on v2.0; cumulative 7906 → 2057 issues = 74.0%)
 
-### Latest waves (waves 82-88, plugin tunes, cycle 56 -> cycle 60)
+### Latest waves (waves 82-89, plugin tunes, cycle 56 -> cycle 60+)
+- **Wave 89**: 17 imgs got width/height via PIL; plugin regex fix for HTML-in-alt
+- **OFFTOPIC agent**: 24 Big Pictures got LLM bridge sentence (-24)
+- **HARDCODED_STYLE fix**: index.html print styles use var(--primary) (-2)
+- **SVG_TITLE_TEXT plugin tune**: exempt SVGs with descriptive aria-label (-12)
+- **LAME_CODE agent (in flight)**: ~16 of 27 converted so far
+
+### Earlier waves (waves 82-88, plugin tunes, cycle 56 -> cycle 60)
 - **Figure-renumbering agent (ad287c8)**: 111 section files, 471 caption renames + 91 prose xref renames
 - **Plugin tunes for figure-sequence**: DUP_FIGURE_NUM accepts [a-z] suffix; FIGURE_SEQUENCE matches caption-bearing elements only (not prose)
 - **Wave 87**: 124 sections got section-level whats-next
