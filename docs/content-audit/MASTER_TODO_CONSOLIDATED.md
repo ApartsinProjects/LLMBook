@@ -3,14 +3,33 @@
 Last refresh: 2026-05-18 session continuation. Reviews all 35 audit reports
 in `docs/content-audit/` to ensure nothing is lost on context compaction.
 
-## Done this session segment (57 commits on v2.0; cumulative 7906 → 2057 issues = 74.0%)
+## Done this session segment (61 commits on v2.0; cumulative 7906 → 2033 issues = 74.3%)
 
-### Latest waves (waves 82-89, plugin tunes, cycle 56 -> cycle 60+)
-- **Wave 89**: 17 imgs got width/height via PIL; plugin regex fix for HTML-in-alt
+### Latest waves (waves 82-89, plugin tunes, cycle 56 -> cycle 61)
+- **Wave 89**: 17 imgs got width/height via PIL; plugin regex fix for HTML-in-alt (-19)
 - **OFFTOPIC agent**: 24 Big Pictures got LLM bridge sentence (-24)
 - **HARDCODED_STYLE fix**: index.html print styles use var(--primary) (-2)
 - **SVG_TITLE_TEXT plugin tune**: exempt SVGs with descriptive aria-label (-12)
-- **LAME_CODE agent (in flight)**: ~16 of 27 converted so far
+- **LAME_CODE agent landed**: 27 fragments converted (table/usage/prose-ified) (-27)
+- **SVG_ARIA_TRUNCATED plugin tune + fix**: heuristic tightened (-12)
+- **Cycle 61 snapshot**: 2033 issues
+
+## Stopping point note
+Most "easy mechanical wins" have been captured at 2033 issues. Remaining
+work is authoring-heavy:
+- 482 IMAGE_OPPORTUNITY (image generation backlog)
+- 374 SECTION_PAGE_LAYOUT (prereqs, bib, epigraph, big-picture authoring)
+- 291 CHAPTER_INDEX_LAYOUT (learning obj, overview, looking-back authoring)
+- 149 SECTION_STRUCTURE (mostly missing epigraph)
+- 120 SVG_TEXT_CLIPPING (SVG redesign, per-diagram)
+- 109 CHAPTER_STARTER (learning objectives + overview)
+- 86 MISSING_OUTPUT (code-output authoring, run-the-code work)
+- 63 GIANT_SECTION (user-decision per GIANT_SECTION_RECOMMENDATIONS.md)
+- 56 SVG_TEXT_RIGHT_CLIP (SVG redesign)
+- 52 CONSECUTIVE_HEADINGS (per-section transition prose)
+- 51 CALLOUT_ORDER (per-file structural reorders)
+- 47 FM4_PROMISE (research-frontier, exercise/self-check authoring per chapter)
+- 44 LAB_COVERAGE (44 chapters lack a hands-on lab)
 
 ### Earlier waves (waves 82-88, plugin tunes, cycle 56 -> cycle 60)
 - **Figure-renumbering agent (ad287c8)**: 111 section files, 471 caption renames + 91 prose xref renames
