@@ -5,13 +5,18 @@ Canonical order for chapter index pages:
   2. illustration (optional)
   3. overview
   4. big-picture (optional callout)
-  5. prereqs
-  6. objectives
-  7. sections-list
-  8. whats-next
-  9. bibliography (optional)
+  5. fun-note (optional, opener-style engagement)
+  6. prereqs
+  7. objectives
+  8. sections-list
+  9. whats-next
+  10. bibliography (optional)
 
-Also enforces: no fun-note callouts in index files (fun facts belong in sections).
+Earlier policy disallowed fun-note callouts in chapter index pages on
+the grounds that "fun facts belong in sections". User policy has shifted:
+chapter-opener fun-notes are valuable for engagement (modules 01, 03, 04
+already have curated openers). The rule is retired; fun-notes now sit
+between big-picture and prereqs in the canonical order.
 """
 import re
 from collections import namedtuple
@@ -49,8 +54,8 @@ ELEMENT_PATTERNS = [
 ]
 
 DISALLOWED_IN_INDEX = [
-    ("callout fun-note", re.compile(r'class="callout fun-note"')),
-    ("bare fun-note", re.compile(r'class="fun-note"')),
+    # fun-note no longer disallowed; openers like "Fun Fact: Before
+    # Computers Could Read" are engagement assets, not deletion targets.
     ("time-estimate", re.compile(r'class="time-estimate"')),
 ]
 
