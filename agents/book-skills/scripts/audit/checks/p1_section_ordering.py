@@ -62,12 +62,14 @@ def run(filepath, html, context):
         if pos:
             positions[name] = pos
 
-    # Check: prerequisites should come before big-picture
+    # Canonical: epigraph -> big-picture -> prerequisites -> body.
+    # (Confirmed against 76% of section pages and the section-42.2 reference.)
+    # Flag pages where prerequisites comes BEFORE big-picture (the minority pattern).
     if "prerequisites" in positions and "big-picture" in positions:
-        if positions["prerequisites"] > positions["big-picture"]:
+        if positions["prerequisites"] < positions["big-picture"]:
             issues.append(Issue(PRIORITY, CHECK_ID, filepath,
                 positions["prerequisites"],
-                "Prerequisites appears after big-picture callout (swap them)"))
+                "Prerequisites appears before big-picture (canonical: epigraph -> big-picture -> prerequisites)"))
 
     # Check: big-picture should be within first 100 lines of <main>,
     # unless it is in the last 40% of the file (end-of-section summary pattern)
@@ -80,16 +82,37 @@ def run(filepath, html, context):
                 positions["big-picture"],
                 f"Big-picture callout is {offset} lines into content (should be near top)"))
 
-    # Check: nothing should come after bibliography except nav/footer/whats-next
+    # Check: nothing should come after bibliography except nav/footer/whats-next.
+    # Canonical wrapper is <details class="bibliography-collapsible">; older pages
+    # used <section class="bibliography"> or <div class="bibliography">. Walk
+    # forward from the bibliography opening until we close the appropriate wrapper.
     bib_line = positions.get("bibliography")
     if bib_line:
-        # Find the end of the bibliography div to skip internal headings
-        bib_end = bib_line
+        # Detect the wrapper element type (details / section / div)
+        bib_line_text = lines[bib_line - 1] if bib_line - 1 < len(lines) else ""
+        # Look at a few lines before bib_line for the wrapper opener
+        wrapper_re = re.compile(r'<(details|section|div)\b[^>]*\bclass="[^"]*bibliography', re.IGNORECASE)
+        wrapper_tag = None
+        wrapper_start = bib_line - 1
+        for j in range(max(0, bib_line - 5), min(len(lines), bib_line + 1)):
+            m = wrapper_re.search(lines[j])
+            if m:
+                wrapper_tag = m.group(1).lower()
+                wrapper_start = j
+                break
+        if wrapper_tag is None:
+            wrapper_tag = "div"
+            wrapper_start = bib_line - 1
+
+        # Walk forward, balancing the wrapper tag depth
+        open_re = re.compile(rf'<{wrapper_tag}\b', re.IGNORECASE)
+        close_re = re.compile(rf'</{wrapper_tag}>', re.IGNORECASE)
         depth = 0
-        for i in range(bib_line - 1, len(lines)):
-            depth += lines[i].count('<div')
-            depth -= lines[i].count('</div')
-            if depth <= 0 and i > bib_line - 1:
+        bib_end = wrapper_start + 1
+        for i in range(wrapper_start, len(lines)):
+            depth += len(open_re.findall(lines[i]))
+            depth -= len(close_re.findall(lines[i]))
+            if depth <= 0 and i > wrapper_start:
                 bib_end = i + 1
                 break
 

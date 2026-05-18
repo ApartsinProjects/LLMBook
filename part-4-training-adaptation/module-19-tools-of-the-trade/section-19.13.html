@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-PWPHBQL2VL"></script>
+<script>
+window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', 'G-PWPHBQL2VL');
+</script>
+
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<meta content="Section 19.13: Distributed Training Deep Dive. Distributed-training strategies in depth: DDP, FSDP2, DeepSpeed ZeRO, tensor parallel, pipeline parallel, and 3D parallelism." name="description"/>
+<title>Section 19.13: Distributed Training Deep Dive</title>
+<link href="../../styles/book.css" rel="stylesheet"/>
+<link href="../../styles/pygments.css" rel="stylesheet"/>
+<script defer="" src="../../scripts/book.js"></script>
+<link href="../../pagefind/pagefind-ui.css" rel="stylesheet"/>
+<script defer="" src="../../pagefind/pagefind-ui.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
+
+<header class="chapter-header">
+<nav class="header-nav">
+<a class="book-title-link" href="../../index.html">Building Conversational AI with LLMs and Agents</a>
+<a class="toc-link" href="../../toc.html" title="Table of Contents"><span class="toc-icon">☰</span> Contents</a>
+</nav>
+<div class="header-search"><div id="search"></div></div>
+
+<div class="page-breadcrumb" data-pagefind-meta="chapter"><a href="../index.html">Part IV: LLM Training and Adaptation</a><span class="bc-sep">›</span><a href="index.html">Chapter 19: Tools of the Trade: Training &amp;amp; Adaptation Stack</a></div>
+<h1>Distributed Training Deep Dive</h1><div class="page-current">Section 19.13</div>
+
+</header>
+<main class="content" id="main-content"><span class="pagefind-meta-injected" data-pagefind-meta="part:Part IV: LLM Training and Adaptation" hidden=""></span><span class="pagefind-meta-injected" data-pagefind-meta="chapter:Chapter 19: Tools of the Trade: Training &amp; Adaptation Stack" hidden=""></span>
+<h2 id="19-2-distributed-training-deep-dive">Distributed Training Deep Dive</h2>
+<div class="callout big-picture">
+<div class="callout-title">Big Picture: What this section is</div>
+<p>The practitioner reference for choosing and launching a parallelism strategy. Conceptual treatment of why scale matters is in <a href="../../part-2-understanding-llms/module-06-pretraining-scaling-laws/index.html">Chapter 6 (Pretraining and Scaling Laws)</a>; this section is the engineering counterpart: which <code>torchrun</code>, <code>accelerate</code>, or <code>deepspeed</code> command to run, what changes in the script, and what the memory math says about whether your job will fit.</p>
+<p>The five strategies here (DDP, FSDP, ZeRO-1/2/3, pipeline, tensor) compose into the 3D parallelism used to pretrain frontier models. We walk the ladder from the simplest case (model fits on one GPU, scale by adding ranks) up to the hardest (a 70B+ model sliced along layers and tensor dimensions across hundreds of GPUs). At each rung we cover the memory math, the launcher command, and the failure modes you actually hit. Cross-references to <a href="../../part-4-training-adaptation/module-19-tools-of-the-trade/section-19.10.html#19-2-weights-and-biases-deep-dive">Section 19.2 (Libraries &amp; Frameworks)</a> for run logging and <a href="../../part-2-understanding-llms/module-10-interpretability/section-10.6.html#12-2-vllm-deep-dive">Section 10.6 (Libraries &amp; Frameworks)</a> for what happens after training are flagged inline.</p>
+</div>
+<h3 id="n-1-1-the-memory-math-why-you-need-parallelism-at-all">N.1.1 The Memory Math: Why You Need Parallelism at All</h4>
+<p>Before choosing a strategy you need to know whether your job fits. For an LLM in mixed precision (bf16 weights, fp32 optimizer state), Adam needs roughly <strong>20 bytes per parameter</strong>: 2 for the bf16 weight, 4 for the fp32 master, 4 for the gradient, 8 for the two Adam moments. A 7B model therefore needs ~140 GB of static optimizer-state memory before any activation; an 80 GB H100 cannot hold it without sharding. Activations are the second variable: a 7B Llama at seqlen 4096, batch 4 per GPU adds ~30-40 GB on top. Activation checkpointing (recompute on backward) trades ~30% extra FLOPs for a 4-8x activation-memory reduction and is on by default in modern scripts.</p>
+<div class="callout key-insight">
+<div class="callout-title">Key Insight</div>
+<p>The right question is not "do I have enough GPUs" but "what is my static memory floor and what is my activation budget". DDP replicates the static memory on every GPU; FSDP and ZeRO-3 shard it. If your model's static state exceeds one GPU's VRAM, DDP is not an option no matter how many GPUs you have.</p>
+</div>
+<h3 id="n-1-2-distributed-data-parallel-ddp-the-simplest-case">N.1.2 Distributed Data Parallel (DDP): The Simplest Case</h4>
+<p>DDP is the default when the model fits on a single GPU and you want to scale throughput by processing more data per step. Each rank holds a full replica, processes a different mini-batch, and synchronizes gradients via an all-reduce after the backward pass. The PyTorch implementation in <code>torch.distributed</code> uses NCCL on NVIDIA hardware and is the baseline against which every other strategy is measured. The script reads its rank from environment variables and wraps the model in <code>DistributedDataParallel</code>:</p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.distributed</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">dist</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torch.nn.parallel</span><span class="w"> </span><span class="kn">import</span> <span class="n">DistributedDataParallel</span> <span class="k">as</span> <span class="n">DDP</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">AutoModelForCausalLM</span><span class="p">,</span> <span class="n">AutoTokenizer</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">():</span>
+    <span class="n">dist</span><span class="o">.</span><span class="n">init_process_group</span><span class="p">(</span><span class="n">backend</span><span class="o">=</span><span class="s2">&quot;nccl&quot;</span><span class="p">)</span>
+    <span class="n">local_rank</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">&quot;LOCAL_RANK&quot;</span><span class="p">])</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">set_device</span><span class="p">(</span><span class="n">local_rank</span><span class="p">)</span>
+
+    <span class="n">model</span> <span class="o">=</span> <span class="n">AutoModelForCausalLM</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span>
+        <span class="s2">&quot;meta-llama/Llama-3.2-1B&quot;</span><span class="p">,</span> <span class="n">torch_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span>
+    <span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">local_rank</span><span class="p">)</span>
+    <span class="n">model</span> <span class="o">=</span> <span class="n">DDP</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">device_ids</span><span class="o">=</span><span class="p">[</span><span class="n">local_rank</span><span class="p">])</span>
+
+    <span class="n">optimizer</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">optim</span><span class="o">.</span><span class="n">AdamW</span><span class="p">(</span><span class="n">model</span><span class="o">.</span><span class="n">parameters</span><span class="p">(),</span> <span class="n">lr</span><span class="o">=</span><span class="mf">2e-5</span><span class="p">)</span>
+    <span class="c1"># ... training loop with DistributedSampler ...</span>
+    <span class="n">dist</span><span class="o">.</span><span class="n">destroy_process_group</span><span class="p">()</span>
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="n">main</span><span class="p">()</span></code></pre>
+<div class="code-caption"><strong>Code Fragment m.1.1:</strong> DDP is the default when the model fits on a single GPU and you want to scale throughput by processing more data.</div>
+</div>
+<p>Launch with <code>torchrun --nproc-per-node=8 train.py</code> on a single node, or <code>torchrun --nnodes=4 --nproc-per-node=8 --rdzv-backend=c10d --rdzv-endpoint=$MASTER:29500 train.py</code> for multi-node. The <a href="https://pytorch.org/docs/stable/elastic/run.html" target="_blank" rel="noopener">torchrun docs</a> describe elastic restart semantics; <a href="https://docs.aws.amazon.com/sagemaker/latest/dg/distributed-training-pytorch.html" target="_blank" rel="noopener">SageMaker</a> and <a href="https://learn.microsoft.com/en-us/azure/machine-learning/how-to-train-distributed-gpu" target="_blank" rel="noopener">Azure ML</a> wrap this with rendezvous services so you do not maintain the cluster yourself.</p>
+<h3 id="n-1-3-fully-sharded-data-parallel-fsdp">N.1.3 Fully Sharded Data Parallel (FSDP)</h4>
+<p>When the model no longer fits on one GPU, the cheapest upgrade is FSDP (FSDP2, the rewritten API, stable in <a href="https://pytorch.org/blog/pytorch-2-4/" target="_blank" rel="noopener">PyTorch 2.4 (2024)</a>). FSDP shards weights, gradients, and optimizer states across ranks; each rank gathers parameters for the current layer, computes, then frees them. Two strategies: <strong>FULL_SHARD</strong> (lowest memory) and <strong>HYBRID_SHARD</strong> (full shard within a node, replicate across nodes), the default for bandwidth-limited fabrics:</p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="kn">from</span><span class="w"> </span><span class="nn">torch.distributed.fsdp</span><span class="w"> </span><span class="kn">import</span> <span class="n">FullyShardedDataParallel</span> <span class="k">as</span> <span class="n">FSDP</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torch.distributed.fsdp</span><span class="w"> </span><span class="kn">import</span> <span class="n">ShardingStrategy</span><span class="p">,</span> <span class="n">MixedPrecision</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torch.distributed.fsdp.wrap</span><span class="w"> </span><span class="kn">import</span> <span class="n">transformer_auto_wrap_policy</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">transformers.models.llama.modeling_llama</span><span class="w"> </span><span class="kn">import</span> <span class="n">LlamaDecoderLayer</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">functools</span><span class="o">,</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="n">mp</span> <span class="o">=</span> <span class="n">MixedPrecision</span><span class="p">(</span>
+    <span class="n">param_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">,</span>
+    <span class="n">reduce_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">,</span>
+    <span class="n">buffer_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">wrap_policy</span> <span class="o">=</span> <span class="n">functools</span><span class="o">.</span><span class="n">partial</span><span class="p">(</span>
+    <span class="n">transformer_auto_wrap_policy</span><span class="p">,</span>
+    <span class="n">transformer_layer_cls</span><span class="o">=</span><span class="p">{</span><span class="n">LlamaDecoderLayer</span><span class="p">},</span>
+<span class="p">)</span>
+
+<span class="n">model</span> <span class="o">=</span> <span class="n">FSDP</span><span class="p">(</span>
+    <span class="n">model</span><span class="p">,</span>
+    <span class="n">sharding_strategy</span><span class="o">=</span><span class="n">ShardingStrategy</span><span class="o">.</span><span class="n">HYBRID_SHARD</span><span class="p">,</span>  <span class="c1"># FULL_SHARD for single node</span>
+    <span class="n">auto_wrap_policy</span><span class="o">=</span><span class="n">wrap_policy</span><span class="p">,</span>
+    <span class="n">mixed_precision</span><span class="o">=</span><span class="n">mp</span><span class="p">,</span>
+    <span class="n">device_id</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">current_device</span><span class="p">(),</span>
+    <span class="n">use_orig_params</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<span class="p">)</span></code></pre>
+<div class="code-caption"><strong>Code Fragment m.1.2:</strong> When the model no longer fits on one GPU, the cheapest upgrade is FSDP (FSDP2, the rewritten API.</div>
+</div>
+<p>The <code>auto_wrap_policy</code> matters more than people realise: wrap at the transformer-block level for clean compute-communication overlap. Wrap too coarsely (whole model) and you defeat sharding; wrap too finely (every <code>nn.Linear</code>) and you flood NCCL with tiny collectives. The <a href="https://huggingface.co/docs/accelerate/usage_guides/fsdp" target="_blank" rel="noopener">HuggingFace Accelerate FSDP guide (updated 2025)</a> documents the wrap policies for the major model families.</p>
+<h3 id="n-1-4-deepspeed-zero-three-stages-and-two-offloads">N.1.4 DeepSpeed ZeRO: Three Stages and Two Offloads</h4>
+<p>ZeRO (Zero Redundancy Optimizer) from Microsoft predates FSDP and remains the standard when you need <strong>offload to CPU or NVMe</strong>. ZeRO-1 shards optimizer states; ZeRO-2 also shards gradients; ZeRO-3 also shards parameters (equivalent to FSDP FULL_SHARD). ZeRO-Infinity spills optimizer states and parameters to NVMe, letting a single node train a 100B+ model at the cost of slower steps. The <a href="https://www.deepspeed.ai/2024/03/06/deepspeed-ulysses.html" target="_blank" rel="noopener">DeepSpeed Ulysses</a> work (March 2024) added sequence parallelism for long-context training, enabling million-token-context fine-tuning on commodity clusters. <a href="https://github.com/microsoft/DeepSpeed" target="_blank" rel="noopener">DeepSpeed</a> remains the project of choice when you need to mix ZeRO with pipeline parallelism in the same run.</p>
+<h3 id="n-1-5-pipeline-and-tensor-parallelism-when-sharding-is-not-enough">N.1.5 Pipeline and Tensor Parallelism: When Sharding is Not Enough</h4>
+<p>Beyond roughly 30B parameters, sharding alone runs out of room. <strong>Pipeline parallelism</strong> cuts the model into stages along its depth and streams micro-batches through them; the GPipe scheme and its 1F1B refinement are built into PyTorch as <a href="https://pytorch.org/docs/stable/distributed.pipelining.html" target="_blank" rel="noopener"><code>torch.distributed.pipelining</code></a> (stable in PyTorch 2.5, late 2024). <strong>Tensor parallelism</strong> splits individual matrices across GPUs so one GeMM is computed by several ranks in parallel; the Megatron-LM patterns (NVIDIA's 2024 Megatron-Core release exposes the kernels as a library) split QKV and MLP projections across the tensor-parallel group. Tensor parallelism is communication-heavy and stays inside a node where NVLink is fast; pipeline parallelism is communication-light and spans nodes.</p>
+<p>Frontier training composes all three axes into <strong>3D parallelism</strong> (DP across replica groups, PP across nodes, TP within a node), used by NVIDIA, Meta (Llama 3 added a 4D context-parallel variant), and DeepSeek. <a href="https://github.com/NVIDIA/Megatron-LM" target="_blank" rel="noopener">Megatron-LM</a> and <a href="https://github.com/NVIDIA/NeMo" target="_blank" rel="noopener">NeMo</a> are the production stacks; HuggingFace's <a href="https://github.com/huggingface/nanotron" target="_blank" rel="noopener">nanotron</a> (2024) is the readable reference implementation.</p>
+<h3 id="n-1-6-decision-table-which-strategy-fits">N.1.6 Decision Table: Which Strategy Fits</h4>
+<p>The table maps training scenarios to a recommended strategy. The <em>fits-on-one-GPU</em> column assumes 80 GB H100; halve for A100-40GB, quarter for a 24 GB consumer card.</p>
+<table>
+<caption><strong>Table m.1.1:</strong> <em>The table maps training scenarios to a recommended strategy.</em></caption>
+
+<thead><tr><th scope="col">Scenario</th><th scope="col">Fits on one GPU?</th><th scope="col">Recommended Strategy</th><th scope="col">Launcher</th><th scope="col">Typical Throughput Cost vs DDP</th></tr></thead>
+<tbody>
+<tr><td>Fine-tuning &lt;= 7B with LoRA on 8x H100</td><td>Yes (LoRA trainables)</td><td>DDP</td><td><code>torchrun</code></td><td>Baseline (1.0x)</td></tr>
+<tr><td>Full fine-tune 7B-13B on 8x H100</td><td>No (Adam state 140 GB)</td><td>FSDP FULL_SHARD or ZeRO-2</td><td><code>torchrun</code> / <code>accelerate</code></td><td>1.1x to 1.3x</td></tr>
+<tr><td>Full fine-tune 30B-70B on 32 GPUs</td><td>No</td><td>FSDP HYBRID_SHARD or ZeRO-3</td><td><code>accelerate</code> / <code>deepspeed</code></td><td>1.3x to 1.6x</td></tr>
+<tr><td>Pretrain 70B on 64-128 GPUs</td><td>No</td><td>ZeRO-3 + TP=8 or FSDP + TP</td><td><code>deepspeed</code> / Megatron</td><td>1.5x to 2.0x</td></tr>
+<tr><td>Pretrain 175B+ frontier model</td><td>No</td><td>3D parallelism (DP + PP + TP)</td><td>Megatron-LM / NeMo</td><td>2.0x to 3.0x</td></tr>
+<tr><td>Single-node fine-tune, model exceeds VRAM</td><td>No</td><td>ZeRO-3 + CPU/NVMe offload</td><td><code>deepspeed</code></td><td>3.0x to 10x (slow but feasible)</td></tr>
+</tbody>
+</table>
+<div class="callout warning">
+<div class="callout-title">Warning: Throughput vs Feasibility</div>
+<p>Every step down the table trades throughput for feasibility. The throughput-cost column assumes a well-tuned, modern fabric (H100 with NVLink, InfiniBand between nodes). On Ethernet or under-provisioned NVMe, ZeRO-3 with offload can be 20x slower than DDP, not 3x. Profile a single step before committing to a multi-day run; the <a href="https://pytorch.org/docs/stable/profiler.html" target="_blank" rel="noopener">PyTorch profiler</a> with NCCL traces shows where the time is going.</p>
+</div>
+<h3 id="n-1-7-production-realities-and-2024-2026-tooling">N.1.7 Production Realities and 2024-2026 Tooling</h4>
+<p>Two trends matter today. <strong>FSDP has eaten most of DeepSpeed's mind-share</strong> for jobs that fit without offload; PyTorch 2.4's FSDP2 closed the configurability gap and the HuggingFace stack defaults to FSDP. DeepSpeed remains essential for NVMe offload, MoE expert parallelism, or composition with pipeline parallelism. Composable launchers (<a href="https://huggingface.co/docs/accelerate/index" target="_blank" rel="noopener">Accelerate</a>, <a href="https://lightning.ai/docs/pytorch/stable/api/lightning.pytorch.strategies.FSDPStrategy.html" target="_blank" rel="noopener">PyTorch Lightning</a>) let you switch between DDP, FSDP, and DeepSpeed via config flags. On hardware, the 2025 <a href="https://www.nvidia.com/en-us/data-center/gb200-nvl72/" target="_blank" rel="noopener">GB200 NVL72</a> treats 72 GPUs as one coherent memory pool, collapsing the tensor-vs-pipeline distinction for sub-500B models. Track <a href="https://github.com/mosaicml/llm-foundry" target="_blank" rel="noopener">MosaicML LLM Foundry</a> and Databricks' training stack as living references.</p>
+<div class="callout cross-ref">
+<div class="callout-title">Cross-References</div>
+<ul>
+<li><a href="../../part-2-understanding-llms/module-06-pretraining-scaling-laws/index.html">Chapter 6 (Pretraining and Scaling Laws)</a> for why model size and compute are coupled.</li>
+<li><a href="../../part-4-training-adaptation/module-19-tools-of-the-trade/section-19.10.html#19-2-weights-and-biases-deep-dive">Section 19.2 (Libraries &amp; Frameworks)</a> for logging multi-rank runs to W&amp;B / MLflow without per-rank duplication.</li>
+<li><a href="../../part-2-understanding-llms/module-10-interpretability/section-10.6.html#12-2-vllm-deep-dive">Section 10.6 (Libraries &amp; Frameworks)</a> for what happens to the checkpoint after training: vLLM, TGI, and tensor-parallel serving.</li>
+<li><a href="section-19.14.html#19-2-ray-train-serve-data">Section 19.2 (Libraries &amp; Frameworks)</a> for a higher-level orchestration layer that wraps the strategies in this section.</li>
+</ul>
+</div>
+<div class="callout key-insight">
+<div class="callout-title">Key Insight</div>
+<ul>
+<li>Start from the memory math: 20 bytes per parameter for Adam in bf16, plus activations. If the static state fits on one GPU, use DDP; if not, you must shard.</li>
+<li>FSDP (HYBRID_SHARD for multi-node, FULL_SHARD for single node) is the modern default for fine-tuning up to ~70B; it ships with PyTorch and is supported by Accelerate and Lightning.</li>
+<li>DeepSpeed ZeRO-3 remains the right tool when you need CPU/NVMe offload, MoE expert parallelism, or to compose with pipeline parallelism in a single run.</li>
+<li>Beyond 30B-70B, add pipeline parallelism (PyTorch <code>distributed.pipelining</code> or Megatron); beyond that, add tensor parallelism within each node. Frontier models combine all three into 3D parallelism.</li>
+<li>Always profile one step before a multi-day run. Fabric topology and NVMe speed change the throughput numbers more than the choice of library.</li>
+</ul>
+</div>
+
+
+<nav class="chapter-nav">
+<a class="prev" href="section-19.12.html"><span class="nav-label">Previous</span><span class="nav-num">Section 19.12</span><span class="nav-title">Experiment Comparison and Hyperparameter Optimization</span></a>
+<a class="up" href="index.html"><span class="nav-label">In Chapter</span><span class="nav-num">Chapter 19</span><span class="nav-title">Tools of the Trade: Training &amp;amp; Adaptation Stack</span></a>
+<a class="next" href="section-19.14.html"><span class="nav-label">Next</span><span class="nav-num">Section 19.14</span><span class="nav-title">Ray Train, Ray Serve, and Ray Data</span></a>
+</nav>
+<footer><p>Fifteenth Edition, 2026 · <a href="../../toc.html">Contents</a></p></footer>
+</main>
+</body>
+</html>

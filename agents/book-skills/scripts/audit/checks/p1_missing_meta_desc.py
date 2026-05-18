@@ -9,7 +9,7 @@ DESCRIPTION = "Page is missing <meta name=\"description\"> in <head>"
 Issue = namedtuple("Issue", ["priority", "check_id", "filepath", "line", "message"])
 
 HEAD_RE = re.compile(r'<head\b[^>]*>(.*?)</head>', re.DOTALL | re.IGNORECASE)
-META_DESC_RE = re.compile(r'<meta\s+name=["\']description["\']', re.IGNORECASE)
+META_DESC_RE = re.compile(r'<meta\s+[^>]*name=["\']description["\']', re.IGNORECASE)
 
 
 def run(filepath, html, context):

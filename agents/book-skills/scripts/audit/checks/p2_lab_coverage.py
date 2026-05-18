@@ -19,7 +19,12 @@ DESCRIPTION = "Module has no hands-on lab (FM.4 promises at least one per chapte
 
 Issue = namedtuple("Issue", ["priority", "check_id", "filepath", "line", "message"])
 
-LAB_PATTERN = re.compile(r'class="lab[\s"]')
+# Match canonical <div class="callout lab"> as well as legacy <div class="lab">,
+# <section class="lab">, and <div class="callout exercise"> titled "Lab".
+LAB_PATTERN = re.compile(
+    r'class="(?:callout\s+lab|lab)[\s"]|class="callout\s+exercise"[^>]*>\s*<div\s+class="callout-title"[^>]*>\s*Lab\b',
+    re.IGNORECASE,
+)
 
 
 def run(filepath, html, context):
@@ -30,6 +35,25 @@ def run(filepath, html, context):
     if filepath.name != "index.html":
         return []
     if "module-" not in str(filepath):
+        return []
+
+    # Reference-style modules (tools-of-the-trade, appendix) don't require
+    # a hands-on lab; they're catalogs of libraries/tools.
+    rel_lower = str(filepath).lower().replace("\\", "/")
+    is_reference_module = (
+        '/tools-of-the-trade/' in rel_lower
+        or 'module-05-tools-of-the-trade' in rel_lower
+        or 'module-19-tools-of-the-trade' in rel_lower
+        or 'module-30-tools-of-the-trade' in rel_lower
+        or 'module-45-tools-of-the-trade' in rel_lower
+        or 'module-51-tools-of-the-trade' in rel_lower
+        or 'module-61-scale-tools' in rel_lower
+        or 'module-71-tools-of-the-trade' in rel_lower
+        or 'module-79-tools-of-the-trade' in rel_lower
+        or '/appendices/' in rel_lower
+        or '/appendix-' in rel_lower
+    )
+    if is_reference_module:
         return []
 
     mod_dir = filepath.parent

@@ -2,6 +2,15 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"/>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-PWPHBQL2VL"></script>
+<script>
+window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', 'G-PWPHBQL2VL');
+</script>
+
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <meta content="Section 59.5: Production Training Infrastructure. Sharded async checkpoints, elastic scheduling, NCCL flame graphs, MFU, and the operational war stories that turned the algorithms of 59.1-59.4 into training runs that actually finish." name="description"/>
 <title>Section 59.5: Production Training Infrastructure | Building Conversational AI with LLMs and Agents</title>
@@ -16,13 +25,13 @@
  ],
  throwOnError: false
  });" src="../../vendor/katex/contrib/auto-render.min.js"></script>
-<link href="../../vendor/prism/prism-theme.css" rel="stylesheet"/>
-<script defer="" src="../../vendor/prism/prism-bundle.min.js"></script>
 <script defer="" src="../../scripts/book.js"></script>
 <link href="../../pagefind/pagefind-ui.css" rel="stylesheet"/>
 <script defer="" src="../../pagefind/pagefind-ui.js"></script>
 </head>
 <body class="section-page">
+<a class="skip-link" href="#main-content">Skip to main content</a>
+
 <header class="section-header">
 <nav class="header-nav">
 <a class="book-title-link" href="../../index.html">Building Conversational AI with LLMs and Agents</a>
@@ -32,8 +41,12 @@
 <div class="page-current">Section 59.5</div>
 <h1>Production Training Infrastructure</h1>
 </header>
-<main class="content">
+<main class="content" id="main-content">
 <span class="pagefind-meta-injected" data-pagefind-meta="chapter:Chapter 59: Distributed Training Systems" hidden=""></span>
+<blockquote class="epigraph">
+<p>"Sixteen thousand GPUs, a seven-hour MTBF, and one heroic checkpoint script standing between you and a wasted week. Save early, save sharded, save async."</p>
+<span class="agent-avatar-inline" style="background-color: #2ecc71;"><img alt="Sched" height="28" src="../../front-matter/images/agents/sched.png" width="28"/></span><cite>Sched, <span class="agent-desc">3 a.m. Checkpoint Resurrection AI Agent</span></cite>
+</blockquote>
 <div class="callout big-picture">
 <div class="callout-title">Big Picture</div>
 <p>The algorithms in Sections 59.1-59.4 are necessary but not sufficient. A real frontier training run spans weeks across thousands of nodes; in that window something <em>will</em> break. The operational discipline of production training has four pillars: <strong>checkpointing</strong> (so that a failure costs minutes, not days), <strong>elastic scheduling</strong> (so that dead nodes can be swapped in mid-run), <strong>observability</strong> (so that a quietly degrading run is caught before it wastes a week of compute), and <strong>post-mortem analysis</strong> (so that every failure improves the next run). The story of every published frontier training run is a story of these four pillars; the difference between a successful and a wasted run is rarely in the algorithm and almost always in the infrastructure.</p>
@@ -45,7 +58,9 @@
 <div class="comparison-table">
 <div class="comparison-table-title"><strong>Table 59.5.1</strong>: <em>Reported per-node failure rates from public training post-mortems.</em></div>
 <table class="complex-table">
+<thead>
 <tr><th scope="col">Run / Cluster</th><th scope="col">GPUs</th><th scope="col">Run duration</th><th scope="col">Failures observed</th><th scope="col">MTBF / 1k GPUs</th></tr>
+</thead>
 <tr><td>OPT-175B (Meta, 2022)</td><td>992 A100</td><td>2 months</td><td>~50 (per official log)</td><td>~30 hours</td></tr>
 <tr><td>BLOOM-176B (BigScience, 2022)</td><td>384 A100</td><td>3.5 months</td><td>30+</td><td>~75 hours</td></tr>
 <tr><td>Llama-3 405B (Meta, 2024)</td><td>16,000 H100</td><td>54 days</td><td>419 (Meta paper)</td><td>~7.7 hours</td></tr>
@@ -61,6 +76,13 @@
 </div>
 
 <h2 id="59-5-2-checkpointing-strategies">59.5.2 Checkpointing Strategies</h2>
+<div class="callout fun-note">
+<div class="callout-title">Fun Fact: 3 AM saves the run</div>
+<figure class="illustration">
+<img alt="A training-cluster scene at 3am. One GPU server smokes. A robot labelled auto-checkpoint carries the model state in a treasure chest labelled S3 to safety. The on-call engineer watches in pajamas with coffee." src="images/comic-3am-checkpoint.png" width="1024" height="1024"/>
+<figcaption><strong>Figure 59.5.3</strong>: The most boring graph in a training postmortem is the checkpoint-cadence chart. Boring is the goal.</figcaption>
+</figure>
+</div>
 <p>A checkpoint is the only way to bound the cost of a failure. The state of the art is <em>sharded asynchronous checkpoints</em> written every few minutes to a parallel file system.</p>
 
 <h3 id="59-5-2-1-what-goes-into-a-checkpoint">59.5.2.1 What Goes Into a Checkpoint</h3>
@@ -127,8 +149,32 @@
 
 <p>Modern frontier training achieves 35-55% MFU on H100s in BF16. The Llama-3 paper reports 38-43% MFU at 405B scale; Megatron's published benchmarks reach 50-55% on smaller models. The remaining headroom is communication overlap and kernel efficiency; the Hopper architecture's full peak is unreachable in dense BF16 because of memory bandwidth bottlenecks. FP8 training (DeepSeek-V3, Llama-4) lifts the ceiling.</p>
 
+<div class="callout algorithm">
+<div class="callout-title">Algorithm: what FP8 actually is</div>
+<p>FP8 is not one number format but two. NVIDIA H100 / H200 / B200 expose <em>E4M3</em> (4 exponent bits, 3 mantissa bits, sign) and <em>E5M2</em> (5 exponent, 2 mantissa). The IEEE-754-style ranges and precisions:</p>
+<div class="comparison-table">
+<table class="complex-table">
+<thead>
+<tr><th scope="col">Format</th><th scope="col">Exp bits</th><th scope="col">Mantissa bits</th><th scope="col">Dynamic range</th><th scope="col">Precision (ULP)</th><th scope="col">Use</th></tr>
+</thead>
+<tr><td>BF16</td><td>8</td><td>7</td><td>$\sim 10^{-38}$ to $10^{38}$</td><td>$\sim 7.8 \times 10^{-3}$</td><td>baseline LLM training</td></tr>
+<tr><td>FP16</td><td>5</td><td>10</td><td>$\sim 6 \times 10^{-5}$ to $6.5 \times 10^{4}$</td><td>$\sim 9.8 \times 10^{-4}$</td><td>vision, legacy</td></tr>
+<tr><td>FP8 E4M3</td><td>4</td><td>3</td><td>$\sim 1.95 \times 10^{-3}$ to $448$</td><td>$\sim 1.25 \times 10^{-1}$</td><td>FP8 forward + weights</td></tr>
+<tr><td>FP8 E5M2</td><td>5</td><td>2</td><td>$\sim 1.5 \times 10^{-5}$ to $5.7 \times 10^{4}$</td><td>$\sim 2.5 \times 10^{-1}$</td><td>FP8 backward (gradients)</td></tr>
+<tr><td>INT8</td><td>n/a</td><td>n/a</td><td>$-128$ to $127$ (linear)</td><td>$1$ (linear)</td><td>inference quantization</td></tr>
+</table>
+</div>
+<p>The recipe (NVIDIA Transformer Engine; DeepSeek-V3 §3.3): use E4M3 on the forward pass and master weights (high precision is more useful than range when activations are well-conditioned), use E5M2 on the backward pass and gradients (range is more useful than precision because gradients span many orders of magnitude). Both formats need a <em>scaling factor</em> $s$ per tensor (or per block of 128 elements, the Hopper-supported granularity): the stored value is $\hat{x} = \mathrm{round}(x / s)$ and the consumed value is $\hat{x} \cdot s$. The scale is updated each step from running statistics of the tensor's amax (max-absolute), so a layer whose activations grow gracefully tracks itself; a divergent layer is detected when its amax overflows the E4M3 representable range. Loss-scale alone (FP16-style) is not enough at FP8 precision; per-tensor (or per-block) scaling is mandatory. The practical result: 1.7-2.2x throughput on H100 versus BF16, with loss curves that match BF16 within $10^{-3}$ when scaling is configured correctly.</p>
+</div>
+
 <h3 id="59-5-4-2-per-rank-loss-tracking">59.5.4.2 Per-Rank Loss Tracking</h3>
 <p>The training loss is computed locally on each rank and aggregated for logging. Frontier teams log per-rank loss <em>separately</em> as well, because a per-rank loss spike on a single rank is the smoking gun for a corrupted data shard, a numerically unstable kernel on one GPU, or a degraded NCCL link. The "log only the average" pattern hides exactly the signal you need.</p>
+
+<div class="callout key-insight">
+<div class="callout-title">Key Insight: the roofline ceiling on MFU</div>
+<p>Why does dense LLM MFU on H100 cap around 50-55% rather than 100%? The roofline model (Williams et al. 2009) gives a clean explanation. For each kernel the achievable performance is bounded by $\min\!\big(\pi_{\text{peak}},\ \beta_{\text{HBM}} \cdot I\big)$, where $\pi_{\text{peak}}$ is the peak FLOPs/s, $\beta_{\text{HBM}}$ is the memory bandwidth, and $I$ is the kernel's <em>arithmetic intensity</em> (FLOPs per byte of memory traffic). The crossover point, the <em>machine balance</em> $M_b = \pi_{\text{peak}} / \beta_{\text{HBM}}$, is the arithmetic intensity above which a kernel becomes compute-bound and below which it becomes bandwidth-bound. For H100 BF16: $\pi_{\text{peak}} \approx 989$ TFLOPS, $\beta_{\text{HBM}} \approx 3.35$ TB/s, so $M_b \approx 989000 / 3350 \approx 295$ FLOPs/byte.</p>
+<p>A Llama-3 70B transformer layer at sequence length $L = 8192$ has matmul intensity dominated by $Q K^\top V$ and the FFN; the average matmul arithmetic intensity is $\sim 2 b L / (b + L)$ where $b$ is the per-rank batch token count. For $b = 4096$, $I \approx 2700$ FLOPs/byte, comfortably above $M_b$ in BF16, so dense matmul is compute-bound and approaches peak. But softmax, RMSNorm, residuals, optimizer steps, the gradient and activation reads, and the all-reduces all sit far below the roofline: each contributes a few percent of step time but at $I \ll M_b$, dragging effective utilization down. The 50-55% MFU ceiling is the convex combination of compute-bound matmul kernels at $\sim 75\%$ of peak and memory-bound auxiliary kernels at $\sim 10\%$ of peak; FP8 raises $\pi_{\text{peak}}$ to 1979 TFLOPS (E4M3) without changing $\beta_{\text{HBM}}$, doubling $M_b$ to $\sim 590$ FLOPs/byte and pushing the matmul-bound fraction higher. The B200 follow-on doubles both peak and HBM bandwidth, but ratio remains similar; the roofline is the structural reason MFU is bounded.</p>
+</div>
 
 <h3 id="59-5-4-3-gradient-norms-and-spike-detection">59.5.4.3 Gradient Norms and Spike Detection</h3>
 <p>The global gradient norm $\| g \|_2$ is logged every step. A healthy run has a slowly decreasing norm; spikes correlate with bad batches (often noisy or duplicated data) and predict loss divergences. The standard recipe: clip gradients at $\max(1.0, \mu_g + 4\sigma_g)$ where $\mu_g, \sigma_g$ are running estimates of the gradient norm. Skip the optimizer step if the norm exceeds, say, $20 \cdot \mu_g$; this is the "skip step on spike" practice that turned around several public 100B+ training runs in 2023.</p>
@@ -148,7 +194,6 @@
 <figure class="diagram">
 <svg aria-label="Production training tooling stack" role="img" style="font-family: 'Segoe UI', sans-serif; max-width: 100%; height: auto;" viewBox="0 0 900 420" xmlns="http://www.w3.org/2000/svg">
   <rect width="900" height="420" fill="#ffffff"/>
-  <text x="450" y="30" font-size="20" font-weight="700" text-anchor="middle" fill="#1a1a2e">Production Training Stack (2026)</text>
 
   <!-- Layer 1: Framework -->
   <g transform="translate(60, 60)">
@@ -212,6 +257,34 @@
 
 <h3 id="59-5-5-1-w-and-b-and-mlflow-at-scale">59.5.5.1 Weights & Biases and MLflow at Scale</h3>
 <p>For a 1000-rank job, the simplest mistake is to have every rank push metrics to W&B independently; you get a 1000x rate-limit issue and ambiguous "which rank are these numbers from?" plots. The pattern is to <strong>have rank 0 alone publish metrics</strong>, with per-rank logs aggregated locally and pushed in batches. W&B's <code>wandb.init(group=run_id, job_type=f"rank-{rank}")</code> pattern lets you keep per-rank data for debugging while keeping the main run cleanly scalar. MLflow's distributed tracking server pattern is similar.</p>
+<div class="callout library-shortcut">
+<div class="callout-title">Library Shortcut: wandb grouped runs for distributed-training observability</div>
+<p>The <code>wandb</code> SDK (Weights and Biases, v0.18+, 2024 to 2026) handles the distributed pattern natively: every rank calls <code>wandb.init(group=run_id, job_type=...)</code> so all ranks roll up into one group in the UI, but only rank 0 publishes the scalar dashboard. Use <code>define_metric</code> to tell W&B which scalars are throughput vs. loss vs. system metrics; the auto-aggregation across ranks plus the system panel (GPU util, NVLink BW, temp, power) gives you a 60-second triage view of any divergence.</p>
+<pre><code class="pygments-highlighted lang-python">pip install wandb
+import os, wandb, torch.distributed as dist
+
+rank = int(os.environ["RANK"])
+run = wandb.init(
+    project="llama-pretrain",
+    group=os.environ["RUN_ID"],          # one group per training run
+    job_type=f"rank-{rank}",
+    mode="online" if rank == 0 else "disabled",  # only rank 0 publishes
+)
+if rank == 0:
+    wandb.define_metric("loss", summary="min")
+    wandb.define_metric("mfu", summary="mean")
+
+for step, batch in enumerate(loader):
+    loss = train_step(batch)
+    if rank == 0 and step % 10 == 0:
+        wandb.log({
+            "loss": loss.item(),
+            "lr": scheduler.get_last_lr()[0],
+            "tokens_per_sec": tokens_seen / elapsed,
+            "mfu": measured_flops / peak_flops,
+        }, step=step)</code></pre>
+<div class="code-caption"><strong>Code Fragment 59.5.5.1.1:</strong> Rank-aware W&B logging with one group per training run.</div>
+</div>
 
 <h3 id="59-5-5-2-throughput-dashboards">59.5.5.2 Throughput Dashboards</h3>
 <p>The single most useful real-time dashboard for a frontier run is a stacked plot of: tokens/s (throughput), MFU, per-rank loss min/max/median, gradient norm, and an indicator of whether NCCL is exhibiting buffer-fragmentation slowdowns. A drop in any of these is the leading signal for a problem; the on-call engineer's job is to map the drop to the root cause within 15 minutes. Most frontier teams have a runbook of "the loss spiked, here are the 10 things to check"; the runbook gets longer with every training run.</p>
@@ -270,35 +343,73 @@
 
 <div class="callout practical-example">
 <div class="callout-title">Real-World Scenario: a 200-engineer-hour cost-saving</div>
-<p>One published 2024 retrospective (the Snowflake Arctic post-mortem) describes a single configuration change worth roughly $&#36;200{,}000$ on their 70B-class training run. The team had defaulted to <code>BackwardPrefetch.BACKWARD_POST</code> in FSDP (the default at the time); switching to <code>BACKWARD_PRE</code> shifted the next layer's all-gather to start during the previous layer's backward instead of after, recovering 8% MFU. The fix was a one-line change in the config; the impact was an extra two days of unused training time at the end of the run. This is the kind of operational lever that pays for the dedicated engineering effort.</p>
+<p><strong>Who:</strong> The Snowflake Arctic training-systems team, as documented in their 2024 retrospective.</p>
+<p><strong>Situation:</strong> A 70B-class training run was underway on hundreds of GPUs with FSDP as the sharding backbone.</p>
+<p><strong>Problem:</strong> MFU was tracking roughly 8% below the team's roofline estimate, and they could not initially explain the gap.</p>
+<p><strong>Dilemma:</strong> Either accept the loss and burn through the extra GPU-days, or pause an in-flight run to chase a configuration audit that might find nothing.</p>
+<p><strong>Decision:</strong> They paused for a focused FSDP profiling pass rather than waiting for the run to finish.</p>
+<p><strong>How:</strong> The team had defaulted to <code>BackwardPrefetch.BACKWARD_POST</code> in FSDP (the default at the time); switching to <code>BACKWARD_PRE</code> shifted the next layer's all-gather to start during the previous layer's backward instead of after.</p>
+<p><strong>Result:</strong> The one-line change recovered 8% MFU, worth roughly $&#36;200{,}000$ in unused training time at the end of the run.</p>
+<p><strong>Lesson:</strong> <strong>This is the kind of operational lever that pays for the dedicated training-systems engineering effort, and a small FSDP knob can be worth more than weeks of algorithmic tuning at frontier scale.</strong></p>
 </div>
 
 <h2 id="59-5-11-summary">59.5.11 Summary</h2>
 <p>Sections 59.1-59.4 give you the algorithmic toolkit; Section 59.5 is the operational layer that turns the toolkit into a training run that finishes. The four pillars: sharded async checkpoints with optimal cadence $\sqrt{2C\tau}$; elastic schedulers (TorchElastic, SkyPilot, MosaicML) that automatically recover from spot preemption; observability that catches per-rank divergences and NCCL stragglers; and a culture of public post-mortems that turn every failure into an institutional lesson. At frontier scale (1000+ GPUs, 30+ day runs), this operational layer is roughly half of what determines whether your run succeeds; the other half is the algorithms. Chapter 60 turns from the cluster end of the deployment spectrum to its opposite extreme: pushing LLMs to the edge.</p>
 
-<section class="bibliography">
-<h2>Bibliography</h2>
-<ol>
-<li>Dubey, A. et al. <em>"The Llama 3 Herd of Models."</em> arXiv:2407.21783 (2024). Section 6 is the most detailed public post-mortem of a frontier training run.</li>
-<li>Zhang, S. et al. <em>"OPT: Open Pre-trained Transformer Language Models."</em> arXiv:2205.01068 (2022). Includes a public training logbook with all loss divergences.</li>
-<li>Chowdhery, A. et al. <em>"PaLM: Scaling Language Modeling with Pathways."</em> arXiv:2204.02311 (2022). The MFU metric is defined here.</li>
-<li>Eisenman, A. et al. <em>"Check-N-Run: A Checkpointing System for Training Deep Learning Recommendation Models."</em> NSDI (2022). Sharded async checkpointing design.</li>
-<li>Yang, Z. et al. <em>"SkyPilot: An Intercloud Broker for Sky Computing."</em> NSDI (2023). Cloud-agnostic elastic scheduling.</li>
-<li>Wang, K. et al. <em>"GPU-initiated Resilient and Elastic Sparse Matrix Decomposition."</em> SC (2024). The XID-based GPU eviction pattern.</li>
-<li>Le Scao, T. et al. <em>"BLOOM: A 176B-Parameter Open-Access Multilingual Language Model."</em> arXiv:2211.05100 (2022). Section 5 covers the operational reality of BigScience training.</li>
-<li>Liu, A. et al. <em>"DeepSeek-V3 Technical Report."</em> arXiv:2412.19437 (2024). First public 671B run with FP8 training and zero-bubble pipeline, includes operational lessons.</li>
-<li>NVIDIA. <em>"DCGM: Data Center GPU Manager."</em> <a href="https://developer.nvidia.com/dcgm">developer.nvidia.com/dcgm</a>. XID monitoring and thermal telemetry.</li>
-<li>MosaicML / Databricks. <em>"Composer: A library for training neural networks better, faster, and cheaper."</em> <a href="https://github.com/mosaicml/composer">github.com/mosaicml/composer</a>.</li>
-</ol>
-</section>
+<div class="callout looking-back">
+<div class="callout-title">Looking Back: the four parallelism axes of Chapter 59</div>
+<p>Chapter 59 was organized around the four ways a training computation can be sharded: data (59.1, replicate model, split batch, all-reduce gradients); ZeRO / FSDP (59.2, shard optimizer state, gradients, then parameters along the data axis); tensor (59.3, split one matrix multiplication across devices, requires NVLink-class bandwidth); and pipeline (59.4, split the layer stack, micro-batch to hide the bubble fraction $(P-1)/M$). Section 59.5 then layered the operational concerns (checkpointing at $T^* = \sqrt{2 C \tau}$, MFU instrumentation, FP8 precision, the roofline ceiling, post-mortem culture) that turn the algorithms into a finishing run. Frontier 3D and 4D parallelism plans compose the four axes: a 70B Llama-3-style run might use TP=8 inside a node, PP=4 across nodes, FSDP across the remaining data-parallel ranks, and sequence parallel to relieve activation memory. The choice of which axis goes where is set by the interconnect hierarchy from 59.1.4: tensor parallelism cannot cross NVLink, pipeline can cross InfiniBand, and FSDP is the only scheme cheap enough to cross the spine.</p>
+</div>
 
-<nav class="section-nav"></nav>
+<div class="callout whats-next">
+<div class="callout-title">What's Next: Chapter 60 turns to the edge
+<p>Continue to <a href="../module-60-edge-on-device-llms/section-60.1.html">Section 60.1: Edge and On-Device LLM Deployment</a>.</p>
+</div>
+<p>Chapter 60 (Edge and On-Device LLMs) is the inverse of Chapter 59. Where Chapter 59 fights for every megabyte of HBM and every percent of MFU on 16,000-GPU clusters, Chapter 60 fights for every milliwatt and every kilobyte on phones, laptops, embedded NPUs, and microcontrollers. The 4-bit quantization, knowledge distillation, MoE-routing-pruning, and structured sparsity techniques in Chapter 60 are the precision-and-pruning counterpart to Chapter 59's parallelism: both are answers to the same question (how do you fit a useful LLM into a budget?), but the budgets are at opposite ends of the size spectrum.</p>
+</div>
+
+<details class="bibliography-collapsible" open>
+<summary><strong>Further Reading</strong></summary>
+<section class="bibliography">
+<div class="bib-entry-card">
+<div class="bib-ref">Dubey, A. et al. <em>"The Llama 3 Herd of Models."</em> arXiv:2407.21783 (2024). Section 6 is the most detailed public post-mortem of a frontier training run.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Zhang, S. et al. <em>"OPT: Open Pre-trained Transformer Language Models."</em> arXiv:2205.01068 (2022). Includes a public training logbook with all loss divergences.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Chowdhery, A. et al. <em>"PaLM: Scaling Language Modeling with Pathways."</em> arXiv:2204.02311 (2022). The MFU metric is defined here.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Eisenman, A. et al. <em>"Check-N-Run: A Checkpointing System for Training Deep Learning Recommendation Models."</em> NSDI (2022). Sharded async checkpointing design.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Yang, Z. et al. <em>"SkyPilot: An Intercloud Broker for Sky Computing."</em> NSDI (2023). Cloud-agnostic elastic scheduling.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Wang, K. et al. <em>"GPU-initiated Resilient and Elastic Sparse Matrix Decomposition."</em> SC (2024). The XID-based GPU eviction pattern.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Le Scao, T. et al. <em>"BLOOM: A 176B-Parameter Open-Access Multilingual Language Model."</em> arXiv:2211.05100 (2022). Section 5 covers the operational reality of BigScience training.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Liu, A. et al. <em>"DeepSeek-V3 Technical Report."</em> arXiv:2412.19437 (2024). First public 671B run with FP8 training and zero-bubble pipeline, includes operational lessons.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">NVIDIA. <em>"DCGM: Data Center GPU Manager."</em> <a href="https://developer.nvidia.com/dcgm" target="_blank" rel="noopener">developer.nvidia.com/dcgm</a>. XID monitoring and thermal telemetry.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">MosaicML / Databricks. <em>"Composer: A library for training neural networks better, faster, and cheaper."</em> <a href="https://github.com/mosaicml/composer" target="_blank" rel="noopener">github.com/mosaicml/composer</a>.</div>
+</div>
+</section>
+</details>
+
 <nav class="chapter-nav">
 <a class="prev" href="section-59.4.html"><span class="nav-label">Previous</span><span class="nav-num">Section 59.4</span><span class="nav-title">Pipeline Parallelism and Hybrid Strategies</span></a>
 <a class="up" href="index.html"><span class="nav-label">In Chapter</span><span class="nav-num">Chapter 59</span><span class="nav-title">Distributed Training Systems</span></a>
 <a class="next" href="../module-60-edge-on-device-llms/section-60.1.html"><span class="nav-label">Next</span><span class="nav-num">Section 60.1</span><span class="nav-title">Edge and On-Device LLM Deployment</span></a>
 </nav>
-</main>
 <footer><p>Fifteenth Edition, 2026 &middot; <a href="../../toc.html">Contents</a></p></footer>
+</main>
 </body>
 </html>

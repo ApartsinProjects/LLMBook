@@ -1205,3 +1205,429 @@ If the team wants STRICT enforcement of the canonical Who/Situation/Result/Lesso
 3. **Compress to four paragraphs:** Many callouts have six to eight sub-fields. The strict template forces merging intermediate steps into `Situation:`.
 4. **Nested-bold pass:** Ensure every Lesson paragraph uses `<p><strong>Lesson:</strong> <strong>...</strong></p>` so the one-line takeaway is visually distinct.
 5. **Alternative recommendation:** ADOPT the de-facto extended template as canonical (Who / Situation / Problem / Dilemma / Decision / How / Result / Lesson), since the reference example in `section-0.1.html` ITSELF uses the extended form. Forcing the strict 4-field template would regress the richest callouts. Decide which template wins before any mass rewrite.
+
+
+
+
+## Cross-reference opportunities (Task B)
+
+Scanned the requested new chapters and consolidated sections for prose mentions of canonical concepts that lack an actual `<a href>` link. Only the FIRST unhyperlinked occurrence per concept per section is flagged; later mentions can be left as-is.
+
+Skipping conventions:
+
+- Mentions inside the section's own chapter are skipped (no need to cross-link).
+- Mentions inside `<code>`, `<pre>`, `<h1>`-`<h6>`, `<head>`, `<meta>`, `<title>`, `<svg>`, HTML attribute strings, and pagefind body-meta divs are skipped.
+- Mentions already inside an `<a href>` are skipped.
+- Concept matches are case-insensitive EXCEPT `ZeRO` and `ReAct` (case-sensitive to avoid lowercase `zero` / JS framework `React` collisions).
+
+### Chapter 24 (4 opportunities)
+
+**`part-5-multimodal-llms/module-24-vla-models/section-24.13.html`** (2 opportunities)
+
+- L31: `fine-tuning` -- link to `part-4-training-adaptation/module-16-fine-tuning-fundamentals/index.html` (suggested visible text: "Chapter 16 (Fine-Tuning Fundamentals)"). Context: "...tion, system identification, real-world fine-tuning, hardware-in-the-loop) compose into a d..."
+- L125: `LoRA` -- link to `part-4-training-adaptation/module-17-peft/index.html` (suggested visible text: "Chapter 17 (PEFT, LoRA)"). Context: "...the deployment hardware. For VLAs, the LoRA recipe from <a href="../module-24-vla-m..."
+
+**`part-5-multimodal-llms/module-24-vla-models/section-24.6.html`** (2 opportunities)
+
+- L35: `fine-tuning` -- link to `part-4-training-adaptation/module-16-fine-tuning-fundamentals/index.html` (suggested visible text: "Chapter 16 (Fine-Tuning Fundamentals)"). Context: "...tion, system identification, real-world fine-tuning, hardware-in-the-loop validation), and..."
+- L50: `Tool use` -- link to `part-6-agentic-ai/module-27-tool-use-protocols/index.html` (suggested visible text: "Chapter 27 (Tool Use & Function Calling)"). Context: "...d> ~12 ~85 Tool use (screwdriver, scissors) 7-14 +..."
+
+
+### Chapter 26 (3 opportunities)
+
+**`part-6-agentic-ai/module-26-ai-agents/section-26.6.html`** (3 opportunities)
+
+- L40: `vector databases` -- link to `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-databases/index.html` (suggested visible text: "Chapter 31 (Embeddings, Vector Databases & Semantic Search)"). Context: "...should be familiar with embeddings and vector databases from <a href="../../part-7-retrieval-in..."
+- L40: `retrieval-augmented generation` -- link to `part-7-retrieval-information-extraction-with-llms/module-32-rag-fundamentals/index.html` (suggested visible text: "Chapter 32 (RAG Fundamentals)"). Context: "...tor-db/index.html">Chapter 31 , with retrieval-augmented generation from <a href="../../part-7-retrieval-in..."
+- L123: `fine-tuning` -- link to `part-4-training-adaptation/module-16-fine-tuning-fundamentals/index.html` (suggested visible text: "Chapter 16 (Fine-Tuning Fundamentals)"). Context: "...learn from themselves without fine-tuning. When a new task arrives, the agent's l..."
+
+
+### Chapter 27 (4 opportunities)
+
+**`part-6-agentic-ai/module-27-tool-use-protocols/section-27.5.html`** (4 opportunities)
+
+- L33: `vector database` -- link to `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-databases/index.html` (suggested visible text: "Chapter 31 (Embeddings, Vector Databases & Semantic Search)"). Context: "...class="epigraph"> "To my agent, the vector database is just another endpoint with a schema...."
+- L34: `RAG` -- link to `part-7-retrieval-information-extraction-with-llms/module-32-rag-fundamentals/index.html` (suggested visible text: "Chapter 32 (RAG Fundamentals)"). Context: "...gents/rag.png" width="28"/> RAG, Tool-Surface-..."
+- L53: `ReAct` -- link to `part-6-agentic-ai/module-26-ai-agents/index.html` (suggested visible text: "Chapter 26 (Agent Foundations)"). Context: "...when it has nothing relevant, the same ReAct or planner-executor loop that drives ev..."
+- L56: `provenance` -- link to `part-11-llm-ethics-trust-governance/module-54-watermarking-provenance-deepfake-defense/index.html` (suggested visible text: "Chapter 54 (Watermarking & Provenance)"). Context: "...range), and a stable result shape with provenance so the agent can cite or re-rank what i..."
+
+
+### Chapter 29 (8 opportunities)
+
+**`part-6-agentic-ai/module-29-specialized-agents/section-29.1.html`** (5 opportunities)
+
+- L38: `ReAct` -- link to `part-6-agentic-ai/module-26-ai-agents/index.html` (suggested visible text: "Chapter 26 (Agent Foundations)"). Context: "...th file-system and terminal access in a ReAct-style loop: read source files, generate..."
+- L55: `MCP` -- link to `part-6-agentic-ai/module-27-tool-use-protocols/index.html` (suggested visible text: "Chapter 27 (Tool Use Protocols, MCP)"). Context: "...dor-specific prompts, IDE integrations, MCP connectors) is product polish on top of..."
+- L38: `multi-agent` -- link to `part-6-agentic-ai/module-28-multi-agent-systems/index.html` (suggested visible text: "Chapter 28 (Multi-Agent Systems)"). Context: "...-then-execute, tree-of-code search, and multi-agent code review. We cover each pattern, how..."
+- L137: `guardrails` -- link to `part-10-llm-security-runtime-safety/module-48-guardrails-runtime-safety/index.html` (suggested visible text: "Chapter 48 (Guardrails & Runtime Safety)"). Context: "...individual vendor tools implement these guardrails. <d..."
+- L162: `OpenAI API` -- link to `part-3-working-with-llms/module-11-working-with-llm-apis/index.html` (suggested visible text: "Chapter 11 (Working with LLM APIs)"). Context: "...t for this lab. You will need an OpenAI API key and a local Python environment for..."
+
+**`part-6-agentic-ai/module-29-specialized-agents/section-29.4.html`** (3 opportunities)
+
+- L476: `tool use` -- link to `part-6-agentic-ai/module-27-tool-use-protocols/index.html` (suggested visible text: "Chapter 27 (Tool Use & Function Calling)"). Context: "...terminal. Covers architecture patterns, tool use, and best practices relevant to this se..."
+- L38: `multi-agent` -- link to `part-6-agentic-ai/module-28-multi-agent-systems/index.html` (suggested visible text: "Chapter 28 (Multi-Agent Systems)"). Context: "...loop, plan-then-execute, tree-of-code, multi-agent code review, search-before-read) are co..."
+- L452: `guardrails` -- link to `part-10-llm-security-runtime-safety/module-48-guardrails-runtime-safety/index.html` (suggested visible text: "Chapter 48 (Guardrails & Runtime Safety)"). Context: "...d human review of changes are essential guardrails. The most effective agentic co..."
+
+
+### Chapter 34 (4 opportunities)
+
+No missing cross-references in:
+
+- `part-7-retrieval-information-extraction-with-llms/module-34-structured-information-extraction-ner/section-34.1.html`
+- `part-7-retrieval-information-extraction-with-llms/module-34-structured-information-extraction-ner/section-34.3.html`
+- `part-7-retrieval-information-extraction-with-llms/module-34-structured-information-extraction-ner/section-34.4.html`
+
+**`part-7-retrieval-information-extraction-with-llms/module-34-structured-information-extraction-ner/section-34.2.html`** (2 opportunities)
+
+- L145: `knowledge graph` -- link to `part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.1.html` (suggested visible text: "Section 35.1 (Knowledge graphs)"). Context: "...>Open IE is the foundation of automated knowledge graph construction. Each extracted triple bec..."
+- L142: `fine-tuned` -- link to `part-4-training-adaptation/module-16-fine-tuning-fundamentals/index.html` (suggested visible text: "Chapter 16 (Fine-Tuning Fundamentals)"). Context: "...relation types from Wikidata and can be fine-tuned on custom relation schemas. It bridges..."
+
+**`part-7-retrieval-information-extraction-with-llms/module-34-structured-information-extraction-ner/section-34.5.html`** (2 opportunities)
+
+- L29: `knowledge graph` -- link to `part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.1.html` (suggested visible text: "Section 35.1 (Knowledge graphs)"). Context: "...pronoun instead of a named entity. For knowledge graph construction, unresolved coreferences l..."
+- L204: `fine-tuned` -- link to `part-4-training-adaptation/module-16-fine-tuning-fundamentals/index.html` (suggested visible text: "Chapter 16 (Fine-Tuning Fundamentals)"). Context: "...hese extractions as training data for a fine-tuned BioBERT NER model that processed the re..."
+
+
+### Chapter 35 (8 opportunities)
+
+**`part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.2.html`** (1 opportunities)
+
+- L34: `RAG` -- link to `part-7-retrieval-information-extraction-with-llms/module-32-rag-fundamentals/index.html` (suggested visible text: "Chapter 32 (RAG Fundamentals)"). Context: "...gents/rag.png" width="28"/> RAG, Graph-Obsesse..."
+
+**`part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.3.html`** (7 opportunities)
+
+- L318: `BM25` -- link to `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-databases/section-31.3.html` (suggested visible text: "Section 31.3 (Sparse retrieval)"). Context: "...nnected in the graph. Full-text search (BM25) handles exact keyword and identifier m..."
+- L51: `re-ranking` -- link to `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-databases/section-31.5.html` (suggested visible text: "Section 31.5 (Reranking)"). Context: "...ag/section-35.1.html">Section 35.1 (re-ranking, fusion retrieval) will help you unders..."
+- L43: `RAG` -- link to `part-7-retrieval-information-extraction-with-llms/module-32-rag-fundamentals/index.html` (suggested visible text: "Chapter 32 (RAG Fundamentals)"). Context: "...gents/rag.png" width="28"/> RAG, Fact-Hoarding..."
+- L350: `chain-of-thought` -- link to `part-3-working-with-llms/module-12-prompt-engineering/index.html` (suggested visible text: "Chapter 12 (Prompt Engineering)"). Context: "...itself, which it does poorly even with chain-of-thought. The data structure mismatch can't be f..."
+- L220: `LLM-as-judge` -- link to `part-9-llm-evaluation-observability/module-46-llm-as-judge-automated-evaluation/index.html` (suggested visible text: "Chapter 46 (LLM-as-Judge)"). Context: "...er cover all relevant aspects? LLM-as-judge pairwise comparison against baseline</t..."
+- L47: `evaluation metrics` -- link to `part-9-llm-evaluation-observability/module-42-evaluation-foundations/index.html` (suggested visible text: "Chapter 42 (LLM Evaluation & Quality Metrics)"). Context: "...r KG + vector hybrid retrieval, and the evaluation metrics (comprehensiveness, diversity, empowerm..."
+- L418: `pre-training` -- link to `part-2-understanding-llms/module-06-pretraining-scaling-laws/index.html` (suggested visible text: "Chapter 6 (Pre-training)"). Context: "...ance each other. Covers KG-enhanced LLM pre-training, LLM-augmented KG construction, and joi..."
+
+
+### Chapter 36 (47 opportunities)
+
+**`part-7-retrieval-information-extraction-with-llms/module-36-retrieval-tools/section-36.1.html`** (9 opportunities)
+
+- L35: `BM25` -- link to `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-databases/section-31.3.html` (suggested visible text: "Section 31.3 (Sparse retrieval)"). Context: "...first-class support for hybrid search (BM25 + vector with a configurable alpha weig..."
+- L27: `vector databases` -- link to `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-databases/index.html` (suggested visible text: "Chapter 31 (Embeddings, Vector Databases & Semantic Search)"). Context: "...ape sorts into four buckets: serverless vector databases (Pinecone, Turbopuffer, Weaviate Cloud,..."
+- L40: `cross-encoder` -- link to `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-databases/section-31.5.html` (suggested visible text: "Section 31.5 (Reranking)"). Context: "...etrieval, lightweight rerank, expensive cross-encoder) and you want it all in one call; avoid..."
+- L33: `RAG` -- link to `part-7-retrieval-information-extraction-with-llms/module-32-rag-fundamentals/index.html` (suggested visible text: "Chapter 32 (RAG Fundamentals)"). Context: "...atabase and the most-cited reference in RAG literature, distinguished by its 2024 s..."
+- L36: `quantization` -- link to `part-2-understanding-llms/module-09-inference-optimization/index.html` (suggested visible text: "Chapter 9 (Inference Optimization)"). Context: "...t-based Qdrant engine, distinguished by quantization options (scalar, product, binary) that..."
+- L212: `Glove` -- link to `part-1-llm-building-blocks/module-01-foundations-nlp-text-representation/section-1.3.html` (suggested visible text: "Section 1.3 (Word Embeddings)"). Context: "...on a vendor's reference dataset (often Glove, MS MARCO, or a synthetic 1M-vector set..."
+- L226: `NDCG` -- link to `part-9-llm-evaluation-observability/module-42-evaluation-foundations/index.html` (suggested visible text: "Chapter 42 (LLM Evaluation & Quality Metrics)"). Context: "...is transparently; the recall hit is 1-3 NDCG points and almost always recovered by a..."
+- L56: `Kubernetes` -- link to `part-13-llmops-lifecycle/module-65-containers-kubernetes-deployment/index.html` (suggested visible text: "Chapter 65 (Containers & Kubernetes)"). Context: "...d (Yahoo Japan, 2019) is a Kubernetes-native distributed vector search engine..."
+- L240: `Observability` -- link to `part-9-llm-evaluation-observability/module-44-online-eval-observability/index.html` (suggested visible text: "Chapter 44 (Online Eval & Observability)"). Context: "...replication patterns. Observability : query latency p50/p95/p99, re..."
+
+**`part-7-retrieval-information-extraction-with-llms/module-36-retrieval-tools/section-36.2.html`** (10 opportunities)
+
+- L37: `ColBERT` -- link to `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-databases/section-31.4.html` (suggested visible text: "Section 31.4 (Late Interaction Models)"). Context: "...BGE-M3 (which emits dense, sparse, and ColBERT-style vectors in one pass). Its objecti..."
+- L27: `bm25` -- link to `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-databases/section-31.3.html` (suggested visible text: "Section 31.3 (Sparse retrieval)"). Context: "...xt; and a hybrid-retrieval helper (rank-bm25, ranx, or in-engine fusion) that combin..."
+- L55: `vector database` -- link to `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-databases/index.html` (suggested visible text: "Chapter 31 (Embeddings, Vector Databases & Semantic Search)"). Context: "...e similarity equals dot product in your vector database. Most "my retrieval is bad" tickets in..."
+- L27: `cross-encoder` -- link to `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-databases/section-31.5.html` (suggested visible text: "Section 31.5 (Reranking)"). Context: "...Cohere, OpenAI, or Voyage); a reranker (cross-encoder or hosted reranker API); a retrieval or..."
+- L71: `RAG` -- link to `part-7-retrieval-information-extraction-with-llms/module-32-rag-fundamentals/index.html` (suggested visible text: "Chapter 32 (RAG Fundamentals)"). Context: "...n an add-on. Its objective is to be the RAG-first framework with the deepest catalo..."
+- L71: `knowledge graph` -- link to `part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.1.html` (suggested visible text: "Section 35.1 (Knowledge graphs)"). Context: "...atalog of index types (vector, summary, knowledge graph, document graph) and post-processors, w..."
+- L33: `fine-tuning` -- link to `part-4-training-adaptation/module-16-fine-tuning-fundamentals/index.html` (suggested visible text: "Chapter 16 (Fine-Tuning Fundamentals)"). Context: "...(2024+) added trainer-class support for fine-tuning your own embedders. <a..."
+- L235: `evaluation metrics` -- link to `part-9-llm-evaluation-observability/module-42-evaluation-foundations/index.html` (suggested visible text: "Chapter 42 (LLM Evaluation & Quality Metrics)"). Context: "...per, introducing the reference-free RAG-evaluation metrics (faithfulness, answer relevance, contex..."
+- L85: `VLM` -- link to `part-5-multimodal-llms/module-22-vision-language-models/index.html` (suggested visible text: "Chapter 22 (Vision-Language Models)"). Context: "...red table extraction (the parser uses a VLM to read tables that pure-text PDF libra..."
+- L68: `observability` -- link to `part-9-llm-evaluation-observability/module-44-online-eval-observability/index.html` (suggested visible text: "Chapter 44 (Online Eval & Observability)"). Context: "...retries, caching, evaluation hooks, and observability that production stacks need. The 2026 l..."
+
+**`part-7-retrieval-information-extraction-with-llms/module-36-retrieval-tools/section-36.3.html`** (8 opportunities)
+
+- L65: `ColBERT` -- link to `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-databases/section-31.4.html` (suggested visible text: "Section 31.4 (Late Interaction Models)"). Context: "...raction benchmarks distributed with the ColBERT paper, including LoTTE (Long-Tail Topic..."
+- L45: `BM25` -- link to `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-databases/section-31.3.html` (suggested visible text: "Section 31.3 (Sparse retrieval)"). Context: "...that dense retrievers can underperform BM25 on out-of-domain tasks; that finding is..."
+- L46: `reranking` -- link to `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-databases/section-31.5.html` (suggested visible text: "Section 31.5 (Reranking)"). Context: "...retrieval, classification, clustering, reranking, semantic textual similarity, and summa..."
+- L27: `RAG` -- link to `part-7-retrieval-information-extraction-with-llms/module-32-rag-fundamentals/index.html` (suggested visible text: "Chapter 32 (RAG Fundamentals)"). Context: "...now graded against. And on top are the RAG-specific benchmarks (HotpotQA, FRAMES,..."
+- L33: `fine-tune` -- link to `part-4-training-adaptation/module-16-fine-tuning-fundamentals/index.html` (suggested visible text: "Chapter 16 (Fine-Tuning Fundamentals)"). Context: "...ng-data default for any dense-retriever fine-tune (almost every open embedder in Section..."
+- L81: `MRR` -- link to `part-9-llm-evaluation-observability/module-42-evaluation-foundations/index.html` (suggested visible text: "Chapter 42 (LLM Evaluation & Quality Metrics)"). Context: "...eb-scale passage retrieval ~45 MRR@10 Sparse judgments..."
+- L166: `NER` -- link to `part-7-retrieval-information-extraction-with-llms/module-34-structured-information-extraction-ner/index.html` (suggested visible text: "Chapter 34 (Structured Information Extraction & NER)"). Context: "...l., 2007+) : large multilingual NER and coreference dataset with 18 entity..."
+- L31: `pretraining` -- link to `part-2-understanding-llms/module-06-pretraining-scaling-laws/index.html` (suggested visible text: "Chapter 6 (Pre-training)"). Context: "...mers; all remain in active use for both pretraining and evaluation of dense retrievers...."
+
+**`part-7-retrieval-information-extraction-with-llms/module-36-retrieval-tools/section-36.4.html`** (11 opportunities)
+
+- L42: `ColBERT` -- link to `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-databases/section-31.4.html` (suggested visible text: "Section 31.4 (Late Interaction Models)"). Context: "...ing dense, sparse (BM25-replacing), and ColBERT-style multi-vector outputs in a single..."
+- L42: `BM25` -- link to `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-databases/section-31.3.html` (suggested visible text: "Section 31.3 (Sparse retrieval)"). Context: "...istinguished by emitting dense, sparse (BM25-replacing), and ColBERT-style multi-vec..."
+- L71: `cross-encoders` -- link to `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-databases/section-31.5.html` (suggested visible text: "Section 31.5 (Reranking)"). Context: "...nker models Reranker models are cross-encoders or late-interaction models that score q..."
+- L35: `RAG` -- link to `part-7-retrieval-information-extraction-with-llms/module-32-rag-fundamentals/index.html` (suggested visible text: "Chapter 32 (RAG Fundamentals)"). Context: "...ext together cover 90% of long-document RAG without re-chunking. <..."
+- L64: `cross-modal` -- link to `part-7-retrieval-information-extraction-with-llms/module-33-cross-modal-reasoning-rag/index.html` (suggested visible text: "Chapter 33 (Cross-Modal Reasoning & Multimodal RAG)"). Context: "...astive embedder. Still the baseline for cross-modal retrieval in 2026, though stronger spec..."
+- L230: `fine-tuning` -- link to `part-4-training-adaptation/module-16-fine-tuning-fundamentals/index.html` (suggested visible text: "Chapter 16 (Fine-Tuning Fundamentals)"). Context: "...7B model on in-domain retrieval. Domain fine-tuning is the highest-leverage upgrade once yo..."
+- L49: `LoRA` -- link to `part-4-training-adaptation/module-17-peft/index.html` (suggested visible text: "Chapter 17 (PEFT, LoRA)"). Context: "...mbedder, distinguished by task-specific LoRA adapters (retrieval.query, retrieval.pa..."
+- L237: `LLM-as-judge` -- link to `part-9-llm-evaluation-observability/module-46-llm-as-judge-automated-evaluation/index.html` (suggested visible text: "Chapter 46 (LLM-as-Judge)"). Context: "...ue positives via either human review or LLM-as-judge. Evaluation :..."
+- L219: `NDCG` -- link to `part-9-llm-evaluation-observability/module-42-evaluation-foundations/index.html` (suggested visible text: "Chapter 42 (LLM Evaluation & Quality Metrics)"). Context: "...ng the prompt wrong silently loses 2-10 NDCG points. The model card lists the conven..."
+- L239: `H100` -- link to `part-12-llm-systems-at-scale/module-58-frontier-systems-hardware/index.html` (suggested visible text: "Chapter 58 (Frontier Systems & Hardware)"). Context: "...2 hours; a 7B model needs 8x A100 or 1x H100 and 1-3 days. Most fine-tunes finish in..."
+- L58: `vision-language model` -- link to `part-5-multimodal-llms/module-22-vision-language-models/index.html` (suggested visible text: "Chapter 22 (Vision-Language Models)"). Context: "...es and emitting per-patch vectors via a vision-language model (PaliGemma backbone). Its objective is..."
+
+**`part-7-retrieval-information-extraction-with-llms/module-36-retrieval-tools/section-36.5.html`** (9 opportunities)
+
+- L27: `ColBERT` -- link to `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-databases/section-31.4.html` (suggested visible text: "Section 31.4 (Late Interaction Models)"). Context: "...g et al.'s textbook, TREC tracks, BM25, ColBERT, learning-to-rank) and the LLM-RAG trad..."
+- L27: `BM25` -- link to `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-databases/section-31.3.html` (suggested visible text: "Section 31.3 (Sparse retrieval)"). Context: "...Manning et al.'s textbook, TREC tracks, BM25, ColBERT, learning-to-rank) and the LLM..."
+- L44: `vector database` -- link to `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-databases/index.html` (suggested visible text: "Chapter 31 (Embeddings, Vector Databases & Semantic Search)"). Context: "...e HNSW paper. The algorithm under every vector database in Section 36.1. <a hr..."
+- L33: `cross-encoder` -- link to `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-databases/section-31.5.html` (suggested visible text: "Section 31.5 (Reranking)"). Context: "...the dense-retrieval architectures, the cross-encoder rerankers, and the ColBERT-style late-i..."
+- L27: `RAG` -- link to `part-7-retrieval-information-extraction-with-llms/module-32-rag-fundamentals/index.html` (suggested visible text: "Chapter 32 (RAG Fundamentals)"). Context: "...ColBERT, learning-to-rank) and the LLM-RAG tradition (NeurIPS, ICLR, ACL, EMNLP, a..."
+- L61: `quantization` -- link to `part-2-understanding-llms/module-09-inference-optimization/index.html` (suggested visible text: "Chapter 9 (Inference Optimization)"). Context: "...technical deep-dives on filtered HNSW, quantization tradeoffs, and the engineering behind Q..."
+- L50: `fine-tune` -- link to `part-4-training-adaptation/module-16-fine-tuning-fundamentals/index.html` (suggested visible text: "Chapter 16 (Fine-Tuning Fundamentals)"). Context: "...ecipe that every modern dense-retriever fine-tune uses. <a href="https:/..."
+- L200: `tokenizer` -- link to `part-1-llm-building-blocks/module-01-foundations-nlp-text-representation/section-1.6.html` (suggested visible text: "Section 1.6 (Subword Tokenization)"). Context: "...l-specific but the LLM-from-scratch and tokenizer videos are the canonical foundation for..."
+- L27: `evaluation metrics` -- link to `part-9-llm-evaluation-observability/module-42-evaluation-foundations/index.html` (suggested visible text: "Chapter 42 (LLM Evaluation & Quality Metrics)"). Context: "...stack, HNSW under every vector DB, the evaluation metrics every leaderboard reports) and the LLM-..."
+
+
+### Chapter 37 (5 opportunities)
+
+**`part-8-conversational-ai-with-llms/module-37-conversational-ai/section-37.3.html`** (5 opportunities)
+
+- L670: `vector databases` -- link to `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-databases/index.html` (suggested visible text: "Chapter 31 (Embeddings, Vector Databases & Semantic Search)"). Context: "...does this shift matter? Just as managed vector databases (Pinecone, Weaviate) replaced DIY FAISS..."
+- L833: `RAG` -- link to `part-7-retrieval-information-extraction-with-llms/module-32-rag-fundamentals/index.html` (suggested visible text: "Chapter 32 (RAG Fundamentals)"). Context: "...nds exciting! [user] I'm interested in RAG systems <div class="code-capt..."
+- L693: `knowledge graph` -- link to `part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.1.html` (suggested visible text: "Section 35.1 (Knowledge graphs)"). Context: "...ank">Zep Temporal knowledge graph + vector store Automatic entit..."
+- L1335: `tool-use` -- link to `part-6-agentic-ai/module-27-tool-use-protocols/index.html` (suggested visible text: "Chapter 27 (Tool Use & Function Calling)"). Context: "...apply the same tiered patterns but add tool-use context and task completion tracking.</..."
+- L50: `pretraining` -- link to `part-2-understanding-llms/module-06-pretraining-scaling-laws/index.html` (suggested visible text: "Chapter 6 (Pre-training)"). Context: "...may hurt. The mechanism is that during pretraining, most documents are shorter than the ev..."
+
+
+### Chapter 41 (36 opportunities)
+
+**`part-8-conversational-ai-with-llms/module-41-conv-ai-tools/section-41.1.html`** (5 opportunities)
+
+- L39: `RAG` -- link to `part-7-retrieval-information-extraction-with-llms/module-32-rag-fundamentals/index.html` (suggested visible text: "Chapter 32 (RAG Fundamentals)"). Context: "...wledge Base feature that wraps a hosted RAG pipeline. Pick Voiceflow for design-led..."
+- L73: `fine-tuned` -- link to `part-4-training-adaptation/module-16-fine-tuning-fundamentals/index.html` (suggested visible text: "Chapter 16 (Fine-Tuning Fundamentals)"). Context: "..., distinguished by domain-specific LLMs fine-tuned on individual contact-center transcript..."
+- L50: `tool use` -- link to `part-6-agentic-ai/module-27-tool-use-protocols/index.html` (suggested visible text: "Chapter 27 (Tool Use & Function Calling)"). Context: "...hon framework with conversation memory, tool use, and channel connectors without imposin..."
+- L58: `voice-agent apps. Their objective is to skip the cascaded STT-LLM-TTS pipeline entirely (single model, audio in, audio out), which matters for latency (the cascade's 500-1000ms turn cost collapses to ~300ms) and prosody (the model can hear emotion and interrupt naturally). Pick the realtime` -- link to `part-8-conversational-ai-with-llms/module-40-voice-realtime-multimodal/index.html` (suggested visible text: "Chapter 40 (Voice & Realtime Multimodal)"). Context: "...sed directly as the "platform" for thin voice-agent apps. Their objective is to skip the cascaded STT-LLM-TTS pipeline e..."
+- L37: `observability` -- link to `part-9-llm-evaluation-observability/module-44-online-eval-observability/index.html` (suggested visible text: "Chapter 44 (Online Eval & Observability)"). Context: "...ct), Lambda fulfillment, and CloudWatch observability. Its objective is to give AWS customers..."
+
+**`part-8-conversational-ai-with-llms/module-41-conv-ai-tools/section-41.2.html`** (7 opportunities)
+
+- L39: `knowledge graph` -- link to `part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.1.html` (suggested visible text: "Section 35.1 (Knowledge graphs)"). Context: "...m the conversation and stores them in a knowledge graph that gets queried per turn for relevant..."
+- L63: `chain-of-thought` -- link to `part-3-working-with-llms/module-12-prompt-engineering/index.html` (suggested visible text: "Chapter 12 (Prompt Engineering)"). Context: "...ode> primitives that stream nicely with chain-of-thought visible. Pick Chainlit for chat-specifi..."
+- L52: `reasoning models` -- link to `part-2-understanding-llms/module-08-reasoning-models-test-time-compute/index.html` (suggested visible text: "Chapter 8 (Reasoning Models & Test-Time Compute)"). Context: "..._id , and a unified interface for reasoning models. Pick Responses for new OpenAI projects..."
+- L52: `tool use` -- link to `part-6-agentic-ai/module-27-tool-use-protocols/index.html` (suggested visible text: "Chapter 27 (Tool Use & Function Calling)"). Context: "...Chat Completions that adds first-class tool use, conversation state via previous_..."
+- L78: `multi-agent` -- link to `part-6-agentic-ai/module-28-multi-agent-systems/index.html` (suggested visible text: "Chapter 28 (Multi-Agent Systems)"). Context: "...work on top of the Realtime API, wiring multi-agent voice flows (one agent hands off to ano..."
+- L78: `voice flows (one agent hands off to another based on intent). Pick when you want OpenAI Realtime` -- link to `part-8-conversational-ai-with-llms/module-40-voice-realtime-multimodal/index.html` (suggested visible text: "Chapter 40 (Voice & Realtime Multimodal)"). Context: "...of the Realtime API, wiring multi-agent voice flows (one agent hands off to another based on intent). Pick when you want..."
+- L221: `Observability` -- link to `part-9-llm-evaluation-observability/module-44-online-eval-observability/index.html` (suggested visible text: "Chapter 44 (Online Eval & Observability)"). Context: "...s shared with Part IX (Evaluation &amp; Observability) but the chat-specific picks are worth..."
+
+**`part-8-conversational-ai-with-llms/module-41-conv-ai-tools/section-41.3.html`** (6 opportunities)
+
+- L50: `fine-tuning` -- link to `part-4-training-adaptation/module-16-fine-tuning-fundamentals/index.html` (suggested visible text: "Chapter 16 (Fine-Tuning Fundamentals)"). Context: "...on labels. Pick EmpatheticDialogues for fine-tuning empathetic responses or for evaluating..."
+- L53: `RLHF` -- link to `part-4-training-adaptation/module-18-alignment/index.html` (suggested visible text: "Chapter 18 (Alignment, RLHF, DPO)"). Context: "...preference dataset that anchored modern RLHF for chat: ~170,000 conversations where..."
+- L32: `LLM-as-judge` -- link to `part-9-llm-evaluation-observability/module-46-llm-as-judge-automated-evaluation/index.html` (suggested visible text: "Chapter 46 (LLM-as-Judge)"). Context: "...r crowd-sourced preference judgments or LLM-as-judge over open generations, which means they..."
+- L72: `prompt injection` -- link to `part-10-llm-security-runtime-safety/module-47-adversarial-security-red-teaming/index.html` (suggested visible text: "Chapter 47 (Adversarial Security)"). Context: "...individual jailbreaks (DAN, Crescendo, prompt injection variants) are patched but the underlyin..."
+- L180: `guardrails` -- link to `part-10-llm-security-runtime-safety/module-48-guardrails-runtime-safety/index.html` (suggested visible text: "Chapter 48 (Guardrails & Runtime Safety)"). Context: "...policy compliance (does it follow your guardrails), and conversation flow (does it ask cl..."
+- L74: `bias, toxicity, copyright leakage, and disinformation potential. Pick HELM Safety when you want a broader-than-jailbreak safety profile; it complements HarmBench (which focuses on harm-of-response) with broader bias and fairness` -- link to `part-11-llm-ethics-trust-governance/module-52-bias-fairness-disparate-impact/index.html` (suggested visible text: "Chapter 52 (Bias, Fairness, Disparate Impact)"). Context: "...tion of Language Models suite, covering bias, toxicity, copyright leakage, and disinformation potential. Pick HELM Safet..."
+
+**`part-8-conversational-ai-with-llms/module-41-conv-ai-tools/section-41.4.html`** (12 opportunities)
+
+- L209: `RAG` -- link to `part-7-retrieval-information-extraction-with-llms/module-32-rag-fundamentals/index.html` (suggested visible text: "Chapter 32 (RAG Fundamentals)"). Context: "...al / financial chatbot), prompting plus RAG over domain documents usually beats fin..."
+- L61: `MoE` -- link to `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.3.html` (suggested visible text: "Section 3.3 (MoE)"). Context: "...2024-2025) are DeepSeek's open MoE chat and reasoning models, distinguishe..."
+- L40: `chain-of-thought` -- link to `part-3-working-with-llms/module-12-prompt-engineering/index.html` (suggested visible text: "Chapter 12 (Prompt Engineering)"). Context: "...frontier, distinguished by interleaved chain-of-thought and structured tool use. For pure conve..."
+- L38: `reasoning models` -- link to `part-2-understanding-llms/module-08-reasoning-models-test-time-compute/index.html` (suggested visible text: "Chapter 8 (Reasoning Models & Test-Time Compute)"). Context: "...xt and tool-use, the more recent OpenAI reasoning models can be stronger. <a hr..."
+- L36: `fine-tuning` -- link to `part-4-training-adaptation/module-16-fine-tuning-fundamentals/index.html` (suggested visible text: "Chapter 16 (Fine-Tuning Fundamentals)"). Context: "...ept is heavy RLHF and Constitutional AI fine-tuning on conversational preferences. Pick Son..."
+- L55: `LoRA` -- link to `part-4-training-adaptation/module-17-peft/index.html` (suggested visible text: "Chapter 17 (PEFT, LoRA)"). Context: "...cy, cost-at-scale, model customization (LoRA / continued pre-training / RLHF), or ve..."
+- L36: `RLHF` -- link to `part-4-training-adaptation/module-18-alignment/index.html` (suggested visible text: "Chapter 18 (Alignment, RLHF, DPO)"). Context: "...reliability. The core concept is heavy RLHF and Constitutional AI fine-tuning on co..."
+- L38: `tokenizer` -- link to `part-1-llm-building-blocks/module-01-foundations-nlp-text-representation/section-1.6.html` (suggested visible text: "Section 1.6 (Subword Tokenization)"). Context: "...latency. The core concept is a unified tokenizer over text and audio plus joint training..."
+- L37: `tool-use` -- link to `part-6-agentic-ai/module-27-tool-use-protocols/index.html` (suggested visible text: "Chapter 27 (Tool Use & Function Calling)"). Context: "...ts (Section 30.4) covers these in their tool-use role; for chat-only, they are essential..."
+- L236: `on-device` -- link to `part-12-llm-systems-at-scale/module-60-edge-on-device-llms/index.html` (suggested visible text: "Chapter 60 (Edge & On-Device LLMs)"). Context: "...distilled, mobile, and edge models for on-device chat. These are relevant when network l..."
+- L30: `voice-aware models</strong> (GPT-4o Realtime` -- link to `part-8-conversational-ai-with-llms/module-40-voice-realtime-multimodal/index.html` (suggested visible text: "Chapter 40 (Voice & Realtime Multimodal)"). Context: "...production-quality assistants; voice-aware models (GPT-4o Realtime, Gemini Live, Sonic) that take audio in..."
+- L55: `pre-training` -- link to `part-2-understanding-llms/module-06-pretraining-scaling-laws/index.html` (suggested visible text: "Chapter 6 (Pre-training)"). Context: "..., model customization (LoRA / continued pre-training / RLHF), or vendor independence matter..."
+
+**`part-8-conversational-ai-with-llms/module-41-conv-ai-tools/section-41.5.html`** (6 opportunities)
+
+- L81: `fine-tuning` -- link to `part-4-training-adaptation/module-16-fine-tuning-fundamentals/index.html` (suggested visible text: "Chapter 16 (Fine-Tuning Fundamentals)"). Context: "...ommunity hubs; ask there for embedding, fine-tuning, and open chat-model questions. <l..."
+- L42: `RLHF` -- link to `part-4-training-adaptation/module-18-alignment/index.html` (suggested visible text: "Chapter 18 (Alignment, RLHF, DPO)"). Context: "...ngside the InstructGPT and Anthropic HH-RLHF papers as the immediate pre-ChatGPT gen..."
+- L61: `tool use` -- link to `part-6-agentic-ai/module-27-tool-use-protocols/index.html` (suggested visible text: "Chapter 27 (Tool Use & Function Calling)"). Context: "...ey publish on conversational design and tool use; their posts have unusually high signal..."
+- L194: `multi-agent` -- link to `part-6-agentic-ai/module-28-multi-agent-systems/index.html` (suggested visible text: "Chapter 28 (Multi-Agent Systems)"). Context: "...DK, the AG-UI protocol, and the broader multi-agent conversation work are setting the found..."
+- L30: `voice-agent subculture that emerged in 2024-25 as the realtime` -- link to `part-8-conversational-ai-with-llms/module-40-voice-realtime-multimodal/index.html` (suggested visible text: "Chapter 40 (Voice & Realtime Multimodal)"). Context: "...rs actually talk to each other, and the voice-agent subculture that emerged in 2024-25 as the realtime APIs shipped. The..."
+- L69: `observability` -- link to `part-9-llm-evaluation-observability/module-44-online-eval-observability/index.html` (suggested visible text: "Chapter 44 (Online Eval & Observability)"). Context: ".../a> publishes regular eval-and-observability content for chatbots and LLM apps; usef..."
+
+
+### Chapter 46 (4 opportunities)
+
+No missing cross-references in:
+
+- `part-9-llm-evaluation-observability/module-46-llm-as-judge-automated-evaluation/section-46.1.html`
+- `part-9-llm-evaluation-observability/module-46-llm-as-judge-automated-evaluation/section-46.5.html`
+
+**`part-9-llm-evaluation-observability/module-46-llm-as-judge-automated-evaluation/section-46.2.html`** (2 opportunities)
+
+- L26: `chain-of-thought` -- link to `part-3-working-with-llms/module-12-prompt-engineering/index.html` (suggested visible text: "Chapter 12 (Prompt Engineering)"). Context: "...ntroduced by Liu et al. (2023), applies chain-of-thought (CoT) reasoning to NLG evaluation. Rath..."
+- L109: `OpenAI API` -- link to `part-3-working-with-llms/module-11-working-with-llm-apis/index.html` (suggested visible text: "Chapter 11 (Working with LLM APIs)"). Context: "...evel log probabilities. As of 2025, the OpenAI API provides logprobs for GPT-4o and GPT-4o..."
+
+**`part-9-llm-evaluation-observability/module-46-llm-as-judge-automated-evaluation/section-46.3.html`** (1 opportunities)
+
+- L28: `chain-of-thought` -- link to `part-3-working-with-llms/module-12-prompt-engineering/index.html` (suggested visible text: "Chapter 12 (Prompt Engineering)"). Context: "...he output(s) to evaluate. It produces a chain-of-thought justification followed by a score or pr..."
+
+**`part-9-llm-evaluation-observability/module-46-llm-as-judge-automated-evaluation/section-46.4.html`** (1 opportunities)
+
+- L26: `fine-tuned` -- link to `part-4-training-adaptation/module-16-fine-tuning-fundamentals/index.html` (suggested visible text: "Chapter 16 (Fine-Tuning Fundamentals)"). Context: "...ubric-based evaluation data, JudgeLM is fine-tuned on large-scale pairwise comparison data..."
+
+
+### Chapter 56 (33 opportunities)
+
+**`part-11-llm-ethics-trust-governance/module-56-responsible-ai-tools/section-56.1.html`** (6 opportunities)
+
+- L74: `DPO` -- link to `part-4-training-adaptation/module-18-alignment/index.html` (suggested visible text: "Chapter 18 (Alignment, DPO)"). Context: "...mity assessment, which matters when the DPO and the AI governance owner are the sam..."
+- L54: `jailbreak` -- link to `part-10-llm-security-runtime-safety/module-47-adversarial-security-red-teaming/index.html` (suggested visible text: "Chapter 47 (Adversarial Security)"). Context: "...focused on prompt-injection detection, jailbreak resistance, PII leak prevention, and po..."
+- L42: `Guardrails` -- link to `part-10-llm-security-runtime-safety/module-48-guardrails-runtime-safety/index.html` (suggested visible text: "Chapter 48 (Guardrails & Runtime Safety)"). Context: "...for AI resource compliance, and Bedrock Guardrails for runtime content filtering. Its obje..."
+- L30: `bias and fairness evaluations, monitors models for drift and harm in production, and produces the documentation regulators ask for. The landscape splits five ways: <strong>enterprise governance suites</strong> (Credo AI, Holistic AI, Fairly AI, IBM watsonx.governance) that ingest model cards, risk classifications, and policy attestations into a single registry; <strong>cloud-provider governance bundles</strong> (Microsoft Responsible AI Dashboard, Google Vertex AI Model Governance, AWS Audit Manager for AI) that sit inside the hyperscaler you already pay; <strong>bias and explainability observatories</strong> (Fiddler AI, Arize Phoenix, Truera by Snowflake, WhyLabs) that focus on per-prediction fairness` -- link to `part-11-llm-ethics-trust-governance/module-52-bias-fairness-disparate-impact/index.html` (suggested visible text: "Chapter 52 (Bias, Fairness, Disparate Impact)"). Context: "...zation registers its AI use cases, runs bias and fairness evaluations, monitors models for drift and harm in production,..."
+- L30: `EU AI Act` -- link to `part-11-llm-ethics-trust-governance/module-53-regulation-compliance-governance/index.html` (suggested visible text: "Chapter 53 (Regulation & Compliance)"). Context: "...learn deployments, NIST AI RMF tooling, EU AI Act compliance kits) that you self-host. Pi..."
+- L46: `Observability` -- link to `part-9-llm-evaluation-observability/module-44-online-eval-observability/index.html` (suggested visible text: "Chapter 44 (Online Eval & Observability)"). Context: "...nd explainability observatories Observability platforms are the right default when th..."
+
+**`part-11-llm-ethics-trust-governance/module-56-responsible-ai-tools/section-56.2.html`** (7 opportunities)
+
+- L82: `fine-tuning` -- link to `part-4-training-adaptation/module-16-fine-tuning-fundamentals/index.html` (suggested visible text: "Chapter 16 (Fine-Tuning Fundamentals)"). Context: "...ure (Meta FAIR, 2023) is a fine-tuning-based image watermark for diffusion mod..."
+- L73: `prompt injection` -- link to `part-10-llm-security-runtime-safety/module-47-adversarial-security-red-teaming/index.html` (suggested visible text: "Chapter 47 (Adversarial Security)"). Context: "...bes covering hallucination, jailbreaks, prompt injection, data leakage, toxicity, and refusal-su..."
+- L36: `bias metrics and 12+ mitigation algorithms (Reweighing, Prejudice Remover, Adversarial Debiasing, Calibrated Equalized Odds, Reject Option Classification, Disparate Impact Remover). Its objective is to give researchers a uniform API across the whole fairness` -- link to `part-11-llm-ethics-trust-governance/module-52-bias-fairness-disparate-impact/index.html` (suggested visible text: "Chapter 52 (Bias, Fairness, Disparate Impact)"). Context: "...open-source fairness toolkit, with 70+ bias metrics and 12+ mitigation algorithms (Reweighing, Prejudice Remover, Advers..."
+- L48: `governance` -- link to `part-11-llm-ethics-trust-governance/module-53-regulation-compliance-governance/index.html` (suggested visible text: "Chapter 53 (Regulation & Compliance)"). Context: "...low for interactive use; for production governance SHAP's axiomatic guarantees are usually..."
+- L30: `watermarking` -- link to `part-11-llm-ethics-trust-governance/module-54-watermarking-provenance-deepfake-defense/index.html` (suggested visible text: "Chapter 54 (Watermarking & Provenance)"). Context: "...r generative-model evaluations; watermarking and provenance libraries (Kirc..."
+- L50: `mechanistic interpretability` -- link to `part-2-understanding-llms/module-10-interpretability-mechanistic-understanding/index.html` (suggested visible text: "Chapter 10 (Interpretability)"). Context: "...okable point. Pick TransformerLens when mechanistic interpretability (induction heads, sparse autoencoders,..."
+- L96: `differential privacy` -- link to `part-10-llm-security-runtime-safety/module-50-privacy-data-protection/index.html` (suggested visible text: "Chapter 50 (Privacy & Data Protection)"). Context: "...vacy-preserving ML libraries split into differential privacy (training with calibrated noise so any..."
+
+**`part-11-llm-ethics-trust-governance/module-56-responsible-ai-tools/section-56.3.html`** (5 opportunities)
+
+- L127: `fine-tuning` -- link to `part-4-training-adaptation/module-16-fine-tuning-fundamentals/index.html` (suggested visible text: "Chapter 16 (Fine-Tuning Fundamentals)"). Context: "...n building or auditing a pretraining or fine-tuning dataset. Post-pretrain..."
+- L96: `jailbreaks` -- link to `part-10-llm-security-runtime-safety/module-47-adversarial-security-red-teaming/index.html` (suggested visible text: "Chapter 47 (Adversarial Security)"). Context: "...easuring LLM refusal robustness against jailbreaks across 7 behavior categories (cybercrim..."
+- L30: `bias benchmarks</strong> (BBQ, BOLD, StereoSet, CrowS-Pairs, WinoBias, Winogender, Bias in Bios) that probe stereotypical preferences and disparate-impact behaviors in language models; <strong>classical tabular fairness datasets</strong> (UCI Adult / Census, COMPAS, German Credit, IBM HR, Folktables) that ground the fairness literature; <strong>toxicity and hate-speech benchmarks</strong> (RealToxicityPrompts, ToxiGen, Civil Comments, HateCheck, Detoxify training data, OLID, OffensEval) for content-moderation evaluation; <strong>truthfulness and hallucination benchmarks</strong> (TruthfulQA, FActScore, HaluEval, FELM, FreshQA) for measuring factual fidelity; <strong>privacy-attack benchmarks</strong> (membership-inference datasets, training-data-extraction benchmarks, MIMIC re-identification studies) for measuring privacy leakage; and <strong>multi-dimensional aggregations</strong> (HELM, BIG-bench safety/bias slices, MASSIVE multilingual fairness` -- link to `part-11-llm-ethics-trust-governance/module-52-bias-fairness-disparate-impact/index.html` (suggested visible text: "Chapter 52 (Bias, Fairness, Disparate Impact)"). Context: "...artition into six families: LLM bias benchmarks (BBQ, BOLD, StereoSet, CrowS-Pairs, WinoBias, Winogender, Bias in Bios) ..."
+- L94: `EU AI Act` -- link to `part-11-llm-ethics-trust-governance/module-53-regulation-compliance-governance/index.html` (suggested visible text: "Chapter 53 (Regulation & Compliance)"). Context: "...LM evaluation aligned to taxonomies the EU AI Act and NIST AI RMF reference; for raw bias..."
+- L71: `pretraining` -- link to `part-2-understanding-llms/module-06-pretraining-scaling-laws/index.html` (suggested visible text: "Chapter 6 (Pre-training)"). Context: "...on human errors", which matters because pretraining data is full of plausible-but-wrong bel..."
+
+**`part-11-llm-ethics-trust-governance/module-56-responsible-ai-tools/section-56.4.html`** (10 opportunities)
+
+- L37: `RAG` -- link to `part-7-retrieval-information-extraction-with-llms/module-32-rag-fundamentals/index.html` (suggested visible text: "Chapter 32 (RAG Fundamentals)"). Context: "..., distinguished by explicit support for RAG-context risks (groundedness, context re..."
+- L36: `fine-tuning` -- link to `part-4-training-adaptation/module-16-fine-tuning-fundamentals/index.html` (suggested visible text: "Chapter 16 (Fine-Tuning Fundamentals)"). Context: "...en-weights safety classifiers, built by fine-tuning Llama base models on a curated taxonomy..."
+- L72: `RLHF` -- link to `part-4-training-adaptation/module-18-alignment/index.html` (suggested visible text: "Chapter 18 (Alignment, RLHF, DPO)"). Context: "...as a first-class property: trained with RLHF or constitutional methods, paired with..."
+- L182: `tool-use` -- link to `part-6-agentic-ai/module-27-tool-use-protocols/index.html` (suggested visible text: "Chapter 27 (Tool Use & Function Calling)"). Context: "...n LLM was Claude Sonnet 4.5 (chosen for tool-use reliability and Constitutional-AI safet..."
+- L80: `LLM-as-judge` -- link to `part-9-llm-evaluation-observability/module-46-llm-as-judge-automated-evaluation/index.html` (suggested visible text: "Chapter 46 (LLM-as-Judge)"). Context: "...6) is sometimes deployed as an LLM-as-judge for safety scoring when latency permits..."
+- L34: `prompt injection` -- link to `part-10-llm-security-runtime-safety/module-47-adversarial-security-red-teaming/index.html` (suggested visible text: "Chapter 47 (Adversarial Security)"). Context: "...xual, hate, self-harm, criminal advice, prompt injection, jailbreak, child safety). They are the..."
+- L30: `Guardrails` -- link to `part-10-llm-security-runtime-safety/module-48-guardrails-runtime-safety/index.html` (suggested visible text: "Chapter 48 (Guardrails & Runtime Safety)"). Context: "...4, Granite Guardian, ShieldGemma, NeMo Guardrails-bundled classifiers, OpenAI Moderation,..."
+- L79: `EU AI Act` -- link to `part-11-llm-ethics-trust-governance/module-53-regulation-compliance-governance/index.html` (suggested visible text: "Chapter 53 (Regulation & Compliance)"). Context: "...tral when European AI-policy alignment (EU AI Act readiness, European HQ procurement) is..."
+- L30: `watermark` -- link to `part-11-llm-ethics-trust-governance/module-54-watermarking-provenance-deepfake-defense/index.html` (suggested visible text: "Chapter 54 (Watermarking & Provenance)"). Context: "...ic, biased, or hateful content; watermark and AI-detection models (Synth..."
+- L30: `mechanistic interpretability` -- link to `part-2-understanding-llms/module-10-interpretability-mechanistic-understanding/index.html` (suggested visible text: "Chapter 10 (Interpretability)"). Context: "...ses) that exist specifically to support mechanistic interpretability research. This section catalogs each wi..."
+
+**`part-11-llm-ethics-trust-governance/module-56-responsible-ai-tools/section-56.5.html`** (5 opportunities)
+
+- L38: `RLHF` -- link to `part-4-training-adaptation/module-18-alignment/index.html` (suggested visible text: "Chapter 18 (Alignment, RLHF, DPO)"). Context: "...g the first widely-cited alternative to RLHF that scales human oversight via AI-gene..."
+- L58: `bias, and toxicity literature plus the Ethics-in-NLP track at each. Pick for NLP-flavored fairness` -- link to `part-11-llm-ethics-trust-governance/module-52-bias-fairness-disparate-impact/index.html` (suggested visible text: "Chapter 52 (Bias, Fairness, Disparate Impact)"). Context: "...strong> host the NLP-specific fairness, bias, and toxicity literature plus the Ethics-in-NLP track at each. Pick for NLP..."
+- L32: `EU AI Act` -- link to `part-11-llm-ethics-trust-governance/module-53-regulation-compliance-governance/index.html` (suggested visible text: "Chapter 53 (Regulation & Compliance)"). Context: "...tioner who only reads papers misses the EU AI Act implementing acts; one who only reads p..."
+- L37: `provenance` -- link to `part-11-llm-ethics-trust-governance/module-54-watermarking-provenance-deepfake-defense/index.html` (suggested visible text: "Chapter 54 (Watermarking & Provenance)"). Context: "...ument covering environmental cost, data provenance, social harms, and the conflation of fl..."
+- L99: `mechanistic interpretability` -- link to `part-2-understanding-llms/module-10-interpretability-mechanistic-understanding/index.html` (suggested visible text: "Chapter 10 (Interpretability)"). Context: "...anonical industry-lab research blogs in mechanistic interpretability and alignment. Pick these for primary-s..."
+
+
+### Chapter 59 (20 opportunities)
+
+**`part-12-llm-systems-at-scale/module-59-distributed-training-systems/section-59.1.html`** (4 opportunities)
+
+- L47: `H100` -- link to `part-12-llm-systems-at-scale/module-58-frontier-systems-hardware/index.html` (suggested visible text: "Chapter 58 (Frontier Systems & Hardware)"). Context: "...the working set easily exceeds 2 TB. An H100 holds 80 GB. Even Blackwell B200 with 1..."
+- L161: `on device` -- link to `part-12-llm-systems-at-scale/module-60-edge-on-device-llms/index.html` (suggested visible text: "Chapter 60 (Edge & On-Device LLMs)"). Context: "...se matches its simplicity. Gradient $g$ on device $i$ updates as: <div class="math-b..."
+- L309: `pre-training` -- link to `part-2-understanding-llms/module-06-pretraining-scaling-laws/index.html` (suggested visible text: "Chapter 6 (Pre-training)"). Context: "...(DiLoCo, OpenDiLoCo). But for frontier pre-training, BSP rules. <div class="callout ke..."
+- L409: `observability` -- link to `part-9-llm-evaluation-observability/module-44-online-eval-observability/index.html` (suggested visible text: "Chapter 44 (Online Eval & Observability)"). Context: "...ncerns (checkpointing, fault tolerance, observability) that turn the algorithms above into a..."
+
+**`part-12-llm-systems-at-scale/module-59-distributed-training-systems/section-59.2.html`** (4 opportunities)
+
+- L373: `MoE` -- link to `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.3.html` (suggested visible text: "Section 3.3 (MoE)"). Context: "...iPPy or Megatron-Core MoE / Expert parallel Tutel / DeepS..."
+- L290: `Quantization` -- link to `part-2-understanding-llms/module-09-inference-optimization/index.html` (suggested visible text: "Chapter 9 (Inference Optimization)"). Context: "...by $4\times$ at minimal accuracy loss. Quantization is per-block (one scale per ~128 elemen..."
+- L392: `Fine-Tuned` -- link to `part-4-training-adaptation/module-16-fine-tuning-fundamentals/index.html` (suggested visible text: "Chapter 16 (Fine-Tuning Fundamentals)"). Context: "...t al. "Llama 2: Open Foundation and Fine-Tuned Chat Models." arXiv:2307.09288 (20..."
+- L279: `H100` -- link to `part-12-llm-systems-at-scale/module-58-frontier-systems-hardware/index.html` (suggested visible text: "Chapter 58 (Frontier Systems & Hardware)"). Context: "...16 \approx 70$ GB, which fits an 80 GB H100 with breathing room for activations. Wi..."
+
+**`part-12-llm-systems-at-scale/module-59-distributed-training-systems/section-59.3.html`** (4 opportunities)
+
+- L331: `MoE` -- link to `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.3.html` (suggested visible text: "Section 3.3 (MoE)"). Context: "...ce dimension. Mixture-of-Expert layers (MoE) shard by expert , which is mor..."
+- L195: `vLLM` -- link to `part-2-understanding-llms/module-09-inference-optimization/index.html` (suggested visible text: "Chapter 9 (Inference Optimization)"). Context: "...in production code (Megatron-LM, NeMo, vLLM serving) is identical; this strips it t..."
+- L295: `fine-tune` -- link to `part-4-training-adaptation/module-16-fine-tuning-fundamentals/index.html` (suggested visible text: "Chapter 16 (Fine-Tuning Fundamentals)"). Context: "...Llama-2 70B Meta's 32k-context fine-tune of Llama-2 70B (the long-context base f..."
+- L295: `H100` -- link to `part-12-llm-systems-at-scale/module-58-frontier-systems-hardware/index.html` (suggested visible text: "Chapter 58 (Frontier Systems & Hardware)"). Context: "...ich fit alongside KV caches in an 80 GB H100. Sequence parallelism was the differenc..."
+
+**`part-12-llm-systems-at-scale/module-59-distributed-training-systems/section-59.4.html`** (2 opportunities)
+
+- L396: `FlashAttention` -- link to `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.3.html` (suggested visible text: "Section 3.3 (Transformer Variants & Efficiency)"). Context: "...the context-parallel ring (Liu et al., FlashAttention-2, 2023). The technique was sca..."
+- L373: `A100` -- link to `part-12-llm-systems-at-scale/module-58-frontier-systems-hardware/index.html` (suggested visible text: "Chapter 58 (Frontier Systems & Hardware)"). Context: "...176B (BigScience, 2022) trained on 384 A100 80GB GPUs with $TP=4$ (limited because..."
+
+**`part-12-llm-systems-at-scale/module-59-distributed-training-systems/section-59.5.html`** (6 opportunities)
+
+- L77: `fine-tuning` -- link to `part-4-training-adaptation/module-16-fine-tuning-fundamentals/index.html` (suggested visible text: "Chapter 16 (Fine-Tuning Fundamentals)"). Context: "...s (e.g., switching from pre-training to fine-tuning). <h3 id="59-5-2-4-checkpoint-cade..."
+- L244: `tokenization` -- link to `part-1-llm-building-blocks/module-01-foundations-nlp-text-representation/section-1.6.html` (suggested visible text: "Section 1.6 (Subword Tokenization)"). Context: "...e dataloader's hot path is dominated by tokenization and shuffling. Pre-tokenize, pre-shuffl..."
+- L51: `H100` -- link to `part-12-llm-systems-at-scale/module-58-frontier-systems-hardware/index.html` (suggested visible text: "Chapter 58 (Frontier Systems & Hardware)"). Context: "...lama-3 405B (Meta, 2024) 16,000 H100 54 days 419 (Meta paper..."
+- L77: `pre-training` -- link to `part-2-understanding-llms/module-06-pretraining-scaling-laws/index.html` (suggested visible text: "Chapter 6 (Pre-training)"). Context: "...n training phases (e.g., switching from pre-training to fine-tuning). <h3 id="59-5-2-4-..."
+- L96: `Kubernetes` -- link to `part-13-llmops-lifecycle/module-65-containers-kubernetes-deployment/index.html` (suggested visible text: "Chapter 65 (Containers & Kubernetes)"). Context: "...cement . The cluster scheduler (Kubernetes, Slurm, AWS Batch) must have a hot pool..."
+- L39: `observability` -- link to `part-9-llm-evaluation-observability/module-44-online-eval-observability/index.html` (suggested visible text: "Chapter 44 (Online Eval & Observability)"). Context: "...des can be swapped in mid-run), observability (so that a quietly degrading r..."
+
+
+### Chapter 61 (57 opportunities)
+
+**`part-12-llm-systems-at-scale/module-61-scale-tools/section-61.1.html`** (6 opportunities)
+
+- L43: `fine-tuning` -- link to `part-4-training-adaptation/module-16-fine-tuning-fundamentals/index.html` (suggested visible text: "Chapter 16 (Fine-Tuning Fundamentals)"). Context: "...ler, which matters for the long tail of fine-tuning, distillation, and small-scale pretrain..."
+- L33: `H100` -- link to `part-12-llm-systems-at-scale/module-58-frontier-systems-hardware/index.html` (suggested visible text: "Chapter 58 (Frontier Systems & Hardware)"). Context: "...: a long-lived pool of P5 / P5e / P5en (H100, H200, B200) nodes with EFA networking,..."
+- L86: `governance` -- link to `part-11-llm-ethics-trust-governance/module-53-regulation-compliance-governance/index.html` (suggested visible text: "Chapter 53 (Regulation & Compliance)"). Context: "...egistry semantics specifically fit your governance needs. Pick MLflow when self-hosting is..."
+- L29: `pretraining` -- link to `part-2-understanding-llms/module-06-pretraining-scaling-laws/index.html` (suggested visible text: "Chapter 6 (Pre-training)"). Context: "...hat drops 0.1% of nodes during a 60-day pretraining run, without good checkpoint and restar..."
+- L27: `Kubernetes` -- link to `part-13-llmops-lifecycle/module-65-containers-kubernetes-deployment/index.html` (suggested visible text: "Chapter 65 (Containers & Kubernetes)"). Context: "...PC schedulers (Slurm, Torque, LSF, plus Kubernetes-based Volcano, KubeRay, Argo, Kubeflow)..."
+- L27: `observability` -- link to `part-9-llm-evaluation-observability/module-44-online-eval-observability/index.html` (suggested visible text: "Chapter 44 (Online Eval & Observability)"). Context: "...e multi-petabyte dataset, and gives you observability when an 8,192-GPU run crashes at hour 4..."
+
+**`part-12-llm-systems-at-scale/module-61-scale-tools/section-61.2.html`** (13 opportunities)
+
+- L27: `Flash Attention` -- link to `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.3.html` (suggested visible text: "Section 3.3 (Transformer Variants & Efficiency)"). Context: "...u achieve 30 percent or 50 percent MFU: Flash Attention 2 / 3, xformers, bitsandbytes, NVIDIA T..."
+- L84: `KV cache` -- link to `part-2-understanding-llms/module-09-inference-optimization/index.html` (suggested visible text: "Chapter 9 (Inference Optimization)"). Context: "...ptimizations (in-flight batching, paged KV cache), which matters because vLLM-class thro..."
+- L33: `fine-tuning` -- link to `part-4-training-adaptation/module-16-fine-tuning-fundamentals/index.html` (suggested visible text: "Chapter 16 (Fine-Tuning Fundamentals)"). Context: "...erational complexity; avoid for smaller fine-tuning where Accelerate or torchtitan deliver..."
+- L45: `PEFT` -- link to `part-4-training-adaptation/module-17-peft/index.html` (suggested visible text: "Chapter 17 (Parameter-Efficient Fine-Tuning)"). Context: "...formers, Accelerate / DeepSpeed / FSDP, PEFT (LoRA / QLoRA), and TRL into a single Y..."
+- L34: `RLHF` -- link to `part-4-training-adaptation/module-18-alignment/index.html` (suggested visible text: "Chapter 18 (Alignment, RLHF, DPO)"). Context: "...igher-level recipes (DeepSpeed-Chat for RLHF, DeepSpeed-MoE for sparse models); for..."
+- L27: `data parallel` -- link to `part-12-llm-systems-at-scale/module-59-distributed-training-systems/section-59.1.html` (suggested visible text: "Section 59.1 (Data Parallelism)"). Context: "...line parallel), DeepSpeed (ZeRO sharded data parallel), PyTorch FSDP (the in-tree successor t..."
+- L29: `tensor parallel` -- link to `part-12-llm-systems-at-scale/module-59-distributed-training-systems/section-59.2.html` (suggested visible text: "Section 59.2 (Tensor Parallelism)"). Context: "...at the basic primitives (data parallel, tensor parallel, pipeline parallel, ZeRO / FSDP, expert..."
+- L27: `pipeline parallel` -- link to `part-12-llm-systems-at-scale/module-59-distributed-training-systems/section-59.3.html` (suggested visible text: "Section 59.3 (Pipeline Parallelism)"). Context: "...mplementations: Megatron-LM (tensor and pipeline parallel), DeepSpeed (ZeRO sharded data parallel..."
+- L27: `ZeRO` -- link to `part-12-llm-systems-at-scale/module-59-distributed-training-systems/section-59.4.html` (suggested visible text: "Section 59.4 (ZeRO / FSDP)"). Context: "...nsor and pipeline parallel), DeepSpeed (ZeRO sharded data parallel), PyTorch FSDP (t..."
+- L33: `H100` -- link to `part-12-llm-systems-at-scale/module-58-frontier-systems-hardware/index.html` (suggested visible text: "Chapter 58 (Frontier Systems & Hardware)"). Context: "...ning a 70B+ dense model from scratch on H100 / H200 / B200 capacity, when MFU is the..."
+- L41: `pretraining` -- link to `part-2-understanding-llms/module-06-pretraining-scaling-laws/index.html` (suggested visible text: "Chapter 6 (Pre-training)"). Context: "...dy-to-run recipes for common workloads (pretraining a 7B from scratch, fine-tuning Llama-3..."
+- L68: `Kubernetes` -- link to `part-13-llmops-lifecycle/module-65-containers-kubernetes-deployment/index.html` (suggested visible text: "Chapter 65 (Containers & Kubernetes)"). Context: "...your cluster's launcher is mpirun; for Kubernetes-native launches, torchrun and torch.dis..."
+- L148: `observability` -- link to `part-9-llm-evaluation-observability/module-44-online-eval-observability/index.html` (suggested visible text: "Chapter 44 (Online Eval & Observability)"). Context: "...is too low-level for them. The training observability (W&amp;B, MLflow) is critical because l..."
+
+**`part-12-llm-systems-at-scale/module-61-scale-tools/section-61.3.html`** (11 opportunities)
+
+- L80: `Flash Attention` -- link to `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.3.html` (suggested visible text: "Section 3.3 (Transformer Variants & Efficiency)"). Context: "...h include most torch.compile output and Flash Attention). Pick proton when you specifically nee..."
+- L153: `Chinchilla` -- link to `part-2-understanding-llms/module-06-pretraining-scaling-laws/index.html` (suggested visible text: "Chapter 6 (Pre-training & Scaling Laws)"). Context: "...with scaling laws in concrete ways. The Chinchilla scaling law (Hoffmann et al., 2022) fou..."
+- L68: `chain-of-thought` -- link to `part-3-working-with-llms/module-12-prompt-engineering/index.html` (suggested visible text: "Chapter 12 (Prompt Engineering)"). Context: "...ifferences in benchmark implementation (chain-of-thought versus not, exact prompt format, log-li..."
+- L45: `fine-tuning` -- link to `part-4-training-adaptation/module-16-fine-tuning-fundamentals/index.html` (suggested visible text: "Chapter 16 (Fine-Tuning Fundamentals)"). Context: "...>After pretraining comes the supervised fine-tuning (SFT) and preference-tuning (DPO / PPO..."
+- L67: `LoRA` -- link to `part-4-training-adaptation/module-17-peft/index.html` (suggested visible text: "Chapter 17 (PEFT, LoRA)"). Context: "...T-3 175B, Stable Diffusion, Llama 2 70B LoRA, Llama 3.1 405B in 2024-25), which matt..."
+- L45: `DPO` -- link to `part-4-training-adaptation/module-18-alignment/index.html` (suggested visible text: "Chapter 18 (Alignment, DPO)"). Context: "...ine-tuning (SFT) and preference-tuning (DPO / PPO / GRPO) stages. The 2024-2026 dat..."
+- L69: `LLM-as-judge` -- link to `part-9-llm-evaluation-observability/module-46-llm-as-judge-automated-evaluation/index.html` (suggested visible text: "Chapter 46 (LLM-as-Judge)"). Context: "...on-harness for custom evals (especially LLM-as-judge style). Pick OpenAI Evals for custom ev..."
+- L27: `NCCL` -- link to `part-12-llm-systems-at-scale/module-58-frontier-systems-hardware/index.html` (suggested visible text: "Chapter 58 (Frontier Hardware)"). Context: "...-throughput profilers (MFU calculators, NCCL test suites, FLOPS profilers) without w..."
+- L71: `fairness, bias` -- link to `part-11-llm-ethics-trust-governance/module-52-bias-fairness-disparate-impact/index.html` (suggested visible text: "Chapter 52 (Bias, Fairness, Disparate Impact)"). Context: "...raw accuracy (calibration, robustness, fairness, bias, toxicity, efficiency). Pick HELM when..."
+- L49: `provenance` -- link to `part-11-llm-ethics-trust-governance/module-54-watermarking-provenance-deepfake-defense/index.html` (suggested visible text: "Chapter 54 (Watermarking & Provenance)"). Context: "...nversational SFT dataset with auditable provenance (every message is attributed to a speci..."
+- L59: `VLMs` -- link to `part-5-multimodal-llms/module-22-vision-language-models/index.html` (suggested visible text: "Chapter 22 (Vision-Language Models)"). Context: "...etraining (CLIP, Stable Diffusion, many VLMs). Its objective is to be the open, scal..."
+
+**`part-12-llm-systems-at-scale/module-61-scale-tools/section-61.4.html`** (16 opportunities)
+
+- L27: `mixture-of-experts` -- link to `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.3.html` (suggested visible text: "Section 3.3 (MoE)"). Context: "...hosted serving start from. Second, MoE (mixture-of-experts) checkpoints (DeepSeek-V3 / R1, Mixtral..."
+- L250: `vLLM` -- link to `part-2-understanding-llms/module-09-inference-optimization/index.html` (suggested visible text: "Chapter 9 (Inference Optimization)"). Context: "...-Factory, TRL), every inference engine (vLLM, SGLang, TensorRT-LLM, Triton, llama.cp..."
+- L226: `reasoning models` -- link to `part-2-understanding-llms/module-08-reasoning-models-test-time-compute/index.html` (suggested visible text: "Chapter 8 (Reasoning Models & Test-Time Compute)"). Context: "...particular outperformed many larger non-reasoning models on math and code, making it the de fact..."
+- L27: `fine-tuning` -- link to `part-4-training-adaptation/module-16-fine-tuning-fundamentals/index.html` (suggested visible text: "Chapter 16 (Fine-Tuning Fundamentals)"). Context: "...foundation checkpoints that production fine-tuning and self-hosted serving start from. Sec..."
+- L250: `PEFT` -- link to `part-4-training-adaptation/module-17-peft/index.html` (suggested visible text: "Chapter 17 (Parameter-Efficient Fine-Tuning)"). Context: "...PTQ, AWQ, EXL2), every adapter library (PEFT for LoRA / QLoRA / DoRA), and every obs..."
+- L275: `DPO` -- link to `part-4-training-adaptation/module-18-alignment/index.html` (suggested visible text: "Chapter 18 (Alignment, DPO)"). Context: "...cipes, PEFT / LoRA / QLoRA support, TRL DPO support? What is the d..."
+- L62: `synthetic data` -- link to `part-4-training-adaptation/module-15-synthetic-data/index.html` (suggested visible text: "Chapter 15 (Synthetic Data)"). Context: "...ctive is to demonstrate that aggressive synthetic data can deliver larger-model capability at..."
+- L29: `tokenizer` -- link to `part-1-llm-building-blocks/module-01-foundations-nlp-text-representation/section-1.6.html` (suggested visible text: "Section 1.6 (Subword Tokenization)"). Context: "...ckpoint?), architecture details (is the tokenizer compatible with your domain? what is th..."
+- L54: `tool-use` -- link to `part-6-agentic-ai/module-27-tool-use-protocols/index.html` (suggested visible text: "Chapter 27 (Tool Use & Function Calling)"). Context: "...long-context use cases when Anthropic's tool-use and reasoning quality dominate. <l..."
+- L44: `H100` -- link to `part-12-llm-systems-at-scale/module-58-frontier-systems-hardware/index.html` (suggested visible text: "Chapter 58 (Frontier Systems & Hardware)"). Context: "...ically 8x H200 for FP8 inference or 16x H100); expect substantial systems engineerin..."
+- L61: `on-device` -- link to `part-12-llm-systems-at-scale/module-60-edge-on-device-llms/index.html` (suggested visible text: "Chapter 60 (Edge & On-Device LLMs)"). Context: "...th the Llama license, which matters for on-device and edge deployment. Pick Llama-3.2 1B..."
+- L278: `jailbreak` -- link to `part-10-llm-security-runtime-safety/module-47-adversarial-security-red-teaming/index.html` (suggested visible text: "Chapter 47 (Adversarial Security)"). Context: "...ety posture? Refusal behavior, jailbreak robustness, alignment quality for your..."
+- L29: `provenance` -- link to `part-11-llm-ethics-trust-governance/module-54-watermarking-provenance-deepfake-defense/index.html` (suggested visible text: "Chapter 54 (Watermarking & Provenance)"). Context: "...amework have an optimized kernel?), and provenance disclosure (what was the pretraining da..."
+- L242: `VLM` -- link to `part-5-multimodal-llms/module-22-vision-language-models/index.html` (suggested visible text: "Chapter 22 (Vision-Language Models)"). Context: "...B, 90B) : Meta's first official VLM, with the 90B competitive with closed V..."
+- L29: `pretraining` -- link to `part-2-understanding-llms/module-06-pretraining-scaling-laws/index.html` (suggested visible text: "Chapter 6 (Pre-training)"). Context: "...ts from a base checkpoint and continues pretraining, fine-tunes, distills, or rebuilds from..."
+- L250: `observability` -- link to `part-9-llm-evaluation-observability/module-44-online-eval-observability/index.html` (suggested visible text: "Chapter 44 (Online Eval & Observability)"). Context: "...EFT for LoRA / QLoRA / DoRA), and every observability binding has Llama as a first-class supp..."
+
+**`part-12-llm-systems-at-scale/module-61-scale-tools/section-61.5.html`** (11 opportunities)
+
+- L54: `Flash Attention` -- link to `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.3.html` (suggested visible text: "Section 3.3 (Transformer Variants & Efficiency)"). Context: "...ao et al., 2022) : the original Flash Attention paper. Foundational reading. <..."
+- L46: `Chinchilla` -- link to `part-2-understanding-llms/module-06-pretraining-scaling-laws/index.html` (suggested visible text: "Chapter 6 (Pre-training & Scaling Laws)"). Context: "...hy "20 tokens per parameter" became the Chinchilla rule of thumb and why later models trai..."
+- L89: `vLLM` -- link to `part-2-understanding-llms/module-09-inference-optimization/index.html` (suggested visible text: "Chapter 9 (Inference Optimization)"). Context: ".../strong>: the GitHub issue trackers for vLLM, SGLang, TensorRT-LLM, Megatron-LM, Dee..."
+- L69: `fine-tuning` -- link to `part-4-training-adaptation/module-16-fine-tuning-fundamentals/index.html` (suggested visible text: "Chapter 16 (Fine-Tuning Fundamentals)"). Context: "...with extensive "scale" series (Llama-3 fine-tuning at scale, FineWeb buildout, training la..."
+- L73: `RLHF` -- link to `part-4-training-adaptation/module-18-alignment/index.html` (suggested visible text: "Chapter 18 (Alignment, RLHF, DPO)"). Context: "...g>: weekly newsletter and blog covering RLHF, post-training, and open-model developm..."
+- L200: `tokenization` -- link to `part-1-llm-building-blocks/module-01-foundations-nlp-text-representation/section-1.6.html` (suggested visible text: "Section 1.6 (Subword Tokenization)"). Context: "...trong coverage of distributed training, tokenization, and evaluation. Lecture videos and not..."
+- L47: `tensor parallelism` -- link to `part-12-llm-systems-at-scale/module-59-distributed-training-systems/section-59.2.html` (suggested visible text: "Section 59.2 (Tensor Parallelism)"). Context: "...lelism paper. Pick for the foundational tensor parallelism technique. <a href="ht..."
+- L33: `ZeRO` -- link to `part-12-llm-systems-at-scale/module-59-distributed-training-systems/section-59.4.html` (suggested visible text: "Section 59.4 (ZeRO / FSDP)"). Context: "...onference, the venue where the original ZeRO, the Megatron papers, GShard, and many..."
+- L55: `H100` -- link to `part-12-llm-systems-at-scale/module-58-frontier-systems-hardware/index.html` (suggested visible text: "Chapter 58 (Frontier Systems & Hardware)"). Context: "...ng>: the FA3 paper extending to FP8 and H100-specific patterns. Pick for the current..."
+- L78: `governance` -- link to `part-11-llm-ethics-trust-governance/module-53-regulation-compliance-governance/index.html` (suggested visible text: "Chapter 53 (Regulation & Compliance)"). Context: "...g a substantial systems flavor (compute governance, training-run monitoring, etc.). <..."
+- L87: `mech interp` -- link to `part-2-understanding-llms/module-10-interpretability-mechanistic-understanding/index.html` (suggested visible text: "Chapter 10 (Interpretability)"). Context: "...d training, eval harness, scaling laws, mech interp, and the various EleutherAI projects. P..."
+
+
+**Grand total cross-reference opportunities flagged: 233**
+
+
+### Notes on visible text patterns
+
+When inserting a link, the visible text should typically be the section/chapter reference followed by a short descriptor: e.g.
+
+- `<a href="../../part-1-llm-building-blocks/module-03-transformer-architecture/section-3.3.html">Section 3.3 (Flash Attention)</a>`
+- For "see Chapter X" prose, wrap just "Chapter X" in the link.
+- For inline mentions like "using PEFT", prefer either wrapping the technique itself (`<a href="...">PEFT</a>`) OR adding a parenthetical at the end of the sentence ("using PEFT (see Chapter 17)").
+- Avoid hyperlinking the SAME concept multiple times in the same paragraph; one link per first mention per section is the convention used elsewhere in the book.

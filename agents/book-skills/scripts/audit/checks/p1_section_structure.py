@@ -103,24 +103,49 @@ def run(filepath, html, context):
                     break
             issues.append(Issue(PRIORITY, CHECK_ID, filepath, line, msg))
 
-    # --- key-takeaway check (should be key-insight) ---
-    if 'class="callout key-takeaway"' in html:
-        issues.append(Issue(PRIORITY, CHECK_ID, filepath, 0,
-                            "Uses key-takeaway callout (consolidate to key-insight)"))
+    # key-takeaway is a canonical callout type (has its own ::before icon in
+    # book.css). It was historically called out as "consolidate to key-insight"
+    # but the design later split them: key-insight is for one-sentence
+    # observations within a section; key-takeaway is for a bulleted summary
+    # box at the end. Both are valid. No issue.
 
     # --- Nesting check (all files) ---
     issues.extend(_check_nesting(html, filepath))
 
     # --- Section-level checks ---
     if is_section:
-        if not SECTION_CHECKS["epigraph"].search(html):
+        # Tools-of-the-trade and appendix sections are reference-style: they
+        # catalog libraries/tools/math/glossary rather than build a narrative.
+        # An epigraph (a literary opening quote) is editorially out-of-place
+        # in those, so we skip the epigraph requirement for them.
+        rel_lower = rel.lower().replace('\\', '/')
+        is_reference_section = (
+            'module-05-tools-of-the-trade' in rel_lower
+            or '/tools-of-the-trade/' in rel_lower
+            or 'module-19-tools-of-the-trade' in rel_lower
+            or 'module-30-tools-of-the-trade' in rel_lower
+            or 'module-45-tools-of-the-trade' in rel_lower
+            or 'module-51-tools-of-the-trade' in rel_lower
+            or 'module-61-scale-tools' in rel_lower
+            or 'module-71-tools-of-the-trade' in rel_lower
+            or 'module-79-tools-of-the-trade' in rel_lower
+            or '/appendices/' in rel_lower
+            or '/appendix-' in rel_lower
+        )
+        if not is_reference_section and not SECTION_CHECKS["epigraph"].search(html):
             issues.append(Issue("P2", CHECK_ID, filepath, 0, "Section has no epigraph"))
         if not SECTION_CHECKS["any_callout"].search(html):
             issues.append(Issue(PRIORITY, CHECK_ID, filepath, 0, "Section has no callouts"))
         # Each section should have takeaways or at least one key-insight
+        # OR a key-takeaway (the bulleted-summary form). Skip for reference
+        # sections that are catalog-style.
         has_takeaways = 'class="takeaways"' in html
         has_key_insight = 'class="callout key-insight"' in html
-        if not has_takeaways and not has_key_insight:
+        has_key_takeaway = 'class="callout key-takeaway"' in html
+        if (not is_reference_section
+                and not has_takeaways
+                and not has_key_insight
+                and not has_key_takeaway):
             issues.append(Issue("P2", CHECK_ID, filepath, 0,
                                 "Section has no takeaways and no key-insight callout"))
 
