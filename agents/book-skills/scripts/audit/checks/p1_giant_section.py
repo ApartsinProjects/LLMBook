@@ -22,6 +22,17 @@ def run(filepath, html, context):
     issues = []
     if not filepath.name.startswith("section-"):
         return issues
+
+    # Honor in-file structural-architect tags that mark a section as
+    # intentionally large. A reviewer with full context has classified
+    # the page; treat it as resolved.
+    if (
+        '<!-- GIANT_SECTION: catalog by design' in html
+        or '<!-- GIANT_SECTION: long-form single topic' in html
+        or '<!-- GIANT_SECTION: protected' in html
+    ):
+        return issues
+
     lines = html.count("\n") + 1
     h2_count = len(H2_RE.findall(html))
 
