@@ -14,13 +14,17 @@ diff against this document.
 
 ---
 
-## 0. State of the union (2026-05-18 post-Round-16)
+## 0. State of the union (2026-05-18 post-Round-17)
 
-- **Total audit issues**: 2097 (down from 7906 at session start; 73.5% reduction)
-- **Commits this session continuation**: 70+ on branch v2.0
+- **Total audit issues**: 1975 (down from 7906 at session start; 75.0% reduction)
+- **Commits this session continuation**: 76+ on branch v2.0
+- **Background agents landed**:
+  - `ac7c3ef3` — Scientific depth (foundational, 24 algo callouts in 9 modules). LANDED.
+  - `a5c8c689` — Scientific depth (safety/ethics, 12 algo callouts in Part 10 + 11). LANDED.
+  - `aed76e8e` — Image generation (108 HIGH+MED placeholders inserted with prompts ready for batch Gemini run). LANDED.
 - **Background agents in flight**:
-  - `ac7c3ef3` — Scientific depth (foundational chapters 3, 6, 8, 9, 18, 31, 32, 42, 46). Partial landing visible (Algorithm 31.2.1 HNSW added).
-  - `a5c8c689` — Scientific depth (safety/ethics, Part 10 + 11).
+  - `aa13e1db` — Bibliography backfill (114 sections missing `<details class="bibliography-collapsible">`).
+  - `afbd35d9` — Chapter-starter (54 chapter-index overview + 57 learning-objectives).
 - **v2.0 held**. Production main untouched.
 
 ---
