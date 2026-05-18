@@ -33,11 +33,31 @@ def run(filepath, html, context):
         return issues
     if not filepath.name.startswith("section-"):
         return issues
+    # Phrases that contain "Lab" but DO NOT refer to a hands-on coding
+    # lab (so the heading is not expected to be followed by a lab
+    # callout). These are noun-phrase uses of "lab" or "lab-" as a
+    # research-org prefix (frontier lab, research lab, etc.).
+    NON_LAB_PHRASES = (
+        "lab blog",
+        "lab discussion",
+        "lab publication",
+        "lab channel",
+        "lab post",
+        "frontier-lab",
+        "frontier lab",
+        "research lab",
+        "industry lab",
+        "lab infrastructure",
+    )
+
     for m in LAB_HEADING_RE.finditer(html):
         heading_text = m.group("text").strip()
-        # Must contain "Lab" (not just "Hands-On" alone, which sometimes
-        # appears in "Hands-On Example" titles)
+        heading_lower = heading_text.lower()
+        # Must contain "Lab" (not just "Hands-On" alone)
         if not re.search(r'\bLab\b', heading_text, re.IGNORECASE):
+            continue
+        # Skip non-lab uses of the word
+        if any(phrase in heading_lower for phrase in NON_LAB_PHRASES):
             continue
         # Look for <div class="callout lab"> within 600 chars after this heading
         window = html[m.end():m.end() + 600]
