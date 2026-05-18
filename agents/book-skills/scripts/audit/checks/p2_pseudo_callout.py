@@ -3,7 +3,7 @@ HTML (h2/h3 + strong + bordered styling) instead of `<div class="callout TYPE">`
 
 Canonical callouts use one of 22 types (algorithm, big-picture, cross-ref,
 exercise, fun-note, key-insight, key-takeaway, lab, library-shortcut,
-looking-back, note, numeric-example, pathway, postmortem, practical-example,
+looking-back, note, numeric-example, postmortem, practical-example,
 production-pattern, research-frontier, self-check, thesis-thread, tip, warning,
 whats-next) wrapped as `<div class="callout TYPE">` with a `<div class="callout-title">`.
 
@@ -25,7 +25,7 @@ Issue = namedtuple("Issue", ["priority", "check_id", "filepath", "line", "messag
 
 # Bare divs with callout-ish class but no "callout" prefix
 BARE_DIV = re.compile(
-    r'<div\s+class\s*=\s*"(note|warning|tip|info|caution|important|fun-note|key-insight|key-takeaway|big-picture|library-shortcut|production-pattern|research-frontier|practical-example|numeric-example|postmortem|thesis-thread|self-check|exercise|lab|algorithm|cross-ref|pathway|looking-back)(\s|")',
+    r'<div\s+class\s*=\s*"(note|warning|tip|info|caution|important|fun-note|key-insight|key-takeaway|big-picture|library-shortcut|production-pattern|research-frontier|practical-example|numeric-example|postmortem|thesis-thread|self-check|exercise|lab|algorithm|cross-ref|looking-back)(\s|")',
     re.IGNORECASE,
 )
 # Heading text that should be a callout title

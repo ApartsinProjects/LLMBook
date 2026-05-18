@@ -27,7 +27,7 @@ Issue = namedtuple("Issue", ["priority", "check_id", "filepath", "line", "messag
 CANONICAL_TYPES = {
     "algorithm", "big-picture", "cross-ref", "exercise", "fun-note", "key-insight",
     "key-takeaway", "lab", "library-shortcut", "looking-back", "note",
-    "numeric-example", "pathway", "postmortem", "practical-example",
+    "numeric-example", "postmortem", "practical-example",
     "production-pattern", "research-frontier", "self-check", "thesis-thread",
     "tip", "warning", "whats-next",
 }

@@ -33,8 +33,7 @@ CANONICAL_TITLES = [
     'Looking Back', "What's Next", 'What’s Next', 'Real-World Scenario',
     'Practical Example', 'Production Pattern', 'Research Frontier',
     'Library Shortcut', 'Numeric Example', 'Postmortem', 'Self-Check',
-    'Cross-Reference', 'Fun Fact', 'Lab', 'Exercise', 'Algorithm',
-    'Pathway', 'Thesis Thread', 'Note', 'Warning', 'Tip',
+    'Cross-Reference', 'Fun Fact', 'Lab', 'Exercise', 'Algorithm', 'Thesis Thread', 'Note', 'Warning', 'Tip',
 ]
 _alt = '|'.join(re.escape(t) for t in CANONICAL_TITLES)
 DOUBLE_TITLE_RE = re.compile(
