@@ -278,8 +278,15 @@ document.addEventListener('DOMContentLoaded', function () {
 
   // 8. Make bibliography/references collapsible and collapsed by default.
   document.querySelectorAll('section.bibliography').forEach(function (bib) {
-    // Skip if already inside a details
+    // Skip if already inside any bibliography collapsible wrapper (either
+    // the JS-injected `.bib-collapse` from a prior run, OR the canonical
+    // server-side `<details class="bibliography-collapsible">` wrapper).
+    // The canonical wrapper provides its own `<summary>Further Reading</summary>`
+    // so a second JS-wrap would render "Further Reading" + the nested
+    // "References and Further Reading" header (the "double bibliography
+    // header" bug reported in section-27.1).
     if (bib.closest('details.bib-collapse')) return;
+    if (bib.closest('details.bibliography-collapsible')) return;
 
     // Find the heading: h2, h3, or .bibliography-title div. Book HTML uses
     // <h3>Bibliography and Further Reading</h3>; an earlier version only
