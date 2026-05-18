@@ -251,6 +251,49 @@ Top-10 indices: [ 0 384721 629054 217893 51482 903217 748362 62190 445871 331056
  local search controlled by the <code>ef_search</code> parameter. Higher <code>ef_search</code>
  values explore more candidates, improving recall at the cost of latency.
  </p>
+<div class="callout algorithm">
+<div class="callout-title">Algorithm 31.2.1: HNSW Approximate Nearest-Neighbor Search</div>
+<pre><code class="pygments-highlighted lang-text">Algorithm: HNSW SEARCH-KNN
+Input:  query q, multi-layer HNSW graph H with layers L_max .. 0,
+        entry point ep at layer L_max, beam width ef, return count k
+Output: top-k approximate nearest neighbors of q
+
+  // 1. Coarse descent: greedy walk on every upper layer
+  current := ep
+  For lc = L_max .. 1:
+      current := SEARCH-LAYER-GREEDY(q, current, layer = lc)
+      // greedy means: at each step move to the neighbor closer to q;
+      // stop when no neighbor improves distance(q, .)
+
+  // 2. Beam search on the dense bottom layer (layer 0)
+  W := SEARCH-LAYER-BEAM(q, current, layer = 0, ef = ef)
+      // maintains a min-heap of size ef ordered by distance(q, .)
+      // explores neighbors of the best frontier node until no improvement
+
+  // 3. Truncate to k
+  Return k closest elements of W (by distance to q)
+
+SEARCH-LAYER-BEAM(q, entry, layer, ef):
+  visited := {entry}
+  candidates := MinHeap({entry}, key = distance(q, .))      // frontier
+  W         := MaxHeap({entry}, key = distance(q, .))       // top-ef so far
+  While candidates is not empty:
+      c := candidates.pop_min()
+      if distance(q, c) > distance(q, W.peek_max()):
+          break                                             // no improvement possible
+      For neighbor n in graph_layer[c]:
+          if n in visited: continue
+          visited.add(n)
+          if distance(q, n) < distance(q, W.peek_max()) or |W| < ef:
+              candidates.push(n)
+              W.push(n)
+              if |W| > ef: W.pop_max()
+  Return W
+
+Complexity. Query time O(log N) expected on small-world graphs; per-layer hops scale
+with the local degree M (typical 16..64), so total work per query is O(ef * M * log N).</code></pre>
+<p>Source: Malkov and Yashunin, "Efficient and robust approximate nearest neighbor search using Hierarchical Navigable Small World graphs," IEEE TPAMI 2020 (<a href="https://arxiv.org/abs/1603.09320" rel="noopener" target="_blank">arXiv:1603.09320</a>). The log-N behavior comes from the exponential layer-assignment distribution combined with the small-world property: long edges in upper layers make large jumps, short edges in layer 0 do the final refinement. Production engines (FAISS HNSWFlat, Lucene HNSW, Qdrant, Weaviate) all implement variants of this search.</p>
+</div>
 <div class="code-block-wrapper">
 <pre><code class="pygments-highlighted lang-python"><span class="c1"># HNSW index with FAISS</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">faiss</span>
@@ -306,6 +349,37 @@ ef_search=256: 2.31ms, top result idx=384721
  an exhaustive search only within those clusters. This reduces the number of distance computations
  from N to approximately N × nprobe / nlist.
  </p>
+<div class="callout algorithm">
+<div class="callout-title">Algorithm 31.2.2: IVF (Inverted-File) Two-Stage Search</div>
+<pre><code class="pygments-highlighted lang-text">Algorithm: IVF SEARCH-KNN
+Input:  query q, codebook of centroids C = {c_1, .., c_nlist}, inverted lists
+        I_1, .., I_nlist (each I_j holds vector IDs assigned to c_j), nprobe, k
+Output: top-k approximate nearest neighbors of q
+
+  // 1. Coarse quantization: pick the nprobe nearest centroids to q
+  cand_lists := top_nprobe_argmin_j  ||q - c_j||
+
+  // 2. Inverted-list scan: exact search within those lists only
+  H := MaxHeap(size = k, key = distance)
+  For j in cand_lists:
+      For id in I_j:
+          d := distance(q, vectors[id])
+          If |H| < k or d < H.peek_max():
+              H.push((id, d))
+              if |H| > k: H.pop_max()
+  Return H sorted ascending by d
+
+Construction (offline):
+  1. Train k-means with K = nlist centers on a sample of the corpus.
+  2. For each vector v, assign it to argmin_j ||v - c_j||; append v's ID to I_j.
+
+Cost analysis. With N vectors uniformly distributed across nlist cells:
+   coarse step:   compare to nlist centroids => O(nlist * d)
+   refinement:    nprobe * (N / nlist) full distances => O(nprobe * N * d / nlist)
+   Total speedup over brute force: roughly nlist / nprobe
+   Typical tuning: nlist = O(sqrt(N)), nprobe = 8..128 trades recall for latency.</code></pre>
+<p>Source: Jegou, Douze, Schmid, "Product Quantization for Nearest Neighbor Search," IEEE TPAMI 2011 (the IVF + PQ "IVFADC" system, <a href="https://hal.inria.fr/inria-00514462" rel="noopener" target="_blank">hal.inria.fr/inria-00514462</a>). FAISS IndexIVFFlat is the modern implementation; the variant IndexIVFPQ stores compressed (PQ-encoded) residuals inside each list instead of raw vectors.</p>
+</div>
 <h3 id="ivf-construction">IVF Construction</h3>
 <p>Building an IVF index requires a training phase where k-means clustering is performed on a
  representative sample of the data. The number of clusters (<code>nlist</code>) is typically set
@@ -372,6 +446,48 @@ nprobe=128: 12.89ms, searched 125,000 vectors
 <li><strong>Encode:</strong> Replace each sub-vector with the index of its nearest codebook entry (a single byte for 256 codes).</li>
 <li><strong>Compute distances:</strong> At query time, precompute a distance lookup table from the query sub-vectors to all codebook entries, then sum table lookups for each compressed vector.</li>
 </ol>
+<div class="callout algorithm">
+<div class="callout-title">Algorithm 31.2.3: Product Quantization: Encode and Asymmetric Distance Computation</div>
+<pre><code class="pygments-highlighted lang-text">Algorithm: PQ Train + Encode + ADC search
+Input:  corpus X in R^{N x d}, sub-vector count m (d mod m = 0),
+        bits-per-subvector b (default 8 => K = 256 centroids per book)
+Output: m codebooks {C_1, .., C_m}, compressed codes Q in {0,..,K-1}^{N x m}
+
+  // ============= TRAIN =============
+  d_sub := d / m
+  For i = 1..m:
+      X_i := X[:, (i-1)*d_sub : i*d_sub]                    // i-th sub-vector slice
+      C_i := KMeans(X_i, K = 2^b)                           // K centroids in R^{d_sub}
+
+  // ============= ENCODE =============
+  For each vector v in X:
+      For i = 1..m:
+          v_i := v[(i-1)*d_sub : i*d_sub]
+          Q[id(v), i] := argmin_k ||v_i - C_i[k]||          // one byte per sub-vector
+
+  // ============= SEARCH (Asymmetric Distance Computation, ADC) =============
+  Input: query q in R^d, codes Q, codebooks C_1..C_m, k
+  // 1. Precompute the m * K lookup table once per query
+  For i = 1..m, k = 1..K:
+      LUT[i][k] := ||q[(i-1)*d_sub : i*d_sub] - C_i[k]||^2
+
+  // 2. Score every encoded vector by m table lookups
+  H := MaxHeap(k)
+  For id = 1..N:
+      d2 := 0
+      For i = 1..m:
+          d2 := d2 + LUT[i][ Q[id, i] ]                     // ~m additions
+      H.push((id, d2))
+      if |H| > k: H.pop_max()
+  Return H
+
+Storage: m * b bits per vector (e.g. d = 768, m = 96, b = 8 => 96 bytes, vs 3072 bytes
+for float32, a 32x compression).
+Asymmetric distance: q is in full precision, only stored vectors are quantized, so the
+quantization error appears once per term, not twice (symmetric would quantize q too and
+roughly double the error).</code></pre>
+<p>Source: Jegou, Douze, Schmid, "Product Quantization for Nearest Neighbor Search," IEEE TPAMI 2011 (<a href="https://hal.inria.fr/inria-00514462" rel="noopener" target="_blank">hal.inria.fr/inria-00514462</a>). The "asymmetric" trick (keep the query in full precision) is what makes PQ recall competitive with full-precision search at fractional memory cost. Modern variants include Optimized Product Quantization (OPQ, learn a rotation first) and Residual Vector Quantization (RVQ, cascade multiple PQ stages on residuals).</p>
+</div>
 <div class="diagram-container">
 <svg aria-label="Diagram: How PQ Works" role="img" viewbox="0 0 720 280" xmlns="http://www.w3.org/2000/svg">
 <defs>
@@ -606,6 +722,7 @@ Search time: 1.15ms
 <div class="callout library-shortcut">
 <div class="callout-title">Library Shortcut: pgvector for "just use Postgres" vector search</div>
 <p>If you already run Postgres, the <code>pgvector</code> extension (v0.8+, 2024) adds <code>VECTOR</code> as a first-class column type, plus HNSW and IVFFlat indexes, with filtering, joins, transactions, and replication for free. The <code>pgvector-python</code> client makes <code>SELECT &lt;-&gt;</code> read like NumPy. Reach for it before standing up a dedicated vector DB; only graduate to Milvus or Weaviate when you outgrow a single Postgres host.</p>
+<div class="code-block-wrapper">
 <pre><code class="pygments-highlighted lang-python"><span class="n">pip</span> <span class="n">install</span> <span class="n">pgvector</span> <span class="n">psycopg</span><span class="p">[</span><span class="n">binary</span><span class="p">]</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">psycopg</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">pgvector.psycopg</span><span class="w"> </span><span class="kn">import</span> <span class="n">register_vector</span>
@@ -621,6 +738,7 @@ Search time: 1.15ms
     <span class="s2">&quot;SELECT body FROM docs ORDER BY emb &lt;=&gt; </span><span class="si">%s</span><span class="s2"> LIMIT 5&quot;</span><span class="p">,</span> <span class="p">(</span><span class="n">query_emb</span><span class="p">,)</span>
 <span class="p">)</span><span class="o">.</span><span class="n">fetchall</span><span class="p">()</span></code></pre>
 <div class="code-caption"><strong>Code Fragment 31.2.6.1:</strong> Postgres becomes a vector database with one extension and one index.</div>
+</div>
 </div>
 <!-- Quiz Section -->
 
