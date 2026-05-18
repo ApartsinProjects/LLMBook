@@ -32,6 +32,10 @@ Telltale phrases ("In this section we will...", "It should be noted that...", "O
 
 11. `part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.1a.html` - Rewrote the 35.1.1 Query Transformation opener. Replaced "Query transformation is the first lever to pull..." with a more concrete pitch that names the three techniques and their respective failure modes inline.
 
+12. `part-4-training-adaptation/module-18-alignment-rlhf-dpo/section-18.1a.html` - Rewrote the alignment-problem opener. Replaced "A pretrained language model optimizes a single objective..." with a more direct version that names what base models do well and what they do badly (with concrete examples: malware completion, fabricated citations, ten-paragraph answers).
+
+13. `part-6-agentic-ai/module-28-multi-agent-systems/section-28.4.html` - Sharpened the testing-challenge opener. Replaced "Testing multi-agent systems is harder than testing traditional software because..." with "Testing multi-agent systems breaks the assumptions traditional software testing leans on" and reframed the three problems as compounding rather than listed.
+
 ## Patterns I left alone
 
 - "navigate" / "navigation" when describing Playwright browser actions, HNSW graph traversal, or function names: these are technical referents, not stylistic flab.
@@ -46,4 +50,4 @@ I sampled deep into sections 17.1, 17.2, 17.3, 17.5b, 21.4, 22.2, 22.3, 22.5, 22
 
 ## Summary
 
-12 sections improved, ~25 paragraphs rewritten. Estimated tone uplift: small but real on the touched sections; the rest of Parts 4-7 are already aligned with the book voice. No section is now noticeably weaker than its Part 1-3 counterparts.
+13 sections improved, ~28 paragraphs rewritten. Estimated tone uplift: small but real on the touched sections; the rest of Parts 4-7 are already aligned with the book voice. No section is now noticeably weaker than its Part 1-3 counterparts.
