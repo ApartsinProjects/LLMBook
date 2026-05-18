@@ -78,17 +78,18 @@ def find_unlinked_match(content, pattern):
     return None
 
 
-def apply_section_link(content, target_section, href, is_cross_chapter):
-    """Replace bare 'Section X.Y' with linked version. Returns (new_content, applied)."""
-    # The visible text should match the actual target section number
-    # Build alt patterns: "Section X.Y", "Section X.Ya" (if appropriate)
+def apply_section_link(content, target_section, href, is_cross_chapter, actual_section=None):
+    """Replace bare 'Section X.Y' with linked version. Returns (new_content, applied).
+    actual_section: the canonical section name (e.g. '7.1a' even when prose says '7.1').
+    The visible text uses actual_section to avoid creating bad-anchor-text findings."""
     # Use regex that matches " Section X.Y " followed by non-letter (so "Section 7.5" doesn't match "Section 7.50")
     pattern = re.compile(rf'(?<![a-zA-Z0-9.])Section\s+{re.escape(target_section)}(?![a-zA-Z0-9])')
     m = find_unlinked_match(content, pattern)
     if not m:
         return content, False
     cls = ' class="cross-ref"' if is_cross_chapter else ''
-    replacement = f'<a href="{href}"{cls}>Section {target_section}</a>'
+    visible = actual_section if actual_section else target_section
+    replacement = f'<a href="{href}"{cls}>Section {visible}</a>'
     new_content = content[:m.start()] + replacement + content[m.end():]
     return new_content, True
 
@@ -111,6 +112,10 @@ def main():
     parser.add_argument('--dry-run', action='store_true')
     parser.add_argument('--limit', type=int, default=10000)
     parser.add_argument('--max-per-file', type=int, default=8)
+    parser.add_argument('--verbose', action='store_true')
+    parser.add_argument('--sections-only', action='store_true')
+    parser.add_argument('--require-title-match', action='store_true',
+                        help='For chapter refs, only link if prose mentions a token of the target module title')
     args = parser.parse_args()
 
     findings = json.load(open(os.path.join(ROOT, 'docs', 'content-audit', '_xref_findings.json')))
@@ -165,18 +170,21 @@ def main():
             # cross-chapter if section number's chapter part differs from src_module_num
             sec_chap = sec.split('.')[0]
             is_cross = sec_chap.zfill(2) != src_module_num.zfill(2)
-            new_content, applied = apply_section_link(content, sec, href, is_cross)
+            new_content, applied = apply_section_link(content, sec, href, is_cross, actual_section=actual)
             if applied:
                 content = new_content
                 total_added += 1
                 per_file_count += 1
                 by_file_added[f] += 1
                 by_chapter_added[src_module_num] += 1
+                if args.verbose:
+                    print(f'  +S {f}: Section {sec} -> {href} (cross={is_cross})')
             else:
                 skipped.append((f, 'section', sec, 'pattern not found in unlinked position'))
 
         # Chapters
-        for r in by_file[f]['chapters']:
+        chapter_iter = [] if args.sections_only else by_file[f]['chapters']
+        for r in chapter_iter:
             if per_file_count >= args.max_per_file:
                 break
             ch = r['chapter']
@@ -197,6 +205,8 @@ def main():
                 per_file_count += 1
                 by_file_added[f] += 1
                 by_chapter_added[src_module_num] += 1
+                if args.verbose:
+                    print(f'  +C {f}: Chapter {ch} -> {href} (cross={is_cross})')
             else:
                 skipped.append((f, 'chapter', ch, 'pattern not found in unlinked position'))
 
