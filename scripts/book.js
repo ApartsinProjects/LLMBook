@@ -175,8 +175,20 @@ document.addEventListener('DOMContentLoaded', function () {
   });
 
   // 6. Make labs collapsible and collapsed by default.
-  //    Pattern: <h3 class="lab-title">Lab: ...</h3> followed by <div class="lab">
-  //    Also handles labs with h2/h3 title inside the lab div itself.
+  //    Priority order for the lab title:
+  //      1. <div class="callout-title"> inside the lab (CANONICAL form)
+  //      2. <h3 class="lab-title"> immediately before the lab (legacy)
+  //      3. First <h2>/<h3> inside the lab div (legacy)
+  //      4. Fallback "Hands-On Lab"
+  //
+  //    Match only <div class="callout lab"> / <div class="lab"> tops, NOT
+  //    inner divs like .lab-objective, .lab-meta, .lab-skills (those match
+  //    `class="lab-objective"` etc. which the `.lab` selector already skips
+  //    because class names are whole tokens). The previous version of this
+  //    routine ignored the canonical .callout-title and instead picked up the
+  //    "Objective" h3 inside .lab-objective as the lab title, producing two
+  //    misleading rendered cards: "Hands-On Lab" (fallback) and
+  //    "Lab: Objective" (mis-identified). Now we prioritize .callout-title.
   document.querySelectorAll('.lab').forEach(function (lab) {
     // Skip if already inside a details
     if (lab.closest('details.lab-collapse')) return;
@@ -185,15 +197,29 @@ document.addEventListener('DOMContentLoaded', function () {
     var labTitle = 'Hands-On Lab';
     var removeInternalHeading = false;
     var internalHeading = null;
+    var calloutTitleEl = null;
 
-    if (titleEl && titleEl.classList.contains('lab-title')) {
+    // PRIORITY 1: canonical callout-title inside the lab (direct child only,
+    // not any descendant — to avoid grabbing a step-level callout-title).
+    for (var i = 0; i < lab.children.length; i++) {
+      var ch = lab.children[i];
+      if (ch.classList && ch.classList.contains('callout-title')) {
+        calloutTitleEl = ch;
+        break;
+      }
+    }
+    if (calloutTitleEl) {
+      labTitle = calloutTitleEl.textContent.trim();
+      // Normalize "Hands-On Lab: X" → "Lab: X" for visual consistency
+      labTitle = labTitle.replace(/^Hands-On Lab:\s*/i, 'Lab: ');
+    } else if (titleEl && titleEl.classList.contains('lab-title')) {
+      // PRIORITY 2: legacy <h3 class="lab-title">Lab: ...</h3> before the lab
       labTitle = titleEl.textContent.trim();
     } else {
-      // Check for h2/h3 inside the lab div as title source
+      // PRIORITY 3: first h2/h3 inside the lab div
       internalHeading = lab.querySelector('h2, h3');
       if (internalHeading) {
         var headingText = internalHeading.textContent.trim();
-        // Strip "Hands-On Lab:" prefix if present
         labTitle = headingText.replace(/^Hands-On Lab:\s*/i, 'Lab: ');
         if (labTitle === headingText && !headingText.toLowerCase().startsWith('lab')) {
           labTitle = 'Lab: ' + headingText;
@@ -216,6 +242,11 @@ document.addEventListener('DOMContentLoaded', function () {
 
     if (titleEl && titleEl.classList.contains('lab-title')) {
       details.appendChild(titleEl);
+    }
+    // Remove the canonical .callout-title element from the lab body since it
+    // is now in the collapsible summary (avoids visual duplication).
+    if (calloutTitleEl) {
+      calloutTitleEl.remove();
     }
     // Remove internal heading since title is now in the collapsible summary
     if (removeInternalHeading && internalHeading) {

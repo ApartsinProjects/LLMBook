@@ -17,11 +17,14 @@ Issue = namedtuple("Issue", ["priority", "check_id", "filepath", "line", "messag
 HEADING_RE = re.compile(r'<(h[1-6])\b[^>]*>(.*?)</\1>', re.DOTALL | re.IGNORECASE)
 TAG_RE = re.compile(r'<[^>]+>')
 
-# Wrapper-div classes whose internal headings are meta-info (visually styled
-# as a small banner, not part of the main content outline).
+# Wrapper-div / aside classes whose internal headings are meta-info (visually
+# styled as a small banner, not part of the main content outline).
 META_WRAPPER_CLASSES = {
     "prerequisites", "prereqs", "learning-objectives", "objectives",
     "learning-outcomes", "outcomes", "callout",
+    "section-internal-toc",   # <aside class="section-internal-toc"> with h3 toc heading
+    "takeaways",              # <div class="takeaways"> with h2 Key Takeaways
+    "page-breadcrumb",
 }
 # Match wrapper div opens: <div class="prerequisites">, <div class="callout TYPE">, etc.
 META_OPEN_RE = re.compile(
@@ -32,42 +35,31 @@ META_CLOSE_RE = re.compile(r'</div>', re.IGNORECASE)
 
 
 def is_inside_meta(html: str, pos: int) -> bool:
-    """Return True if `pos` sits inside an open meta-info wrapper div."""
-    # Walk through opens/closes before `pos` and track depth of meta wrappers.
-    depth = 0
-    for m in re.finditer(r'<div\s+class\s*=\s*"([^"]*)"|</div>', html[:pos], re.IGNORECASE):
-        token = m.group()
-        if token.startswith('</'):
-            if depth > 0:
-                depth -= 1
-        else:
-            classes = m.group(1).split()
-            if any(c in META_WRAPPER_CLASSES for c in classes):
-                depth += 1
-            else:
-                # Non-meta div — but we still increment because we need to
-                # pair it with the right close. Track with a separate counter
-                # by signaling "0 increment" via not changing depth (we only
-                # pair meta opens to subsequent closes).
-                # Simpler: bump depth so closes pair correctly; but then
-                # non-meta wrappers would falsely shield meta headings. Use a
-                # two-counter approach instead.
-                pass
-    # The naive single-counter approach above is wrong because </div> closes
-    # apply to the most-recent <div>, not specifically to meta wrappers.
-    # Fall back to a simpler heuristic: scan backward up to 1200 chars and
-    # see if the nearest open <div> is a meta wrapper.
+    """Return True if `pos` sits inside an open meta-info wrapper (div OR aside)."""
+    # Heuristic: scan backward up to 1200 chars and see if the nearest meta
+    # wrapper open tag is unclosed.
     window = html[max(0, pos - 1200):pos]
+    # Find nearest opening of either <div class="META"> or <aside class="META">
+    meta_open_re = re.compile(
+        r'<(?:div|aside)\s+class\s*=\s*"([^"]*)"',
+        re.IGNORECASE,
+    )
     last_open = None
-    for m in META_OPEN_RE.finditer(window):
-        last_open = m
-    last_close_pos = window.rfind('</div>')
+    for m in meta_open_re.finditer(window):
+        classes = m.group(1).split()
+        if any(c in META_WRAPPER_CLASSES or c in {"section-internal-toc"} for c in classes):
+            last_open = m
     if not last_open:
         return False
-    if last_close_pos > last_open.start():
+    # Find nearest close of EITHER div or aside after the open
+    close_re = re.compile(r'</(?:div|aside)>', re.IGNORECASE)
+    last_close_pos = -1
+    for m in close_re.finditer(window):
+        if m.start() > last_open.start():
+            last_close_pos = m.start()
+    if last_close_pos != -1:
         return False
-    classes = last_open.group(1).split()
-    return any(c in META_WRAPPER_CLASSES for c in classes)
+    return True
 
 
 def run(filepath, html, context):

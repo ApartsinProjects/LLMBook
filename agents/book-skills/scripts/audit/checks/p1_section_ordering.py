@@ -53,6 +53,30 @@ def run(filepath, html, context):
     if "section-" not in filepath.name:
         return []
 
+    # Tools-of-the-trade sections are reference catalogs with intermixed
+    # tool listings + callouts + sub-references; the strict canonical
+    # ordering doesn't apply.
+    rel = str(filepath).lower().replace("\\", "/")
+    is_reference_section = (
+        '/tools-of-the-trade/' in rel
+        or 'module-05-tools-of-the-trade' in rel
+        or 'module-19-tools-of-the-trade' in rel
+        or 'module-30-tools-of-the-trade' in rel
+        or 'module-45-tools-of-the-trade' in rel
+        or 'module-51-tools-of-the-trade' in rel
+        or 'module-61-scale-tools' in rel
+        or 'module-71-tools-of-the-trade' in rel
+        or 'module-79-tools-of-the-trade' in rel
+        or 'module-14-tools-of-the-trade' in rel
+        or 'module-36-retrieval-tools' in rel
+        or 'module-41-conv-ai-tools' in rel
+        or 'module-56-responsible-ai-tools' in rel
+        or '/appendices/' in rel
+        or '/appendix-' in rel
+    )
+    if is_reference_section:
+        return []
+
     issues = []
     lines = html.split("\n")
 

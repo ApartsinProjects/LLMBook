@@ -473,10 +473,18 @@ def check_unclosed_delimiter(html):
         # Remove matched inline math $...$ pairs (non-greedy)
         no_matched = re.sub(r'\$[^$]+\$', '', no_display)
 
+        # First: convert &#36; entity to literal $ (so currency/pair detection
+        # below sees a uniform delimiter). The book uses &#36; in two contexts:
+        #   1. Currency notation: &#36;100 (matches the currency regex below)
+        #   2. Math span open delimiter paired with literal $ close (e.g.
+        #      `<span class="math">&#36;math here$</span>`) — matches the
+        #      inline-math pair regex.
+        no_matched_norm = no_matched.replace('&#36;', '$')
+        # Re-strip inline math pairs (catches the &#36;...$ form that the
+        # earlier `\$[^$]+\$` skipped because the left delimiter was an entity)
+        no_matched_norm = re.sub(r'\$[^$\n]+\$', '', no_matched_norm)
         # Remove currency $ (e.g., $12, $0.50, $ 300, $12K, $0.01/query)
-        no_currency = re.sub(r'\$\s*[\d,]+(?:\.\d+)?(?:[KkMmBb])?(?:/[\w,]+)*', '', no_matched)
-        # Also remove &#36; HTML entity for dollar sign
-        no_currency = no_currency.replace('&#36;', '')
+        no_currency = re.sub(r'\$\s*[\d,]+(?:\.\d+)?(?:[KkMmBb])?(?:/[\w,]+)*', '', no_matched_norm)
         # Remove $ inside code-like contexts (e.g., ${VARIABLE}, '$')
         no_currency = re.sub(r"\$\{[^}]*\}", '', no_currency)
         no_currency = re.sub(r"'\$'", '', no_currency)

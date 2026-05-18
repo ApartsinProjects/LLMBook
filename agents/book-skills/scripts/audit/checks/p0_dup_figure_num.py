@@ -18,7 +18,10 @@ DESCRIPTION = "Same Figure/Table/Listing number used multiple times in one file"
 
 Issue = namedtuple("Issue", ["priority", "check_id", "filepath", "line", "message"])
 
-NUM_RE = re.compile(r'(?:Figure|Table|Listing|Code Fragment)\s+(\d+\.\d+(?:\.\d+)?)')
+# Capture the FULL dotted number with any number of segments, anchored at a
+# word boundary or non-digit boundary so "37.1.4.1" doesn't get truncated
+# to "37.1.4" (which would collide with the sibling "37.1.4" caption).
+NUM_RE = re.compile(r'(?:Figure|Table|Listing|Code Fragment)\s+(\d+(?:\.\d+)+)(?!\d|\.)')
 
 # Caption substrings to extract — we only count numbers INSIDE these:
 CAPTION_SUBSTRING_RE = re.compile(

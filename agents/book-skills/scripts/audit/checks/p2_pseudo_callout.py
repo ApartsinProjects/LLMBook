@@ -84,6 +84,12 @@ def run(filepath, html, context):
         lookahead = html[m.end():m.end() + 800]
         if re.search(r'<div\s+class="callout\s+\w+', lookahead, re.IGNORECASE):
             continue
+        # Also canonical: the heading is INSIDE a <div class="takeaways">
+        # wrapper (book.css has a `.takeaways` rule that styles it like a
+        # callout). Look back up to 200 chars for the wrapper.
+        lookback = html[max(0, m.start() - 200):m.start()]
+        if re.search(r'<div\s+class="takeaways"', lookback, re.IGNORECASE):
+            continue
         issues.append(Issue(
             PRIORITY, CHECK_ID, filepath, _line(html, m.start()),
             f'Heading "{title}" should be a <div class="callout-title"> inside a callout div',

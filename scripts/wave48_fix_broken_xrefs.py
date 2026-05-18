@@ -38,6 +38,23 @@ REPLACEMENTS = [
      'part-1-llm-building-blocks/module-02-sequence-models-attention/'),
     ('part-4-training-adaptation/module-20-rlhf-alignment/',
      'part-4-training-adaptation/module-18-alignment-rlhf-dpo/'),
+    # Wave 18: fix section numbers within those corrected paths
+    # Agent referenced section-13.X inside module-16 — should be section-16.X
+    ('module-16-fine-tuning-fundamentals/section-13.1.html',
+     'module-16-fine-tuning-fundamentals/section-16.1.html'),
+    ('module-16-fine-tuning-fundamentals/section-13.2.html',
+     'module-16-fine-tuning-fundamentals/section-16.2.html'),
+    ('module-16-fine-tuning-fundamentals/section-13.3.html',
+     'module-16-fine-tuning-fundamentals/section-16.3.html'),
+    # Agent referenced section-20.X inside module-18 — should be section-18.X
+    ('module-18-alignment-rlhf-dpo/section-20.1.html',
+     'module-18-alignment-rlhf-dpo/section-18.1.html'),
+    ('module-18-alignment-rlhf-dpo/section-20.3.html',
+     'module-18-alignment-rlhf-dpo/section-18.3.html'),
+    # Agent referenced section-0.5 in module-00 — but module-00 only has 0.1-0.4
+    # Map to nearest valid: 0.4
+    ('module-00-ml-pytorch-foundations/section-0.5.html',
+     'module-00-ml-pytorch-foundations/section-0.4.html'),
 ]
 
 
