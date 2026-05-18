@@ -4,25 +4,31 @@ Reads docs/content-audit/cycle_snapshots/cycle_38.json, filters CALLOUT_ORDER
 issues, and for each affected section file rewrites the singleton callouts in
 canonical order:
 
-  1. big-picture
-  2. prerequisites (div, NOT callout)
-  3. research-frontier
-  4. lab
-  5. key-takeaway
-  6. self-check
-  7. exercises  (section.exercises OR h2#exercises + contiguous exercise callouts)
-  8. whats-next
-  9. bibliography (details.bibliography-collapsible)
+  OPENER (left in place, never moved)
+    1. big-picture
+    2. prerequisites (div, NOT callout)
 
-Strategy: locate each singleton block via balanced-div matching, collect the
-(canonical_index, start, end, html) tuples. If they are NOT already sorted by
-start, snip them out, then re-insert them in canonical order at the position
-of the FIRST singleton. Inter-singleton content (plural callouts, prose)
-moves UP so it precedes the singletons, which matches the canonical "body
-before singletons" rule.
+  CLOSER (collected and reordered at the position of the last closer)
+    3. research-frontier
+    4. lab
+    5. key-takeaway
+    6. self-check
+    7. exercises  (section.exercises OR h2#exercises + contiguous exercise callouts)
+    8. whats-next
+    9. bibliography (details.bibliography-collapsible)
+
+Strategy: locate each singleton block via balanced-tag matching. Snip out only
+the CLOSER singletons and re-insert them in canonical order at the position
+of the LAST closer singleton. Inter-singleton content (plural callouts, prose)
+moves UP so it precedes the closer block, which matches the canonical "body
+before singletons" rule. Openers (big-picture, prerequisites) stay put.
+
+Files with structural issues (duplicate singleton-type callouts, separated
+dual exercises markup, or overlapping spans where one singleton is nested
+inside another) are flagged as needing manual review and left untouched.
 
 Usage:
-    python wave72_reorder_callouts.py [--dry] [--limit N] [--files glob]
+    python wave72_reorder_callouts.py [--dry] [--limit N] [--only SUBSTR]
 """
 from __future__ import annotations
 
