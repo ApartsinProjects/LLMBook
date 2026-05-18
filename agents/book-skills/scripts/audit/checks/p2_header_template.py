@@ -66,7 +66,15 @@ HEADER_NAV_RE = re.compile(r'<nav\s+class="header-nav"', re.IGNORECASE)
 BOOK_TITLE_RE = re.compile(r'<a\s+class="book-title-link"', re.IGNORECASE)
 TOC_LINK_RE = re.compile(r'<a\s+class="toc-link"', re.IGNORECASE)
 HEADER_SEARCH_RE = re.compile(r'<div\s+class="header-search"', re.IGNORECASE)
-BREADCRUMB_PART_RE = re.compile(r'<div\s+class="page-breadcrumb"\s+data-pagefind-meta="part"', re.IGNORECASE)
+# Part pages may use EITHER <div class="page-breadcrumb"> OR <div class="part-label">.
+# Both carry the data-pagefind-meta="part" attribute so Pagefind indexes them
+# under the part name; visually the part-label is the more common form (a single
+# bold "Part I" label rather than a multi-level breadcrumb, since part pages
+# are themselves a top-level navigation node).
+BREADCRUMB_PART_RE = re.compile(
+    r'<div\s+class="(?:page-breadcrumb|part-label)"\s+data-pagefind-meta="part"',
+    re.IGNORECASE,
+)
 BREADCRUMB_CH_RE = re.compile(r'<div\s+class="page-breadcrumb"\s+data-pagefind-meta="chapter"', re.IGNORECASE)
 H1_RE = re.compile(r'<h1\b', re.IGNORECASE)
 PAGE_CURRENT_RE = re.compile(r'<div\s+class="page-current"', re.IGNORECASE)

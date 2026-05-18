@@ -14,20 +14,17 @@ Path pattern: `part-N-*/index.html`
       <span class="toc-icon">&#9776;</span> Contents
     </a>
   </nav>
-  <div class="page-breadcrumb" data-pagefind-meta="part">
-    <a href="../index.html">Building Conversational AI</a>
-    <span class="bc-sep">&rsaquo;</span>
-    <span class="bc-current">Part {ROMAN}: {PART_TITLE}</span>
-  </div>
-  <h1>Part {ROMAN}: {PART_TITLE}</h1>
+  <div class="part-label" data-pagefind-meta="part">Part {ROMAN}</div>
+  <h1 class="part-title">Part {ROMAN}: {PART_TITLE}</h1>
 </header>
 ```
 
 Notes:
 - NO `<div class="header-search">` block — part-level pages don't need their own search box
-- Breadcrumb has 2 levels: book → part (current)
-- `<h1>` repeats "Part X: ..." (matches the breadcrumb current)
-- `data-pagefind-meta="part"` on the breadcrumb so Pagefind indexes "Part XX" as the part name
+- `<div class="part-label">` is a single-element label (NOT a multi-level breadcrumb), since part pages ARE the top-level navigation node and don't need to point back to book root
+- `<h1 class="part-title">` repeats "Part X: ..." (matches the part-label)
+- `data-pagefind-meta="part"` on the part-label so Pagefind indexes "Part XX" as the part name
+- Alternative: `<div class="page-breadcrumb" data-pagefind-meta="part">` with breadcrumb chain (older pages). Both forms accepted by the audit plugin.
 
 ## Template B: Chapter (Module) Index Page
 
