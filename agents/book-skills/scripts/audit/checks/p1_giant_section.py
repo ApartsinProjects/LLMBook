@@ -37,6 +37,14 @@ def run(filepath, html, context):
         or 'module-41-conv-ai-tools' in rel_lower
         or 'module-56-responsible-ai-tools' in rel_lower
     )
+    # Generic catalog signal: many h2s with a short average line count per h2
+    # (registry pages, comparison tables, vendor lists). 30-40 lines per h2 is
+    # typical for a catalog entry; 80+ lines per h2 is a deep section that
+    # really does need splitting.
+    if not is_catalog and h2_count >= 10:
+        avg_lines_per_h2 = lines / max(h2_count, 1)
+        if avg_lines_per_h2 < 50:
+            is_catalog = True
 
     # P0 = strong indicator of merge: BOTH long AND many subsections
     if lines > 1200 and h2_count > 10:
@@ -48,8 +56,11 @@ def run(filepath, html, context):
         issues.append(Issue("P0", CHECK_ID, filepath, 1,
             f'Extremely long section: {lines} lines, {h2_count} h2. Strong split candidate.'))
     # P1 = one strong signal: very long OR many h2.
-    # For catalog sections, only fire on actual length, not h2 density.
-    elif lines > 1000 or (h2_count > 12 and not is_catalog):
+    # For catalog sections (tools-of-the-trade), single-entry lengths can run
+    # 1000-1300 lines for libraries with many examples, code blocks, and version
+    # tables. Only flag as P1 when a catalog runs past 1400 lines (the P0
+    # threshold below).
+    elif (lines > 1000 and not is_catalog) or (h2_count > 12 and not is_catalog):
         issues.append(Issue(PRIORITY, CHECK_ID, filepath, 1,
             f'Large section: {lines} lines, {h2_count} h2 subsections. Likely split candidate.'))
     # P2 = borderline: moderately long and many subsections.
