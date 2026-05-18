@@ -60,8 +60,11 @@ def run(filepath, html, context):
         issues.append(Issue(PRIORITY, CHECK_ID, filepath, 0,
                             f"{rel} missing whats-next section"))
 
-    # Check for opener illustration
-    if not re.search(r'<figure\b[^>]*class="illustration"', html):
+    # Check for opener illustration. Class attribute may be either bare
+    # "illustration" or compound "illustration chapter-opener" / "chapter-opener illustration"
+    # / etc. The class TOKEN must include "illustration" — match using a
+    # word-boundary regex.
+    if not re.search(r'<figure\b[^>]*class="[^"]*\billustration\b[^"]*"', html):
         issues.append(Issue(PRIORITY, CHECK_ID, filepath, 0,
                             f"{rel} missing opener illustration (figure.illustration)"))
 
