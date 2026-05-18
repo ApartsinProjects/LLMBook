@@ -46,8 +46,12 @@ Issue = namedtuple("Issue", ["priority", "check_id", "filepath", "line", "messag
 CANONICAL_ORDER = {
     "epigraph": 1,
     "illustration": 2,
+    # big-picture and overview share rank 3 (either order is fine; some
+    # chapters lead with the one-paragraph hook then expand, others lead
+    # with the detailed walkthrough then summarize). The plugin no longer
+    # enforces a strict order between these two.
     "big-picture": 3,
-    "overview": 4,
+    "overview": 3,
     "prereqs": 5,
     "objectives": 6,
     "sections-list": 7,
