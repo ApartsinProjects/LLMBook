@@ -116,6 +116,8 @@ def main():
     parser.add_argument('--sections-only', action='store_true')
     parser.add_argument('--require-title-match', action='store_true',
                         help='For chapter refs, only link if prose mentions a token of the target module title')
+    parser.add_argument('--skip-promoted', action='store_true',
+                        help='Skip section refs where the resolver promoted X.Y -> X.Ya')
     args = parser.parse_args()
 
     findings = json.load(open(os.path.join(ROOT, 'docs', 'content-audit', '_xref_findings.json')))
@@ -166,6 +168,10 @@ def main():
                 continue
             if not verify_path_exists(f, href):
                 skipped.append((f, 'section', sec, f'path does not exist: {href}'))
+                continue
+            if args.skip_promoted and actual != sec:
+                # Prose says "Section X.Y" but target is "X.Ya"; skip to avoid creating bad-anchor-text
+                skipped.append((f, 'section', sec, f'promoted to {actual}; skip to avoid bad-anchor-text'))
                 continue
             # cross-chapter if section number's chapter part differs from src_module_num
             sec_chap = sec.split('.')[0]
