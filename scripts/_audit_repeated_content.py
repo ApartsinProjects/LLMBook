@@ -79,6 +79,13 @@ BOILERPLATE_CALLOUT_TITLES = {
     "tip", "warning", "note", "best practice", "common mistake",
     "common misconception", "pitfall", "gotcha", "caveat",
     "advanced", "deep dive", "side note", "aside",
+    # Per-section recurring themed blocks that have unique content per section
+    "research frontier", "research frontiers", "frontier",
+    "self-check exercises", "self check exercises", "self-check",
+    "active research", "open problem", "open problems",
+    "what could go wrong", "edge cases", "edge case",
+    "concept check", "concept-check", "knowledge check",
+    "rapid review", "quick review",
     # Title-prefixed variants we see a lot ("Note: Learning Objectives",
     # "Tip: Production Alternative") -- the prefix counts as structural.
     "note: learning objectives", "note: modify and observe",
@@ -730,4 +737,159 @@ def render_report(sections: list[dict], clusters: dict, fuzzy_caption_clusters: 
         all_tokens = set()
         for it in items_sorted:
             text = " ".join(str(v).lower() for k, v in it.items()
-                            
+                            if k in ("preview", "caption", "title") and v)
+            all_tokens |= set(re.findall(r"[a-z0-9]+", text))
+        canonical = canonical_home_for(sections_in, all_tokens)
+        non_canonical = [it for it in items_sorted if it["section"] != canonical]
+        if not non_canonical:
+            continue
+        sketches_written += 1
+        target = non_canonical[0]
+        preview = target.get("preview") or target.get("caption") or ""
+        out.append(f"### Sketch {sketches_written}: `{target['section']}` (cluster type: {cluster['type']})")
+        out.append("")
+        out.append(f"**Cluster signature**: `{(cluster['key'] or '')[:120]}`")
+        out.append("")
+        out.append("**Before** (duplicate content):")
+        out.append("```html")
+        if cluster["type"].startswith("callout"):
+            ti = target.get("title") or "Big Picture"
+            out.append(f'<div class="callout big-picture">')
+            out.append(f'  <div class="callout-title">{ti}</div>')
+            out.append(f"  <p>{preview[:240]}</p>")
+            out.append(f"</div>")
+        elif cluster["type"].startswith("code_caption"):
+            cap = target.get("caption") or preview
+            lbl = target.get("label", "Code Fragment X.Y.Z")
+            out.append(f'<div class="code-caption"><strong>{lbl}</strong>: {cap[:200]}</div>')
+        else:
+            out.append(f"<p>{preview[:300]}</p>")
+        out.append("```")
+        out.append("")
+        canonical_rel = _relpath(target["section"], canonical)
+        out.append(f"**After** (replace with cross-ref to canonical `{canonical}`):")
+        out.append("```html")
+        if cluster["type"].startswith("code_caption_exact") or cluster["type"] == "code_caption_long":
+            # Lame caption case: just rewrite with section-specific content
+            out.append(f'<div class="code-caption"><strong>{target.get("label","Code Fragment X.Y.Z")}</strong>: ')
+            out.append('  (rewrite this caption with section-specific content explaining what THIS code does.</div>')
+        else:
+            out.append(f'<div class="callout cross-ref">')
+            out.append(f'  <div class="callout-title">See Also</div>')
+            out.append(f"  <p>This concept is treated in depth in ")
+            out.append(f'    <a href="{canonical_rel}">{canonical.split("/")[-1].replace(".html","")}</a>.')
+            out.append(f"    The treatment there covers the full depth; the brief mention previously")
+            out.append(f"    here has been removed to avoid drift.</p>")
+            out.append(f"</div>")
+        out.append("```")
+        out.append("")
+
+    # ----------------------------------------------------------
+    # Top-5 single-line summary
+    # ----------------------------------------------------------
+    out.append("## Top-5 Most-Egregious Clusters (one-liners)")
+    out.append("")
+    for idx, cluster in enumerate(ranked[:5], 1):
+        sections_set = {it["section"] for it in cluster["items"]}
+        sig = (cluster["key"] or "")[:60]
+        out.append(f"{idx}. **{cluster['type']}**: \"{sig}...\" -- across **{len(sections_set)}** sections, **{len(cluster['items'])}** occurrences.")
+    out.append("")
+
+    return "\n".join(out)
+
+
+def _is_generic_prose_opener(text: str) -> bool:
+    """Filter out prose openers that look generic (and would create false positives).
+    E.g., 'In this section we' or 'This chapter covers...'."""
+    if not text:
+        return True
+    t = text.lower().strip()
+    generic_starts = (
+        "in this section",
+        "in this chapter",
+        "this chapter covers",
+        "this section covers",
+        "the rest of this",
+    )
+    return any(t.startswith(s) for s in generic_starts)
+
+
+def _suggest_action(cluster, sections_in):
+    n = len(sections_in)
+    ctype = cluster["type"]
+    if ctype == "callout_body":
+        if n >= 3:
+            return "**DELETE** duplicate callouts in non-canonical sections; replace with `<div class=\"callout cross-ref\">` See-Also. Body fingerprints are identical -- this is copy-paste prone to drift."
+        return "**DELETE** the duplicate callout; promote one location to canonical and cross-ref from the other."
+    if ctype == "callout_title_nonstructural":
+        return "**RESTRUCTURE**: same non-structural title used in multiple sections. If bodies overlap, consolidate to canonical with cross-refs; if bodies differ, rename titles to disambiguate."
+    if ctype == "code_caption_exact":
+        return "**REWRITE**: short generic caption (\"Code example\", \"Install the required packages for this lab\") repeated verbatim. Replace each with a section-specific one-line description of what the code actually does."
+    if ctype == "code_caption_long":
+        return "**REWRITE or DELETE**: long caption duplicated near-verbatim across sections. Either rewrite each to describe the section's specific code, or consolidate the actual code to a canonical home."
+    if ctype == "code_caption_fuzzy":
+        return "**RESTRUCTURE**: similar Code Fragments cover overlapping ground. Decide whether each is doing distinct didactic work; if not, consolidate to canonical and replace others with a 1-line See-Also pointer."
+    if ctype == "prose":
+        if n >= 3:
+            return "**DELETE** duplicate paragraphs in non-canonical sections; this is verbatim copy-paste."
+        return "**DELETE** the redundant paragraph; replace with a 1-line summary plus a link to canonical."
+    return "**REVIEW**"
+
+
+def _relpath(from_section_path: str, to_section_path: str) -> str:
+    from_parts = from_section_path.split("/")[:-1]
+    to_parts = to_section_path.split("/")
+    i = 0
+    while i < len(from_parts) and i < len(to_parts) - 1 and from_parts[i] == to_parts[i]:
+        i += 1
+    up = [".."] * (len(from_parts) - i)
+    down = to_parts[i:]
+    return "/".join(up + down)
+
+
+# ----------------------------------------------------------------------
+# Main
+# ----------------------------------------------------------------------
+
+def main():
+    files = collect_section_files()
+    print(f"Scanning {len(files)} main-track sections...", file=sys.stderr)
+
+    sections = []
+    for fp in files:
+        try:
+            sections.append(extract_section_data(fp))
+        except Exception as e:
+            print(f"WARN: failed {fp.relative_to(ROOT)}: {e}", file=sys.stderr)
+
+    clusters = cluster_duplicates(sections)
+    fuzzy_caption_clusters = code_caption_fuzzy_cluster(sections)
+
+    report = render_report(sections, clusters, fuzzy_caption_clusters)
+    OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    OUT_PATH.write_text(report, encoding="utf-8")
+    print(f"Wrote: {OUT_PATH.relative_to(ROOT)}", file=sys.stderr)
+
+    json_dump = {
+        "n_sections": len(sections),
+        "stats": {
+            "callouts": sum(len(s["callouts"]) for s in sections),
+            "code_captions": sum(len(s["code_captions"]) for s in sections),
+            "prose": sum(len(s["prose"]) for s in sections),
+        },
+        "clusters_summary": {
+            "callout_body_clusters": len(clusters["callout_body"]),
+            "callout_title_nonstructural_clusters": len(clusters["callout_title_non_structural"]),
+            "code_caption_exact_clusters": len(clusters["code_caption_exact"]),
+            "code_caption_long_clusters": len(clusters["code_caption_long_match"]),
+            "code_caption_fuzzy_clusters": len(fuzzy_caption_clusters),
+            "prose_short_fp_clusters": len(clusters["prose_short_fp"]),
+            "prose_long_fp_clusters": len(clusters["prose_long_fp"]),
+        },
+    }
+    JSON_DUMP_PATH.write_text(json.dumps(json_dump, indent=2), encoding="utf-8")
+    print(f"Wrote: {JSON_DUMP_PATH.relative_to(ROOT)}", file=sys.stderr)
+
+
+if __name__ == "__main__":
+    main()

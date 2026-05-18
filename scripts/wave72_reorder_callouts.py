@@ -163,24 +163,38 @@ def find_exercises(html: str) -> Optional[tuple[int, int]]:
 
     For (B) the block runs from the h2 start to the end of the LAST
     consecutive exercise-callout. Trailing whitespace is NOT included.
+
+    If BOTH (A) and (B) appear in the file (a known structural quirk), we
+    prefer whichever comes FIRST, matching the audit plugin's behavior.
     """
-    # Try (A)
     pat_a = re.compile(r'<section\s+class="exercises"', re.IGNORECASE)
+    pat_h2 = re.compile(r'<h2\s+id="exercises"[^>]*>.*?</h2>',
+                        re.IGNORECASE | re.DOTALL)
     m_a = pat_a.search(html)
-    if m_a:
+    m_h2 = pat_h2.search(html)
+
+    # If both present, pick the one with the earlier start.
+    if m_a and m_h2:
+        if m_a.start() < m_h2.start():
+            use_a = True
+        else:
+            use_a = False
+    elif m_a:
+        use_a = True
+    elif m_h2:
+        use_a = False
+    else:
+        return None
+
+    if use_a:
         end_a = find_balanced(html, m_a.start(), 'section')
         if end_a > 0:
             return (m_a.start(), end_a)
-
-    # Try (B)
-    pat_h2 = re.compile(r'<h2\s+id="exercises"[^>]*>.*?</h2>', re.IGNORECASE | re.DOTALL)
-    m_h2 = pat_h2.search(html)
-    if not m_h2:
         return None
+
+    # Variant (B)
     start = m_h2.start()
     cursor = m_h2.end()
-    # Skip whitespace and HTML comments; accept any number of consecutive
-    # <div class="callout exercise"> blocks.
     ex_re = re.compile(r'<div\s+class="callout\s+exercise"', re.IGNORECASE)
     last_end = m_h2.end()
     while True:
@@ -208,7 +222,6 @@ def find_exercises(html: str) -> Optional[tuple[int, int]]:
         last_end = end_ex
         cursor = end_ex
     if last_end == m_h2.end():
-        # No exercise callouts followed; treat the h2 alone as the block.
         return (start, last_end)
     return (start, last_end)
 
