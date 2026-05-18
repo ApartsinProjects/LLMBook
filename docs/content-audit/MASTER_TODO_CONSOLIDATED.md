@@ -3,7 +3,26 @@
 Last refresh: 2026-05-18 session continuation. Reviews all 35 audit reports
 in `docs/content-audit/` to ensure nothing is lost on context compaction.
 
-## Done this session segment (26 commits on v2.0; cumulative 7906 → 3052 issues = 61.4%)
+## Done this session segment (36 commits on v2.0; cumulative 7906 → 2710 issues = 65.7%)
+
+### Latest waves (waves 82-86, cycle 56 -> cycle 58)
+- **Wave 82**: 83 chapter-card-headers made clickable in 16 part-index pages
+- **See Also :visited fix**: red hover residual on visited links eliminated
+- **GIANT_SECTION_RECOMMENDATIONS.md**: SPLIT/KEEP/TRIM decisions for 63 large sections (7 high-conf SPLITs proposed)
+- **DUPLICATE_SINGLETON agent (a1465b9)**: 28 sections reconciled (research-frontier x2-4 -> 1, callout reclassifications, structural repair in 10.2)
+- **Plugin tunes after DUPLICATE_SINGLETON landing**:
+  - `p2_callout_title_prefix`: accept Bridge:/Open Question:/Paper Spotlight:/2026 Snapshot:/2026 Frontier:/Frontier: as key-insight variants; postmortem exempt from prefix req
+  - `p2_callout_order`: research-frontier is now position-flexible (opening OR closing)
+  - `p2_key_insight_vs_takeaway`: lists are OK inside key-insight when wrapped in 2+ paragraphs
+- **Wave 83**: 16 part-index pages got canonical whats-next + chapter-nav
+- **Wave 84**: appendix-A sections a.1-a.4 promoted h3 -> h2 (4 sections, 16 headings)
+- **Wave 85**: 8 part-index pages got Part Overview wrapped in canonical div
+- **Plugin tune p2_part_index**: opener-illustration regex accepts compound class
+- **SVG aria-label agent (ae62427)**: 61 SVG diagrams got descriptive aria-labels (no TODOs)
+- **Wave 86**: 30 chapter-index whats-next + 21 pagefind chapter meta spans added
+- **Figure renumbering agent (ad287c8)**: in flight; partial -67 FIGURE_SEQUENCE + -18 DUP_FIGURE_NUM landed
+
+## Earlier-session done (26 commits, cumulative 7906 → 3052 issues = 61.4%)
 
 ### Plugins added (10 new + 14 tuned)
 1. `p1_structural_violations` (DUPLICATE_SINGLETON, DOUBLE_TITLE_PREFIX, KEY_INSIGHT_BOLD, INDEX_DUPLICATE_OPENER, NON_CANONICAL_BIB)
