@@ -2,10 +2,15 @@
 
 Section callout ordering is flexible, but some constraints apply:
   1. self-check should not appear in the first 10% of the file (before any content)
-  2. research-frontier should be in the last 40% of the main content
-  3. bibliography/further-reading section should be after all callouts
-  4. No callouts after the chapter-nav (footer area)
-  5. exercise callouts should not appear before the first h2/h3 heading
+  2. bibliography/further-reading section should be after all callouts
+  3. No callouts after the chapter-nav (footer area)
+  4. exercise callouts should not appear before the first h2/h3 heading
+
+NOTE: research-frontier was previously restricted to the LAST 40% of
+content, but it is now position-flexible (per CALLOUT_CATALOGUE.md and
+p2_callout_order.py): research-frontier may appear either at the
+OPENING as "Open Questions in This Field" framing OR at the CLOSING
+as "Looking Forward". Both placements are pedagogically valid.
 """
 import re
 from collections import namedtuple
@@ -57,10 +62,8 @@ def run(filepath, html, context):
             issues.append(Issue(PRIORITY, CHECK_ID, filepath, line,
                                 f"{rel}:{line} self-check appears in first 10% of file"))
 
-        # 2. research-frontier should be in the latter portion
-        if ctype == "research-frontier" and pos < total_len * 0.50:
-            issues.append(Issue(PRIORITY, CHECK_ID, filepath, line,
-                                f"{rel}:{line} research-frontier appears in first half of file"))
+        # 2. (retired) research-frontier was previously restricted to last 40%.
+        # See module docstring: it is now position-flexible.
 
         # 3. Callouts after chapter-nav
         if pos > nav_pos and ctype not in ("self-check",):
