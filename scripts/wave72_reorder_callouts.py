@@ -275,6 +275,36 @@ class OverlapError(Exception):
     """
 
 
+class DuplicateSingletonError(Exception):
+    """Raised when a singleton-typed callout appears more than once in a
+    section file. The file violates the singleton rule and needs manual
+    inspection before automated reordering can run safely.
+    """
+
+
+# Patterns used to detect *all* occurrences of singleton-class callouts.
+DUP_DETECTION = [
+    ('big-picture',       r'<div\s+class="callout\s+big-picture"'),
+    ('prerequisites',     r'<div\s+class="prerequisites"'),
+    ('research-frontier', r'<div\s+class="callout\s+research-frontier"'),
+    ('lab',               r'<div\s+class="callout\s+lab"'),
+    ('key-takeaway',      r'<div\s+class="callout\s+key-takeaway"'),
+    ('self-check',        r'<div\s+class="callout\s+self-check"'),
+    ('whats-next',        r'<div\s+class="(?:callout\s+)?whats-next"'),
+    ('bibliography',      r'<details\s+class="bibliography-collapsible'),
+]
+
+
+def detect_duplicates(html: str) -> list[tuple[str, int]]:
+    """Return list of (singleton_name, occurrence_count) where count > 1."""
+    dups = []
+    for name, pat in DUP_DETECTION:
+        n = len(re.findall(pat, html, re.IGNORECASE))
+        if n > 1:
+            dups.append((name, n))
+    return dups
+
+
 def needs_reorder(spans: list[tuple[int, int, int, str]]) -> bool:
     """True iff the CLOSER singletons (ranks 2..8) are not in canonical order
     by start position. Openers are not considered (we never reorder them).
@@ -375,6 +405,15 @@ def process(fp: Path, dry: bool) -> tuple[bool, str]:
     if should_skip(fp):
         return False, 'skipped'
     html = fp.read_text(encoding='utf-8', errors='ignore')
+
+    # Check for duplicate singletons; if any, the file violates the singleton
+    # rule and our snip-and-reinsert approach would silently lose duplicates.
+    dups = detect_duplicates(html)
+    if dups:
+        raise DuplicateSingletonError(
+            ', '.join(f'{name} x{n}' for name, n in dups)
+        )
+
     spans = locate_singletons(html)
     if not spans:
         return False, 'no singletons'
@@ -386,11 +425,12 @@ def process(fp: Path, dry: bool) -> tuple[bool, str]:
     if new_html == html:
         return False, 'no change'
 
-    # Verify the new ordering passes the audit's pairwise rule.
+    # Verify the new ordering passes the audit's pairwise rule for closers.
     new_spans = locate_singletons(new_html)
     new_order = [n for _, _, _, n in new_spans]
+    new_closers = [t for t in new_spans if t[0] in CLOSER_RANKS]
     last_rank = -1
-    for r, _, _, _ in new_spans:
+    for r, _, _, _ in new_closers:
         if r < last_rank:
             summary = f'POSTCHECK FAIL old={old_order} new={new_order}'
             return False, summary
@@ -426,7 +466,10 @@ def main():
         try:
             did, summary = process(fp, args.dry)
         except OverlapError as exc:
-            manual_needed.append((fp, str(exc)))
+            manual_needed.append((fp, f'OVERLAP: {exc}'))
+            continue
+        except DuplicateSingletonError as exc:
+            manual_needed.append((fp, f'DUPLICATE_SINGLETON: {exc}'))
             continue
         except Exception as exc:
             failed += 1
@@ -440,8 +483,7 @@ def main():
             skipped += 1
         else:
             no_change += 1
-            if no_change <= 30:
-                print(f'NO-CHANGE: {fp.name}: {summary}')
+            print(f'NO-CHANGE: {fp.name}: {summary}')
 
     print()
     print(f'Total targets:    {len(targets)}')

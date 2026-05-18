@@ -76,22 +76,12 @@ def run(filepath, html, context):
             'Two consecutive <div class="code-output"> blocks for one code fragment (drop the second or merge into the first)',
         ))
 
-    # 3. Code-caption outside a code-block-wrapper.
-    #    For each code-caption, check that within the prior 50 lines (or 1500 chars)
-    #    there is an open <div class="code-block-wrapper"> without an intervening </div>
-    #    that closes it.
-    for m in CAPTION_OUTSIDE_RE.finditer(html):
-        # Scan back: nearest code-block-wrapper open vs nearest </div> close
-        window = html[max(0, m.start() - 5000):m.start()]
-        last_wrap_open = -1
-        last_close = -1
-        for wm in WRAPPER_OPEN_RE.finditer(window):
-            last_wrap_open = wm.start()
-        # Find balanced div depth from last_wrap_open to caption
-        if last_wrap_open == -1:
-            issues.append(Issue(
-                PRIORITY, CHECK_ID, filepath, _line(html, m.start()),
-                '<div class="code-caption"> outside any <div class="code-block-wrapper">',
-            ))
+    # The "caption outside wrapper" check was retired: the predominant pattern
+    # in this book is <pre><code>...</code></pre><div class="code-caption">
+    # WITHOUT a surrounding <div class="code-block-wrapper">. The wrapper is
+    # optional; what matters is that the caption follows immediately after
+    # the code block. Strict enforcement here would fire on ~1100 captions
+    # book-wide, drowning out the real defects (details-wrapped code and
+    # duplicate code-output) that this plugin catches.
 
     return issues
