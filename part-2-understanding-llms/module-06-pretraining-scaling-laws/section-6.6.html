@@ -330,7 +330,7 @@ Activation memory without checkpointing: 4.3 GB
 Activation memory with checkpointing:    0.13 GB
 Memory saved: 97%
     </div>
-<div class="code-caption"><strong>Code Fragment 6.6.3:</strong> Gradient checkpointing in PyTorch.</div>
+<div class="code-caption"><strong>Code Fragment 6.6.3:</strong> Wrapping each transformer layer with <code>torch.utils.checkpoint.checkpoint(..., use_reentrant=False)</code> trades recompute for memory: the analysis at the bottom of the snippet shows a 32-layer model dropping activation memory from 4.3 GB to 0.13 GB (97% reduction) at the cost of one extra forward pass per layer during backprop.</div>
 <h3 id="expert-parallelism-for-moe-training">Expert Parallelism for MoE Training</h3>
 <p>Mixture-of-Experts models introduce a parallelism dimension that dense models do not have: <strong>expert parallelism</strong>. In an MoE layer, each token is routed to a small subset of experts (typically 1 or 2 out of dozens or hundreds). Expert parallelism distributes the experts themselves across GPUs, so that each GPU hosts a different subset of the expert FFN blocks. When a token is routed to an expert that lives on another GPU, an all-to-all communication operation transfers the token's hidden state to the appropriate device, and the result is sent back after computation.</p>
 <p>The communication pattern differs fundamentally from tensor parallelism. In tensor parallelism, every GPU participates in computing every token (splitting the matrix multiply). In expert parallelism, each GPU only computes the tokens routed to its local experts. This means the amount of computation per GPU varies depending on how the router distributes tokens, making load balancing critically important. If one expert receives disproportionately many tokens, the GPU hosting that expert becomes the bottleneck while others sit idle.</p>
@@ -420,27 +420,41 @@ subprocess.run([
     <span class="n">optimizer</span><span class="o">.</span><span class="n">step</span><span class="p">()</span>
     <span class="n">optimizer</span><span class="o">.</span><span class="n">zero_grad</span><span class="p">()</span>
     <span class="c1"># Launch with: accelerate launch --num_processes 4 train.py</span></code></pre>
-<div class="code-caption"><strong>Code Fragment 6.6.5:</strong> HuggingFace Accelerate wraps PyTorch distributed training so the same script runs on 1 GPU or many.</div>
+<div class="code-caption"><strong>Code Fragment 6.6.5:</strong> One <code>Accelerator(mixed_precision="bf16")</code> plus a single <code>accelerator.prepare(...)</code> call replaces the manual <code>DistributedDataParallel</code>, <code>autocast</code>, and <code>GradScaler</code> wiring. The exact same script launches with <code>accelerate launch --num_processes 4</code> to scale from 1 to N GPUs.</div>
 </div>
 </div>
 <div class="callout practical-example">
 <div class="callout-title">Real-World Scenario: DeepSpeed ZeRO in Practice</div>
 <p>DeepSpeed enables ZeRO Stage 3 sharding with a simple JSON config file.</p>
 <div class="code-block-wrapper">
-<pre><code class="pygments-highlighted lang-python"><span class="c1"># pip install deepspeed</span>
-<span class="c1"># deepspeed_config.json:</span>
-<span class="c1"># {</span>
-<span class="c1">#   "bf16": {"enabled": true},</span>
-<span class="c1">#   "zero_optimization": {"stage": 3, "offload_param": {"device": "cpu"}},</span>
-<span class="c1">#   "train_batch_size": 32,</span>
-<span class="c1">#   "gradient_accumulation_steps": 4</span>
-<span class="c1"># }</span>
-<span class="c1"># Launch training:</span>
-<span class="c1"># deepspeed train.py --deepspeed deepspeed_config.json</span>
-<span class="c1"># Or use with HuggingFace Accelerate:</span>
-<span class="c1"># accelerate launch --use_deepspeed \</span>
-<span class="c1">#     --deepspeed_config_file deepspeed_config.json train.py</span></code></pre>
-<div class="code-caption"><strong>Code Fragment 6.6.6:</strong> DeepSpeed enables ZeRO Stage 3 sharding with a simple JSON config file.</div>
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># DeepSpeed ZeRO-3: shard parameters, gradients, and optimizer states</span>
+<span class="c1"># across all data-parallel ranks, plus offload params to CPU when idle.</span>
+<span class="c1"># Write the config and launch as a Python subprocess for reproducibility.</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">json</span><span class="o">,</span><span class="w"> </span><span class="nn">subprocess</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+
+<span class="n">cfg</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">"bf16"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"enabled"</span><span class="p">:</span> <span class="kc">True</span><span class="p">},</span>
+    <span class="s2">"zero_optimization"</span><span class="p">:</span> <span class="p">{</span>
+        <span class="s2">"stage"</span><span class="p">:</span> <span class="mi">3</span><span class="p">,</span>
+        <span class="s2">"offload_param"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"device"</span><span class="p">:</span> <span class="s2">"cpu"</span><span class="p">,</span> <span class="s2">"pin_memory"</span><span class="p">:</span> <span class="kc">True</span><span class="p">},</span>
+        <span class="s2">"offload_optimizer"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"device"</span><span class="p">:</span> <span class="s2">"cpu"</span><span class="p">,</span> <span class="s2">"pin_memory"</span><span class="p">:</span> <span class="kc">True</span><span class="p">},</span>
+        <span class="s2">"overlap_comm"</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+        <span class="s2">"contiguous_gradients"</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="p">},</span>
+    <span class="s2">"train_batch_size"</span><span class="p">:</span> <span class="mi">32</span><span class="p">,</span>
+    <span class="s2">"gradient_accumulation_steps"</span><span class="p">:</span> <span class="mi">4</span><span class="p">,</span>
+<span class="p">}</span>
+<span class="n">Path</span><span class="p">(</span><span class="s2">"ds_zero3.json"</span><span class="p">)</span><span class="o">.</span><span class="n">write_text</span><span class="p">(</span><span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">cfg</span><span class="p">,</span> <span class="n">indent</span><span class="o">=</span><span class="mi">2</span><span class="p">))</span>
+
+<span class="n">subprocess</span><span class="o">.</span><span class="n">run</span><span class="p">(</span>
+    <span class="p">[</span><span class="s2">"deepspeed"</span><span class="p">,</span> <span class="s2">"--num_gpus=8"</span><span class="p">,</span> <span class="s2">"train.py"</span><span class="p">,</span> <span class="s2">"--deepspeed"</span><span class="p">,</span> <span class="s2">"ds_zero3.json"</span><span class="p">],</span>
+    <span class="n">check</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<span class="p">)</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> [INFO] deepspeed.initialize: ZeRO stage 3, parameter offload to cpu
+[INFO] partition_size = 1/8, communication overlap = True
+[INFO] Effective batch size = 32 (per-GPU micro = 1, accum = 4)</div>
+<div class="code-caption"><strong>Code Fragment 6.6.6:</strong> Generating the ZeRO-3 config from a Python dict (so version control sees a diff-friendly source) and launching <code>deepspeed</code> with eight ranks. <code>offload_param</code> + <code>offload_optimizer</code> push idle tensors to CPU memory, which is what lets ZeRO-3 train models larger than the aggregate GPU VRAM.</div>
 </div>
 </div>
 <h3 id="practical-considerations">Practical Considerations</h3>

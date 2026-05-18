@@ -22,6 +22,9 @@ FILES = [
     'part-1-llm-building-blocks/module-03-transformer-architecture/section-3.3.html',
     'part-1-llm-building-blocks/module-03-transformer-architecture/section-3.4.html',
     'part-1-llm-building-blocks/module-03-transformer-architecture/section-3.6.html',
+    'part-9-llm-evaluation-observability/module-46-llm-as-judge-automated-evaluation/section-46.2.html',
+    'part-9-llm-evaluation-observability/module-46-llm-as-judge-automated-evaluation/section-46.3.html',
+    'part-9-llm-evaluation-observability/module-46-llm-as-judge-automated-evaluation/section-46.4.html',
 ]
 
 # Patterns to match the wrapper divs
