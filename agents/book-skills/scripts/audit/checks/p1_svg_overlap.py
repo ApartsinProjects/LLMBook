@@ -86,6 +86,10 @@ def _check_overlaps(row):
         # (or differ by <= 2px, which captures border/padding tweaks).
         if abs(a["x"] - b["x"]) <= 2 and abs(a["w"] - b["w"]) <= 2:
             continue
+        # Concentric layering: same x, different widths means a smaller
+        # decoration sits inside a larger panel (common pattern). Skip.
+        if abs(a["x"] - b["x"]) <= 2:
+            continue
         a_right = a["x"] + a["w"]
         if a_right > b["x"] + MIN_OVERLAP_PX:
             overlap_px = a_right - b["x"]

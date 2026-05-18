@@ -37,10 +37,17 @@ DETAILS_CODE_RE = re.compile(
     r'<details\b[^>]*>\s*(?:<summary[^>]*>.*?</summary>\s*)?<pre[^>]*><code\s+class="pygments-highlighted',
     re.IGNORECASE | re.DOTALL,
 )
-# Two consecutive <div class="code-output"> for one code block (caption between)
+# Two consecutive <div class="code-output"> for ONE code block. The
+# "same code block" constraint is enforced by a negative lookahead that
+# refuses to span across a new <div class="code-block-wrapper"> or
+# <pre> opener (those mark a new fragment). Without that constraint,
+# the greedy `.*?` matches across thousands of lines and flags
+# legitimate one-output-per-fragment cases as duplicates.
 DUP_OUTPUT_RE = re.compile(
-    r'</pre>\s*<div\s+class="code-output">.*?</div>\s*'
-    r'<div\s+class="code-caption">.*?</div>\s*</div>\s*'
+    r'<div\s+class="code-output">'
+    r'(?:(?!<div\s+class="code-block-wrapper"|<pre\b).)*?'
+    r'</div>\s*'
+    r'(?:<div\s+class="code-caption">(?:(?!<div\s+class="code-block-wrapper"|<pre\b).)*?</div>\s*)?'
     r'<div\s+class="code-output">',
     re.DOTALL | re.IGNORECASE,
 )
