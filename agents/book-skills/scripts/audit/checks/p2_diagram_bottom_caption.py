@@ -77,7 +77,19 @@ def _scan_svg(svg_text: str):
         texts = [t for t in texts if len(t.split()) >= 3]
         if not texts:
             continue
-        yield (gm.start(), "; ".join(texts)[:120])
+        joined = "; ".join(texts)
+        # Skip content cards that include a header chip like "ASSISTANT",
+        # "USER", "OUTPUT", "RESPONSE", "JSON" — these are content
+        # presentation, not caption duplication. Also skip JSON-looking
+        # content (curly-brace start in any text element).
+        body_upper = body.upper()
+        if any(token in body_upper for token in (
+            "ASSISTANT", "USER:", "OUTPUT:", "RESPONSE", "PROMPT:",
+        )):
+            continue
+        if any(t.lstrip().startswith("{") for t in texts):
+            continue
+        yield (gm.start(), joined[:120])
 
 
 def run(filepath, html, context):
