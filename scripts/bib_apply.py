@@ -4,6 +4,8 @@ import os
 
 # Make the scripts dir importable
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import bib_data  # registers the non-tools-of-trade entries
+import bib_data_tot  # also registers tools-of-trade entries via side effect
 from bib_data import BIBLIOGRAPHIES
 
 
