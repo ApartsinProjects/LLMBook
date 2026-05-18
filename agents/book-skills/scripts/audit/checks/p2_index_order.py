@@ -27,12 +27,27 @@ DESCRIPTION = "Module index element out of canonical order or disallowed callout
 
 Issue = namedtuple("Issue", ["priority", "check_id", "filepath", "line", "message"])
 
-# Canonical order: element name -> rank
+# Canonical order: element name -> rank.
+# Pedagogical sequence (corrected 2026-05-18):
+#   1. epigraph (motivating quote)
+#   2. illustration (chapter opener)
+#   3. big-picture (callout: one-paragraph hook for the chapter)
+#   4. overview (h2 + detailed section-by-section walkthrough)
+#   5. fun-note (optional engagement opener, sits beside overview)
+#   6. prereqs (what the reader should know before reading)
+#   7. objectives (concrete "after this chapter, you can..." list)
+#   8. sections-list (cards or list of section titles)
+#   9. whats-next / 10. bibliography
+#
+# Earlier this had overview BEFORE big-picture, but the chapter-starter
+# agent and existing reviewed chapters put big-picture FIRST (one-line
+# pitch), then overview (detailed walkthrough). big-picture is the hook,
+# overview is the expansion. Rule corrected to match.
 CANONICAL_ORDER = {
     "epigraph": 1,
     "illustration": 2,
-    "overview": 3,
-    "big-picture": 4,
+    "big-picture": 3,
+    "overview": 4,
     "prereqs": 5,
     "objectives": 6,
     "sections-list": 7,
