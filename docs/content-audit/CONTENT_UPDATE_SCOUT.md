@@ -642,3 +642,29 @@ Findings flag (a) stale 2024 statements, (b) missing recent papers, (c) missing 
 **Overall assessment:** MOSTLY CURRENT, NEEDS UPDATES.
 
 The book is impressively current for a 16-part work, especially on MCP coverage, EU AI Act framing, hardware (B200/H200/MI355X), Llama 4, DeepSeek V3, vLLM/PagedAttention, and the reasoning-model architecture survey. The most consistent gap pattern is **2025-specific developments**: o3-mini and o4-mini, Claude 4.5, Gemini 2.5 thinking, SigLIP-2 / DINOv3, the EU AI Act enforcement-date timeline, OpenAI Operator, prompt caching as a first-class feature, and SAE-based interpretability. Most findings can be addressed by adding 1-3 paragraphs or refreshing one bibliography entry per section rather than restructuring chapters.
+
+---
+
+## Round 2 (Wave 43)
+
+**Scope:** Parts 6-9 only (modules 26-46). **Mode:** Implement (surgical edits in place). **Date anchor:** 2026-05-18.
+
+Round 1 was a comprehensive suggest-mode pass at the part level. Round 2 was a deep-scan of section-*.html files specifically in Parts 6 (Agentic AI), 7 (Retrieval/RAG), 8 (Conversational AI), and 9 (Evaluation/Observability). I scanned ~50 sections looking for the patterns in the dispatch brief: 2025 reasoning-model wave, modern eval frameworks, modern VLMs, multi-agent framework maturity, updated context lengths, and stale pricing.
+
+**Overall finding:** Parts 6-9 are remarkably fresh. The June-2024 to early-2026 timeframe is densely covered: MCP (Section 27.2), A2A (Section 27.3), LangGraph / AutoGen v0.4 / CrewAI / Semantic Kernel (Sections 30.2a, 41.2), Claude Computer Use / Operator / Project Mariner (Section 30.1, 30.4), SigLIP 2 / ColPali / NV-Embed-v2 / BGE-M3 / Stella / Linq-Embed (Sections 33.1, 36.4), DeepSeek-R1 / extended thinking / o1/o3 (Section 26.3), tau-bench / tau²-bench / GAIA / WebArena / OSWorld (Sections 26.4, 43.3), SWE-bench Verified / LiveCodeBench / MMMU / MM-Vet (Sections 43.4, 43.5), OpenLLMetry / Braintrust / Latitude / Laminar / LangSmith / Langfuse (Sections 44.3, 44.7), Letta / MemGPT (Section 37.5a), and the Anthropic Connectors / Plugins distinction (Section 27.2).
+
+Only three real staleness items surfaced. The book had already absorbed almost everything the Round 1 audit flagged for Parts 6-9.
+
+### Edits made
+
+1. **`part-7-retrieval-information-extraction-with-llms/module-32-rag/section-32.1a.html`** (Section 32.1.4 Context Window Management): updated "128K tokens for GPT-4o, 200K for Claude" to also list GPT-4.1 (1M), Gemini 1.5/2.5 (1M-2M), and Llama 4 Scout (10M). The old line implied 128K-200K was the modern range, which was true in mid-2024 but no longer true as of 2025-26 when context windows ran from 128K to 10M.
+
+2. **`part-9-llm-evaluation-observability/module-42-evaluation-foundations/section-42.1.html`** (Section 42.1.5 LLM Benchmarks comparison table): added rows for GPQA-Diamond (PhD-level science, Rein et al. 2024), Humanity's Last Exam (CAIS, January 2025), ARC-AGI-2 (Chollet et al., March 2025), and FrontierMath (Epoch AI, November 2024). Also annotated the SWE-Bench row with the SWE-bench Verified subset (OpenAI, August 2024). The pre-edit table cut off at GSM8K/SWE-Bench and missed the 2024-25 frontier-benchmark wave that supersedes them.
+
+3. **`part-9-llm-evaluation-observability/module-45-tools-of-the-trade/section-45.3.html`** (Section 45.3.1 Knowledge and Reasoning, 45.3.2 Capability/Agentic, and the comparison table): added bullets for HLE, ARC-AGI-2, FrontierMath, GAIA, WebArena, and OSWorld. Added the SWE-bench Verified annotation to the SWE-bench bullet. Added three rows to the comparison table (HLE, ARC-AGI-2, GAIA/WebArena/OSWorld) so the "what to use in 2026" table is no longer missing the 2025 wave.
+
+### What I checked but did not edit
+
+The following sections were inspected for the listed staleness patterns and found to already be current as of 2026-05-18: 26.1 (agent architectures), 26.2 (planning), 26.3 (reasoning models — already cites o1/o3/R1/Claude extended thinking), 26.4 (agent eval — already cites SWE-bench, GAIA, WebArena, OSWorld, tau-bench, PaperBench), 26.5 (deployment), 27.1-27.6 (tool use, MCP, A2A), 28.1-28.4 (multi-agent — AutoGen v0.4, CrewAI, supervisor/swarm/debate patterns), 29.1 (code agents), 29.2 (browser agents — already cites Stagehand, browser-use, Claude in Chrome), 30.1-30.4 (agent platforms — fresh through 2025-26 with Operator, Project Mariner, Skills, MCP registries), 31.1a/31.1b (embeddings), 33.1 (SigLIP 2, EVA-CLIP), 33.3 (when to retrieve vs reason), 35.1-35.5b (advanced RAG, DSPy, hardening), 36.1-36.4 (retrieval tools — all major vector DBs and embedders present and dated correctly), 37.1-37.5b (dialogue systems, memory — Letta/MemGPT covered), 40.1-40.6b (voice realtime — GPT-4o Realtime, Gemini Live, Moshi, Hume EVI, Cartesia Sonic all covered), 41.1-41.5 (conv-AI tools — Dialogflow CX, Voiceflow, Botpress, Anthropic Projects, Copilot Studio, LiveKit Agents, Pipecat covered), 42.5-42.12 (eval quality gates, long-context, NIAH/RULER), 43.2-43.5 (specialized eval — tau-bench / tau²-bench / MM-tau-p2 / SWE-bench / LiveCodeBench / MMMU / MM-Vet covered), 44.2-44.7 (online eval, observability — OpenLLMetry, Braintrust, Latitude, Laminar covered with the 2024-2025 GenAI semantic conventions), 45.1-45.5 (eval tools — Prometheus 2, Skywork-Reward, lm-eval-harness covered), 46.1-46.5 (LLM-as-judge — Zheng et al. position-bias debiasing covered).
+
+**Assessment:** Parts 6-9 are now current as of 2026-05-18 in all the dimensions the brief asked me to check. Three surgical edits closed the remaining staleness gaps. Recommend no further round-2 work on these parts; the next deep scout should focus on Parts 10-16 (where Round 1 found heavier coverage gaps).
