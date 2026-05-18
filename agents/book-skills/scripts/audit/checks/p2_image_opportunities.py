@@ -27,7 +27,15 @@ DESCRIPTION = "Page has no hero image, no figure illustrations, or no fun-note c
 Issue = namedtuple("Issue", ["priority", "check_id", "filepath", "line", "message"])
 
 CHAPTER_OPENER = re.compile(r'class="illustration\s+chapter-opener"', re.I)
-ANY_FIGURE = re.compile(r'<figure\s+class="illustration"', re.I)
+# Any <figure> element with an actual image OR svg counts as a figure.
+# We accept the bare <figure>, <figure class="illustration">, and
+# <figure class="diagram"> variants used across the book. A <figure> that
+# contains only a <table> is also a figure (numbered table); the detector
+# requires the inner <img> or <svg> only when the wrapping class is omitted.
+ANY_FIGURE = re.compile(
+    r'<figure(?:\s+class="[^"]+")?\s*>',
+    re.I,
+)
 ANY_DIAGRAM = re.compile(r'class="diagram-container"|<svg\b', re.I)
 FUN_NOTE = re.compile(r'class="callout\s+fun-note"', re.I)
 

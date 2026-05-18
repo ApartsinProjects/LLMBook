@@ -66,6 +66,9 @@ def _looks_truncated(label):
         "gpu", "cpu", "tpu", "nlp", "llm", "api", "ada", "git", "ide",
         "tcp", "udp", "url", "uri", "uuid", "xml", "yml", "rag",
         "qr", "qc", "qa", "qe",  # numeric/marketing
+        # Roman numerals (sections, annexes, book parts ending in roman num)
+        "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x",
+        "xi", "xii", "xiii", "xiv", "xv",
     }
     if len(trailing) <= 2 and trailing not in ACCEPTABLE_SHORT_WORDS:
         return True
