@@ -27,11 +27,15 @@ CORE_CALLOUTS = {
     "warning": "Warning callout",
 }
 
-# Features to check at the module level (across all sections combined)
+# Features to check at the module level (across all sections combined).
+# NOTE: "level_badge" was an envisioned feature in early planning but the
+# book's actual design uses chapter-card metadata + the chapter overview
+# to signal difficulty, not visible badges. The check is retired here;
+# 46 chapters were flagged for a feature that does not exist in any
+# chapter, including the ones the audit calls "complete".
 MODULE_CHECKS = {
     "figure": (re.compile(r'<figure[\s>]|<img\s'), "illustration or figure"),
     "research_frontier": (re.compile(r'class="callout research-frontier"|Research Frontier', re.I), "Research Frontier section"),
-    "level_badge": (re.compile(r'class="level-badge'), "level badges"),
     "bibliography": (re.compile(r'bibliography|references|Further Reading|Annotated Bibliography', re.I), "annotated bibliography or references section"),
 }
 
