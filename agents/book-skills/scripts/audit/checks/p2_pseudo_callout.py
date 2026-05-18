@@ -90,6 +90,21 @@ def run(filepath, html, context):
         lookback = html[max(0, m.start() - 200):m.start()]
         if re.search(r'<div\s+class="takeaways"', lookback, re.IGNORECASE):
             continue
+        # Also canonical: heading inside a bibliography section, used as a
+        # GROUPING label for references (e.g. "Production Patterns",
+        # "Research Frontier" inside <section class="bibliography"> with
+        # <div class="bib-entry-card"> children). Look back up to 1500
+        # chars for the bibliography wrapper that hasn't closed yet.
+        bib_lookback = html[max(0, m.start() - 4000):m.start()]
+        bib_open = bib_lookback.rfind('<section class="bibliography')
+        bib_close = bib_lookback.rfind('</section>')
+        if bib_open > bib_close:
+            continue
+        # Also: heading inside an <details class="bibliography-collapsible">
+        det_open = bib_lookback.rfind('<details class="bibliography-collapsible')
+        det_close = bib_lookback.rfind('</details>')
+        if det_open > det_close:
+            continue
         issues.append(Issue(
             PRIORITY, CHECK_ID, filepath, _line(html, m.start()),
             f'Heading "{title}" should be a <div class="callout-title"> inside a callout div',
