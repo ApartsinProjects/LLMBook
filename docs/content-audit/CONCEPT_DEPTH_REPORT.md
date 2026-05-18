@@ -27,12 +27,12 @@ Depth categories:
 | rlhf | 5 | 0 | 0 | 5 |
 | kv cache | 5 | 0 | 0 | 5 |
 | bpe | 4 | 0 | 0 | 4 |
+| position bias | 4 | 0 | 0 | 4 |
 | tf-idf | 3 | 0 | 0 | 3 |
 | speculative decoding | 3 | 0 | 0 | 3 |
 | context length | 3 | 0 | 0 | 3 |
 | dpo | 4 | 1 | 0 | 3 |
 | knowledge distillation | 3 | 0 | 0 | 3 |
-| position bias | 3 | 0 | 0 | 3 |
 | ppo | 2 | 0 | 0 | 2 |
 | self-attention | 2 | 0 | 0 | 2 |
 | cross-attention | 2 | 0 | 0 | 2 |
@@ -102,4 +102,4 @@ Depth categories:
 | S20.3 | diffusion | latent audio diffusion | 0 | n |
 | S20.9 | diffusion | video-native diffusion inpainting | 0 | n |
 
-... and 123 more orphans.
+... and 125 more orphans.
