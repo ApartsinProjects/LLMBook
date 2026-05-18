@@ -1,0 +1,97 @@
+"""Validate canonical code-fragment HTML layout.
+
+Canonical structure:
+    <div class="code-block-wrapper">
+        <pre><code class="pygments-highlighted lang-X">...</code></pre>
+        <div class="code-output">                       <!-- optional -->
+            <span class="output-label"><strong>Output:</strong></span>
+            ...
+        </div>
+        <div class="code-caption">                      <!-- single, required -->
+            <strong>Code Fragment X.Y.Z:</strong> Description
+        </div>
+    </div>
+
+Violations flagged:
+  - Code block wrapped in <details>...</details> instead of
+    <div class="code-block-wrapper">
+  - Multiple <div class="code-output"> for one code block
+  - <div class="code-caption"> outside any code-block-wrapper (orphan)
+  - Code block with NO matching <div class="code-caption">
+"""
+import re
+from collections import namedtuple
+
+PRIORITY = "P2"
+CHECK_ID = "CODE_FRAGMENT_STRUCTURE"
+DESCRIPTION = "Code-fragment block deviates from canonical layout"
+
+Issue = namedtuple("Issue", ["priority", "check_id", "filepath", "line", "message"])
+
+# A code block opener (pre+code with pygments class)
+PRE_CODE_RE = re.compile(
+    r'<pre[^>]*><code\s+class="pygments-highlighted', re.IGNORECASE,
+)
+# Details wrapping a code block (non-canonical)
+DETAILS_CODE_RE = re.compile(
+    r'<details\b[^>]*>\s*(?:<summary[^>]*>.*?</summary>\s*)?<pre[^>]*><code\s+class="pygments-highlighted',
+    re.IGNORECASE | re.DOTALL,
+)
+# Two consecutive <div class="code-output"> for one code block (caption between)
+DUP_OUTPUT_RE = re.compile(
+    r'</pre>\s*<div\s+class="code-output">.*?</div>\s*'
+    r'<div\s+class="code-caption">.*?</div>\s*</div>\s*'
+    r'<div\s+class="code-output">',
+    re.DOTALL | re.IGNORECASE,
+)
+# Code-caption outside a code-block-wrapper
+CAPTION_OUTSIDE_RE = re.compile(
+    r'<div\s+class="code-caption">', re.IGNORECASE,
+)
+WRAPPER_OPEN_RE = re.compile(
+    r'<div\s+class="code-block-wrapper"', re.IGNORECASE,
+)
+
+
+def _line(html, pos):
+    return html.count('\n', 0, pos) + 1
+
+
+def run(filepath, html, context):
+    issues = []
+    if filepath.suffix != ".html":
+        return issues
+
+    # 1. Code wrapped in <details>
+    for m in DETAILS_CODE_RE.finditer(html):
+        issues.append(Issue(
+            PRIORITY, CHECK_ID, filepath, _line(html, m.start()),
+            'Code block wrapped in <details>...</details>; use <div class="code-block-wrapper"> instead',
+        ))
+
+    # 2. Duplicate code-output for one code block
+    for m in DUP_OUTPUT_RE.finditer(html):
+        issues.append(Issue(
+            PRIORITY, CHECK_ID, filepath, _line(html, m.start()),
+            'Two consecutive <div class="code-output"> blocks for one code fragment (drop the second or merge into the first)',
+        ))
+
+    # 3. Code-caption outside a code-block-wrapper.
+    #    For each code-caption, check that within the prior 50 lines (or 1500 chars)
+    #    there is an open <div class="code-block-wrapper"> without an intervening </div>
+    #    that closes it.
+    for m in CAPTION_OUTSIDE_RE.finditer(html):
+        # Scan back: nearest code-block-wrapper open vs nearest </div> close
+        window = html[max(0, m.start() - 5000):m.start()]
+        last_wrap_open = -1
+        last_close = -1
+        for wm in WRAPPER_OPEN_RE.finditer(window):
+            last_wrap_open = wm.start()
+        # Find balanced div depth from last_wrap_open to caption
+        if last_wrap_open == -1:
+            issues.append(Issue(
+                PRIORITY, CHECK_ID, filepath, _line(html, m.start()),
+                '<div class="code-caption"> outside any <div class="code-block-wrapper">',
+            ))
+
+    return issues

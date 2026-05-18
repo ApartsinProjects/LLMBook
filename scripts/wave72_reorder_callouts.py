@@ -278,8 +278,16 @@ class OverlapError(Exception):
 
 def reorder_html(html: str, spans: list[tuple[int, int, int, str]]) -> str:
     """Snip each span out and re-insert all of them in canonical order at the
-    position of the first span. Preserves a single newline as a separator
-    between re-inserted blocks.
+    position where the LAST singleton originally ended. This pulls any
+    inter-singleton body content (plural callouts, prose) UP above the
+    canonical singleton block, which matches the canonical "body before
+    singletons" rule.
+
+    Concretely, given an original layout
+        [pre][s1][mid1][s2][mid2][s3][post]
+    where s1..s3 are singletons in original order (not necessarily canonical
+    order), the result is
+        [pre][mid1][mid2][CANONICAL singletons in canonical order][post]
     """
     if not spans:
         return html
@@ -296,40 +304,26 @@ def reorder_html(html: str, spans: list[tuple[int, int, int, str]]) -> str:
                 f'{inner[3]} (line {html.count(chr(10), 0, inner[1])+1})'
             )
 
-    first_start = spans_sorted_by_start[0][1]
+    # Total length of all singleton bodies; insertion point in the snipped
+    # string is `last_end - total_singleton_length`.
+    total_singleton_len = sum(e - s for _, s, e, _ in spans_sorted_by_start)
+    last_end = spans_sorted_by_start[-1][2]
+    insert_pos = last_end - total_singleton_len
 
-    # Extract block texts and their position info.
-    blocks = []  # list of (rank, start, end, name, html)
-    for rank, s, e, name in spans_sorted_by_start:
-        blocks.append((rank, s, e, name, html[s:e]))
-
-    # Build "remaining" HTML by stitching all gaps between blocks (and
-    # before/after) together. We delete every block span.
+    # Snip all singleton spans out.
     pieces = []
     cursor = 0
-    for rank, s, e, name, body in blocks:
+    for _, s, e, _ in spans_sorted_by_start:
         pieces.append(html[cursor:s])
         cursor = e
     pieces.append(html[cursor:])
     stripped = ''.join(pieces)
 
-    # Compute the insertion offset within `stripped`. After removing all
-    # blocks, the position that previously was `first_start` is now at:
-    #   first_start (because nothing before first_start was changed)
-    insert_pos = first_start
-    # However, we must be careful: any inter-block content shifts down.
-    # Actually, characters AT or AFTER first_start in the original have
-    # been compressed. The very first character at first_start in the
-    # original is now whatever followed the first block (after deletion).
-    # We want our singletons to appear AT `first_start`. Yes, insert_pos
-    # is `first_start` because positions before that are untouched.
-
     # Order blocks canonically and join with '\n'.
-    blocks_by_rank = sorted(blocks, key=lambda t: t[0])
-    payload = '\n'.join(body for _, _, _, _, body in blocks_by_rank)
+    blocks_by_rank = sorted(spans_sorted_by_start, key=lambda t: t[0])
+    payload = '\n'.join(html[s:e] for _, s, e, _ in blocks_by_rank)
 
-    # Make sure there is a newline before and after the inserted payload
-    # so we do not glue HTML tags onto a non-block predecessor.
+    # Add buffer newlines around the inserted block.
     prefix = stripped[:insert_pos]
     suffix = stripped[insert_pos:]
     if prefix and not prefix.endswith('\n'):
