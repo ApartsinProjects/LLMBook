@@ -69,12 +69,23 @@ def _group_by_y(rects):
 
 
 def _check_overlaps(row):
-    """Check for x-range overlaps within a row of rects."""
+    """Check for x-range overlaps within a row of rects.
+
+    Skips pairs of rects with identical x and width (or near-identical):
+    these are layered styling effects (background + foreground rect,
+    border + fill, shadow + body) where 100% overlap is intentional,
+    not a layout bug. Only flags partial overlaps where two genuinely
+    different panels collide.
+    """
     overlaps = []
     sorted_row = sorted(row, key=lambda r: r["x"])
     for i in range(len(sorted_row) - 1):
         a = sorted_row[i]
         b = sorted_row[i + 1]
+        # Layered styling effect: skip when x and w are identical
+        # (or differ by <= 2px, which captures border/padding tweaks).
+        if abs(a["x"] - b["x"]) <= 2 and abs(a["w"] - b["w"]) <= 2:
+            continue
         a_right = a["x"] + a["w"]
         if a_right > b["x"] + MIN_OVERLAP_PX:
             overlap_px = a_right - b["x"]

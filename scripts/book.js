@@ -5,15 +5,22 @@
 document.addEventListener('DOMContentLoaded', function () {
 
   // 1. Make ALL <pre> code blocks collapsible.
-  //    - Code goes inside a <details> element within the wrapper
-  //    - Output (.code-output) and caption (.code-caption) stay visible
+  //    - Code AND its sibling .code-output go inside a <details> element
+  //      so that when "Show code" is closed, BOTH code and output hide
+  //      (per editorial decision: an output without its code is noise)
+  //    - .code-caption stays visible as a figure label
   //    - Short code blocks (10 lines or fewer) start OPEN
   //    - Longer code blocks start COLLAPSED
+  //    - SKIP pre elements inside library-shortcut callouts; step 9c
+  //      handles those with its own outer "Show code" wrapper (avoids
+  //      the "show code in show code" double-wrap reported in 42.1)
   document.querySelectorAll('pre').forEach(function (pre) {
     // Skip if already inside a <details> element
     if (pre.closest('details')) return;
     // Skip if inside a callout UNLESS it's wrapped in a code-block-wrapper
     if (pre.closest('.callout') && !pre.closest('.code-block-wrapper')) return;
+    // Skip if inside a library-shortcut: step 9c handles those
+    if (pre.closest('.callout.library-shortcut')) return;
     // Skip inline-style pre (very short, less than 20 chars)
     var text = pre.textContent || '';
     if (text.trim().length < 20) return;
@@ -26,7 +33,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     var isShort = lineCount <= 10;
 
-    // Create the <details> wrapper for just the code
+    // Create the <details> wrapper for code (+ output)
     var details = document.createElement('details');
     details.className = 'code-collapse';
     if (isShort) {
@@ -47,7 +54,27 @@ document.addEventListener('DOMContentLoaded', function () {
     pre.parentNode.insertBefore(details, pre);
     details.appendChild(pre);
 
-    // Output and caption stay outside <details> (visible when code collapsed)
+    // Move the immediately-following <div class="code-output"> inside the
+    // same details so it hides together with the code. Stops at the first
+    // non-whitespace non-code-output sibling (typically the caption).
+    var cursor = details.nextSibling;
+    while (cursor) {
+      if (cursor.nodeType === 3 && (cursor.textContent || '').trim() === '') {
+        // whitespace text node: skip and continue scanning
+        cursor = cursor.nextSibling;
+        continue;
+      }
+      if (cursor.nodeType === 1) {
+        var cls = cursor.className || '';
+        if (typeof cls === 'string' && cls.indexOf('code-output') >= 0) {
+          var moved = cursor;
+          cursor = cursor.nextSibling;
+          details.appendChild(moved);
+          continue;
+        }
+      }
+      break;
+    }
   });
 
   // 2. Remove standalone "Exercises" headings (redundant with the container title).
@@ -255,14 +282,20 @@ document.addEventListener('DOMContentLoaded', function () {
     details.appendChild(lab);
   });
 
-  // 7. Make code output collapsible and collapsed by default.
+  // 7. Make code output collapsible and collapsed by default. Skip:
+  //  - outputs already inside a details (idempotency)
+  //  - outputs inside a library-shortcut callout (the entire shortcut
+  //    already collapses via step 9c, so a NESTED "Show output" toggle
+  //    looks like double-collapse / "show code in show code")
+  //  - very short outputs (<= 6 lines) where the toggle has no value
   document.querySelectorAll('.code-output').forEach(function (out) {
-    // Skip if already inside a details
     if (out.closest('details.output-collapse')) return;
+    if (out.closest('.callout.library-shortcut')) return;
 
     var lines = (out.textContent || '').split('\n');
     var lineCount = lines.length;
     while (lineCount > 0 && lines[lineCount - 1].trim() === '') lineCount--;
+    if (lineCount <= 6) return;
 
     var details = document.createElement('details');
     details.className = 'output-collapse';
@@ -382,26 +415,47 @@ document.addEventListener('DOMContentLoaded', function () {
     details.appendChild(rf);
   });
 
-  // 9c. Make library-shortcut callouts' code-block-wrapper collapsible.
+  // 9c. Make library-shortcut callouts' code blocks collapsible.
   //     The code is reference material the reader looks up when they need
   //     it; collapsing keeps the running prose compact. ONLY the inner
-  //     code-block-wrapper collapses; the prose "pip install" line and the
+  //     code blocks collapse; the prose "pip install" line and the
   //     library-shortcut title stay visible.
+  //
+  //     Edge case (fixed 2026-05-18): some library-shortcuts contain
+  //     MULTIPLE code-block-wrappers. The earlier logic wrapped only
+  //     the first, leaving the second visible (visually "show code +
+  //     another code block"). We now wrap ALL code-block-wrappers
+  //     inside the library-shortcut together, in a single details that
+  //     spans from the first wrapper to the last sibling that is still
+  //     code-related (subsequent code-block-wrappers).
   document.querySelectorAll('.callout.library-shortcut').forEach(function (ls) {
-    var cb = ls.querySelector('.code-block-wrapper');
-    if (!cb) return;
-    if (cb.closest('details.shortcut-code-collapse')) return;
+    // Skip if we've already wrapped (idempotency)
+    if (ls.querySelector('details.shortcut-code-collapse')) return;
+    var firstCb = ls.querySelector('.code-block-wrapper');
+    if (!firstCb) return;
+
+    // Collect all code-block-wrappers in document order inside this shortcut
+    var blocks = Array.prototype.slice.call(
+      ls.querySelectorAll('.code-block-wrapper')
+    );
+    if (blocks.length === 0) return;
 
     var details = document.createElement('details');
     details.className = 'shortcut-code-collapse';
 
     var summary = document.createElement('summary');
     summary.className = 'shortcut-code-collapse-summary';
-    summary.innerHTML = '<span class="shortcut-code-icon">&#9881;</span> Show code';
+    var label = blocks.length === 1
+      ? '<span class="shortcut-code-icon">&#9881;</span> Show code'
+      : '<span class="shortcut-code-icon">&#9881;</span> Show code (' + blocks.length + ' blocks)';
+    summary.innerHTML = label;
     details.appendChild(summary);
 
-    cb.parentNode.insertBefore(details, cb);
-    details.appendChild(cb);
+    // Insert details before the first code block, then move all blocks into it
+    firstCb.parentNode.insertBefore(details, firstCb);
+    blocks.forEach(function (cb) {
+      details.appendChild(cb);
+    });
   });
 
   // 10. Google-like search results (v6.37): Pagefind UI prefixes each result

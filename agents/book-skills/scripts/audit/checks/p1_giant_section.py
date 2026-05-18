@@ -25,6 +25,19 @@ def run(filepath, html, context):
     lines = html.count("\n") + 1
     h2_count = len(H2_RE.findall(html))
 
+    # Tools-of-the-trade and reference catalog sections are short per-entry
+    # but list MANY entries (one h2 per library/tool). High h2 count there
+    # is canonical for a catalog, not a sign of forcible merge. Only flag
+    # if the total line count is also pathologically long.
+    rel_lower = str(filepath).lower().replace('\\', '/')
+    is_catalog = (
+        'tools-of-the-trade' in rel_lower
+        or 'module-61-scale-tools' in rel_lower
+        or 'module-36-retrieval-tools' in rel_lower
+        or 'module-41-conv-ai-tools' in rel_lower
+        or 'module-56-responsible-ai-tools' in rel_lower
+    )
+
     # P0 = strong indicator of merge: BOTH long AND many subsections
     if lines > 1200 and h2_count > 10:
         issues.append(Issue("P0", CHECK_ID, filepath, 1,
@@ -34,12 +47,14 @@ def run(filepath, html, context):
     elif lines > 1700:
         issues.append(Issue("P0", CHECK_ID, filepath, 1,
             f'Extremely long section: {lines} lines, {h2_count} h2. Strong split candidate.'))
-    # P1 = one strong signal: very long OR many h2
-    elif lines > 1000 or h2_count > 12:
+    # P1 = one strong signal: very long OR many h2.
+    # For catalog sections, only fire on actual length, not h2 density.
+    elif lines > 1000 or (h2_count > 12 and not is_catalog):
         issues.append(Issue(PRIORITY, CHECK_ID, filepath, 1,
             f'Large section: {lines} lines, {h2_count} h2 subsections. Likely split candidate.'))
-    # P2 = borderline: moderately long and many subsections
-    elif (lines > 800 and h2_count > 8) or h2_count > 10:
+    # P2 = borderline: moderately long and many subsections.
+    # Catalog sections with high h2-density but low total lines are canonical.
+    elif (lines > 800 and h2_count > 8) or (h2_count > 10 and not is_catalog):
         issues.append(Issue("P2", CHECK_ID, filepath, 1,
             f'Borderline-large section: {lines} lines, {h2_count} h2 subsections. '
             f'Inspect for split opportunity.'))

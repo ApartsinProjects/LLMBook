@@ -72,10 +72,15 @@ def run(filepath, html, context):
             ))
             continue  # don't pile more issues on the same callout
 
-        # 2. Two callout-title divs (double-title)
+        # 2. Two callout-title divs (double-title). Exercises legitimately
+        # use two callout-title divs by design: the first is the number
+        # ("Exercise 33.3.1: ") and the second is the topic ("Quadratic
+        # Attention vs. Linear Alternatives"). The CSS renders them as
+        # a single styled heading line. The two-title pattern is canonical
+        # for exercise callouts and is silently allowed.
         title_count = len(re.findall(
             r'<div\s+class="callout-title"', body, re.IGNORECASE))
-        if title_count > 1:
+        if title_count > 1 and ctype != "exercise":
             issues.append(Issue(
                 PRIORITY, CHECK_ID, filepath, line,
                 f'callout "{ctype}": has {title_count} callout-title '

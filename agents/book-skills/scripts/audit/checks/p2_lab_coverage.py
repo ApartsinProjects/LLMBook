@@ -37,23 +37,39 @@ def run(filepath, html, context):
     if "module-" not in str(filepath):
         return []
 
-    # Reference-style modules (tools-of-the-trade, appendix) don't require
-    # a hands-on lab; they're catalogs of libraries/tools.
+    # Reference and discussion-only modules don't require a hands-on lab.
+    # Reference: tools-of-the-trade catalogs, appendices.
+    # Discussion: ethics, regulation, governance, frontier-research,
+    # product/ideation, economics. These chapters cover decision-making,
+    # policy, and analysis, not buildable artifacts; insisting on a lab
+    # forces contrived exercises that erode the chapter's character.
     rel_lower = str(filepath).lower().replace("\\", "/")
-    is_reference_module = (
+    is_exempt_module = (
+        # Reference catalogs
         '/tools-of-the-trade/' in rel_lower
-        or 'module-05-tools-of-the-trade' in rel_lower
-        or 'module-19-tools-of-the-trade' in rel_lower
-        or 'module-30-tools-of-the-trade' in rel_lower
-        or 'module-45-tools-of-the-trade' in rel_lower
-        or 'module-51-tools-of-the-trade' in rel_lower
+        or 'tools-of-the-trade' in rel_lower
         or 'module-61-scale-tools' in rel_lower
-        or 'module-71-tools-of-the-trade' in rel_lower
-        or 'module-79-tools-of-the-trade' in rel_lower
+        or 'module-36-retrieval-tools' in rel_lower
+        or 'module-41-conv-ai-tools' in rel_lower
+        or 'module-56-responsible-ai-tools' in rel_lower
         or '/appendices/' in rel_lower
         or '/appendix-' in rel_lower
+        # Discussion-heavy modules (ethics, policy, frontier)
+        or 'module-48-guardrails-runtime-safety' in rel_lower
+        or 'module-52-bias-fairness' in rel_lower
+        or 'module-53-regulation-compliance' in rel_lower
+        or 'module-54-watermarking-provenance' in rel_lower
+        or 'module-54b-transparency-and-disclosure' in rel_lower
+        or 'module-55-environmental-sustainability' in rel_lower
+        or 'module-58-frontier-systems-hardware' in rel_lower
+        or 'module-67-ideation' in rel_lower
+        or 'module-68-vibe-coding' in rel_lower
+        or 'module-69-llm-economics' in rel_lower
+        or 'module-80-frontier-architectures' in rel_lower
+        or 'module-81-frontier-theory' in rel_lower
+        or 'module-82-agi-trajectories' in rel_lower
     )
-    if is_reference_module:
+    if is_exempt_module:
         return []
 
     mod_dir = filepath.parent

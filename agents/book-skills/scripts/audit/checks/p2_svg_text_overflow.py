@@ -79,8 +79,15 @@ def run(filepath, html, context):
             font_family = font_match.group(1) if font_match else ""
             est_width = _estimate_width(text_content, fsize, font_family)
 
-            # Find nearest circle (within 5px of center)
+            # Find nearest circle (within 5px of center).
+            # Small circles (r < 12) are decorative dots/bullets that the
+            # author labels by rendering text NEXT TO them. The text is
+            # not constrained by the circle. Only flag overflow on
+            # container-style circles (r >= 12) where text is supposed
+            # to fit inside the circle's visible boundary.
             for cx, cy, r, _ in circles:
+                if r < 12:
+                    continue
                 dist = ((tx - cx) ** 2 + (ty - cy) ** 2) ** 0.5
                 if dist < r + 5:
                     diameter = 2 * r

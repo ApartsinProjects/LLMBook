@@ -33,6 +33,9 @@ CANONICAL_STACKS = [
 H1_PARENTS = re.compile(r'^(part\s+[IVXLCDM\d]+|appendix\s+[A-Z]|copyright|capstone)', re.IGNORECASE)
 
 
+NUMERIC_PARENT_RE = re.compile(r'^(\d+(?:\.\d+)+)\b')
+
+
 def _is_canonical_pair(cur_text: str, nxt_text: str) -> bool:
     cur_low = cur_text.strip().lower().rstrip(':')
     for parent, child_pat in CANONICAL_STACKS:
@@ -40,6 +43,17 @@ def _is_canonical_pair(cur_text: str, nxt_text: str) -> bool:
             return True
     # Part overview/Appendix-X h2 right after Part X / Appendix Y h1 is canonical
     if H1_PARENTS.match(cur_text.strip()):
+        return True
+    # Numeric subsection pattern: "X.Y.Z Title" h2 followed by
+    # any h3 (numbered or unnumbered). This is the canonical academic
+    # book convention where the parent h2 establishes a topic and the
+    # first h3 sub-section begins the content. Numbered children
+    # ("X.Y.Z.1") are obvious; unnumbered children ("The Greedy
+    # Decoding Algorithm" under "4.1.2 Greedy Decoding") are equally
+    # idiomatic. Common across thousands of textbooks.
+    cur_match = NUMERIC_PARENT_RE.match(cur_text.strip())
+    if cur_match:
+        # cur_text is a numbered h2 like "0.1.3 Loss Functions and Optimization"
         return True
     return False
 
@@ -91,6 +105,16 @@ def run(filepath, html, context):
             nxt_tag = nxt.group(1).lower()
             cur_text = re.sub(r'<[^>]+>', '', current.group(2)).strip()[:80]
             nxt_text = re.sub(r'<[^>]+>', '', nxt.group(2)).strip()[:80]
+            # h2 -> h2 with no content between is always a structural bug:
+            # two same-level sections need at least an intro paragraph.
+            # Canonical patterns only apply to h2->h3 (parent introducing
+            # subsection).
+            if cur_tag == "h2" and nxt_tag == "h2":
+                line_num = html[:nxt.start()].count("\n") + 1
+                issues.append(Issue(PRIORITY, CHECK_ID, filepath, line_num,
+                    f'<{nxt_tag}> "{nxt_text[:50]}" follows <{cur_tag}> "{cur_text[:50]}" '
+                    f'with no content between them'))
+                continue
             # Skip canonical patterns
             if _is_canonical_pair(cur_text, nxt_text):
                 continue

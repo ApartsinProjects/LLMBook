@@ -28,8 +28,16 @@ TEXT_COORD_RE2 = re.compile(
     re.IGNORECASE
 )
 
-# Margin: text within this many units of the edge is considered at risk
-MARGIN = 15
+# Margin: text within this many units of the edge is considered at risk.
+# The SVG text y-coordinate is the BASELINE, not the top. Common
+# diagrams place baselines at y=20-30 (top labels) or y=vb_h-5 (bottom
+# axis labels) which both render fully inside the viewBox. A small
+# margin (1-2 units) catches actual clipping without flagging every
+# label that touches an edge by design. The dedicated
+# SVG_TEXT_RIGHT_CLIP check estimates text WIDTH for right-edge cases,
+# so this check is now narrowly: detect text whose anchor is OUTSIDE
+# the viewBox by more than 1 unit (a true bug).
+MARGIN = 1
 
 
 def run(filepath, html, context):
