@@ -1,6 +1,6 @@
 # Prerequisite-Correctness Audit
 
-Total findings: 291
+Total findings: 293
 
 ## Missing Target (0 findings)
 
@@ -180,7 +180,7 @@ None.
 
 ... and 3 more.
 
-## No Prereq Block (69 findings)
+## No Prereq Block (71 findings)
 
 | Section | href | link text | issue |
 |---|---|---|---|
@@ -242,6 +242,8 @@ None.
 | part-4-training-adaptation/module-19-tools-of-the-trade/section-19.9.html |  |  | no prerequisites block |
 | part-6-agentic-ai/module-30-tools-of-the-trade/section-30.1.html |  |  | no prerequisites block |
 | part-6-agentic-ai/module-30-tools-of-the-trade/section-30.2.html |  |  | no prerequisites block |
+| part-6-agentic-ai/module-30-tools-of-the-trade/section-30.2a.html |  |  | no prerequisites block |
+| part-6-agentic-ai/module-30-tools-of-the-trade/section-30.2b.html |  |  | no prerequisites block |
 | part-6-agentic-ai/module-30-tools-of-the-trade/section-30.3.html |  |  | no prerequisites block |
 | part-6-agentic-ai/module-30-tools-of-the-trade/section-30.4.html |  |  | no prerequisites block |
 | part-6-agentic-ai/module-30-tools-of-the-trade/section-30.5.html |  |  | no prerequisites block |
