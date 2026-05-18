@@ -15,7 +15,16 @@ SVG_ARIA_RE = re.compile(
 
 
 def _looks_truncated(label):
-    """Heuristic: label is truncated if it ends mid-word or with certain patterns."""
+    """Heuristic: label is truncated if it ends mid-word or with hanging connectives.
+
+    Tuned to be conservative — only flag clear truncations:
+      - Ends with comma + nothing
+      - Ends with a stop-word (the, a, of, in, to, for, with, from, by, on, etc.)
+      - Last "word" is <= 2 chars and not a known acceptable abbreviation
+        (a real word-stem cut like "fol" or single-letter "o" at the end)
+    Removed the over-aggressive "long-label ends-lowercase" heuristic that
+    falsely flagged correct sentence endings like "parameters" or "storage".
+    """
     label = label.strip()
     if not label:
         return False
@@ -30,25 +39,36 @@ def _looks_truncated(label):
     if last_char in '.?!:)]:':
         return False
 
-    # Ends with a lowercase letter or comma followed by nothing (mid-sentence)
+    # Ends with comma + nothing
     if last_char == ',':
         return True
 
-    # Check if it ends with a common partial word or preposition
-    trailing = label.split()[-1].lower() if label.split() else ""
+    # Last "word" check
+    words = label.split()
+    if not words:
+        return False
+    trailing = words[-1].lower().strip(",.;:!?)\"'")
+
+    # Stop-word ending
     TRUNCATION_WORDS = {
         "the", "a", "an", "and", "or", "of", "in", "to", "for",
         "with", "from", "by", "on", "at", "as", "is", "are",
+        "but", "nor", "so", "yet", "into", "onto", "upon",
     }
     if trailing in TRUNCATION_WORDS:
         return True
 
-    # Long label that doesn't end with a sentence-ending character
-    # and the label itself looks like a sentence (has spaces, starts with cap)
-    if len(label) > 60 and label[0].isupper() and ' ' in label:
-        # If it doesn't end with a word that could be a final noun/verb, likely truncated
-        if last_char.islower() and not label.endswith(')'):
-            return True
+    # Mid-word truncation: 1-2 char tail that isn't a known acceptable token
+    ACCEPTABLE_SHORT_WORDS = {
+        "ai", "ml", "ui", "io", "is", "be", "do", "go", "no", "ok",
+        "us", "we", "or", "of", "at", "in", "to", "on", "up", "vm",
+        "cli", "css", "csv", "css", "dns", "fp4", "fp8", "fp16", "fp32",
+        "gpu", "cpu", "tpu", "nlp", "llm", "api", "ada", "git", "ide",
+        "tcp", "udp", "url", "uri", "uuid", "xml", "yml", "rag",
+        "qr", "qc", "qa", "qe",  # numeric/marketing
+    }
+    if len(trailing) <= 2 and trailing not in ACCEPTABLE_SHORT_WORDS:
+        return True
 
     return False
 
