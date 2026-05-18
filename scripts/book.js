@@ -347,6 +347,63 @@ document.addEventListener('DOMContentLoaded', function () {
     details.appendChild(pe);
   });
 
+  // 9b. Make research-frontier callouts collapsible and collapsed by default.
+  //     The frontier discussion is long-form open-questions content that
+  //     reads as an aside; collapsing keeps the section header-line clean.
+  document.querySelectorAll('.callout.research-frontier').forEach(function (rf) {
+    if (rf.closest('details.frontier-collapse')) return;
+
+    var titleEl = rf.querySelector('.callout-title');
+    var rfTitle = titleEl ? titleEl.textContent.trim() : 'Research Frontier';
+
+    var prefix = 'Research Frontier';
+    var topic = '';
+    var colonIdx = rfTitle.indexOf(':');
+    if (colonIdx > 0) {
+      prefix = rfTitle.substring(0, colonIdx).trim();
+      topic = rfTitle.substring(colonIdx + 1).trim();
+    } else if (rfTitle !== 'Research Frontier') {
+      topic = rfTitle;
+    }
+
+    var details = document.createElement('details');
+    details.className = 'frontier-collapse';
+
+    var summary = document.createElement('summary');
+    summary.className = 'frontier-collapse-summary';
+    var label = '<span class="frontier-collapse-icon">&#128300;</span> <strong>' + prefix + '</strong>';
+    if (topic) label += ': ' + topic;
+    summary.innerHTML = label;
+    details.appendChild(summary);
+
+    if (titleEl) titleEl.remove();
+
+    rf.parentNode.insertBefore(details, rf);
+    details.appendChild(rf);
+  });
+
+  // 9c. Make library-shortcut callouts' code-block-wrapper collapsible.
+  //     The code is reference material the reader looks up when they need
+  //     it; collapsing keeps the running prose compact. ONLY the inner
+  //     code-block-wrapper collapses; the prose "pip install" line and the
+  //     library-shortcut title stay visible.
+  document.querySelectorAll('.callout.library-shortcut').forEach(function (ls) {
+    var cb = ls.querySelector('.code-block-wrapper');
+    if (!cb) return;
+    if (cb.closest('details.shortcut-code-collapse')) return;
+
+    var details = document.createElement('details');
+    details.className = 'shortcut-code-collapse';
+
+    var summary = document.createElement('summary');
+    summary.className = 'shortcut-code-collapse-summary';
+    summary.innerHTML = '<span class="shortcut-code-icon">&#9881;</span> Show code';
+    details.appendChild(summary);
+
+    cb.parentNode.insertBefore(details, cb);
+    details.appendChild(cb);
+  });
+
   // 10. Google-like search results (v6.37): Pagefind UI prefixes each result
   //     title with "[Part X › Ch Y]  Real Title" because we cannot inject HTML
   //     into result.meta.title (Pagefind UI escapes it). After Pagefind renders
