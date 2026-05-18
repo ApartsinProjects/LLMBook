@@ -67,8 +67,10 @@ def run(filepath, html, context):
     for idx, (event_type, line_num) in enumerate(events):
         if event_type == "CAPTION":
             # If there's a recent PRE_CLOSE / CODE_OUTPUT before this caption,
-            # the caption attaches to that previous block; skip.
-            preceding = [pl for pl in pre_close_lines + code_output_lines if 0 < line_num - pl <= 10]
+            # the caption attaches to that previous block; skip. Use a 40-line
+            # look-back because <div class="code-output"> can span 20-30 lines
+            # of program output between the PRE_CLOSE and the caption.
+            preceding = [pl for pl in pre_close_lines + code_output_lines if 0 < line_num - pl <= 40]
             if preceding:
                 continue
             # No preceding code block. Look forward for next non-CODE_OUTPUT event.
