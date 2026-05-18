@@ -3,9 +3,18 @@
 Last refresh: 2026-05-18 session continuation. Reviews all 35 audit reports
 in `docs/content-audit/` to ensure nothing is lost on context compaction.
 
-## Done this session segment (36 commits on v2.0; cumulative 7906 → 2710 issues = 65.7%)
+## Done this session segment (47 commits on v2.0; cumulative 7906 → 2128 issues = 73.1%)
 
-### Latest waves (waves 82-86, cycle 56 -> cycle 58)
+### Latest waves (waves 82-88, plugin tunes, cycle 56 -> cycle 60)
+- **Figure-renumbering agent (ad287c8)**: 111 section files, 471 caption renames + 91 prose xref renames
+- **Plugin tunes for figure-sequence**: DUP_FIGURE_NUM accepts [a-z] suffix; FIGURE_SEQUENCE matches caption-bearing elements only (not prose)
+- **Wave 87**: 124 sections got section-level whats-next
+- **Wave 88**: 22 last-in-chapter sections got cross-chapter whats-next
+- **Plugin tune**: level_badge retired (-46 false positives in FM4_PROMISE)
+- **Plugin tune**: SECTION_CALLOUT research-frontier position-flexibility (-17)
+- **Cycle 59 + 60 snapshots saved**
+
+### Earlier waves (waves 82-86, cycle 56 -> cycle 58)
 - **Wave 82**: 83 chapter-card-headers made clickable in 16 part-index pages
 - **See Also :visited fix**: red hover residual on visited links eliminated
 - **GIANT_SECTION_RECOMMENDATIONS.md**: SPLIT/KEEP/TRIM decisions for 63 large sections (7 high-conf SPLITs proposed)
