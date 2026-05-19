@@ -52,7 +52,7 @@ in a list. The catalog tag stays.
 | `part-13-llmops-lifecycle/.../section-66.1.html` | 10 | 802 | 73 | reliability patterns |
 | `part-14-designing-llm-agent-products/.../section-67.15.html` | 11 | 673 | 56 | MVP-readiness gates |
 | `part-14-designing-llm-agent-products/.../section-70.4.html` | 11 | 627 | 52 | production monitoring topics |
-| `part-16-llm-agentic-ai-research-frontiers/.../section-80.4.html` | 12 | 631 | 48 | LLMs applied to non-text domains |
+| `part-15-llm-agentic-ai-research-frontiers/.../section-75.4.html` | 12 | 631 | 48 | LLMs applied to non-text domains |
 | `part-2-understanding-llms/.../section-6.3.html` | 11 | 769 | 64 | scaling-law regimes |
 | `part-2-understanding-llms/.../section-6.4.html` | 11 | 565 | 45 | pretraining-data pipeline steps |
 | `part-2-understanding-llms/.../section-7.2.html` | 11 | 879 | 74 | open-weight model families |

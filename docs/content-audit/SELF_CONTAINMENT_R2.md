@@ -17,10 +17,10 @@ For each section, I checked whether a reader landing from a Google search could 
 | 4 | 59.4 Pipeline Parallelism and Hybrid Strategies | part-12-llm-systems-at-scale/module-59-distributed-training-systems/section-59.4.html | fix applied: expanded DP, TP, PP acronyms inline in Big Picture so first-time readers know what the three parallelism axes are |
 | 5 | 67.1 Ideation: Finding LLM-Worthy Problems | part-14-designing-llm-agent-products/module-67-ideation/section-67.1.html | standalone (check) |
 | 6 | 68.5 The Vertical-Slice Pattern in Depth | part-14-designing-llm-agent-products/module-68-vibe-coding/section-68.5.html | fix applied: replaced unhinted backward reference to 67.1 ("80/20 cuts") with a linked one-sentence gloss of what those cuts are; expanded vertical-slice definition with "touching every layer from input through model call to user-visible output" |
-| 7 | 72.3 Bar Association and Regulatory Rules | part-15-applications-of-llms-across-industries/module-72-legal-llms/section-72.3.html | standalone (check) |
-| 8 | 76.2 Offensive (Red Team) Use Cases | part-15-applications-of-llms-across-industries/module-76-cybersecurity-llms/section-76.2.html | standalone (check) |
-| 9 | 79.1 Platforms | part-15-applications-of-llms-across-industries/module-79-tools-of-the-trade/section-79.1.html | fix applied: added opening paragraph defining what "vertical-AI platforms" means and what the catalog covers, since the section title is only "Platforms" |
-| 10 | 83.2 Libraries & Frameworks | part-16-llm-agentic-ai-research-frontiers/module-83-tools-of-the-trade/section-83.2.html | standalone (check) |
+| 7 | 72.3 Bar Association and Regulatory Rules | part-14-applications-of-llms-across-industries/module-67-legal-llms/section-67.3.html | standalone (check) |
+| 8 | 76.2 Offensive (Red Team) Use Cases | part-14-applications-of-llms-across-industries/module-71-cybersecurity-llms/section-71.2.html | standalone (check) |
+| 9 | 79.1 Platforms | part-14-applications-of-llms-across-industries/module-74-tools-of-the-trade/section-74.1.html | fix applied: added opening paragraph defining what "vertical-AI platforms" means and what the catalog covers, since the section title is only "Platforms" |
+| 10 | 83.2 Libraries & Frameworks | part-15-llm-agentic-ai-research-frontiers/module-78-tools-of-the-trade/section-78.2.html | standalone (check) |
 | 11 | 17.2 Advanced PEFT Methods | part-4-training-adaptation/module-17-peft/section-17.2.html | standalone (check) |
 | 12 | 19.14 Ray Train, Ray Serve, and Ray Data | part-4-training-adaptation/module-19-tools-of-the-trade/section-19.14.html | standalone (check) |
 | 13 | 20.9 Video Editing and Remixing | part-5-multimodal-llms/module-20-audio-music-generation/section-20.9.html | standalone (check) |

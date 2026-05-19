@@ -13,7 +13,7 @@ Random-sampling audit of 40 HTML pages drawn from the in-scope book tree (parts 
 ### Top 10 most-common patterns (ranked by recurrence count and per-page detection rate)
 
 1. **Double-close `</strong>` in code-caption / comparison-table-title** — `<strong>Code Fragment N.M.K</strong>:</strong>` (the literal `</strong>` after the colon). Seen in iters 2, 3, 5, 7, 9, 10, 13, 18, 19, 21, 27, 31, 32 (13 distinct pages). Likely a single bad template substitution that has propagated everywhere captions are rendered. Trivial regex fix.
-2. **Stale chapter number in breadcrumb / pagefind chapter meta** — file says module-67 but breadcrumb says "Chapter 65" or "Chapter 68" or "Chapter 64"; module-78 says "Chapter 79"; module-09 prereq link says "Chapter 11". Seen in iters 5, 9, 14, 18, 19, 24, 32, 34, 38 (9 distinct pages). Indicates one or more chapter-renumber passes were applied incompletely.
+2. **Stale chapter number in breadcrumb / pagefind chapter meta** — file says module-67 but breadcrumb says "Chapter 65" or "Chapter 68" or "Chapter 64"; module-78 says "Chapter 74"; module-09 prereq link says "Chapter 11". Seen in iters 5, 9, 14, 18, 19, 24, 32, 34, 38 (9 distinct pages). Indicates one or more chapter-renumber passes were applied incompletely.
 3. **Python code indent-rot inside dataclass / function bodies** — module-level invocation code (`spec = LLMProductSpec(...)`, `candidates = [...]`, examples) indented inside class/def bodies; in some cases entire function bodies sit at column 0. Seen in iters 3, 5, 9, 21, 22, 23, 26, 29, 32, 36 (10 pages, with iter 26 being the most severe). Causes the rendered code to look broken; copy-paste yields non-executable Python.
 4. **Stale `<em>` numeric prefix inside `comparison-table-title`** — e.g., `<strong>Table 51.3.1:</strong> <em>39.3.1 Safety datasets...</em>`. Same renumber-pass family as #2 but specifically in table captions. Seen in iters 1, 3, 10, 15, 20, 35, 40 (7 pages).
 5. **Bare prose section/chapter references that should be hyperlinks** — "Section 22.1 a tokenizer...", "Section 38 covers...", "Chapter 29 covers agent frameworks", "Section 3" (ambiguous). Seen in iters 2, 6, 7, 11, 12, 24, 31 (7 pages, often with multiple bare refs per page).
@@ -161,10 +161,10 @@ Five fix scripts would land most of the value:
 
 ---
 
-## Iteration 1 (part-16-llm-agentic-ai-research-frontiers/module-83-tools-of-the-trade/section-83.3.html)
+## Iteration 1 (part-15-llm-agentic-ai-research-frontiers/module-78-tools-of-the-trade/section-78.3.html)
 
 ### Issue: caption number mismatch inside `comparison-table-title`
-- **Where**: line 60 — `<strong>Table 83.3.1:</strong> <em>65.3.1 Frontier benchmarks (2026).</em>`
+- **Where**: line 60 — `<strong>Table 78.3.1:</strong> <em>65.3.1 Frontier benchmarks (2026).</em>`
 - **What's wrong**: Caption has two table numbers; the `<em>` label starts with `65.3.1` while the chapter is 83. Stale number from a previous renumber pass.
 - **Generalized pattern**: Inside `<div class="comparison-table-title">`, the `<strong>Table X.Y.Z:</strong>` number must match the chapter prefix of the enclosing file path (`section-<chap>.<sec>.html`). Detect when the bold label and the italic descriptor disagree on the leading numeric token. Regex sketch: `<div class="comparison-table-title">\s*<strong>Table (\d+\.\d+\.\d+):</strong>\s*<em>(\d+\.\d+\.\d+)\s` and assert the two captures are equal AND share the chapter prefix of the file.
 - **Suggested fix**: Strip stale numeric prefix from `<em>` label; keep only descriptive caption. Cross-check chapter prefix matches file name.
@@ -543,14 +543,14 @@ Five fix scripts would land most of the value:
 
 ### Issue: missing Further Reading / bibliography section
 - **Where**: page ends at line 94 with a warning callout before chapter-nav.
-- **What's wrong**: Dataset survey with no canonical-references bibliography. Other tools-of-the-trade sections (e.g., iter 1 `section-83.3.html`) close with a `<details class="bibliography-collapsible">`.
+- **What's wrong**: Dataset survey with no canonical-references bibliography. Other tools-of-the-trade sections (e.g., iter 1 `section-78.3.html`) close with a `<details class="bibliography-collapsible">`.
 - **Generalized pattern**: For each `tools-of-the-trade/section-*.3.html` (datasets-and-benchmarks pattern), assert presence of `<details class="bibliography-collapsible">` or `<section class="bibliography">`.
 - **Suggested fix**: Add Further Reading listing the canonical papers (Mazeika 2024, Zou 2023, etc.) referenced in the bullets.
 - **TODO**: validator `check_tools_of_the_trade_section_completeness.py`.
 
 ### Issue: small file (<5KB after iter 10) — page is a thin survey
 - **Where**: file size ~10KB but content is minimal — 4 H2 sections of 3-4 bullets each plus one warning.
-- **What's wrong**: Even though it's above the 5KB threshold, the content density is low for a "Datasets & Benchmarks" page — no per-dataset code example, no MTEB-style comparison snippet, no benchmark-loading prose. Compared to peer pages (section-83.3.html iter 1 is even thinner but section-19.3.html is much richer), this one feels stub-y.
+- **What's wrong**: Even though it's above the 5KB threshold, the content density is low for a "Datasets & Benchmarks" page — no per-dataset code example, no MTEB-style comparison snippet, no benchmark-loading prose. Compared to peer pages (section-78.3.html iter 1 is even thinner but section-19.3.html is much richer), this one feels stub-y.
 - **Generalized pattern**: For each section page, compute content-to-markup ratio. Flag pages where `text-only / total bytes` < 0.20.
 - **Suggested fix**: Add a code fragment showing how to load each benchmark, plus a section on `lm-evaluation-harness` integration.
 - **TODO**: validator `check_thin_content_pages.py`; (no automated fix; flag for author).
@@ -666,10 +666,10 @@ Five fix scripts would land most of the value:
 
 ---
 
-## Iteration 14 (part-15-applications-of-llms-across-industries/module-77-government-llms/section-77.3.html)
+## Iteration 14 (part-14-applications-of-llms-across-industries/module-72-government-llms/section-72.3.html)
 
 ### Issue: "What Comes Next" rendered as plain `<h2>` instead of canonical `whats-next` block
-- **Where**: lines 59-60 — `<h2 id="what-comes-next">What Comes Next</h2><p><a href="section-77.4.html">Section 77.4</a> covers the public-sector-grounded-assistant architecture...`.
+- **Where**: lines 59-60 — `<h2 id="what-comes-next">What Comes Next</h2><p><a href="section-72.4.html">Section 72.4</a> covers the public-sector-grounded-assistant architecture...`.
 - **What's wrong**: Most other pages wrap "What Comes Next" in `<div class="whats-next"><h3>What Comes Next</h3>...</div>`. This page uses a top-level `<h2>` heading instead, which (a) elevates it into the page TOC and (b) bypasses the styled whats-next div.
 - **Generalized pattern**: For each section page, detect `<h([23]) id="what-comes-next">What Comes Next</h\1>` that is not inside a `<div class="whats-next">`. Regex: `<h[23] id="what-comes-next">` outside `whats-next` container.
 - **Suggested fix**: Wrap in canonical `<div class="whats-next">` + `<h3>`.
@@ -691,7 +691,7 @@ Five fix scripts would land most of the value:
 
 ---
 
-## Iteration 15 (part-16-llm-agentic-ai-research-frontiers/module-82-agi-trajectories/section-82.4.html)
+## Iteration 15 (part-15-llm-agentic-ai-research-frontiers/module-77-agi-trajectories/section-77.4.html)
 
 ### Issue: Big Picture body verbatim-duplicates opening line of section prose
 - **Where**: lines 39 (Big Picture: `"If the capability frontier is the headline, the labor market is the lede. The 2025-26 data is unusually clean..."`) and 41 (first body paragraph: `"If the capability frontier is the headline, the labor market is the lede. The 2025 data is unusually clean..."`).
@@ -701,7 +701,7 @@ Five fix scripts would land most of the value:
 - **TODO**: validator `check_big_picture_duplicates_opening.py`; (no automated fix; flag for author).
 
 ### Issue: stale `<em>` prefix and double-close `</strong>` in comparison-table-title (recurrence iter 1)
-- **Where**: line 51 — `<strong>Table 82.4.1</strong>:</strong> <em>64.4.1 Labor-market signals on AI impact, 2025-26.</em>`. Stale `64.4.1` prefix; chapter is 82.
+- **Where**: line 51 — `<strong>Table 77.4.1</strong>:</strong> <em>64.4.1 Labor-market signals on AI impact, 2025-26.</em>`. Stale `64.4.1` prefix; chapter is 82.
 - **TODO**: covered by previous validators. Counter +2.
 
 ### Issue: suspicious arXiv ID (potential hallucinated citation)
@@ -713,7 +713,7 @@ Five fix scripts would land most of the value:
 
 ---
 
-## Iteration 16 (part-15-applications-of-llms-across-industries/module-73-finance-llms/section-73.2.html)
+## Iteration 16 (part-14-applications-of-llms-across-industries/module-68-finance-llms/section-68.2.html)
 
 ### Issue: H2 + callout pair duplicate each other's title verbatim
 - **Where**: lines 32-34 (H2 "Hallucinated Numbers" + warning "Hallucinated Numbers"); lines 39-41 (Fair Lending and Disparate Impact); lines 46-48 (Market Manipulation Adjacency).
@@ -1086,7 +1086,7 @@ Otherwise this page is structurally clean: well-formed callouts, no double-close
 - **TODO**: validator `check_breadcrumb_book_title_consistency.py`; fix `fix_breadcrumb_book_title.py`.
 
 ### Issue: missing bottom-nav for inter-part navigation (recurrence iter 8)
-- **Where**: line 101 — `</main>` directly followed by `<footer>` (line 102). No `<nav class="chapter-nav">` linking to Part XIII or Part XV.
+- **Where**: line 101 — `</main>` directly followed by `<footer>` (line 102). No `<nav class="chapter-nav">` linking to Part XIII or Part XIV.
 - **TODO**: counter +1.
 
 ---
@@ -1229,11 +1229,11 @@ Page is otherwise well-structured: good Big Picture, multiple genre-relevant cal
 
 ---
 
-## Iteration 34 (part-15-applications-of-llms-across-industries/module-78-manufacturing-llms/section-78.7.html)
+## Iteration 34 (part-14-applications-of-llms-across-industries/module-73-manufacturing-llms/section-73.7.html)
 
-### Issue: chapter title mismatch — breadcrumb/pagefind say Chapter 79, but file is in module-78
-- **Where**: line 23 breadcrumb — `Chapter 79: LLMs in Creative Industries`; line 27 pagefind meta — `chapter:Chapter 79: LLMs in Creative Industries`; line 91 chapter-nav up — `Chapter 78` (correct); file at `module-78-manufacturing-llms/section-78.7.html`.
-- **What's wrong**: Three different chapter identities on the same page: file path says 78 (manufacturing), breadcrumb and pagefind say 79 (creative), chapter-nav says 78 (no title). Section 78.7 content is creative-industries topic but is in the manufacturing module. Either the section is misfiled OR the breadcrumb/pagefind have wrong chapter number.
+### Issue: chapter title mismatch — breadcrumb/pagefind say Chapter 74, but file is in module-78
+- **Where**: line 23 breadcrumb — `Chapter 74: LLMs in Creative Industries`; line 27 pagefind meta — `chapter:Chapter 74: LLMs in Creative Industries`; line 91 chapter-nav up — `Chapter 73` (correct); file at `module-73-manufacturing-llms/section-73.7.html`.
+- **What's wrong**: Three different chapter identities on the same page: file path says 78 (manufacturing), breadcrumb and pagefind say 79 (creative), chapter-nav says 78 (no title). Section 73.7 content is creative-industries topic but is in the manufacturing module. Either the section is misfiled OR the breadcrumb/pagefind have wrong chapter number.
 - **TODO**: counter +1 of `check_breadcrumb_chapter_number.py`. Also flag the broader content-vs-location mismatch (this is a content-organization bug, not just a label bug).
 
 ### Issue: non-canonical callout class `production-pattern`

@@ -31,11 +31,11 @@ Of 26 sampled sections, **17 had at least one defect that warranted a surgical e
 | part-13 / 65.1 | edited | Fixed nonexistent "Section E.2" → "Section 65.2" |
 | part-14 / 67.3 | edited | Fixed stray "40.3.1" prefix in table title; "Chapter 62" → "Section 67.4" for product spec; removed "Section 62.1 budget that was never written down" call-out that points nowhere; figcaption tightened |
 | part-14 / 69.3 | edited | Fixed "47.3.3 below" → "Section 69.3.3"; stray "47.3.1" in table title; "Section 69.4 closes Chapter 69" (69.4 does not exist) → "Chapter 70 picks up" |
-| part-15 / 72.3 | edited | Prerequisites "Section 55.1" (env-sustainability) → "Section 53.1" (regulation); merged duplicate What-Comes-Next |
-| part-15 / 75.3 | edited | Same Section 55.1 → 53.1 prereq fix; merged duplicate What-Comes-Next |
-| part-15 / 78.2 | edited | Merged duplicate What-Comes-Next |
-| part-16 / 80.3 | edited | Fixed corrupted prerequisites ("Section 3.1 through chain-of-thought"); merged two near-duplicate research-frontier callouts about Mamba-2 SSD into one |
-| part-16 / 83.5 | clean | Closing reading list; well-organised |
+| part-14 / 72.3 | edited | Prerequisites "Section 55.1" (env-sustainability) → "Section 53.1" (regulation); merged duplicate What-Comes-Next |
+| part-14 / 75.3 | edited | Same Section 55.1 → 53.1 prereq fix; merged duplicate What-Comes-Next |
+| part-14 / 78.2 | edited | Merged duplicate What-Comes-Next |
+| part-15 / 80.3 | edited | Fixed corrupted prerequisites ("Section 3.1 through chain-of-thought"); merged two near-duplicate research-frontier callouts about Mamba-2 SSD into one |
+| part-15 / 83.5 | clean | Closing reading list; well-organised |
 | part-4 / 15.1 | edited | Fixed "Key Insight: Why: Why synthetic data..." duplicate prefix |
 | part-4 / 17.2 | edited | Fixed Big Picture stray "KV cache combine naturally" sentence fragment; fixed "Key Insight: Why: Why DoRA..." duplicate prefix; fixed orphan tail "compares the LoRA and DoRA weight update mechanisms" |
 | part-4 / 19.10 | edited | Fixed 6 instances of `<h3>...</h4>` mismatched tags; replaced 7 `Code Fragment J.1.X` placeholders with `19.10.X` |
@@ -62,7 +62,7 @@ Of 26 sampled sections, **17 had at least one defect that warranted a surgical e
 - The "what makes an agent" set of intro paragraphs in 26.1 and 28.4 (reasonable as-is despite a heavy opening of overlapping callouts).
 - The five back-to-back Warning callouts in 78.2 (each maps to a distinct failure mode; restructuring them would be a content rewrite, not a polish).
 - The "GIANT_SECTION" sections marked do-not-split — I respected the marker even where box density was high (22.3, 31.3, 26.1, etc.).
-- Sections 80.3 and 83.5 broader research-frontier text — content judgments outside this pass's mandate.
+- Sections 75.3 and 83.5 broader research-frontier text — content judgments outside this pass's mandate.
 
 ### Recommendation
 

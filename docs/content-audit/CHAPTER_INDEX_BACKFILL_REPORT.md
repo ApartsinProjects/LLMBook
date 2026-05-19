@@ -94,8 +94,8 @@ Counts of CHAPTER_INDEX_LAYOUT issues resolved, by part:
 | Part XII LLM Systems at Scale         | 5     | 4        | 5            | 5       | 0           |
 | Part XIII LLMOps Lifecycle            | 5     | 5        | 5            | 5       | 0           |
 | Part XIV Designing LLM Agent Products | 5     | 3        | 4            | 5       | 0           |
-| Part XV Industry Applications         | 8     | 7        | 8            | 8       | 0           |
-| Part XVI Research Frontiers           | 4     | 0        | 3            | 4       | 0           |
+| Part XIV Industry Applications         | 8     | 7        | 8            | 8       | 0           |
+| Part XV Research Frontiers           | 4     | 0        | 3            | 4       | 0           |
 | **Total**                             | **83**| **41**   | **55**       | **83**  | **1**       |
 
 The single what's-next residual is in

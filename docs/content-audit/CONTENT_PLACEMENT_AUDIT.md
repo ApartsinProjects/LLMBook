@@ -32,7 +32,7 @@
 | 12 | `part-3/module-12-prompt-engineering/section-12.4.html` | 4.2 KB Prompt Injection + Defenses | Mod 47 (trim 12.4 to defensive overview) | `NEEDS_DECISION` |
 | 13 | `part-4/module-15-synthetic-data/section-15.3.html` | LLM-as-judge for quality scoring (15.3.1) | Mod 46 methodology / Mod 15 application | `NEEDS_DECISION` |
 | 14 | `part-1/module-03-transformer-architecture/section-3.6.html` | SSMs/MoE/MLA (duplicated in 80.3) | 80.3 canonical; trim 3.6 to pointer | `NEEDS_DECISION` |
-| 15 | `part-16/module-80-frontier-architectures/section-80.3.html` | SSMs/Mamba/Linear-Attention (7 h2s) | KEEP as canonical | `KEEP` |
+| 15 | `part-15/module-75-frontier-architectures/section-75.3.html` | SSMs/Mamba/Linear-Attention (7 h2s) | KEEP as canonical | `KEEP` |
 
 Items 4-11 are on `MASTER_TODO_2026_05_18.md` awaiting user decision. Items 1, 2, 3, 14 are new.
 
@@ -51,7 +51,7 @@ Items 4-11 are on `MASTER_TODO_2026_05_18.md` awaiting user decision. Items 1, 2
 
 **3. `MOVE_TO_42`, section 36.3 IR-metrics.** Before: Tools "Datasets & Benchmarks" silently teaches NDCG/MRR/MAP/BM25 in a 2581-char algorithm callout. After: Extract to 42.10 ("IR Metrics") or new 32.x; 36.3 keeps only library/benchmark inventory.
 
-**4. `KEEP` (false positive), section 80.4.** Detector flagged tokenization+attention+scaling-laws as cross-part. Section explicitly says "tokenization is the bridge"; cross-refs are intentional. Do not move.
+**4. `KEEP` (false positive), section 75.4.** Detector flagged tokenization+attention+scaling-laws as cross-part. Section explicitly says "tokenization is the bridge"; cross-refs are intentional. Do not move.
 
 **5. `NEEDS_DECISION`, section 12.4.** Before: 4.2 KB of prompt-injection threat taxonomy + defenses in Prompt Engineering chapter. After: trim to 1-page defensive overview from prompt-engineer angle; move threat catalog to Mod 47 as 47.5/47.6; add See Also.
 

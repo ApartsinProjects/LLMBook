@@ -173,30 +173,62 @@ NUMBER_RULES = build_number_rules()
 
 
 # --- Apply substitutions to a single file's content ---
+#
+# CRITICAL: Each replacement rule is applied as OLD -> placeholder first
+# (across ALL rules), then placeholder -> NEW (across all). This breaks
+# the cascade where rule "83 -> 78" produces "78" which the next rule
+# "78 -> 73" then matches. Placeholders are inert strings that no rule
+# can match.
+
+PLACEHOLDER_PREFIX = '\x00RNM\x01'  # null bytes won't appear in HTML
+PLACEHOLDER_SUFFIX = '\x02'
+
 
 def apply_replacements(text: str) -> tuple[str, dict]:
     counts: dict = {}
-    # Phase 1: Roman numerals (XVI -> XV, XV -> XIV, part-16, part-15 short slug)
-    # IMPORTANT: order matters. "XVI" must be replaced before "XV" to prevent
-    # XV inside XVI from being rewritten as XIV first.
+    placeholder_to_repl: dict = {}
+    pidx = 0
+
+    def to_placeholder(repl_str: str) -> str:
+        nonlocal pidx
+        ph = f'{PLACEHOLDER_PREFIX}{pidx}{PLACEHOLDER_SUFFIX}'
+        placeholder_to_repl[ph] = repl_str
+        pidx += 1
+        return ph
+
+    # PASS A: replace OLD with unique placeholders.
+    # Order: Roman (XVI -> XV, XV -> XIV) -> Part paths -> NUMBER_RULES
+    all_rules = []
     for pat, repl in ROMAN_REPLACEMENTS:
-        text, n = pat.subn(repl, text)
-        if n:
-            counts.setdefault(pat.pattern, 0)
-            counts[pat.pattern] += n
-    # Phase 2: full part-dir paths
+        all_rules.append((pat, repl))
     for pat, repl in PART_PATH_REPLACEMENTS:
-        text, n = pat.subn(repl, text)
-        if n:
-            counts.setdefault(pat.pattern, 0)
-            counts[pat.pattern] += n
-    # Phase 3: number rules (highest module number first)
+        all_rules.append((pat, repl))
     for entry in NUMBER_RULES:
-        pat, repl = entry[0], entry[1]
-        text, n = pat.subn(repl, text)
+        all_rules.append((entry[0], entry[1]))
+
+    for pat, repl in all_rules:
+        # Build a placeholder that wraps the SUBSTITUTED string (with
+        # backreferences resolved). To do this, we use a replacement
+        # function instead of a string.
+        def make_repl_fn(r):
+            def _fn(m):
+                # Expand backrefs in r using the match
+                try:
+                    expanded = m.expand(r)
+                except re.error:
+                    expanded = r
+                return to_placeholder(expanded)
+            return _fn
+
+        text, n = pat.subn(make_repl_fn(repl), text)
         if n:
             counts.setdefault(pat.pattern, 0)
             counts[pat.pattern] += n
+
+    # PASS B: replace placeholders with their final strings.
+    for ph, final in placeholder_to_repl.items():
+        text = text.replace(ph, final)
+
     return text, counts
 
 

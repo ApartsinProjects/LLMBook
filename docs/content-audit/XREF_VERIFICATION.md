@@ -68,7 +68,7 @@ batch text-edit pass in a future wave.
 | 6 | `part-11-llm-ethics-trust-governance/module-55-environmental-sustainability/section-55.1.html` |
 | 6 | `part-3-working-with-llms/module-11-llm-apis/section-11.1.html` |
 | 6 | `part-9-llm-evaluation-observability/module-45-tools-of-the-trade/section-45.1.html` |
-| 5 | `part-16-llm-agentic-ai-research-frontiers/module-80-frontier-architectures/section-80.3.html` |
+| 5 | `part-15-llm-agentic-ai-research-frontiers/module-75-frontier-architectures/section-75.3.html` |
 | 5 | `part-2-understanding-llms/module-09-inference-optimization/section-9.5.html` |
 | 5 | `part-2-understanding-llms/module-09-inference-optimization/section-9.6.html` |
 | 5 | `part-4-training-adaptation/module-19-tools-of-the-trade/section-19.13.html` |
@@ -80,9 +80,9 @@ Cases where the link text cited a section number from a different chapter than t
 Fixes applied this wave:
 
 1. `part-14-designing-llm-agent-products/module-71-tools-of-the-trade/section-71.1.html`: "Section 44.1 (Model Registry and Lifecycle)" -> "Section 66.2 (Model Registry and Lifecycle)"
-2. `part-15-applications-of-llms-across-industries/module-75-education-llms/section-75.4.html`: "Section 31.1" -> "Section 32.1a"
-3. `part-15-applications-of-llms-across-industries/module-77-government-llms/section-77.4.html`: "Section 31.1" -> "Section 32.1a"
-4. `part-15-applications-of-llms-across-industries/module-78-manufacturing-llms/section-78.4.html`: "Section 31.1" -> "Section 32.1a"
+2. `part-14-applications-of-llms-across-industries/module-70-education-llms/section-70.4.html`: "Section 31.1" -> "Section 32.1a"
+3. `part-14-applications-of-llms-across-industries/module-72-government-llms/section-72.4.html`: "Section 31.1" -> "Section 32.1a"
+4. `part-14-applications-of-llms-across-industries/module-73-manufacturing-llms/section-73.4.html`: "Section 31.1" -> "Section 32.1a"
 5. `part-4-training-adaptation/module-17-peft/section-17.3.html`: "Section 44.1: Online Evaluation and Observability" -> "Section 66.2: Online Evaluation and Observability"
 6. `part-7-retrieval-information-extraction-with-llms/module-33-cross-modal-reasoning-rag/section-33.2.html`: "Section 31.1" -> "Section 32.1a"
 7. `part-7-retrieval-information-extraction-with-llms/module-36-retrieval-tools/section-36.1.html`: "Section 31.1" -> "Section 32.1a"

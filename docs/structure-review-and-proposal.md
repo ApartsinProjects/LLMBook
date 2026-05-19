@@ -94,7 +94,7 @@ Three grammatical patterns, used where each is semantically correct:
 
 Every part contains "LLM" or "Agentic" in the title — no risk of being mistaken for a generic AI textbook.
 
-**The v8 grammar fix**: v7 used "LLM Retrieval" / "LLM Conversational AI" — both read as "retrieval/CAI **of** LLMs" but the actual scope is "retrieval/CAI **built with** LLMs." v8 switches these to Pattern B with the "with LLMs" suffix, matching the book title pattern ("Building Conversational AI **with** LLMs and Agents"). Part XV gets the same fix: "Applications of LLMs" reads more naturally than "LLM Applications."
+**The v8 grammar fix**: v7 used "LLM Retrieval" / "LLM Conversational AI" — both read as "retrieval/CAI **of** LLMs" but the actual scope is "retrieval/CAI **built with** LLMs." v8 switches these to Pattern B with the "with LLMs" suffix, matching the book title pattern ("Building Conversational AI **with** LLMs and Agents"). Part XIV gets the same fix: "Applications of LLMs" reads more naturally than "LLM Applications."
 
 ### Appendices restructure (7 → 2)
 

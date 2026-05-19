@@ -89,7 +89,7 @@ Notes:
 
 ## 6. Stale chapter count "82 chapters" (fixed)
 
-Three places said "82 chapters"; actual count is 83 (Chapter 0 through Chapter 83 with gaps at 38/39 plus 54b - net 83).
+Three places said "82 chapters"; actual count is 83 (Chapter 0 through Chapter 78 with gaps at 38/39 plus 54b - net 83).
 
 | File | Location | Fix |
 |------|---------|-----|
@@ -115,9 +115,9 @@ Part V description listed chapters by their old titles. Updated:
 - "vision-language models" / "unified omni-architectures" (ch. 22) -> "vision-language and unified omni models"
 - "vision-language-action models for robotics" (ch. 24) -> "VLA models and LLM-powered robotics"
 
-## 10. Stale Part XV chapter description (fixed)
+## 10. Stale Part XIV chapter description (fixed)
 
-In fm-what-this-book-covers.html, Part XV's manufacturing chapter (ch. 78) was described as just "manufacturing and supply chain" but the chapter is now "Manufacturing, Creative Industries, Search & Recommendation". Updated text to "manufacturing plus creative industries and search/recommendation".
+In fm-what-this-book-covers.html, Part XIV's manufacturing chapter (ch. 78) was described as just "manufacturing and supply chain" but the chapter is now "Manufacturing, Creative Industries, Search & Recommendation". Updated text to "manufacturing plus creative industries and search/recommendation".
 
 ---
 
@@ -129,7 +129,7 @@ No chapter or section references; nothing to verify. Trademark list and edition 
 
 ### about-authors.html
 
-Author bios reference "Parts III, V, VI, and IX" (Sasha) and "Part XV" (Yehudit). These are part-level references and remain accurate (all those parts still exist). Per instructions, did not fabricate updates to author bios. No edits.
+Author bios reference "Parts III, V, VI, and IX" (Sasha) and "Part XIV" (Yehudit). These are part-level references and remain accurate (all those parts still exist). Per instructions, did not fabricate updates to author bios. No edits.
 
 ### Front-matter href integrity
 

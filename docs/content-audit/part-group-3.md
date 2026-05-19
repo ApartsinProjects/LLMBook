@@ -229,7 +229,7 @@ Three structural recommendations for Part 9 (in priority order):
 - **Stale refs** in 48.1:
   - Line 55: "Sophisticated jailbreaks (covered in Section 49.1)" — but link is to `module-47-adversarial-security-red-team/section-47.1.html`. Wrong text (49.1 -> 47.1).
   - Line 57: "Section 57.1" — link to `module-54-watermarking-provenance/section-54.6.html`. The Model Cards section is now in Chapter 54 (provenance), not Section 57.1. Update text.
-  - Line 112: three cross-refs at end of paragraph all stale ("Section 51.1", "Section 52.2", "Section 81.2"). Should be "Section 49.1", "Section 50.1", and "Section 51.2".
+  - Line 112: three cross-refs at end of paragraph all stale ("Section 51.1", "Section 52.2", "Section 76.2"). Should be "Section 49.1", "Section 50.1", and "Section 51.2".
 - **Chapter-nav** (lines 59-61): "Chapter 49 / Part IX / Chapter 51" — stale.
 
 ### Chapter 49: Agent Safety & Security
@@ -442,7 +442,7 @@ Three structural recommendations for Part 9 (in priority order):
 - **Stale H2 numbering**: all five sections use `63.x.y` visible labels.
 - **Stale prose**:
   - "What Comes Next" (line 75): "Chapter 64 closes Part XII..." — Chapter 64 is in Part 13 now. The "this whole part has been building toward" reference is to AGI Trajectories, which is in Part 16. Update.
-  - Chapter-nav (lines 78, 80): prev "Chapter 83: Frontier Theory & Cognition", next "Chapter 85: AGI Trajectories" — both in Part 16. So this chapter currently navs to Part 16 instead of to the rest of Part 12. **Critical**: prev should be Chapter 57, next should be Chapter 59.
+  - Chapter-nav (lines 78, 80): prev "Chapter 78: Frontier Theory & Cognition", next "Chapter 85: AGI Trajectories" — both in Part 16. So this chapter currently navs to Part 16 instead of to the rest of Part 12. **Critical**: prev should be Chapter 57, next should be Chapter 59.
 
 ### Chapter 59: Distributed Training Systems
 

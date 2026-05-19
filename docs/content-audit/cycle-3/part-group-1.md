@@ -112,7 +112,7 @@ Wave 17d resolved most label-vs-href mismatches, but the sweep was anchored to h
 - module-18 looking-back: "Fine-tuning (Chapter 18) and PEFT (Chapter 19)" — real 16/17.
 - module-18 big-picture: "Chapter 37" → real 47.
 - module-19 What Comes Next: "Part V turns to retrieval... Chapter 25 closes Part V" — Part V in current numbering is Multimodal LLMs; retrieval is Part 7.
-- section-5.1 body: "Chapter 50.2 (Vibe-Coding with LLMs)" — likely real 68.2 in part-15.
+- section-5.1 body: "Chapter 50.2 (Vibe-Coding with LLMs)" — likely real 68.2 in part-14.
 
 This class of issue is dominated by **stale visible numbers in prose without an accompanying href**, which Wave 17d's href-anchored sweep could not resolve.
 

@@ -28,8 +28,8 @@ Backfilling the missing `<div class="overview">` block and `Note: Learning Objec
 | Part XII LLM Systems at Scale | 5 | 5 | 5 |
 | Part XIII LLMOps Lifecycle | 5 | 5 | 5 |
 | Part XIV Designing LLM Agent Products | 5 | 4 | 5 |
-| Part XV Industry Applications | 8 | 8 | 8 |
-| Part XVI Research Frontiers | 3 | 3 | 3 |
+| Part XIV Industry Applications | 8 | 8 | 8 |
+| Part XV Research Frontiers | 3 | 3 | 3 |
 | **Total** | **57** | **52 inserted + 2 renames = 54 effective** | **57** |
 
 The two class renames live at:
@@ -95,7 +95,7 @@ Objectives:
 - Architect multimodal guardrails for image, audio, and video inputs and outputs.
 - Diagnose false-positive and false-negative regressions in a guardrail deployment.
 
-### Sample 3: `part-15-applications-of-llms-across-industries/module-74-healthcare-llms/index.html`
+### Sample 3: `part-14-applications-of-llms-across-industries/module-69-healthcare-llms/index.html`
 
 Overview:
 

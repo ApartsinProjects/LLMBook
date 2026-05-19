@@ -148,16 +148,16 @@ Each of these clusters needs canonical home + cross-refs:
 | Long context | Part II Ch (Pre-training/Scaling) | Part IV fine-tuning, Part IX eval |
 | Quantization | Part II Ch (Inference Opt) | Part IV PEFT, Part XII Scale |
 | KV cache | Part II Ch (Inference Opt) | Part XII Scale, Part XIII LLMOps |
-| Multi-agent topologies | Part VI Ch (Multi-Agent) | Part XV industry chapters |
+| Multi-agent topologies | Part VI Ch (Multi-Agent) | Part XIV industry chapters |
 | Eval metrics (perplexity, F1, BLEU) | Part IX Ch (Eval Foundations) | Part I Ch 0 (ML basics), Part IV (training) |
 | LangChain | Part VI Ch (Agent Tools) | Part VII (RAG), Part VIII (dialogue) |
 | HuggingFace | Part II Ch (Interpretability+Tools merged) | Part IV (training), Part V (multimodal) |
 | Compute planning | Part XII Ch (Compute Planning) | Part II (pretraining), Part XIII LLMOps |
-| Vision-language models | Part V Ch (VLM/Omni) | Part XV multimodal applications |
-| Voice / TTS | Part VIII Ch (Voice & Realtime) | Part V (audio gen), Part XV industries |
-| Safety / guardrails | Part X Ch (Guardrails) | Part VI agent safety, Part XV industries |
-| Bias / fairness | Part XI Ch (Bias/Hallucination) | Part XV industries (every domain has bias concerns) |
-| Differential privacy | Part X Ch (Privacy) | Part IV training (private SGD), Part XV finance/healthcare |
+| Vision-language models | Part V Ch (VLM/Omni) | Part XIV multimodal applications |
+| Voice / TTS | Part VIII Ch (Voice & Realtime) | Part V (audio gen), Part XIV industries |
+| Safety / guardrails | Part X Ch (Guardrails) | Part VI agent safety, Part XIV industries |
+| Bias / fairness | Part XI Ch (Bias/Hallucination) | Part XIV industries (every domain has bias concerns) |
+| Differential privacy | Part X Ch (Privacy) | Part IV training (private SGD), Part XIV finance/healthcare |
 
 ---
 
@@ -250,7 +250,7 @@ Group chapters by topic-affinity (so agents have coherent context):
 - Agent 3: Part II all (Understanding LLMs)
 - Agent 4: Part III all (Working with LLMs)
 - ...
-- Agent 16: Part XV–XVI
+- Agent 16: Part XIV–XVI
 
 Each agent:
 1. Reads its assigned chapters

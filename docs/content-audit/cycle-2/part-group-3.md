@@ -21,7 +21,7 @@ Scope: Part 9 (Evaluation & Observability, Ch 42-46), Part 10 (Security & Runtim
    - Ch 54 prev "Chapter 55", next "Chapter 57: Transparency...", href → self
    - Ch 55 prev "Chapter 57: Transparency", next "Chapter 59: Frontier Safety", href → self
    - Ch 57 prev "Chapter 60", next "Chapter 62: Production Engineering" + href jumps to Part 13
-   - Ch 58 prev "Chapter 83: Frontier Theory" (Part 16!), next "Chapter 85: AGI Trajectories" (Part 16!) — cycle-1 fix DID NOT take
+   - Ch 58 prev "Chapter 78: Frontier Theory" (Part 16!), next "Chapter 85: AGI Trajectories" (Part 16!) — cycle-1 fix DID NOT take
    - Ch 59, 60, 61, 56 each missing prev/next entirely (only "In Part" link)
 
 3. **Three gap-fill chapters remain pure 55-line skeletal stubs.** Cycle 1 flagged Ch 56 (Responsible AI Tools, 5 sections), Ch 59 (Distributed Training Systems, 5 sections), Ch 61 (Scale Tools, 5 sections). All 15 sections are literally 55 lines each, identical template: big-picture sentence, three generic H2s with one-line filler, identical 3-item bibliography ("Anthropic. Building Effective Agents", "Karpathy. State of GPT", "HF Open LLM Leaderboard") that bears no thematic relation to the actual section topic. No authoring has happened.
@@ -169,7 +169,7 @@ Scope: Part 9 (Evaluation & Observability, Ch 42-46), Part 10 (Security & Runtim
 
 **Chapter 58 (Frontier Systems & Hardware)**
 - Index says "Chapter 64 closes Part XII" — Ch 61 closes Part XII
-- **Cycle-1 regression unfixed**: Index prev "Chapter 83: Frontier Theory" with href → part-16 module-81; next "Chapter 85: AGI Trajectories" with href → part-16 module-82. The linear-nav rebuild did NOT touch this chapter.
+- **Cycle-1 regression unfixed**: Index prev "Chapter 78: Frontier Theory" with href → part-15 module-81; next "Chapter 85: AGI Trajectories" with href → part-15 module-82. The linear-nav rebuild did NOT touch this chapter.
 - All 5 sections carry visible H2 prefix "63.x.y"
 
 **Chapter 59 (Distributed Training Systems)**

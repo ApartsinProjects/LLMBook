@@ -12,7 +12,7 @@ Scope: spot-check of ~35 figures across the book, focused on the highest-risk su
 
 ## Fixes Applied
 
-### 1. Section 75.4 - Figure 75.4.1 (Khanmigo five-layer architecture)
+### 1. Section 70.4 - Figure 70.4.1 (Khanmigo five-layer architecture)
 - BEFORE: caption said "Layers 1-3-5 (retrieval, Socratic prompt, output filter, throttle) sit in the request path".
 - ISSUE: 4 named layers but only 3 layer numbers, and Socratic prompt is layer 2 in the SVG (not 3).
 - AFTER: "Layers 1, 2, 3, and 5 (retrieval, Socratic prompt, output filter, throttle) sit in the request path".
@@ -37,12 +37,12 @@ Scope: spot-check of ~35 figures across the book, focused on the highest-risk su
 - ISSUE: the rows go 150 MB, 3.5 GB, 5.5 GB, 15 GB, 8 GB. The 15 GB and 8 GB rows are out of size order.
 - AFTER: rewrote caption to describe the range ("from ~150 MB to ~15 GB") without claiming ordering.
 
-### 6. Section 74.3 - Figure 74.3.1 (Healthcare SaMD decision)
+### 6. Section 69.3 - Figure 69.3.1 (Healthcare SaMD decision)
 - BEFORE: caption said staying outside SaMD scope yields "$500K-$1.4M saved".
 - ISSUE: the SVG shows SaMD initial cost of $500K-$2M and 50-70% savings from staying outside. 50-70% of $500K-$2M is roughly $250K-$1.4M, not $500K-$1.4M. The lower bound was wrong.
 - AFTER: caption now reads "~50-70% compliance savings on a $500K-$2M baseline", matching the SVG.
 
-### 7. Section 78.1 - Figure 78.1.1 (Manufacturing LLM patterns)
+### 7. Section 73.1 - Figure 73.1.1 (Manufacturing LLM patterns)
 - BEFORE: caption described "maintenance copilot, inspection summarizer, work-order drafter, and supplier-risk briefer" pipeline.
 - ISSUE: the image src is `comic-three-parallelism-kitchens.jpg` (borrowed from Chapter 59) and the alt-text describes "assembly-line workers in identical kitchens, then a serial pipeline of bakers, then a single big shared oven" representing data/pipeline/tensor parallelism. The image visual is unrelated to the four-station manufacturing pipeline the caption asserted.
 - AFTER: caption rewritten to honestly describe what the image shows (parallel stations, serial pipelines, shared specialty equipment), still framed as factory-line analogy.
@@ -51,14 +51,14 @@ Scope: spot-check of ~35 figures across the book, focused on the highest-risk su
 
 The following figures were spot-checked and the caption/SVG/prose triangulation passed:
 
-- Figure 75.5.1 (Education two-market): Duolingo Max ~$540M ARR from 1.5M subscribers matches SVG.
-- Figure 76.3.1 (Cybersecurity attack classes): four classes (prompt injection, training-data poisoning, membership inference, model extraction) match SVG; 0.001% Carlini threshold and Greshake 2023 attribution correct.
+- Figure 70.5.1 (Education two-market): Duolingo Max ~$540M ARR from 1.5M subscribers matches SVG.
+- Figure 71.3.1 (Cybersecurity attack classes): four classes (prompt injection, training-data poisoning, membership inference, model extraction) match SVG; 0.001% Carlini threshold and Greshake 2023 attribution correct.
 - Figure 69.3.1 (Token cost portfolio): four vendor buckets sum $234K + $176K + $30K + $40K = $480K vs $720K list, 33% reduction. Verified.
 - Figure 69.2.1 (Input-price ladder): GPT-5.5 $3.00 / Gemini Flash 3 $0.15 = 20x gap. Verified.
 - Figure 69.1.1 (ROI funnel): $10M -> -50% -> $5M -> -20% -> $4M; 4 / 1.2 = 3.33x. Verified.
-- Figure 74.5.1 (Healthcare vendor map): all numbers (Hippocratic 1.5M interactions, 3M HIS + Optum at $4-5B, MS Dragon Copilot ex-Nuance DAX $19.7B) match SVG.
-- Figure 75.3.1 (Education regulatory stack): COPPA $53,088 per violation matches SVG ($53K caption); ASU/UT/Wharton/Caltech ChatGPT Edu line matches prose.
-- Figure 73.2.1 (Finance number-check): XBRL Hoffman 1998, SEC-mandated 2009 confirmed; LLM-narrative-only + regex-check flow matches SVG.
+- Figure 69.5.1 (Healthcare vendor map): all numbers (Hippocratic 1.5M interactions, 3M HIS + Optum at $4-5B, MS Dragon Copilot ex-Nuance DAX $19.7B) match SVG.
+- Figure 70.3.1 (Education regulatory stack): COPPA $53,088 per violation matches SVG ($53K caption); ASU/UT/Wharton/Caltech ChatGPT Edu line matches prose.
+- Figure 68.2.1 (Finance number-check): XBRL Hoffman 1998, SEC-mandated 2009 confirmed; LLM-narrative-only + regex-check flow matches SVG.
 - Figure 59.4.1 caption corrections retained the (P-1)/M formula text since it is mathematically correct for both panels.
 - Figure 6.3.2 (Chinchilla vs Kaplan): caption is generic, math elsewhere in section is correct (70B model at ~1.4T tokens = 20 tokens per parameter).
 - Figure 22.1.2 (ViT variants): all token counts verified by formula (resolution / patch_size)^2 + 1.
@@ -70,7 +70,7 @@ The following figures were spot-checked and the caption/SVG/prose triangulation 
 - Figure 67.15.1 (MVP gates): all per-role thresholds match Table 67.15.1.
 - Figure 58.1.1 (Memory bandwidth ladder): all chip bandwidths (Cerebras 21 PB/s, B200 8 TB/s, H100 3.35 TB/s, MI355X 6 TB/s) match prose.
 - Figure 58.5.2 (Sardana inference-aware): Llama 3.1 8B at 1800:1 verified (15T / 8B = 1875).
-- Figure 80.4.1 (Universal recipe): "seven domain sources" count verified; Evo-2 4 nucleotides 1M-bp context, Chronos 4096 bins, EnCodec ~75 tokens/sec all verified.
+- Figure 75.4.1 (Universal recipe): "seven domain sources" count verified; Evo-2 4 nucleotides 1M-bp context, Chronos 4096 bins, EnCodec ~75 tokens/sec all verified.
 - Figure 16.7.2 ("Lost in the middle"): 98% primacy / ~45% midpoint / 95% recency all match SVG labels.
 - Figure C.1.2 (Precision formats for 7B): 28 GB / 14 GB / 7 GB / 4 GB at 32 / 16 / 8 / 4 bits all consistent (7 GB-params * bits / 8).
 - Figure 23.1.1 + Table 23.1.2 (Gaussian splatting parameter budget): per-Gaussian byte counts (12 MB / 16 MB / 12 MB / 4 MB / 192 MB) all verified for 1M Gaussians.
@@ -86,4 +86,4 @@ The following figures were spot-checked and the caption/SVG/prose triangulation 
 
 ## Suggested Follow-Up
 - Figure 21.2.2's SVG was clearly drawn against a different (more generic) error-attribution scheme than the prose was originally written for. The prose still references checkbox / multi-line / OCR cascade categories; consider redrawing the SVG to match the FUNSD-specific error categories the prose discusses, or further softening the prose to talk about generic error attribution. Flagging for content authors.
-- Figure 78.1.1 image (parallelism kitchens) is a generic stand-in. A dedicated factory-line illustration showing maintenance copilot / inspection summarizer / work-order drafter / supplier-risk briefer would land the caption claim better. Flagging for illustrator team.
+- Figure 73.1.1 image (parallelism kitchens) is a generic stand-in. A dedicated factory-line illustration showing maintenance copilot / inspection summarizer / work-order drafter / supplier-risk briefer would land the caption claim better. Flagging for illustrator team.

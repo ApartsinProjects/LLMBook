@@ -543,78 +543,78 @@ Findings flag (a) stale 2024 statements, (b) missing recent papers, (c) missing 
 
 ---
 
-## Part XV: Applications Across Industries
+## Part XIV: Applications Across Industries
 
 ### Finding P15-1: Legal LLMs: missing Harvey AI / Lexis+ AI / Westlaw Edge AI
 - **Severity:** 2
-- **Location:** `part-15-applications-of-llms-across-industries/module-72-legal-llms/`.
+- **Location:** `part-14-applications-of-llms-across-industries/module-67-legal-llms/`.
 - **Current claim:** Legal LLMs chapter.
 - **2026 reality:** Harvey AI (Anthropic + a16z backed), Lexis+ AI, Westlaw Precision AI, CoCounsel (Thomson Reuters / Casetext), Spellbook, Ironclad AI. The Stanford RegLab work on legal-LLM hallucination (Magesh et al., 2024, arXiv:2405.20362) is essential reading.
 - **Suggested fix:** Verify Harvey AI is cited and the Stanford RegLab hallucination paper is referenced.
 
 ### Finding P15-2: Healthcare LLMs: missing Med-Gemini / o1 medical evals
 - **Severity:** 2
-- **Location:** `part-15-applications-of-llms-across-industries/module-74-healthcare-llms/`.
+- **Location:** `part-14-applications-of-llms-across-industries/module-69-healthcare-llms/`.
 - **Current claim:** Healthcare LLMs chapter exists.
 - **2026 reality:** Med-Gemini (Saab et al., May 2024, arXiv:2404.18416), Med-PaLM 2, GPT-4 + o1 on USMLE (Nori et al., 2023, arXiv:2303.13375 + 2024 update). The HuatuoGPT family (Chinese medical LLM). Abridge / DAX / Suki for clinical scribes. EU MDR + FDA SaMD regulatory pathways.
 - **Suggested fix:** Verify Med-Gemini and a clinical-scribe section (Abridge, Microsoft DAX, Suki) are covered.
 
 ### Finding P15-3: Finance LLMs: BloombergGPT is dated; missing modern coverage
 - **Severity:** 2
-- **Location:** `part-15-applications-of-llms-across-industries/module-73-finance-llms/`.
+- **Location:** `part-14-applications-of-llms-across-industries/module-68-finance-llms/`.
 - **Current claim:** Finance LLMs chapter exists.
 - **2026 reality:** BloombergGPT (March 2023) was the headline finance LLM but is now historical. Modern: FinLLM-Eval, FinanceBench, Pixiu, Hawkamah. JPMorgan IndexGPT, Goldman Sachs use of LLM-powered tooling (announced 2024). Numo, AlphaSense, Hebbia.
 - **Suggested fix:** Verify BloombergGPT is treated as historical rather than current; refresh with FinanceBench and 2024-2025 enterprise deployments.
 
 ### Finding P15-4: Cybersecurity LLMs: missing major 2024-2025 entries
 - **Severity:** 2
-- **Location:** `part-15-applications-of-llms-across-industries/module-76-cybersecurity-llms/`.
+- **Location:** `part-14-applications-of-llms-across-industries/module-71-cybersecurity-llms/`.
 - **Current claim:** Cybersecurity LLMs chapter exists.
 - **2026 reality:** Foundation-AI / Foundation-Sec (Cisco, 2024-2025), Vectra / DarkTrace LLM integrations, Microsoft Copilot for Security (2024 GA), CrowdStrike Charlotte AI. The Bug-AGENTS / cyber-evals literature: Cybench (Stanford, 2024), HackTheBox + LLMs.
 - **Suggested fix:** Add Microsoft Copilot for Security and Cybench eval as references.
 
 ### Finding P15-5: Education LLMs: Khanmigo, Synthesis Tutor, Magic School
 - **Severity:** 1
-- **Location:** `part-15-applications-of-llms-across-industries/module-75-education-llms/`.
+- **Location:** `part-14-applications-of-llms-across-industries/module-70-education-llms/`.
 - **Current claim:** Education LLMs chapter exists.
 - **2026 reality:** Khanmigo (Khan Academy + OpenAI), Synthesis Tutor, Magic School AI, Eureka Labs (Andrej Karpathy's startup). The OpenAI for Education + Anthropic for Education programs (2024-2025).
 - **Suggested fix:** Verify Khanmigo and Eureka Labs are cited as the canonical examples.
 
 ---
 
-## Part XVI: Research Frontiers
+## Part XV: Research Frontiers
 
 ### Finding P16-1: Alternative architectures: missing 2025 hybrid SSM-Transformer entries
 - **Severity:** 2
-- **Location:** `part-16-llm-agentic-ai-research-frontiers/module-80-frontier-architectures/section-80.3.html`.
+- **Location:** `part-15-llm-agentic-ai-research-frontiers/module-75-frontier-architectures/section-75.3.html`.
 - **Current claim:** Mamba, Mamba-2, S4 covered; references the 2024 hybrid pattern.
 - **2026 reality:** Jamba (AI21, March 2024, hybrid SSM-Transformer-MoE), Zamba (Zyphra, 2024), Falcon-H1 (TII, 2025), and the IBM Granite-3 hybrid models. The "linear attention" line: Mamba-Codestral, Recurrent Gemma. xLSTM (Beck et al., 2024, arXiv:2405.04517) deserves at least a callout.
 - **Suggested fix:** Add Jamba, Zamba, Falcon-H1, and xLSTM as 2024-2025 alternative architectures.
 
 ### Finding P16-2: AGI benchmark coverage is fresh; ARC-AGI-2 update
 - **Severity:** 2
-- **Location:** `part-16-llm-agentic-ai-research-frontiers/module-82-agi-trajectories/section-82.1.html` (Frontier Benchmarks: HLE, ARC-AGI-2, FrontierMath).
+- **Location:** `part-15-llm-agentic-ai-research-frontiers/module-77-agi-trajectories/section-77.1.html` (Frontier Benchmarks: HLE, ARC-AGI-2, FrontierMath).
 - **Current claim:** HLE, ARC-AGI-2, FrontierMath called out.
 - **2026 reality:** Good current lineup. Should also cover: SWE-bench Verified, GPQA-Diamond, AIME 2024/2025, BrowseComp (OpenAI, April 2025), and the o3 ARC-AGI breakthrough (Dec 2024) followed by the ARC-AGI-2 release (March 2025).
-- **Suggested fix:** Verify the o3 ARC-AGI breakthrough and ARC-AGI-2 release are both narrated in section 82.1.
+- **Suggested fix:** Verify the o3 ARC-AGI breakthrough and ARC-AGI-2 release are both narrated in section 77.1.
 
 ### Finding P16-3: AGI timelines section needs Situational Awareness / AI 2027 / METR doubling time
 - **Severity:** 3
-- **Location:** `part-16-llm-agentic-ai-research-frontiers/module-82-agi-trajectories/section-82.3.html` (AGI Timelines: The 2027-2033 Spectrum).
+- **Location:** `part-15-llm-agentic-ai-research-frontiers/module-77-agi-trajectories/section-77.3.html` (AGI Timelines: The 2027-2033 Spectrum).
 - **Current claim:** AGI timelines covered.
 - **2026 reality:** Leopold Aschenbrenner's "Situational Awareness" (June 2024), the AI 2027 scenario (April 2025), and the METR task-length-doubling work ("Measuring AI Ability to Complete Long Tasks", Kwa et al., March 2025, arXiv:2503.14499) showing 7-month doubling time, are the three most-discussed 2024-2025 timeline pieces. Daniel Kokotajlo's "AI 2027" scenario specifically deserves citation.
 - **Suggested fix:** Add Aschenbrenner, Kokotajlo et al. (AI 2027), and METR doubling-time work to the section.
 
 ### Finding P16-4: Alignment frontier: deceptive alignment + scalable oversight
 - **Severity:** 2
-- **Location:** `part-16-llm-agentic-ai-research-frontiers/module-82-agi-trajectories/section-82.2.html` (Alignment at Frontier Scale).
+- **Location:** `part-15-llm-agentic-ai-research-frontiers/module-77-agi-trajectories/section-77.2.html` (Alignment at Frontier Scale).
 - **Current claim:** Alignment at frontier scale covered.
 - **2026 reality:** Should cite: "Sleeper Agents" (Hubinger et al., Anthropic, Jan 2024, arXiv:2401.05566), "Alignment Faking in Large Language Models" (Greenblatt et al., Anthropic, Dec 2024, arXiv:2412.14093), Debate / Scalable Oversight (Khan et al., 2024), Weak-to-Strong Generalization (Burns et al., OpenAI, 2023, arXiv:2312.09390).
 - **Suggested fix:** Verify these four papers are cited as the canonical alignment-research papers.
 
 ### Finding P16-5: Mechanistic interpretability at scale: SAE results + circuits
 - **Severity:** 2
-- **Location:** `part-16-llm-agentic-ai-research-frontiers/module-81-frontier-theory/section-81.3.html` (Mechanistic Interpretability at Scale).
+- **Location:** `part-15-llm-agentic-ai-research-frontiers/module-76-frontier-theory/section-76.3.html` (Mechanistic Interpretability at Scale).
 - **Current claim:** Section exists.
 - **2026 reality:** Should cite: Templeton et al. (Anthropic, May 2024) "Scaling Monosemanticity"; Gao et al. (OpenAI, June 2024) "Scaling and evaluating sparse autoencoders" (arXiv:2406.04093); the Anthropic circuit-tracing work; Neel Nanda's tutorial corpus; SAEBench (2024) for SAE eval.
 - **Suggested fix:** Verify the Templeton + Gao SAE papers and SAEBench are cited.

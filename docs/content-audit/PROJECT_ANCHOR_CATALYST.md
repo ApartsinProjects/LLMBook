@@ -46,8 +46,8 @@ Chapters that already mention a project-shape element on their index page:
 - `part-14-designing-llm-agent-products/module-69-llm-economics` (none in callout form)
 - `part-7-retrieval-information-extraction-with-llms/module-34-structured-information-extraction-ner` (mentions "capstone" in the chapter overview prose, not a callout)
 - `part-2-understanding-llms/module-06-pretraining-scaling-laws` (passing mention)
-- `part-15-applications-of-llms-across-industries/module-75-education-llms` (passing mention)
-- `part-16-llm-agentic-ai-research-frontiers/module-82-agi-trajectories` (passing mention)
+- `part-14-applications-of-llms-across-industries/module-70-education-llms` (passing mention)
+- `part-15-llm-agentic-ai-research-frontiers/module-77-agi-trajectories` (passing mention)
 
 No chapter index page currently uses a `callout hands-on` block to anchor a
 project at the end of the chapter. That is the gap.

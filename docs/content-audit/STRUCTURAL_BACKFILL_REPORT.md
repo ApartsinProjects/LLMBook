@@ -67,15 +67,15 @@ addition was 15 as the audit demanded.)
 | Part XIV | module-67-ideation | 3 | 3 | 0 | 3 |
 | Part XIV | module-68-vibe-coding | 3 | 3 | 0 | 3 |
 | Part XIV | module-69-llm-economics | 3 | 3 | 0 | 3 |
-| Part XV | module-72-legal-llms | 5 | 5 | 0 | 3 |
-| Part XV | module-73-finance-llms | 5 | 5 | 0 | 4 |
-| Part XV | module-74-healthcare-llms | 5 | 5 | 0 | 4 |
-| Part XV | module-75-education-llms | 5 | 5 | 0 | 4 |
-| Part XV | module-76-cybersecurity-llms | 5 | 5 | 0 | 4 |
-| Part XV | module-77-government-llms | 5 | 5 | 0 | 4 |
-| Part XV | module-78-manufacturing-llms | 9 | 9 | 0 | 4 |
-| Part XVI | module-82-agi-trajectories | 5 | 5 | 0 | 5 |
-| Part XVI | module-83-tools-of-the-trade | 5 | 5 | 0 | 5 |
+| Part XIV | module-67-legal-llms | 5 | 5 | 0 | 3 |
+| Part XIV | module-68-finance-llms | 5 | 5 | 0 | 4 |
+| Part XIV | module-69-healthcare-llms | 5 | 5 | 0 | 4 |
+| Part XIV | module-70-education-llms | 5 | 5 | 0 | 4 |
+| Part XIV | module-71-cybersecurity-llms | 5 | 5 | 0 | 4 |
+| Part XIV | module-72-government-llms | 5 | 5 | 0 | 4 |
+| Part XIV | module-73-manufacturing-llms | 9 | 9 | 0 | 4 |
+| Part XV | module-77-agi-trajectories | 5 | 5 | 0 | 5 |
+| Part XV | module-78-tools-of-the-trade | 5 | 5 | 0 | 5 |
 | **Totals** | **34 modules** | **151** | **106** | **16** | **139** |
 
 ## Sample insertions
@@ -143,7 +143,7 @@ canonical order).
 </div>
 ```
 
-### Sample 5: Section 73.4 (Tiered LLM Trust Architecture, EP)
+### Sample 5: Section 68.4 (Tiered LLM Trust Architecture, EP)
 
 ```html
 <blockquote class="epigraph">
@@ -152,7 +152,7 @@ canonical order).
 </blockquote>
 <div class="prerequisites">
 <h3 id="prerequisites">Prerequisites</h3>
-<p>This section assumes the regulatory framework from <a href="section-73.3.html">Section 73.3</a>, the LLM-agent permission patterns from <a href="../../part-6-llm-agents/module-27-tool-use-protocols/section-27.1.html">Section 27.1</a>, and the audit-log discipline from <a href="../../part-11-llm-ethics-trust-governance/module-54b-transparency-and-disclosure/section-54.9.html">Section 54.9</a>.</p>
+<p>This section assumes the regulatory framework from <a href="section-68.3.html">Section 68.3</a>, the LLM-agent permission patterns from <a href="../../part-6-llm-agents/module-27-tool-use-protocols/section-27.1.html">Section 27.1</a>, and the audit-log discipline from <a href="../../part-11-llm-ethics-trust-governance/module-54b-transparency-and-disclosure/section-54.9.html">Section 54.9</a>.</p>
 </div>
 ```
 

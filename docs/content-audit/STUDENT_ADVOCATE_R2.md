@@ -105,11 +105,11 @@ Logging here so other agents can pick them up:
 1. `E:\Projects\BookBlogsHome\LLMBook\part-11-llm-ethics-trust-governance\module-53-regulation-compliance\section-53.4.html`
 2. `E:\Projects\BookBlogsHome\LLMBook\part-13-llmops-lifecycle\module-65-containers-kubernetes\section-65.1.html`
 3. `E:\Projects\BookBlogsHome\LLMBook\part-14-designing-llm-agent-products\module-69-llm-economics\section-69.1.html`
-4. `E:\Projects\BookBlogsHome\LLMBook\part-15-applications-of-llms-across-industries\module-74-healthcare-llms\section-74.4.html`
-5. `E:\Projects\BookBlogsHome\LLMBook\part-15-applications-of-llms-across-industries\module-77-government-llms\section-77.3.html`
-6. `E:\Projects\BookBlogsHome\LLMBook\part-16-llm-agentic-ai-research-frontiers\module-82-agi-trajectories\section-82.3.html`
+4. `E:\Projects\BookBlogsHome\LLMBook\part-14-applications-of-llms-across-industries\module-69-healthcare-llms\section-69.4.html`
+5. `E:\Projects\BookBlogsHome\LLMBook\part-14-applications-of-llms-across-industries\module-72-government-llms\section-72.3.html`
+6. `E:\Projects\BookBlogsHome\LLMBook\part-15-llm-agentic-ai-research-frontiers\module-77-agi-trajectories\section-77.3.html`
 7. `E:\Projects\BookBlogsHome\LLMBook\part-12-llm-systems-at-scale\module-59-distributed-training-systems\section-59.2.html`
-8. `E:\Projects\BookBlogsHome\LLMBook\part-15-applications-of-llms-across-industries\module-79-tools-of-the-trade\section-79.2.html`
+8. `E:\Projects\BookBlogsHome\LLMBook\part-14-applications-of-llms-across-industries\module-74-tools-of-the-trade\section-74.2.html`
 9. `E:\Projects\BookBlogsHome\LLMBook\part-5-multimodal-llms\module-20-audio-music-generation\section-20.4.html`
 10. `E:\Projects\BookBlogsHome\LLMBook\part-5-multimodal-llms\module-22-vision-language-models\section-22.5.html`
 11. `E:\Projects\BookBlogsHome\LLMBook\part-4-training-adaptation\module-15-synthetic-data\section-15.7.html`

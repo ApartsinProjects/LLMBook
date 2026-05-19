@@ -1,48 +1,48 @@
 # Cycle 3 Audit — Parts 13-16 + Appendices
 
-Scope: `part-13-llmops-lifecycle/` (modules 62-66), `part-14-designing-llm-agent-products/` (modules 67-71), `part-15-applications-of-llms-across-industries/` (modules 72-79), `part-16-llm-agentic-ai-research-frontiers/` (modules 80-83), `appendices/` (A: Mathematical Foundations, B: Course Syllabi, C: Reading Pathways), `capstone/` (index + requirements). Read-only audit between cycle 2 (which described pervasive H2 numbering drift, stale chapter labels in breadcrumbs and prev/next nav, Frankenstein-stitched chapter 67/78, "Part XII" residue in Part 16, and miswritten appendix figure/table prefixes) and the cycle 3 starting state after waves 17a-g and 17b-targeted landings.
+Scope: `part-13-llmops-lifecycle/` (modules 62-66), `part-14-designing-llm-agent-products/` (modules 67-71), `part-14-applications-of-llms-across-industries/` (modules 72-79), `part-15-llm-agentic-ai-research-frontiers/` (modules 80-83), `appendices/` (A: Mathematical Foundations, B: Course Syllabi, C: Reading Pathways), `capstone/` (index + requirements). Read-only audit between cycle 2 (which described pervasive H2 numbering drift, stale chapter labels in breadcrumbs and prev/next nav, Frankenstein-stitched chapter 67/78, "Part XII" residue in Part 16, and miswritten appendix figure/table prefixes) and the cycle 3 starting state after waves 17a-g and 17b-targeted landings.
 
-Note: the prompt described part-15 as containing modules 72-78, but the on-disk + yaml structure (`book_structure.yaml` lines 1610-1807) places module 79 (Tools of the Trade: Industry Solution Stack) inside Part XV, not Part XVI. The audit treats 79 as part of Part XV; Part XVI's tools chapter is module 83.
+Note: the prompt described part-14 as containing modules 72-78, but the on-disk + yaml structure (`book_structure.yaml` lines 1610-1807) places module 79 (Tools of the Trade: Industry Solution Stack) inside Part XIV, not Part XV. The audit treats 79 as part of Part XIV; Part XV's tools chapter is module 83.
 
 ## Resolved since cycle 2
 
-- **Wave 17b (Part 16 part-label / part-index)** verified: `part-16-llm-agentic-ai-research-frontiers/index.html` line 24 reads `<div class="part-label">Part XVI</div>` and the H1, `<title>`, meta description, breadcrumb-ish prose, and big-picture callout all read "Part XVI". The part-overview prose still claims "5 chapters / Chapters 61 through 65" (see Remaining P2) but the part identity itself is fixed.
-- **Wave 17b (module-78 inline old-Ch-57 prose)** verified gone: `part-15.../module-78-manufacturing-llms/index.html` no longer contains H2s with prefix `57.X`, the duplicated inline Manufacturing narrative, the stale "Section 32.8/38.1/37.5/46.2/FM.12" cross-refs, or the "Chapter 35 LLMOps coverage" line. The chapter-card big-picture is now a clean single paragraph about the IT/OT boundary, and the section-card list (78.1-78.10) covers Manufacturing + Creative + Search/Rec without inline duplication.
+- **Wave 17b (Part 16 part-label / part-index)** verified: `part-15-llm-agentic-ai-research-frontiers/index.html` line 24 reads `<div class="part-label">Part XV</div>` and the H1, `<title>`, meta description, breadcrumb-ish prose, and big-picture callout all read "Part XV". The part-overview prose still claims "5 chapters / Chapters 61 through 65" (see Remaining P2) but the part identity itself is fixed.
+- **Wave 17b (module-78 inline old-Ch-57 prose)** verified gone: `part-14.../module-73-manufacturing-llms/index.html` no longer contains H2s with prefix `57.X`, the duplicated inline Manufacturing narrative, the stale "Section 32.8/38.1/37.5/46.2/FM.12" cross-refs, or the "Chapter 35 LLMOps coverage" line. The chapter-card big-picture is now a clean single paragraph about the IT/OT boundary, and the section-card list (78.1-78.10) covers Manufacturing + Creative + Search/Rec without inline duplication.
 - **Wave 17b (scratch files)** verified: `git ls`-equivalent glob `**/_section_split_plan.md` returns zero hits in the working tree. All nine cycle-2-flagged scratch files (modules 67, 68, 72-77) are removed.
 - **Wave 17c (H2/H3 visible numbering and IDs)** verified for canonically-named `section-N.M.html` files in Parts 13, 14, 16:
   - Part 13 modules 62, 63, 64, 66 plus section 65.5 now use `62.X.Y` / `63.X.Y` / `64.X.Y` / `65.5.Y` / `66.X.Y` visible numbering with matching anchor IDs (cycle-2 reported `53.X.Y` / `51-1-1` styles).
   - Part 14 modules 67, 68, 69, 70 now use `67.X.Y` etc.; cycle-2-reported `31.2.X`, `45.X.X`, `58.1.X`, `63.X.X`, `65.X.X`, `66.X.X` prefixes are gone for files matched by the regex.
-  - Part 16 modules 80.1-80.3, 81.1-81.4, 82.1-82.5, 83.1-83.5 all use `80/81/82/83.X.Y` visible + ID; cycle-2-reported `33.X.Y` / `64.X.Y` / `65.X.Y` are gone. Section 80.4 has an exception (see Remaining P1).
-- **Wave 17b/c (Part-16 chapter labels in breadcrumbs)** verified: every section file under part-16 carries `Part XVI: LLM &amp; Agentic AI Research Frontiers` + `Chapter 80/81/82/83: ...` in the breadcrumb. Cycle-2's `Chapter 81-86 inflation` is gone for sections.
+  - Part 16 modules 80.1-80.3, 81.1-81.4, 82.1-82.5, 83.1-83.5 all use `80/81/82/83.X.Y` visible + ID; cycle-2-reported `33.X.Y` / `64.X.Y` / `65.X.Y` are gone. Section 75.4 has an exception (see Remaining P1).
+- **Wave 17b/c (Part-16 chapter labels in breadcrumbs)** verified: every section file under part-15 carries `Part XV: LLM &amp; Agentic AI Research Frontiers` + `Chapter 75/81/82/83: ...` in the breadcrumb. Cycle-2's `Chapter 76-86 inflation` is gone for sections.
 - **Wave 17g (chapter-nav rebuild) — Part 16** verified for module 80-83 section files: prev/next/up chapter numbers map correctly to 80-83 range; cycle-2-reported "Chapter 84/85/86" labels are gone.
 - **Cycle-2 #2 self-link in module-67/index.html next-chapter nav** verified fixed: line 119 nav-next now points to `../module-68-vibe-coding/index.html` with label "Chapter 68 Prototyping via Vibe-Coding" (cycle-2 had it self-linking back to module-67).
 
 ## Remaining issues (priority order)
 
-### P1. Section 80.4 has a malformed H2 that breaks the heading sequence
+### P1. Section 75.4 has a malformed H2 that breaks the heading sequence
 
-`part-16.../module-80-frontier-architectures/section-80.4.html` line 54 contains the literal text `2&gt;1. The Universal Recipe` (rendered as `2>1. The Universal Recipe`) outside any heading element. The intended `<h2 id="80-4-1-the-universal-recipe">80.4.1 The Universal Recipe</h2>` is missing entirely. As a result the H2 sequence starts at `80.4.2`, the section has no heading for the universal-recipe content, and `Exercises` (line 144) sits between `80.4.3` and `80.4.4` instead of at the end. Other section-80.4 H2/H3 IDs and visible numbers are correct.
+`part-15.../module-75-frontier-architectures/section-75.4.html` line 54 contains the literal text `2&gt;1. The Universal Recipe` (rendered as `2>1. The Universal Recipe`) outside any heading element. The intended `<h2 id="75-4-1-the-universal-recipe">80.4.1 The Universal Recipe</h2>` is missing entirely. As a result the H2 sequence starts at `80.4.2`, the section has no heading for the universal-recipe content, and `Exercises` (line 144) sits between `80.4.3` and `80.4.4` instead of at the end. Other section-80.4 H2/H3 IDs and visible numbers are correct.
 
 ### P2. Part-15 part-index still carries the cycle-2 "Part XI" identity bug
 
-`part-15-applications-of-llms-across-industries/index.html`:
-- Line 24: `<div class="part-label" data-pagefind-meta="part">Part XI</div>` — should be `Part XV`. Wave 17 did not touch this file.
+`part-14-applications-of-llms-across-industries/index.html`:
+- Line 24: `<div class="part-label" data-pagefind-meta="part">Part XI</div>` — should be `Part XIV`. Wave 17 did not touch this file.
 - Line 29: hero image alt-text says `Part XI: LLM Applications Across Industries`.
-- Line 37: part-overview opens "Part XI takes the techniques developed across the rest of the book ... and applies them to **nine industries**" — should be Part XV; "nine" contradicts the subtitle line 26 which says "Seven vertical applications" (and the index lists 7 vertical chapters 72-78 plus 1 tools chapter 79).
+- Line 37: part-overview opens "Part XI takes the techniques developed across the rest of the book ... and applies them to **nine industries**" — should be Part XIV; "nine" contradicts the subtitle line 26 which says "Seven vertical applications" (and the index lists 7 vertical chapters 72-78 plus 1 tools chapter 79).
 - Description meta (line 7) reads "nine verticals" but the part subtitle says "Seven vertical applications".
 
 ### P2. Part-16 part-overview still describes a vanished 5th chapter
 
-`part-16-llm-agentic-ai-research-frontiers/index.html` line 40: "Chapters: 5 (Chapters 61 through 65)." The part-card list shows 4 chapters (80, 81, 82, 83). The overview body (line 37) still describes "frontier systems and hardware (non-NVIDIA silicon, decentralized training, edge LLMs, training-inference co-design)" as a covered chapter; that chapter does not exist in this part. Either the overview needs to drop that paragraph + correct the count to "4 chapters (80-83)", or the missing chapter needs to be restored.
+`part-15-llm-agentic-ai-research-frontiers/index.html` line 40: "Chapters: 5 (Chapters 61 through 65)." The part-card list shows 4 chapters (80, 81, 82, 83). The overview body (line 37) still describes "frontier systems and hardware (non-NVIDIA silicon, decentralized training, edge LLMs, training-inference co-design)" as a covered chapter; that chapter does not exist in this part. Either the overview needs to drop that paragraph + correct the count to "4 chapters (80-83)", or the missing chapter needs to be restored.
 
 ### P2. "Part XII" residue inside Part 16 module indexes and one section body
 
-Wave 17b fixed the part-16/index.html. It did not sweep the module indexes:
-- `module-80-frontier-architectures/index.html` line 36: "Part XII covers what it has not. ... Theory of reasoning ... live in **Chapter 62**; hardware and systems live in **Chapter 63**; AGI trajectories live in **Chapter 64**." Three stale chapter numbers (real targets are 81, no chapter, 82) plus stale "Part XII".
+Wave 17b fixed the part-15/index.html. It did not sweep the module indexes:
+- `module-75-frontier-architectures/index.html` line 36: "Part XII covers what it has not. ... Theory of reasoning ... live in **Chapter 62**; hardware and systems live in **Chapter 63**; AGI trajectories live in **Chapter 64**." Three stale chapter numbers (real targets are 81, no chapter, 82) plus stale "Part XII".
 - `module-80.../index.html` line 106: `<a href="../../part-14-designing-llm-agent-products/index.html">Part XI</a>` — visible text "Part XI" but href points to Part XIV. Should read "Part XIV".
-- `module-82-agi-trajectories/index.html` line 75: "**Chapter 83** wraps **Part XII**" plus the same line links `<a href="../../appendices/index.html">capstone project</a>` — capstone now lives at `/capstone/`, not in `/appendices/`. Two bugs in one anchor.
-- `module-83-tools-of-the-trade/index.html` line 35: "Part XII looked at the frontiers" — stale.
-- `module-83-tools-of-the-trade/section-83.4.html` line 149: "Whether this trend extends or saturates is the open research question **Part XII** discusses."
+- `module-77-agi-trajectories/index.html` line 75: "**Chapter 78** wraps **Part XII**" plus the same line links `<a href="../../appendices/index.html">capstone project</a>` — capstone now lives at `/capstone/`, not in `/appendices/`. Two bugs in one anchor.
+- `module-78-tools-of-the-trade/index.html` line 35: "Part XII looked at the frontiers" — stale.
+- `module-78-tools-of-the-trade/section-78.4.html` line 149: "Whether this trend extends or saturates is the open research question **Part XII** discusses."
 
 ### P2. Module-67 chapter-title identity mismatch + stale breadcrumb chapter labels
 
@@ -62,9 +62,9 @@ Wave 17g rebuilt prev/next/up navs but did not touch the breadcrumb `data-pagefi
 ### P2. Module-78 chapter-label drift in section breadcrumbs
 
 Same pattern. The chapter is "Manufacturing, Creative Industries, Search & Recommendation" (line 22 of module-78/index.html). Section breadcrumbs still carry pre-merge titles:
-- 78.1, 78.2, 78.3, 78.4, 78.5: `Chapter 78: LLMs in Manufacturing & Supply Chain` (the original yaml chapter title — close, but not the merged title).
-- 78.6, 78.7: `Chapter 79: LLMs in Creative Industries` (the former Chapter 79 that got merged in).
-- 78.8, 78.9, 78.10: `Chapter 80: LLM-Powered Recommendation & Search` (the former Chapter 80 that also got merged in).
+- 78.1, 78.2, 78.3, 78.4, 78.5: `Chapter 73: LLMs in Manufacturing & Supply Chain` (the original yaml chapter title — close, but not the merged title).
+- 78.6, 78.7: `Chapter 74: LLMs in Creative Industries` (the former Chapter 74 that got merged in).
+- 78.8, 78.9, 78.10: `Chapter 75: LLM-Powered Recommendation & Search` (the former Chapter 75 that also got merged in).
 
 Three different chapter numbers in pagefind for what is one chapter.
 
@@ -107,7 +107,7 @@ Wave 17c numbered 68.1, 68.2, 68.4 correctly but left:
 - Line 244: caption `<strong>Code Fragment 4.1.1</strong>`. Should be A.6.X or A.6.1.
 - Line 247: image src is `../../part-1-llm-building-blocks/module-03-transformer-architecture/images/fig-4.1.2-cross-entropy.png` — points to part-1 module-03 (transformer chapter), filename uses `fig-4.1.2-`. The image lives outside this appendix; if A.6 is supposed to be self-contained it needs its own image or the caption/cross-link to point at the source clearly.
 - Line 248: caption `<strong>Figure 4.1.1</strong>` — stale prefix.
-- Line 252: `<strong>Table a.6.1:</strong>` (lowercase a) — visible label should be `Table A.6.1` to match the book's other tables (e.g. `Table 80.4.1`).
+- Line 252: `<strong>Table a.6.1:</strong>` (lowercase a) — visible label should be `Table A.6.1` to match the book's other tables (e.g. `Table 75.4.1`).
 - Lines 264, 270, 276, 282: cross-refs in the table cells say "Sec. 4.1", "Chapters 4, 8, 14", "Chapters 5, 14, 15", "Chapter 17/18" — all old-numbering for the modern Chapter 1-83 sequence.
 - Line 296: `<a class="next" href="../../part-1-llm-building-blocks/module-00-ml-pytorch-foundations/index.html"><span class="nav-num">Appendix B</span><span class="nav-title">Machine Learning Essentials</span></a>` — visible label says "Appendix B Machine Learning Essentials" but Appendix B is Course Syllabi (line 296 also has a broken href that points to Chapter 0 in Part 1, not to Appendix B at all).
 
@@ -160,19 +160,19 @@ The hrefs are correct (Wave 17b/d updated them) but the visible link text inside
 
 ### P3. Stale "Part XI" prose in Part-14 modules 70 and 71
 
-- `module-70-shipping-products/index.html` line 41: "complete a capstone project that exercises every skill from **Part XI**". Should be Part XV (industries) or Part XIV (this part itself).
-- `module-71-tools-of-the-trade/index.html` line 74: "**Part XI** surveys industries: legal, finance, healthcare, education, cyber, code, and the rest. **Chapter 70** closes **Part XI** with the per-vertical vendor map." Chapter 70 closes Part XIV, not Part XV; Part XI doesn't exist (likely meant Part XV).
-- `module-79-tools-of-the-trade/index.html` line 35: "**Part XI** surveyed how LLMs are applied across industries". Should be "Part XV".
-- `module-79-tools-of-the-trade/index.html` line 73: "**Part XII** (Frontiers) closes the book. Chapter 65 wraps up with the frontier-research toolbox." Should be Part XVI; chapter 65 is in Part XIII (Containers, Kubernetes).
+- `module-70-shipping-products/index.html` line 41: "complete a capstone project that exercises every skill from **Part XI**". Should be Part XIV (industries) or Part XIV (this part itself).
+- `module-71-tools-of-the-trade/index.html` line 74: "**Part XI** surveys industries: legal, finance, healthcare, education, cyber, code, and the rest. **Chapter 70** closes **Part XI** with the per-vertical vendor map." Chapter 70 closes Part XIV, not Part XIV; Part XI doesn't exist (likely meant Part XIV).
+- `module-74-tools-of-the-trade/index.html` line 35: "**Part XI** surveyed how LLMs are applied across industries". Should be "Part XIV".
+- `module-74-tools-of-the-trade/index.html` line 73: "**Part XII** (Frontiers) closes the book. Chapter 65 wraps up with the frontier-research toolbox." Should be Part XV; chapter 65 is in Part XIII (Containers, Kubernetes).
 
 ### P3. Hero alt-text fragmentation (cycle-2 #10) still present
 
 Spot checks confirm the alt-attribute-spills-into-figcaption defect remains in:
 - `part-14-designing-llm-agent-products/module-67-ideation/index.html` line 27: `alt="... 'Ideation: Finding LLM-"` then figcaption opens `Worthy Problems', ...`.
-- `part-15-applications-of-llms-across-industries/module-79-tools-of-the-trade/index.html` line 27: `alt="... 'Tools of the Trade: I"` then figcaption opens `dustry Solution Stack', ...`.
-- `part-15-applications-of-llms-across-industries/module-78-manufacturing-llms/index.html` line 26: alt-text says `LLMs in Manufacturing & Supply Chain` (stale single-domain title; doesn't reflect the post-merge chapter).
+- `part-14-applications-of-llms-across-industries/module-74-tools-of-the-trade/index.html` line 27: `alt="... 'Tools of the Trade: I"` then figcaption opens `dustry Solution Stack', ...`.
+- `part-14-applications-of-llms-across-industries/module-73-manufacturing-llms/index.html` line 26: alt-text says `LLMs in Manufacturing & Supply Chain` (stale single-domain title; doesn't reflect the post-merge chapter).
 - `part-14-designing-llm-agent-products/module-68-vibe-coding/index.html`, `module-69-llm-economics/index.html`, `module-71-tools-of-the-trade/index.html`: similar pattern (truncated alt mid-word, rest in figcaption).
-- `part-16-llm-agentic-ai-research-frontiers/module-83-tools-of-the-trade/index.html`: same.
+- `part-15-llm-agentic-ai-research-frontiers/module-78-tools-of-the-trade/index.html`: same.
 
 ### P3. Section-67.4 in-prose label/href mismatch
 
@@ -184,23 +184,23 @@ Spot checks confirm the alt-attribute-spills-into-figcaption defect remains in:
 
 ### P3. Module-80/index.html "Looking Back" links to phantom chapters
 
-`module-80-frontier-architectures/index.html` line 36 (the prose snippet quoted in P2 above) names "Chapter 62" and "Chapter 64" — those modules exist in Part XIII (Production Engineering, Workflow Orchestration) and Part XIII (Containers), which is the wrong target. The intended targets for the "Looking Back" prose are likely chapters 81 (Theory) and 82 (AGI Trajectories), inside this same part.
+`module-75-frontier-architectures/index.html` line 36 (the prose snippet quoted in P2 above) names "Chapter 62" and "Chapter 64" — those modules exist in Part XIII (Production Engineering, Workflow Orchestration) and Part XIII (Containers), which is the wrong target. The intended targets for the "Looking Back" prose are likely chapters 81 (Theory) and 82 (AGI Trajectories), inside this same part.
 
-### P3. Section 83.5 has no "next" chapter-nav link
+### P3. Section 78.5 has no "next" chapter-nav link
 
-`module-83-tools-of-the-trade/section-83.5.html` chapter-nav block has prev (83.4) and up (Chapter 83), but no `class="next"`. The appendices/index.html prev-nav (line 66) points back to this section, so the round-trip is broken. A "next" link to `../../appendices/index.html` (Appendices) or `../../capstone/index.html` (Capstone) would close the loop.
+`module-78-tools-of-the-trade/section-78.5.html` chapter-nav block has prev (83.4) and up (Chapter 78), but no `class="next"`. The appendices/index.html prev-nav (line 66) points back to this section, so the round-trip is broken. A "next" link to `../../appendices/index.html` (Appendices) or `../../capstone/index.html` (Capstone) would close the loop.
 
 ### P3. Module-82/index.html "capstone project" link points to wrong directory
 
-`module-82-agi-trajectories/index.html` line 75: `<a href="../../appendices/index.html">capstone project</a>`. The capstone now lives at `/capstone/index.html`. The link text says "capstone project" but the href takes the reader to the Appendices index.
+`module-77-agi-trajectories/index.html` line 75: `<a href="../../appendices/index.html">capstone project</a>`. The capstone now lives at `/capstone/index.html`. The link text says "capstone project" but the href takes the reader to the Appendices index.
 
 ## Suggested cycle 4 actions
 
-1. **Fix the one malformed H2 in section 80.4.** Manually replace the literal `2&gt;1. The Universal Recipe` at line 54 with `<h2 id="80-4-1-the-universal-recipe">80.4.1 The Universal Recipe</h2>` and move the misplaced `Exercises` H2 (line 144) to the end of the section. One-section fix; high visibility because it's the first heading the reader sees in that section.
+1. **Fix the one malformed H2 in section 75.4.** Manually replace the literal `2&gt;1. The Universal Recipe` at line 54 with `<h2 id="75-4-1-the-universal-recipe">80.4.1 The Universal Recipe</h2>` and move the misplaced `Exercises` H2 (line 144) to the end of the section. One-section fix; high visibility because it's the first heading the reader sees in that section.
 
-2. **Fix Part-15 part-index identity** (P2). Edit `part-15-applications-of-llms-across-industries/index.html` lines 24, 26, 29, 37, 7 to use Part XV consistently and pick "seven verticals + one tools chapter" or "eight chapters" as the canonical count.
+2. **Fix Part-15 part-index identity** (P2). Edit `part-14-applications-of-llms-across-industries/index.html` lines 24, 26, 29, 37, 7 to use Part XIV consistently and pick "seven verticals + one tools chapter" or "eight chapters" as the canonical count.
 
-3. **Sweep "Part XII" out of Part 16 module + section files** (P2). Five occurrences: module-80/index.html (line 36), module-82/index.html (line 75), module-83/index.html (line 35), and section-83.4.html (line 149). Each needs the surrounding sentence rewritten (the prose also references chapters that don't exist).
+3. **Sweep "Part XII" out of Part 16 module + section files** (P2). Five occurrences: module-80/index.html (line 36), module-82/index.html (line 75), module-83/index.html (line 35), and section-78.4.html (line 149). Each needs the surrounding sentence rewritten (the prose also references chapters that don't exist).
 
 4. **Run "rebuild breadcrumb chapter labels from canonical chapter title" pass.** The hrefs and bottom-nav numbers are correct after Wave 17g; the `<div class="page-breadcrumb">` chapter-label text and the `data-pagefind-meta="chapter:..."` injections are NOT. Script: walk every section file, read the chapter title from `module-NN/index.html` h1, and rewrite the breadcrumb chapter label + pagefind meta to match. Will close P2 for modules 67 (15 sections), 78 (10 sections), and reduce search-result chrome confusion.
 
@@ -212,11 +212,11 @@ Spot checks confirm the alt-attribute-spills-into-figcaption defect remains in:
 
 8. **Fix capstone navigation corruption** (P2). Diff the two files against an earlier git revision to find where the `Next Next Next Next Next` and `Previous Previous Previous Previous Previous` accretion came from. Most likely Wave 17g ran multiple times without an idempotency guard. The fix is to regenerate the chapter-nav blocks from scratch using the canonical structure: prev → appendices index, up → none (capstone is top-level), next → requirements.html; on the requirements page prev → capstone index, next → appendices index. Also change the `C.1` section-prefix in capstone/index.html line 65 and capstone/requirements.html line 31 to a capstone-local identifier ("Section 1: Technical Requirements" or just "Technical Requirements"), since the C.1 letter collides with Appendix C.
 
-9. **Renumber capstone Requirements 1-11 against the current chapter sequence** (P2). Walk every `<p><strong>Chapters: NN, NN</strong></p>` and `<p><strong>Module: NN</strong></p>` line in `capstone/requirements.html` and re-map the listed numbers to the modern part-13-through-part-16 chapter numbers (e.g. Synthetic Dataset → Chapter 1 (tokenization), 13 (Hybrid ML+LLM), 16 (Fine-tuning Fundamentals); Fine-Tuned Model → Chapters 16, 17, 18; RAG → 31, 32, 35; Agent with Tools → 26, 27, 28; Production Deployment → 62, 70; Security and Safety → 47, 49; Evaluation Suite → 42, 43, 44; ROI Analysis → 69, 70). Cycle-2 missed this; the prompt explicitly added it to cycle-3 scope.
+9. **Renumber capstone Requirements 1-11 against the current chapter sequence** (P2). Walk every `<p><strong>Chapters: NN, NN</strong></p>` and `<p><strong>Module: NN</strong></p>` line in `capstone/requirements.html` and re-map the listed numbers to the modern part-13-through-part-15 chapter numbers (e.g. Synthetic Dataset → Chapter 1 (tokenization), 13 (Hybrid ML+LLM), 16 (Fine-tuning Fundamentals); Fine-Tuned Model → Chapters 16, 17, 18; RAG → 31, 32, 35; Agent with Tools → 26, 27, 28; Production Deployment → 62, 70; Security and Safety → 47, 49; Evaluation Suite → 42, 43, 44; ROI Analysis → 69, 70). Cycle-2 missed this; the prompt explicitly added it to cycle-3 scope.
 
 10. **Number H2 headings consistently for modules 65, 67, 68** (P2). Sections 65.1-65.4, 67.2, 67.3, 67.6, 68.3, 68.5, 68.6 are currently using bare `1.`-`5.` headings; the rest of the audit scope uses `NN.X.Y`. Either prefix the bare ones with the chapter/section number (preferred) or strip prefixes from the numbered ones. The current half-and-half state is the worst option for navigation/search.
 
-11. **Drop the part-overview reference to the missing Part XVI hardware chapter** (P2). Either rewrite `part-16.../index.html` lines 36-40 to describe the actual 4 chapters (Architectures, Theory, AGI Trajectories, Tools) or restore a frontier-systems-and-hardware chapter; do not leave the description claiming a chapter that does not exist.
+11. **Drop the part-overview reference to the missing Part XV hardware chapter** (P2). Either rewrite `part-15.../index.html` lines 36-40 to describe the actual 4 chapters (Architectures, Theory, AGI Trajectories, Tools) or restore a frontier-systems-and-hardware chapter; do not leave the description claiming a chapter that does not exist.
 
 12. **Fix the part-14 chapter-68 undercount** in `part-14-designing-llm-agent-products/index.html` lines 56-64 to list all six sections (68.1-68.6).
 

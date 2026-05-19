@@ -100,7 +100,7 @@ hesitation.
   - `part-12-llm-systems-at-scale/module-61-scale-tools/section-61.3.html`: 37 hit(s); pretraining=36, Pretraining=1
   - `part-12-llm-systems-at-scale/module-61-scale-tools/section-61.2.html`: 17 hit(s); pretraining=16, Pretraining=1
   - `part-2-understanding-llms/module-10-interpretability/section-10.7.html`: 15 hit(s); pretraining=10, Pretraining=5
-  - `part-16-llm-agentic-ai-research-frontiers/module-80-frontier-architectures/section-80.2.html`: 13 hit(s); pretraining=9, Pretraining=4
+  - `part-15-llm-agentic-ai-research-frontiers/module-75-frontier-architectures/section-75.2.html`: 13 hit(s); pretraining=9, Pretraining=4
   - `part-11-llm-ethics-trust-governance/module-55-environmental-sustainability/section-55.1.html`: 12 hit(s); pretraining=10, Pretraining=2
   - `part-12-llm-systems-at-scale/module-61-scale-tools/section-61.1.html`: 11 hit(s); pretraining=11
   - `part-5-multimodal-llms/module-22-vision-language-models/section-22.1.html`: 11 hit(s); pretraining=8, Pretraining=3
@@ -121,7 +121,7 @@ hesitation.
 - **Top offending files (up to 10):**
   - `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.5.html`: 21 hit(s); chain-of-thought=18, Chain-of-thought (lower t)=3
   - `part-2-understanding-llms/module-08-reasoning-test-time-compute/section-8.1.html`: 17 hit(s); chain-of-thought=12, Chain-of-thought (lower t)=3, Chain of Thought (use hyphens)=2
-  - `part-16-llm-agentic-ai-research-frontiers/module-81-frontier-theory/section-81.1.html`: 13 hit(s); chain-of-thought=10, Chain-of-thought (lower t)=3
+  - `part-15-llm-agentic-ai-research-frontiers/module-76-frontier-theory/section-76.1.html`: 13 hit(s); chain-of-thought=10, Chain-of-thought (lower t)=3
   - `part-3-working-with-llms/module-12-prompt-engineering/section-12.2.html`: 11 hit(s); chain-of-thought=9, Chain-of-thought (lower t)=1, Chain of Thought (use hyphens)=1
   - `part-4-training-adaptation/module-15-synthetic-data/section-15.6.html`: 11 hit(s); chain-of-thought=11
   - `part-4-training-adaptation/module-17-peft/section-17.5b.html`: 10 hit(s); chain-of-thought=8, Chain-of-thought (lower t)=2
@@ -288,13 +288,13 @@ hesitation.
 
 - **Top offending files (up to 10):**
   - `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.2.html`: 5 hit(s); Mixture of Experts=5
-  - `part-16-llm-agentic-ai-research-frontiers/module-80-frontier-architectures/section-80.3.html`: 3 hit(s); Mixture of Experts=1, mixture of experts=1, mixture-of-experts=1
+  - `part-15-llm-agentic-ai-research-frontiers/module-75-frontier-architectures/section-75.3.html`: 3 hit(s); Mixture of Experts=1, mixture of experts=1, mixture-of-experts=1
   - `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.6.html`: 1 hit(s); mixture-of-experts=1
   - `part-11-llm-ethics-trust-governance/module-55-environmental-sustainability/section-55.1.html`: 1 hit(s); Mixture of Experts=1
   - `part-12-llm-systems-at-scale/module-61-scale-tools/section-61.4.html`: 1 hit(s); mixture-of-experts=1
-  - `part-16-llm-agentic-ai-research-frontiers/module-80-frontier-architectures/index.html`: 1 hit(s); mixture-of-experts=1
-  - `part-16-llm-agentic-ai-research-frontiers/module-80-frontier-architectures/section-80.1.html`: 1 hit(s); mixture-of-experts=1
-  - `part-16-llm-agentic-ai-research-frontiers/module-80-frontier-architectures/section-80.2.html`: 1 hit(s); Mixture of Experts=1
+  - `part-15-llm-agentic-ai-research-frontiers/module-75-frontier-architectures/index.html`: 1 hit(s); mixture-of-experts=1
+  - `part-15-llm-agentic-ai-research-frontiers/module-75-frontier-architectures/section-75.1.html`: 1 hit(s); mixture-of-experts=1
+  - `part-15-llm-agentic-ai-research-frontiers/module-75-frontier-architectures/section-75.2.html`: 1 hit(s); Mixture of Experts=1
   - `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.3.html`: 1 hit(s); mixture-of-experts=1
   - `part-2-understanding-llms/module-07-modern-llm-landscape/index.html`: 1 hit(s); Mixture of Experts=1
 
@@ -354,7 +354,7 @@ hesitation.
   - `part-12-llm-systems-at-scale/module-57-compute-planning/section-57.2.html`: 1 hit(s); SOC2 (no space)=1
   - `part-14-designing-llm-agent-products/module-67-ideation/section-67.8.html`: 1 hit(s); SOC2 (no space)=1
   - `part-14-designing-llm-agent-products/module-69-llm-economics/section-69.3.html`: 1 hit(s); SOC2 (no space)=1
-  - `part-15-applications-of-llms-across-industries/module-79-tools-of-the-trade/section-79.1.html`: 1 hit(s); SOC2 (no space)=1
+  - `part-14-applications-of-llms-across-industries/module-74-tools-of-the-trade/section-74.1.html`: 1 hit(s); SOC2 (no space)=1
 
 ### Claude (model)
 
@@ -460,9 +460,9 @@ hesitation.
 
 - **Top offending files (up to 10):**
   - `part-7-retrieval-information-extraction-with-llms/module-36-retrieval-tools/section-36.5.html`: 3 hit(s); Rag=3
-  - `part-15-applications-of-llms-across-industries/module-72-legal-llms/section-72.4.html`: 1 hit(s); Rag=1
-  - `part-15-applications-of-llms-across-industries/module-77-government-llms/section-77.4.html`: 1 hit(s); Rag=1
-  - `part-15-applications-of-llms-across-industries/module-78-manufacturing-llms/section-78.4.html`: 1 hit(s); Rag=1
+  - `part-14-applications-of-llms-across-industries/module-67-legal-llms/section-67.4.html`: 1 hit(s); Rag=1
+  - `part-14-applications-of-llms-across-industries/module-72-government-llms/section-72.4.html`: 1 hit(s); Rag=1
+  - `part-14-applications-of-llms-across-industries/module-73-manufacturing-llms/section-73.4.html`: 1 hit(s); Rag=1
 
 ### PagedAttention (method)
 
@@ -488,7 +488,7 @@ hesitation.
   - `Bert`: 5 occurrence(s)
 
 - **Top offending files (up to 10):**
-  - `part-15-applications-of-llms-across-industries/module-75-education-llms/section-75.1.html`: 1 hit(s); Bert=1
+  - `part-14-applications-of-llms-across-industries/module-70-education-llms/section-70.1.html`: 1 hit(s); Bert=1
   - `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.1a.html`: 1 hit(s); Bert=1
   - `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.1b.html`: 1 hit(s); Bert=1
   - `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.2.html`: 1 hit(s); Bert=1

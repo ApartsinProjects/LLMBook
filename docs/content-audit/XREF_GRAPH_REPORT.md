@@ -99,12 +99,12 @@ index-style sections that knit topics together.
 
 | Section | Outbound | Path |
 |---|---:|---|
-| S80.2 | 32 | part-16-llm-agentic-ai-research-frontiers/module-80-frontier-architectures/section-80.2.html |
+| S80.2 | 32 | part-15-llm-agentic-ai-research-frontiers/module-75-frontier-architectures/section-75.2.html |
 | S9.6 | 31 | part-2-understanding-llms/module-09-inference-optimization/section-9.6.html |
 | S11.1 | 29 | part-3-working-with-llms/module-11-llm-apis/section-11.1.html |
 | S13.4 | 29 | part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.4.html |
 | S10.3 | 29 | part-2-understanding-llms/module-10-interpretability/section-10.3.html |
-| S78.9 | 29 | part-15-applications-of-llms-across-industries/module-78-manufacturing-llms/section-78.9.html |
+| S78.9 | 29 | part-14-applications-of-llms-across-industries/module-73-manufacturing-llms/section-73.9.html |
 | S17.3 | 26 | part-4-training-adaptation/module-17-peft/section-17.3.html |
 | S11.3 | 26 | part-3-working-with-llms/module-11-llm-apis/section-11.3.html |
 | S12.4 | 26 | part-3-working-with-llms/module-12-prompt-engineering/section-12.4.html |

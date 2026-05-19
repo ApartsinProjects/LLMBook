@@ -78,9 +78,9 @@ Files touched:
 Per global style rule, em dashes are forbidden. Removed from:
 - part-14/module-69/section-69.1.html (figcaption)
 - part-14/module-69/section-69.3.html (SVG text labels x3, figcaption)
-- part-15/module-73/section-73.1.html (figcaption)
-- part-15/module-73/section-73.4.html (5 occurrences, SVG text labels)
-- part-15/module-75/section-75.2.html (1 occurrence)
+- part-14/module-73/section-68.1.html (figcaption)
+- part-14/module-73/section-68.4.html (5 occurrences, SVG text labels)
+- part-14/module-75/section-70.2.html (1 occurrence)
 - part-11/module-53/index.html (bibliography ISO 42001 reference)
 
 Replaced with commas or colons as context demanded.

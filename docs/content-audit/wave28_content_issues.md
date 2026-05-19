@@ -55,7 +55,7 @@ Heuristics used:
 
   - **Closing-section template** (`Tools of the Trade §N.5` + Part-15 `Vendors and Further Reading`):
     - 24 pairs across 17 sections.
-    - Sample paths: `part-10-llm-security-runtime-safety/module-51-tools-of-the-trade/section-51.5.html`; `part-15-applications-of-llms-across-industries/module-72-legal-llms/section-72.5.html`; `part-15-applications-of-llms-across-industries/module-73-finance-llms/section-73.5.html`; `part-15-applications-of-llms-across-industries/module-74-healthcare-llms/section-74.5.html`
+    - Sample paths: `part-10-llm-security-runtime-safety/module-51-tools-of-the-trade/section-51.5.html`; `part-14-applications-of-llms-across-industries/module-67-legal-llms/section-67.5.html`; `part-14-applications-of-llms-across-industries/module-68-finance-llms/section-68.5.html`; `part-14-applications-of-llms-across-industries/module-69-healthcare-llms/section-69.5.html`
     - Shared scaffolding headings: "Communities", "Foundational Papers", "Canonical External References", "Cross-References Inside This Book", "What Comes Next".
     - Verdict: by-design template, not uncoordinated duplication. **Do not merge.**
     - Action: audit each instance has 3-5 specific links beyond the boilerplate; decide whether `External Reading & Communities` should remain its own §N.5 or roll into §N.4 as a tail-callout.
@@ -255,13 +255,13 @@ _Pages whose content size is below threshold or missing structural elements._
   - action: EXPAND to ~3500 words or MERGE into a sibling section.
 - **§71.5 External Reading & Communities** (`part-14-designing-llm-agent-products/module-71-tools-of-the-trade/section-71.5.html`): wc 154, h2/3 3, callouts 0; flags: wc=154, no big_picture, callouts=0
   - action: EXPAND to ~3500 words or MERGE into a sibling section.
-- **§79.5 External Reading & Communities** (`part-15-applications-of-llms-across-industries/module-79-tools-of-the-trade/section-79.5.html`): wc 183, h2/3 2, callouts 1; flags: wc=183, h2/3=2, no big_picture
+- **§79.5 External Reading & Communities** (`part-14-applications-of-llms-across-industries/module-74-tools-of-the-trade/section-74.5.html`): wc 183, h2/3 2, callouts 1; flags: wc=183, h2/3=2, no big_picture
   - action: EXPAND to ~3500 words or MERGE into a sibling section.
-- **§79.3 Datasets & Benchmarks** (`part-15-applications-of-llms-across-industries/module-79-tools-of-the-trade/section-79.3.html`): wc 188, h2/3 3, callouts 0; flags: wc=188, no big_picture, callouts=0
+- **§79.3 Datasets & Benchmarks** (`part-14-applications-of-llms-across-industries/module-74-tools-of-the-trade/section-74.3.html`): wc 188, h2/3 3, callouts 0; flags: wc=188, no big_picture, callouts=0
   - action: EXPAND to ~3500 words or MERGE into a sibling section.
 - **§46.4 Training Judge Models** (`part-9-llm-evaluation-observability/module-46-llm-as-judge-automated-evaluation/section-46.4.html`): wc 256, h2/3 1, callouts 1; flags: wc=256, h2/3=1, no big_picture
   - action: EXPAND to ~3500 words or MERGE into a sibling section.
-- **§79.4 Models** (`part-15-applications-of-llms-across-industries/module-79-tools-of-the-trade/section-79.4.html`): wc 301, h2/3 2, callouts 2; flags: wc=301, h2/3=2, no big_picture
+- **§79.4 Models** (`part-14-applications-of-llms-across-industries/module-74-tools-of-the-trade/section-74.4.html`): wc 301, h2/3 2, callouts 2; flags: wc=301, h2/3=2, no big_picture
   - action: EXPAND to ~3500 words or MERGE into a sibling section.
 - **§34.1 The Information Extraction Landscape** (`part-7-retrieval-information-extraction-with-llms/module-34-structured-information-extraction-ner/section-34.1.html`): wc 465, h2/3 2, callouts 1; flags: wc=465, h2/3=2, no big_picture
   - action: EXPAND to ~3500 words or MERGE into a sibling section.
@@ -277,7 +277,7 @@ _Pages whose content size is below threshold or missing structural elements._
   - action: EXPAND with at least one worked example and 2-3 sub-headings, or fold into adjacent section.
 - **§51.2 Libraries & Frameworks** (`part-10-llm-security-runtime-safety/module-51-tools-of-the-trade/section-51.2.html`): wc 887, h2/3 4, callouts 0; flags: wc=887, no big_picture, callouts=0
   - action: ADD missing pieces (big_picture, at least one callout, more headings).
-- **§79.2 Libraries & Frameworks** (`part-15-applications-of-llms-across-industries/module-79-tools-of-the-trade/section-79.2.html`): wc 1036, h2/3 4, callouts 0; flags: wc=1036, no big_picture, callouts=0
+- **§79.2 Libraries & Frameworks** (`part-14-applications-of-llms-across-industries/module-74-tools-of-the-trade/section-74.2.html`): wc 1036, h2/3 4, callouts 0; flags: wc=1036, no big_picture, callouts=0
   - action: ADD missing pieces (big_picture, at least one callout, more headings).
 
 ### Moderate (2 flags) (33)
@@ -310,7 +310,7 @@ _Pages whose content size is below threshold or missing structural elements._
   - action: EXPAND to ~3500 words or MERGE into a sibling section.
 - **App A.4 Information Theory** (`appendices/appendix-a-mathematical-foundations/section-a.4.html`): wc 741, h2/3 4, callouts 2; flags: wc=741, no big_picture
   - action: EXPAND to ~3500 words or MERGE into a sibling section.
-- **§83.5 External Reading & Communities** (`part-16-llm-agentic-ai-research-frontiers/module-83-tools-of-the-trade/section-83.5.html`): wc 777, h2/3 1, callouts 6; flags: wc=777, h2/3=1
+- **§83.5 External Reading & Communities** (`part-15-llm-agentic-ai-research-frontiers/module-78-tools-of-the-trade/section-78.5.html`): wc 777, h2/3 1, callouts 6; flags: wc=777, h2/3=1
   - action: EXPAND to ~3500 words or MERGE into a sibling section.
 - **§10.7 Datasets & Benchmarks** (`part-2-understanding-llms/module-10-interpretability/section-10.7.html`): wc 777, h2/3 4, callouts 3; flags: wc=777, no big_picture
   - action: EXPAND to ~3500 words or MERGE into a sibling section.
@@ -326,7 +326,7 @@ _Pages whose content size is below threshold or missing structural elements._
   - action: ADD missing pieces (big_picture, at least one callout, more headings).
 - **§45.3 Datasets & Benchmarks** (`part-9-llm-evaluation-observability/module-45-tools-of-the-trade/section-45.3.html`): wc 957, h2/3 4, callouts 1; flags: wc=957, no big_picture
   - action: ADD missing pieces (big_picture, at least one callout, more headings).
-- **§79.1 Platforms** (`part-15-applications-of-llms-across-industries/module-79-tools-of-the-trade/section-79.1.html`): wc 993, h2/3 5, callouts 2; flags: wc=993, no big_picture
+- **§79.1 Platforms** (`part-14-applications-of-llms-across-industries/module-74-tools-of-the-trade/section-74.1.html`): wc 993, h2/3 5, callouts 2; flags: wc=993, no big_picture
   - action: ADD missing pieces (big_picture, at least one callout, more headings).
 - **§42.12 Classical ML Evaluation Metrics** (`part-9-llm-evaluation-observability/module-42-evaluation-foundations/section-42.12.html`): wc 1000, h2/3 7, callouts 5; flags: wc=1000, no big_picture
   - action: ADD missing pieces (big_picture, at least one callout, more headings).
@@ -349,31 +349,31 @@ _Pages whose content size is below threshold or missing structural elements._
   - action: EXPAND to ~3500 words or MERGE into a sibling section.
 - **Capstone: Capstone Project: End-to-End LLM System** (`capstone/index.html`): wc 642, h2/3 6, callouts 2; flags: wc=642
   - action: EXPAND to ~3500 words or MERGE into a sibling section.
-- **§75.5 Education LLM Vendors and Further Reading** (`part-15-applications-of-llms-across-industries/module-75-education-llms/section-75.5.html`): wc 740, h2/3 4, callouts 2; flags: wc=740
+- **§75.5 Education LLM Vendors and Further Reading** (`part-14-applications-of-llms-across-industries/module-70-education-llms/section-70.5.html`): wc 740, h2/3 4, callouts 2; flags: wc=740
   - action: EXPAND to ~3500 words or MERGE into a sibling section.
-- **§83.3 Datasets & Benchmarks** (`part-16-llm-agentic-ai-research-frontiers/module-83-tools-of-the-trade/section-83.3.html`): wc 750, h2/3 3, callouts 6; flags: wc=750
+- **§83.3 Datasets & Benchmarks** (`part-15-llm-agentic-ai-research-frontiers/module-78-tools-of-the-trade/section-78.3.html`): wc 750, h2/3 3, callouts 6; flags: wc=750
   - action: EXPAND to ~3500 words or MERGE into a sibling section.
-- **§75.3 Regulatory and Policy Framework for Education LLMs** (`part-15-applications-of-llms-across-industries/module-75-education-llms/section-75.3.html`): wc 759, h2/3 7, callouts 2; flags: wc=759
+- **§75.3 Regulatory and Policy Framework for Education LLMs** (`part-14-applications-of-llms-across-industries/module-70-education-llms/section-70.3.html`): wc 759, h2/3 7, callouts 2; flags: wc=759
   - action: EXPAND to ~3500 words or MERGE into a sibling section.
-- **§76.5 Cybersecurity LLM Vendors and Further Reading** (`part-15-applications-of-llms-across-industries/module-76-cybersecurity-llms/section-76.5.html`): wc 768, h2/3 4, callouts 2; flags: wc=768
+- **§76.5 Cybersecurity LLM Vendors and Further Reading** (`part-14-applications-of-llms-across-industries/module-71-cybersecurity-llms/section-71.5.html`): wc 768, h2/3 4, callouts 2; flags: wc=768
   - action: EXPAND to ~3500 words or MERGE into a sibling section.
-- **§74.5 Healthcare LLM Vendors and Further Reading** (`part-15-applications-of-llms-across-industries/module-74-healthcare-llms/section-74.5.html`): wc 807, h2/3 4, callouts 2; flags: wc=807
+- **§74.5 Healthcare LLM Vendors and Further Reading** (`part-14-applications-of-llms-across-industries/module-69-healthcare-llms/section-69.5.html`): wc 807, h2/3 4, callouts 2; flags: wc=807
   - action: ADD missing pieces (big_picture, at least one callout, more headings).
-- **§73.5 Finance LLM Vendors and Further Reading** (`part-15-applications-of-llms-across-industries/module-73-finance-llms/section-73.5.html`): wc 814, h2/3 4, callouts 2; flags: wc=814
+- **§73.5 Finance LLM Vendors and Further Reading** (`part-14-applications-of-llms-across-industries/module-68-finance-llms/section-68.5.html`): wc 814, h2/3 4, callouts 2; flags: wc=814
   - action: ADD missing pieces (big_picture, at least one callout, more headings).
-- **§72.5 Legal LLM Vendors and Further Reading** (`part-15-applications-of-llms-across-industries/module-72-legal-llms/section-72.5.html`): wc 829, h2/3 4, callouts 2; flags: wc=829
+- **§72.5 Legal LLM Vendors and Further Reading** (`part-14-applications-of-llms-across-industries/module-67-legal-llms/section-67.5.html`): wc 829, h2/3 4, callouts 2; flags: wc=829
   - action: ADD missing pieces (big_picture, at least one callout, more headings).
-- **§77.4 Public-Sector Grounded Assistant Architecture** (`part-15-applications-of-llms-across-industries/module-77-government-llms/section-77.4.html`): wc 831, h2/3 3, callouts 2; flags: wc=831
+- **§77.4 Public-Sector Grounded Assistant Architecture** (`part-14-applications-of-llms-across-industries/module-72-government-llms/section-72.4.html`): wc 831, h2/3 3, callouts 2; flags: wc=831
   - action: ADD missing pieces (big_picture, at least one callout, more headings).
-- **§76.2 Offensive (Red Team) Use Cases** (`part-15-applications-of-llms-across-industries/module-76-cybersecurity-llms/section-76.2.html`): wc 850, h2/3 6, callouts 2; flags: wc=850
+- **§76.2 Offensive (Red Team) Use Cases** (`part-14-applications-of-llms-across-industries/module-71-cybersecurity-llms/section-71.2.html`): wc 850, h2/3 6, callouts 2; flags: wc=850
   - action: ADD missing pieces (big_picture, at least one callout, more headings).
 - **§57.2 Enterprise Integration Patterns for LLM Systems** (`part-12-llm-systems-at-scale/module-57-compute-planning/section-57.2.html`): wc 875, h2/3 4, callouts 4; flags: wc=875
   - action: ADD missing pieces (big_picture, at least one callout, more headings).
-- **§74.3 Regulatory Framework for Healthcare LLMs** (`part-15-applications-of-llms-across-industries/module-74-healthcare-llms/section-74.3.html`): wc 887, h2/3 8, callouts 2; flags: wc=887
+- **§74.3 Regulatory Framework for Healthcare LLMs** (`part-14-applications-of-llms-across-industries/module-69-healthcare-llms/section-69.3.html`): wc 887, h2/3 8, callouts 2; flags: wc=887
   - action: ADD missing pieces (big_picture, at least one callout, more headings).
 - **§69.1 ROI Measurement & Value Attribution** (`part-14-designing-llm-agent-products/module-69-llm-economics/section-69.1.html`): wc 899, h2/3 4, callouts 4; flags: wc=899
   - action: ADD missing pieces (big_picture, at least one callout, more headings).
-- **§83.1 Platforms** (`part-16-llm-agentic-ai-research-frontiers/module-83-tools-of-the-trade/section-83.1.html`): wc 899, h2/3 4, callouts 4; flags: wc=899
+- **§83.1 Platforms** (`part-15-llm-agentic-ai-research-frontiers/module-78-tools-of-the-trade/section-78.1.html`): wc 899, h2/3 4, callouts 4; flags: wc=899
   - action: ADD missing pieces (big_picture, at least one callout, more headings).
 
 ## Over-content sections
@@ -505,9 +505,9 @@ _Pages whose content size is below threshold or missing structural elements._
 - **part-14-designing-llm-agent-products ch69** [section without image while siblings have]: §69.3 Token Cost Forecasting and Multi-Vendor Arbitrage (others all illustrated)
 - **part-14-designing-llm-agent-products ch71** [small section in big chapter]: smallest section §71.5 External Reading & Communities = 4.4KB vs max 48.0KB
 - **part-14-designing-llm-agent-products ch71** [no bibliography anywhere]: 5 sections, 0 with bibliography
-- **part-15-applications-of-llms-across-industries ch78** [small section in big chapter]: smallest section §78.3 Manufacturing Regulatory and Standards Framework = 10.6KB vs max 92.0KB
-- **part-15-applications-of-llms-across-industries ch79** [no bibliography anywhere]: 5 sections, 0 with bibliography
-- **part-16-llm-agentic-ai-research-frontiers ch82** [section without image while siblings have]: §82.5 What 2026 Settled (and What Remains Open) (others all illustrated)
+- **part-14-applications-of-llms-across-industries ch78** [small section in big chapter]: smallest section §78.3 Manufacturing Regulatory and Standards Framework = 10.6KB vs max 92.0KB
+- **part-14-applications-of-llms-across-industries ch79** [no bibliography anywhere]: 5 sections, 0 with bibliography
+- **part-15-llm-agentic-ai-research-frontiers ch82** [section without image while siblings have]: §82.5 What 2026 Settled (and What Remains Open) (others all illustrated)
 - **part-2-understanding-llms ch10** [small section in big chapter]: smallest section §10.9 External Reading & Communities = 8.2KB vs max 160.4KB
 - **part-2-understanding-llms ch6** [section without image while siblings have]: §6.9 Lab: Pretrain a Tiny Language Model (others all illustrated)
 - **part-3-working-with-llms ch14** [small section in big chapter]: smallest section §14.5 External Reading & Communities = 7.1KB vs max 91.2KB

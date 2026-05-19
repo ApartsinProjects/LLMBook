@@ -149,11 +149,11 @@ Date: 2026-05-19
 
 ### Part 16: Research Frontiers
 
-30. **`section-80.3.html`** (Frontier Architectures: Hybrids)
+30. **`section-75.3.html`** (Frontier Architectures: Hybrids)
     - Between `80.3.4 Hybrid Architectures: Combining Strengths` (h2) and `80.3.4.1 Jamba: Mamba Meets Transformers` (h3)
     - Frame: Jamba as the most prominent demonstration of "use attention surgically" via Mamba + attention + MoE interleaving.
 
-31. **`section-80.4.html`** (Beyond-Language Domains)
+31. **`section-75.4.html`** (Beyond-Language Domains)
     - Between `80.4.10 Other Frontiers` (h2) and `80.4.10.1 Weather and Climate` (h3)
     - Frame: tokenization template that has spread from biology/chemistry to weather, theorem proving, tabular, and finance.
 

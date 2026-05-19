@@ -43,7 +43,7 @@ Consolidated from 4 audit-extract agents reading 14 audit reports. Items filtere
 | 25 | Code-comment stale section refs: section-32.2:192 `# Section 32.5` (now 32.3); section-22.9 `# Section 38.2` | cycle-3 G2 | SWEEP |
 | 26 | 256 H2 headings in Chs 20/21/22(1st)/24 use bare numbering | cycle-3 G2 | SWEEP |
 | 27 | Module-67 breadcrumb labels: secs 67.4-67.6 say "Chapter 64"; 67.7-67.8 "Chapter 65"; 67.9-67.15 "Chapter 68" — should be Chapter 67 | cycle-3 G4 | SWEEP |
-| 28 | Module-78 breadcrumb labels: 78.1-78.5 say "Chapter 78"; 78.6-78.7 "Chapter 79"; 78.8-78.10 "Chapter 80" | cycle-3 G4 | SWEEP |
+| 28 | Module-78 breadcrumb labels: 78.1-78.5 say "Chapter 73"; 78.6-78.7 "Chapter 74"; 78.8-78.10 "Chapter 75" | cycle-3 G4 | SWEEP |
 | 29 | Sec 49.3/49.4 `<title>` say "Section 49.6"/"49.7" (off-by-3) | cycle-3 G3 | SWEEP |
 | 30 | Ch 41 sections: `</main>` positioned AFTER `<footer>` (inversion) | anomalous_styling | SWEEP |
 | 31 | Empty `<nav class="section-nav"></nav>` in 36.1/36.2/36.3/36.4 | anomalous_styling | SWEEP |

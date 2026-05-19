@@ -86,7 +86,7 @@ Every user request from this session, mapped to status and target wave.
 - 📋 J4. Branch v2.0: hold until user signals ready to merge to main
 
 ## Triggered this turn (need fresh wave numbers)
-- ✅ T1. Section 81.1 inline math fix (Wave 31)
+- ✅ T1. Section 76.1 inline math fix (Wave 31)
 - ✅ T2. Appendix partition dropped (Wave 31)
 - ✅ T3. Math-as-code detector built + 24.3.2 fixed (Wave 30)
 - ✅ T4. Missing-image catalog (`docs/content-audit/missing-images.md`)

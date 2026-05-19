@@ -46,7 +46,7 @@ hourly rate; every co-design decision is a salary-burn decision in disguise.
 **Inserted:** After MoE asymmetry paragraph, before speculative decoding section.
 **Tone:** Mental Model.
 
-### 4. `part-16-llm-agentic-ai-research-frontiers/module-80-frontier-architectures/section-80.2.html`
+### 4. `part-15-llm-agentic-ai-research-frontiers/module-75-frontier-architectures/section-75.2.html`
 **Concept illuminated:** Reasoning models bill per thought; flipping
 `reasoning_effort: high` to default can triple the monthly bill overnight.
 **Inserted:** End of test-time compute economics subsection, before scaling-axis table.
@@ -74,7 +74,7 @@ is at-least-once activity + once-only commit, accepted because
 **Inserted:** Before "Temporal: Infrastructure-Level Durability" h2, after key insight.
 **Tone:** Trivia.
 
-### 8. `part-16-llm-agentic-ai-research-frontiers/module-81-frontier-theory/section-81.4.html`
+### 8. `part-15-llm-agentic-ai-research-frontiers/module-76-frontier-theory/section-76.4.html`
 **Concept illuminated:** The agency ladder reads like SAE driving levels —
 L2 ships, L5 is "five years away" and has been for ten; the LLM L2-to-L3
 boundary is the one that actually moves, and it is where lawyers and
@@ -122,7 +122,7 @@ adjacent sections reuse the same humor pattern.
   per CONTENT_GUIDELINES.
 - Sections with 2 fun-notes already (e.g., 70.4, 70.6, 49.5, 53.4,
   62.2): the agent's max-2 cap blocks further additions.
-- Section 82.5 (closing chapter of the book): deeply reflective text; a
+- Section 77.5 (closing chapter of the book): deeply reflective text; a
   third fun-note would undercut the deliberate tone shift.
 - Tax / legal regulatory dense paragraphs in Parts 11 and 15: the
   existing fun-note in each section was deemed sufficient; humor inside

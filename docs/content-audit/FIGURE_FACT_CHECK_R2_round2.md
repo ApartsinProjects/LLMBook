@@ -43,17 +43,17 @@ Scope: spot-check of ~40 figures across the book, focused on R2 illustrator outp
 - AFTER: aria-label now reads "Three-panel summary of what agents need from a model: tool-call reliability (with reasoning depth), long-trace coherence (with context window and code specialty), and how agent workloads differ from chat".
 - File: `part-6-agentic-ai/module-30-tools-of-the-trade/section-30.4.html`
 
-### 6. Section 72.3 - Figure 72.3.1 aria-label (Legal compliance rules)
+### 6. Section 67.3 - Figure 67.3.1 aria-label (Legal compliance rules)
 - BEFORE: aria-label and title element said "Five legal-LLM compliance rules and how three jurisdictions diverge".
 - ISSUE: the figure actually shows FOUR jurisdictions (California 2023, Florida 2024 Op 24-1, Texas 2024, EU AI Act 2024/1689). The caption already says "four jurisdictions"; only the SVG title and aria-label were wrong.
 - AFTER: both aria-label and the `<title>` element now say "four jurisdictions".
-- File: `part-15-applications-of-llms-across-industries/module-72-legal-llms/section-72.3.html`
+- File: `part-14-applications-of-llms-across-industries/module-67-legal-llms/section-67.3.html`
 
-### 7. Section 77.3 - Figure 77.3.1 SVG title (Federal frameworks)
+### 7. Section 72.3 - Figure 72.3.1 SVG title (Federal frameworks)
 - BEFORE: SVG title text said "Eight overlapping frameworks for US federal LLM deployments".
 - ISSUE: the SVG actually draws only seven framework boxes (numbered 1-7), and the figcaption itself says "seven overlapping frameworks ... with NIST AI RMF as the cross-cutting voluntary baseline". The prose mentions eight, but NIST AI RMF (item 8) is treated as cross-cutting rather than drawn as a box. Caption and SVG drawing are consistent at seven boxes plus NIST as overlay; only the SVG title disagreed.
 - AFTER: SVG title now reads "Seven overlapping frameworks for US federal LLM deployments (plus NIST AI RMF as voluntary baseline)".
-- File: `part-15-applications-of-llms-across-industries/module-77-government-llms/section-77.3.html`
+- File: `part-14-applications-of-llms-across-industries/module-72-government-llms/section-72.3.html`
 
 ## Verified Without Changes
 
@@ -91,10 +91,10 @@ The following R2 figures were spot-checked and caption/SVG/prose triangulation p
 - Figure 67.5.4 (LLM product iteration cycle): four stages (evaluate, tune, A/B test, ship); caption matches.
 - Figure 67.10.2 (Five role patterns): drafter, classifier, router, researcher, verifier mapped to autonomy gradient; matches caption.
 - Figure 67.13.1 (Five-stage Prototype Playbook ladder): four gates between stages; gate criteria match (5+ inputs OK / cite sources / 80% task done / regression green).
-- Figure 72.4.1 (Verified-RAG five layers): layer 5 (citation verification) is the legal-specific addition; matches caption.
-- Figure 73.3.1 (Five regulatory tracks): SR 11-7 / EU AI Act / FINRA 24-09 / DORA / CFPB tracks each map to the artifact the caption names.
-- Figure 75.2.1 (AI-detection error rates): FP 4-9% native, 8-18% non-native, FN >50% paraphrased; preponderance 51% and clear-and-convincing 75-85% reference lines; cost arithmetic (5000 students * 4% FP * $5-15K = $1-3M/year) checks out.
-- Figure 80.2.1 (Three scaling axes): GPT-3.5 / GPT-4 / GPT-5 progression, CommonCrawl / FineWeb 15T / Llama-3 15T data points, direct / o1-R1 / o3 test-time points; consistent with prose.
+- Figure 67.4.1 (Verified-RAG five layers): layer 5 (citation verification) is the legal-specific addition; matches caption.
+- Figure 68.3.1 (Five regulatory tracks): SR 11-7 / EU AI Act / FINRA 24-09 / DORA / CFPB tracks each map to the artifact the caption names.
+- Figure 70.2.1 (AI-detection error rates): FP 4-9% native, 8-18% non-native, FN >50% paraphrased; preponderance 51% and clear-and-convincing 75-85% reference lines; cost arithmetic (5000 students * 4% FP * $5-15K = $1-3M/year) checks out.
+- Figure 75.2.1 (Three scaling axes): GPT-3.5 / GPT-4 / GPT-5 progression, CommonCrawl / FineWeb 15T / Llama-3 15T data points, direct / o1-R1 / o3 test-time points; consistent with prose.
 - Figure 40.2.2 (Latency budget table): row sums for pipeline (800-2400 ms) and native (320-1100 ms) are within rounding of additive sums; the caption explicitly notes ASR finalization plus streamable output as the savings driver, and the key-insight callout right after clarifies that the "Total end-to-end" row accounts for stage overlap rather than naive summation.
 
 ## Notes on Scope
@@ -106,4 +106,4 @@ The following R2 figures were spot-checked and caption/SVG/prose triangulation p
 ## Suggested Follow-Up
 
 - Figure 67.13.1's chapter labels (Ch 11, 12 / Ch 18, 19 / Ch 21, 22 / Ch 28 / Ch 29) are v1 numbering; the linked anchors in the same section already point to v2 modules. A cross-reference pass should rewrite the in-figure labels to match (likely Ch 12 / Ch 31-32 / Ch 32-35 / Ch 42 / Ch 62 in v2 numbering). Flagged for the cross-reference / renumbering agent.
-- Figure 77.3.1 still has the asymmetry that NIST AI RMF is the eighth listed framework in prose but is drawn outside the seven-box grid. Caption and title now match, but a future illustrator pass could either drop the eighth list item or add an eighth box to fully reconcile.
+- Figure 72.3.1 still has the asymmetry that NIST AI RMF is the eighth listed framework in prose but is drawn outside the seven-box grid. Caption and title now match, but a future illustrator pass could either drop the eighth list item or add an eighth box to fully reconcile.

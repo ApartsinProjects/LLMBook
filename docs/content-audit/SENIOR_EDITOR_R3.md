@@ -12,10 +12,10 @@ Of 39 sampled sections, **15 had at least one defect worth a surgical edit**. Th
 ### Recurring defect classes (new or expanding on R1/R2)
 
 1. **Code Fragment placeholder labels in section-45.1**: The largest concentration this round. Section 45.1 contained ten `Code Fragment K.5.X` and `Code Fragment L.7.X` labels (the Jinja-style appendix-K and appendix-L placeholders that were never substituted), plus six `O.7.X` h3 ids in the body. Renumbered to `45.1.1` through `45.1.10` and the h3 ids stripped of the stale `o-7-` prefix.
-2. **Title / meta description mismatch**: Section 81.1's `<title>` and `<meta description>` both said "Section 81.5"; only the on-page h1+page-current was correct. R2 didn't catch this class because it scanned text refs, not metadata. Worth a regex sweep across all section-*.html files.
+2. **Title / meta description mismatch**: Section 76.1's `<title>` and `<meta description>` both said "Section 76.5"; only the on-page h1+page-current was correct. R2 didn't catch this class because it scanned text refs, not metadata. Worth a regex sweep across all section-*.html files.
 3. **Bare "Chapter N" in breadcrumb (no title)**: Found in section-24.8, section-35.5a, and section-41.5. The breadcrumb reads "Part V › Chapter 24" instead of "Part V › Chapter 24: VLA Models and LLM-Powered Robotics". Easy to sweep; the chapter title lives in the module's index.html and can be backfilled programmatically.
 4. **Duplicate "What Comes Next" + "What's Next?"** (continuing R2 finding): Found two more cases (74.4, 77.1) of the manual h2 followed immediately by the standard whats-next div, both merged.
-5. **Self-referencing prereqs / forward links**: Section 67.10's prereqs claim "Readers who have also covered AI strategy (Chapter 67)" — but 67.10 IS in Chapter 67. Section 14.5's prereqs claim "tooling (Chapter 14)" but 14.5 IS in Chapter 14. Section 81.1's prereqs claim "emergence debate from Section 81.1" — self-loop.
+5. **Self-referencing prereqs / forward links**: Section 67.10's prereqs claim "Readers who have also covered AI strategy (Chapter 67)" — but 67.10 IS in Chapter 67. Section 14.5's prereqs claim "tooling (Chapter 14)" but 14.5 IS in Chapter 14. Section 76.1's prereqs claim "emergence debate from Section 76.1" — self-loop.
 6. **Broken hash anchor in self-link**: Section 45.1 had `<a href="section-45.1.html#48-1-production-data-pipelines-and-serving-at-scale">Section 45.1 (Platforms)</a>` — a self-reference with an old appendix-style anchor, embedded in a closing paragraph that doesn't make sense at all (the paragraph reads "...feature stores (Section 45.1 (Platforms)), these components..."). Rewrote to remove the broken self-reference.
 7. **Code-block indentation bug rendered into HTML** (section-2.3b and section-4.4 saw it): The lab code block in 2.3b had 29 lines indented one level too deep, putting the `weights = F.softmax(...)`, `return out, weights`, and the entire test harness inside an `if causal:` block. Re-indented to method-body and module-level. Section 4.4 has the same pattern but I left it for a separate code-quality pass since the section is already research-frontier and the indentation bug repeats across several blocks.
 8. **Mismatched chapter title between breadcrumb and pagefind metadata**: Section 67.8's pagefind-injected chapter meta said "Chapter 67: LLM Strategy & Use Case Prioritization" while the actual chapter is "Chapter 67: From Idea to MVP". Fixed.
@@ -37,12 +37,12 @@ Of 39 sampled sections, **15 had at least one defect worth a surgical edit**. Th
 | part-14 / 67.10 | edited | Fixed self-referencing prereqs (Chapter 67 → "earlier sections of this chapter") |
 | part-14 / 67.8 | edited | Fixed duplicate "In the next section" (second one pointed to nonexistent 65.5); fixed pagefind chapter meta "LLM Strategy & Use Case Prioritization" → "From Idea to MVP" |
 | part-14 / 70.2 | clean | Shipping products; coherent |
-| part-15 / 72.2 | clean | Legal-LLM failure modes; well-grounded |
-| part-15 / 74.4 | edited | Merged duplicate What-Comes-Next (manual h2 + standard whats-next div) |
-| part-15 / 77.1 | edited | Merged duplicate What-Comes-Next (same pattern as 74.4) |
-| part-15 / 78.7 | clean | Manufacturing closing; reads as intended |
-| part-16 / 81.1 | edited | Critical: title and meta description said "Section 81.5" while file is 81.1; self-referencing prereq ("emergence debate from Section 81.1") → Section 6.3; merged duplicate "In the next section" lines |
-| part-16 / 83.4 | clean | Frontier-research community/reading list; coherent |
+| part-14 / 72.2 | clean | Legal-LLM failure modes; well-grounded |
+| part-14 / 74.4 | edited | Merged duplicate What-Comes-Next (manual h2 + standard whats-next div) |
+| part-14 / 77.1 | edited | Merged duplicate What-Comes-Next (same pattern as 74.4) |
+| part-14 / 78.7 | clean | Manufacturing closing; reads as intended |
+| part-15 / 81.1 | edited | Critical: title and meta description said "Section 76.5" while file is 81.1; self-referencing prereq ("emergence debate from Section 76.1") → Section 6.3; merged duplicate "In the next section" lines |
+| part-15 / 83.4 | clean | Frontier-research community/reading list; coherent |
 | part-2 / 7.1b | clean | LLM landscape continuation |
 | part-2 / 9.3 | clean | Inference optimization |
 | part-2 / 10.6a | clean | Interpretability tooling |
@@ -68,7 +68,7 @@ Of 39 sampled sections, **15 had at least one defect worth a surgical edit**. Th
 ### Highest-impact patterns the meta agent should investigate
 
 - **Sweep for `Code Fragment [A-Z]\.[0-9]+\.[0-9]+` and `Code Fragment [A-Z]\.[0-9]+`**: still finds 10 in just one section (45.1); a regex pass should catch the rest of the book. Section 45.1 alone had 10 of them, suggesting whole-chapter regenerations elsewhere may also have left placeholders.
-- **Title/meta description mismatch against file path**: Section 81.1's `<title>Section 81.5</title>` is the worst case so far. A simple programmatic check (does `<title>Section X.Y` match the filename `section-X.Y.html`?) would catch a class R2's text-only sweep missed.
+- **Title/meta description mismatch against file path**: Section 76.1's `<title>Section 76.5</title>` is the worst case so far. A simple programmatic check (does `<title>Section X.Y` match the filename `section-X.Y.html`?) would catch a class R2's text-only sweep missed.
 - **Bare "Chapter N" breadcrumbs**: At least three out of 39 sampled, suggesting maybe ~30 across the live tree. The fix is a join against `module-N-name/index.html`'s `<title>`.
 - **Code indentation rendered into HTML (the 2.3b pattern)**: The Pygments-highlighted code blocks have hand-baked `<span class="w">` whitespace that doesn't always reflect valid Python. Section 4.4 has the same issue across four code blocks I noticed but didn't fix. A code-quality reviewer should run a real Python parser over every block.
 

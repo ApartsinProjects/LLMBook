@@ -40,8 +40,8 @@ MED = priority parts 1 to 3 with `comic_count == 0` AND `needs_comic` in gap lis
 | part-11-llm-ethics-trust-governance | 5 |
 | part-12-llm-systems-at-scale | 3 |
 | part-14-designing-llm-agent-products | 10 |
-| part-15-applications-of-llms-across-industries | 18 |
-| part-16-llm-agentic-ai-research-frontiers | 6 |
+| part-14-applications-of-llms-across-industries | 18 |
+| part-15-llm-agentic-ai-research-frontiers | 6 |
 | **TOTAL** | **93** |
 
 ### MED (fun-note callouts)
@@ -84,11 +84,11 @@ Clean, modern flat-design diagram, Kurzgesagt-meets-XKCD palette. 16:9 ratio, 12
 
 Clean, modern flat-design diagram, Kurzgesagt-meets-XKCD palette. 16:9 ratio, 1200x675. Three labeled panels illustrating "Long-Context Benchmarks and Context Extension Methods": (1) starting state or core question, (2) key mechanism or transformation, (3) outcome or trade-off. Context: The "context length" listed on a model card is a theoretical maximum, not a guarantee of effective utilization. Soft gradient background, white callout cards, thin rounded strokes, muted teal-orange-violet accents. No watermarks, no photos, no faces.
 
-### Part XV, Section 77.5 (Government LLM Vendors)
+### Part XIV, Section 72.5 (Government LLM Vendors)
 
 Clean, modern flat-design diagram, Kurzgesagt-meets-XKCD palette. 16:9 ratio, 1200x675. Three labeled panels illustrating "Government LLM Vendors and Postmortems": (1) starting state or core question, (2) key mechanism or transformation, (3) outcome or trade-off. Context: The government LLM vendor landscape in 2026 sits at the intersection of FedRAMP-authorized cloud providers, specialty defense and intelligence platforms (Palantir, Anduril), Soft gradient background, white callout cards, thin rounded strokes, muted teal-orange-violet accents. No watermarks, no photos, no faces.
 
-### Part XVI, Section 80.4 (LLMs as Universal Sequence Machines)
+### Part XV, Section 75.4 (LLMs as Universal Sequence Machines)
 
 Clean, modern flat-design diagram, Kurzgesagt-meets-XKCD palette. 16:9 ratio, 1200x675. Three labeled panels illustrating "Beyond Text: LLMs as Universal Sequence Machines": (1) starting state or core question, (2) key mechanism or transformation, (3) outcome or trade-off. Context: The transformer architecture was invented for machine translation, but its core mechanism (self-attention over sequences of tokens) is domain-agnostic. Soft gradient background, white callout cards, thin rounded strokes, muted teal-orange-violet accents. No watermarks, no photos, no faces.
 

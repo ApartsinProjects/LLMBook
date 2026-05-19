@@ -21,21 +21,21 @@ For each chapter index page missing a `<details class="bibliography-collapsible"
 - `part-14-designing-llm-agent-products/module-70-shipping-products/index.html` - Hidden Technical Debt, Kohavi A/B Testing, Buschek suggestions, GPT-4 System Card
 - `part-14-designing-llm-agent-products/module-71-tools-of-the-trade/index.html` - DSPy, AutoGen, HELM, MCP
 
-### Part XV: Applications of LLMs Across Industries
-- `part-15-applications-of-llms-across-industries/module-72-legal-llms/index.html` - Dahl et al. Legal Fictions, Magesh et al. Hallucination-Free?, LegalBench, FairLex
-- `part-15-applications-of-llms-across-industries/module-73-finance-llms/index.html` - BloombergGPT, PIXIU, FinQA, Lopez-Lira & Tang
-- `part-15-applications-of-llms-across-industries/module-74-healthcare-llms/index.html` - Med-PaLM (Nature), Med-PaLM 2, NEJM Catalyst ambient AI, MedHALT
-- `part-15-applications-of-llms-across-industries/module-75-education-llms/index.html` - Kasneci et al. ChatGPT for Good, MathDial, GenAI Can Harm Learning, UNESCO IESALC
-- `part-15-applications-of-llms-across-industries/module-76-cybersecurity-llms/index.html` - Greshake indirect injection, Zou GCG, Pearce zero-shot repair, OWASP Top 10 for LLMs
-- `part-15-applications-of-llms-across-industries/module-77-government-llms/index.html` - NIST AI 600-1, EU AI Act, Eubanks Automating Inequality, Henman public-sector AI
-- `part-15-applications-of-llms-across-industries/module-78-manufacturing-llms/index.html` - Colabianchi chatbot for operators, Stogiannos industrial LLMs survey, Zhai chat-vs-search, Epstein et al. Science creative AI
-- `part-15-applications-of-llms-across-industries/module-79-tools-of-the-trade/index.html` - Foundation Models, GPTs Are GPTs labor impact, HELM, Augmented LMs
+### Part XIV: Applications of LLMs Across Industries
+- `part-14-applications-of-llms-across-industries/module-67-legal-llms/index.html` - Dahl et al. Legal Fictions, Magesh et al. Hallucination-Free?, LegalBench, FairLex
+- `part-14-applications-of-llms-across-industries/module-68-finance-llms/index.html` - BloombergGPT, PIXIU, FinQA, Lopez-Lira & Tang
+- `part-14-applications-of-llms-across-industries/module-69-healthcare-llms/index.html` - Med-PaLM (Nature), Med-PaLM 2, NEJM Catalyst ambient AI, MedHALT
+- `part-14-applications-of-llms-across-industries/module-70-education-llms/index.html` - Kasneci et al. ChatGPT for Good, MathDial, GenAI Can Harm Learning, UNESCO IESALC
+- `part-14-applications-of-llms-across-industries/module-71-cybersecurity-llms/index.html` - Greshake indirect injection, Zou GCG, Pearce zero-shot repair, OWASP Top 10 for LLMs
+- `part-14-applications-of-llms-across-industries/module-72-government-llms/index.html` - NIST AI 600-1, EU AI Act, Eubanks Automating Inequality, Henman public-sector AI
+- `part-14-applications-of-llms-across-industries/module-73-manufacturing-llms/index.html` - Colabianchi chatbot for operators, Stogiannos industrial LLMs survey, Zhai chat-vs-search, Epstein et al. Science creative AI
+- `part-14-applications-of-llms-across-industries/module-74-tools-of-the-trade/index.html` - Foundation Models, GPTs Are GPTs labor impact, HELM, Augmented LMs
 
-### Part XVI: LLM & Agentic AI Research Frontiers
-- `part-16-llm-agentic-ai-research-frontiers/module-80-frontier-architectures/index.html` - Mamba, Mamba-2 / SSM-attention duality, ESM-2, RT-2
-- `part-16-llm-agentic-ai-research-frontiers/module-81-frontier-theory/index.html` - Toy Models of Superposition, Scaling Monosemanticity, Chinchilla, Emergence Mirage
-- `part-16-llm-agentic-ai-research-frontiers/module-82-agi-trajectories/index.html` - DeepMind Levels of AGI, ARC Prize 2024, METR autonomy, Catastrophic AI Risks
-- `part-16-llm-agentic-ai-research-frontiers/module-83-tools-of-the-trade/index.html` - HuggingFace transformers, DeepSpeed, BIG-bench, Chatbot Arena
+### Part XV: LLM & Agentic AI Research Frontiers
+- `part-15-llm-agentic-ai-research-frontiers/module-75-frontier-architectures/index.html` - Mamba, Mamba-2 / SSM-attention duality, ESM-2, RT-2
+- `part-15-llm-agentic-ai-research-frontiers/module-76-frontier-theory/index.html` - Toy Models of Superposition, Scaling Monosemanticity, Chinchilla, Emergence Mirage
+- `part-15-llm-agentic-ai-research-frontiers/module-77-agi-trajectories/index.html` - DeepMind Levels of AGI, ARC Prize 2024, METR autonomy, Catastrophic AI Risks
+- `part-15-llm-agentic-ai-research-frontiers/module-78-tools-of-the-trade/index.html` - HuggingFace transformers, DeepSpeed, BIG-bench, Chatbot Arena
 
 ## Conventions
 

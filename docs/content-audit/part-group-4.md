@@ -1,6 +1,6 @@
 # Content Audit, Parts 13-16 + Appendices
 
-Audit date: 2026-05-17. Read-only review of part-13-llmops-lifecycle, part-14-designing-llm-agent-products, part-15-applications-of-llms-across-industries, part-16-llm-agentic-ai-research-frontiers, and the three appendices (math-foundations, course-syllabi, reading-pathways). Note: directory has only three appendices (a, b, c), not the four mentioned in the audit brief; there is no `appendix-b-ml-essentials/` and no `appendix-d-reading-pathways/` directory. Appendix B is currently Course Syllabi and Appendix C is Reading Pathways. The ML-Essentials appendix is referenced inside Appendix B but the link points back to Part 1 Ch 0, confirming it was deferred and never created.
+Audit date: 2026-05-17. Read-only review of part-13-llmops-lifecycle, part-14-designing-llm-agent-products, part-14-applications-of-llms-across-industries, part-15-llm-agentic-ai-research-frontiers, and the three appendices (math-foundations, course-syllabi, reading-pathways). Note: directory has only three appendices (a, b, c), not the four mentioned in the audit brief; there is no `appendix-b-ml-essentials/` and no `appendix-d-reading-pathways/` directory. Appendix B is currently Course Syllabi and Appendix C is Reading Pathways. The ML-Essentials appendix is referenced inside Appendix B but the link points back to Part 1 Ch 0, confirming it was deferred and never created.
 
 The book just finished a major restructure (waves 1-9) and the artifacts of that restructure are clearly visible across these parts: placeholder section descriptions ("Promoted from old Ch 62 monster.", "Core production engineering.", "A comprehensive chapter from the Building Conversational AI textbook.", "A chapter from the Building Conversational AI textbook."), stale chapter and section numbers in headings, breadcrumbs, prev/next labels, and cross-reference labels (link hrefs are mostly correct, but the displayed text shows the pre-restructure numbering), spurious chapter cards in part indexes that point at sections in other modules, and a Part-16 part index where the chapter cards skip the directory numbering by 2-3 each.
 
@@ -8,7 +8,7 @@ The book just finished a major restructure (waves 1-9) and the artifacts of that
 
 Several issues recur across every part in this group; rather than restate them per chapter, I am listing them once here and only calling out exceptions inside the per-chapter blocks below.
 
-- **Part numerals everywhere are stale.** Part 13 says "Part X", Part 14 says "Part XI", Part 15 says "Part XI", Part 16 says "Part XII". Every section's breadcrumb, every chapter's chapter-nav "Up" link, and every section's pagefind part metadata carries the old Roman numeral. Correct numerals: Part XIII (13), Part XIV (14), Part XV (15), Part XVI (16).
+- **Part numerals everywhere are stale.** Part 13 says "Part X", Part 14 says "Part XI", Part 15 says "Part XI", Part 16 says "Part XII". Every section's breadcrumb, every chapter's chapter-nav "Up" link, and every section's pagefind part metadata carries the old Roman numeral. Correct numerals: Part XIII (13), Part XIV (14), Part XIV (15), Part XV (16).
 - **Section H2 IDs use new numbering but visible H2 text uses old numbering.** Almost every section in this group has H2 elements like `<h2 id="51-1-1-...">53.1.1 Latency Optimization Strategies</h2>` where the id reflects something close to the new section number but the visible heading uses an entirely different (old) chapter/section number (53.1.1, 33.x.y, 64.x.y, etc.). This same drift appears in Figure captions ("Figure 53.1.1", "Figure 53.3.1", "Figure A.0.1", "Figure D.0.1"), Table captions ("Table 57.4.1", "Table p.0.1" through "p.0.8"), Pseudocode boxes ("Pseudocode 34.3.1"), and inline prose.
 - **Prerequisites blocks and Looking-Back callouts reference old chapter numbers.** Phrases like "as covered in Section 45.1", "from Chapter 44", "from Chapter 23 (RAG)", "from Chapter 25 (Agent Safety)", "from Chapter 37" appear constantly. The hrefs mostly point at the correct new files, but the displayed labels are wrong.
 - **Chapter-nav "What Comes Next" and prev/next blurbs name the wrong chapter number.** Almost every chapter index in Parts 13-16 has at least one "Chapter NN" reference in the next-chapter blurb where the number is from the pre-restructure plan rather than the new numbering.
@@ -234,157 +234,157 @@ Proposed resolution (consolidation): either split module-67-ideation into 67-ide
   - Line 22 breadcrumb: "Part X: Building LLM and Agent Products" -> Part XIV
   - Line 28 pagefind meta: "Part X: Building LLM and Agent Products" -> Part XIV
   - Line 35 big-picture: "Part X covered going from idea to shipped product." -> Part XIV.
-  - Line 74 What-Comes-Next: "Part XI surveys industries: legal, finance, healthcare, education, cyber, code, and the rest. Chapter 70 closes Part XI..." -> Part XV; "Chapter 81 closes Part XV with the per-vertical vendor map" (or whichever is the correct last chapter of part 15).
+  - Line 74 What-Comes-Next: "Part XI surveys industries: legal, finance, healthcare, education, cyber, code, and the rest. Chapter 70 closes Part XI..." -> Part XIV; "Chapter 76 closes Part XIV with the per-vertical vendor map" (or whichever is the correct last chapter of part 15).
   - Line 78 In-Part: "Part XI" -> Part XIV.
 
 ## Part 15: Applications of LLMs Across Industries (modules 72-78 + 79-tools)
 
-### Part-15 index (E:\Projects\BookBlogsHome\LLMBook\part-15-applications-of-llms-across-industries\index.html)
+### Part-15 index (E:\Projects\BookBlogsHome\LLMBook\part-14-applications-of-llms-across-industries\index.html)
 
-- **Title**: PROPOSE replace "Part XI: LLM Applications Across Industries" -> "Part XV: LLM Applications Across Industries". Affects meta description (line 7), title (line 8), h1 (line 25), part-label (line 24), chapter-subtitle (line 26).
-- **Subtitle vs. content mismatch**: Subtitle (line 26) says "Seven vertical applications of LLMs" and lists 7 verticals: Legal, Finance, Healthcare, Education, Cybersecurity, Government, Manufacturing. Meta description (line 7) says "nine verticals". But the part-15 index lists 11 chapter cards (72-77 + 78 + spurious 79 Creative + spurious 80 Recommendation + 81 Tools). Reconcile: either expand subtitle to match or reduce chapter list to match subtitle.
+- **Title**: PROPOSE replace "Part XI: LLM Applications Across Industries" -> "Part XIV: LLM Applications Across Industries". Affects meta description (line 7), title (line 8), h1 (line 25), part-label (line 24), chapter-subtitle (line 26).
+- **Subtitle vs. content mismatch**: Subtitle (line 26) says "Seven vertical applications of LLMs" and lists 7 verticals: Legal, Finance, Healthcare, Education, Cybersecurity, Government, Manufacturing. Meta description (line 7) says "nine verticals". But the part-14 index lists 11 chapter cards (72-77 + 78 + spurious 79 Creative + spurious 80 Recommendation + 81 Tools). Reconcile: either expand subtitle to match or reduce chapter list to match subtitle.
 - **Big picture**: KEEP. Good framing.
 - **Chapter cards**: HEAVILY BROKEN.
-  - Chapter 72 Legal: cards 72.1-72.5 correct.
-  - Chapter 73 Finance: cards 73.1-73.5 correct, BUT spurious card 73.6 "LLMs in Finance & Trading" with href `module-73-finance-llms/index.html` (self-link). Drop.
-  - Chapter 74 Healthcare: cards 74.1-74.5 correct, BUT spurious card 74.6 "Healthcare & Biomedical AI" with href `module-74-healthcare-llms/index.html`. Drop.
-  - Chapter 75 Education: cards 75.1-75.5 correct.
-  - Chapter 76 Cybersecurity: cards 76.1-76.5 correct, BUT spurious card 76.6 "Cybersecurity & LLMs" with href `module-76-cybersecurity-llms/index.html`. Drop.
-  - Chapter 77 Government: cards 77.1-77.5 correct.
-  - Chapter 78 Manufacturing: cards 78.1-78.5 correct.
-  - Chapter 79 "LLMs in Creative Industries": three cards labeled 79.1, 79.2, 79.3 but their hrefs are `module-78-manufacturing-llms/section-78.6.html`, `module-78-manufacturing-llms/index.html`, and `module-78-manufacturing-llms/section-78.7.html`. The Creative-Industries content actually lives in module-78 section files 78.6 and 78.7. No `module-79-creative-llms/` directory exists. Either rename/move these section files into their own module-79-creative-llms directory and renumber them 79.1, 79.2, etc., or drop this chapter card entirely.
-  - Chapter 80 "LLM-Powered Recommendation & Search": three cards labeled 80.1, 80.2, 80.3 but hrefs are `module-78-manufacturing-llms/section-78.8.html`, `section-78.9.html`, `section-78.10.html`. Same issue. Plus this Chapter-80 label collides with Part-16's first chapter (Frontier Architectures), which is also labeled Chapter 80 in its directory name and index header. The numbering MUST be reconciled.
-  - Chapter 81 "Tools of the Trade": cards 81.1-81.5 point to `module-79-tools-of-the-trade/section-79.1-79.5`. The directory is `module-79-tools-of-the-trade` but it self-labels as Chapter 79 internally and is listed here as Chapter 81. Need to pick one number and update both.
+  - Chapter 67 Legal: cards 72.1-72.5 correct.
+  - Chapter 68 Finance: cards 73.1-73.5 correct, BUT spurious card 73.6 "LLMs in Finance & Trading" with href `module-68-finance-llms/index.html` (self-link). Drop.
+  - Chapter 69 Healthcare: cards 74.1-74.5 correct, BUT spurious card 74.6 "Healthcare & Biomedical AI" with href `module-69-healthcare-llms/index.html`. Drop.
+  - Chapter 70 Education: cards 75.1-75.5 correct.
+  - Chapter 71 Cybersecurity: cards 76.1-76.5 correct, BUT spurious card 76.6 "Cybersecurity & LLMs" with href `module-71-cybersecurity-llms/index.html`. Drop.
+  - Chapter 72 Government: cards 77.1-77.5 correct.
+  - Chapter 73 Manufacturing: cards 78.1-78.5 correct.
+  - Chapter 74 "LLMs in Creative Industries": three cards labeled 79.1, 79.2, 79.3 but their hrefs are `module-73-manufacturing-llms/section-73.6.html`, `module-73-manufacturing-llms/index.html`, and `module-73-manufacturing-llms/section-73.7.html`. The Creative-Industries content actually lives in module-78 section files 78.6 and 78.7. No `module-74-creative-llms/` directory exists. Either rename/move these section files into their own module-74-creative-llms directory and renumber them 79.1, 79.2, etc., or drop this chapter card entirely.
+  - Chapter 75 "LLM-Powered Recommendation & Search": three cards labeled 80.1, 80.2, 80.3 but hrefs are `module-73-manufacturing-llms/section-73.8.html`, `section-73.9.html`, `section-73.10.html`. Same issue. Plus this Chapter-80 label collides with Part-16's first chapter (Frontier Architectures), which is also labeled Chapter 75 in its directory name and index header. The numbering MUST be reconciled.
+  - Chapter 76 "Tools of the Trade": cards 81.1-81.5 point to `module-74-tools-of-the-trade/section-79.1-79.5`. The directory is `module-74-tools-of-the-trade` but it self-labels as Chapter 74 internally and is listed here as Chapter 76. Need to pick one number and update both.
 - **Ordering**: Within the seven industry chapters (72-78), KEEP. Reasonable progression: Legal (high regulation + high upside) -> Finance (regulated + numerical) -> Healthcare (FDA + ambient doc) -> Education (FERPA + tutoring) -> Cybersecurity (offense+defense) -> Government (admin law) -> Manufacturing (OT/IT). Creative/Recommendation content (78.6-78.10) currently lives in the manufacturing module, which is wrong; it needs its own home.
 - **Stale refs**: meta description (line 7) and h1 (line 25) say "Part XI".
 - **Home fit / consolidation**:
-  - The 78.6-78.10 sections in module-78-manufacturing-llms do not belong in manufacturing. PROPOSE move 78.6, 78.7 to a new module-79-creative-industries-llms; move 78.8, 78.9, 78.10 to a new module-80-recommendation-search-llms. Then renumber. This resolves both the directory-mismatch and the section-naming.
+  - The 78.6-78.10 sections in module-73-manufacturing-llms do not belong in manufacturing. PROPOSE move 78.6, 78.7 to a new module-74-creative-industries-llms; move 78.8, 78.9, 78.10 to a new module-75-recommendation-search-llms. Then renumber. This resolves both the directory-mismatch and the section-naming.
   - Or, alternatively, drop the Creative/Recommendation cards entirely (the subtitle says seven verticals).
-  - module-79-tools-of-the-trade should be renamed to module-81-tools-of-the-trade (or whatever number it actually gets after consolidation) and its internal title updated.
+  - module-74-tools-of-the-trade should be renamed to module-76-tools-of-the-trade (or whatever number it actually gets after consolidation) and its internal title updated.
 
-### Chapter 72: LLMs in Legal Practice
+### Chapter 67: LLMs in Legal Practice
 
 - **Title**: KEEP.
 - **Description (big-picture)**: KEEP. Strong Mata v. Avianca anchor and Harvey/Casetext/Hebbia vendor framing.
 - **Section descriptions**: 72.1-72.4 KEEP. 72.5 KEEP. All five have real one-liners.
 - **Ordering**: 72.1 use cases -> 72.2 failures -> 72.3 regulatory rules -> 72.4 architecture -> 72.5 vendors+further reading. KEEP. This is the canonical template used across the industry chapters in this part.
 - **Stale refs**:
-  - Line 21 breadcrumb: "Part XI" -> Part XV.
-  - Line 64 What-Comes-Next: "Chapter 52" -> Chapter 73.
-  - Line 68 In-Part: "Part XI" -> Part XV.
-  - section-72.5.html line 48: "Chapter 23 (RAG)" link goes to module-32-rag. -> Chapter 32.
-  - section-72.5.html line 49: "Chapter 37 (Safety, Ethics & Regulation)" link goes to module-47-adversarial-security-red-team. The new chapter number is 47 (or 48 if that's adversarial), not 37.
-  - section-72.5.html line 50: "Section 79.2 (Education, Legal & Creative Industries)" link goes to module-78-manufacturing-llms/index.html. Stale, pre-renumbering.
-  - section-72.5.html line 51: "Section 37.6 (Privacy & IP)" link goes to module-53-regulation-compliance/section-53.4.html. New number is 53.4.
-  - section-72.5.html line 52: "Section 29.4 (Coding agents)" link goes to module-29-specialized-agents/section-29.4.html. New number is 29.4 (OK).
-  - section-72.5.html line 56: "Section 72.3" — correct.
-  - section-72.5.html line 62: "Chapter 52 on finance" link goes to module-73. -> Chapter 73.
+  - Line 21 breadcrumb: "Part XI" -> Part XIV.
+  - Line 64 What-Comes-Next: "Chapter 52" -> Chapter 68.
+  - Line 68 In-Part: "Part XI" -> Part XIV.
+  - section-67.5.html line 48: "Chapter 23 (RAG)" link goes to module-32-rag. -> Chapter 32.
+  - section-67.5.html line 49: "Chapter 37 (Safety, Ethics & Regulation)" link goes to module-47-adversarial-security-red-team. The new chapter number is 47 (or 48 if that's adversarial), not 37.
+  - section-67.5.html line 50: "Section 74.2 (Education, Legal & Creative Industries)" link goes to module-73-manufacturing-llms/index.html. Stale, pre-renumbering.
+  - section-67.5.html line 51: "Section 37.6 (Privacy & IP)" link goes to module-53-regulation-compliance/section-53.4.html. New number is 53.4.
+  - section-67.5.html line 52: "Section 29.4 (Coding agents)" link goes to module-29-specialized-agents/section-29.4.html. New number is 29.4 (OK).
+  - section-67.5.html line 56: "Section 67.3" — correct.
+  - section-67.5.html line 62: "Chapter 52 on finance" link goes to module-73. -> Chapter 68.
 
-### Chapter 73: LLMs in Finance
+### Chapter 68: LLMs in Finance
 
 - **Title**: KEEP.
 - **Description (big-picture)**: KEEP. Strong Bloomberg/Morgan-Stanley/JPMorgan/Goldman 2023 anchors.
 - **Section descriptions**: 73.1-73.5 KEEP. 73.6 "LLMs in Finance & Trading" is a SPURIOUS self-link with placeholder desc; drop the card from the chapter index.
 - **Ordering**: KEEP (matches template).
 - **Stale refs**:
-  - Line 21 breadcrumb: "Part XI" -> Part XV.
-  - Line 32 big-picture: "Section 73.6 is the longer production-pattern companion." -> drop reference, no 73.6 exists.
-  - Line 69 What-Comes-Next: "Chapter 53" -> Chapter 74.
-  - Line 73 In-Part: "Part XI" -> Part XV.
-  - section-73.5.html line 49: "Section 73.6 (LLMs in Finance & Trading)" link goes to module-74-healthcare-llms/section-74.1.html (very wrong; goes to a healthcare section). Drop the reference or fix the target.
-  - section-73.5.html line 51: "Chapter 42 (LLM Strategy & Use Case Prioritization)" link to module-67-ideation. -> Chapter 67.
-  - section-73.5.html line 52: "Chapter 51 (Legal)" link to module-72-legal-llms. -> Chapter 72.
-  - section-73.5.html line 53: "Chapter 25 (Agent Safety & Production)" link to module-49-agent-safety-autonomy. -> Chapter 49.
-  - section-73.5.html line 63: "Chapter 53 on healthcare" link to module-74. -> Chapter 74. Plus same "Section 73.6 is a longer companion piece" with wrong target.
+  - Line 21 breadcrumb: "Part XI" -> Part XIV.
+  - Line 32 big-picture: "Section 68.6 is the longer production-pattern companion." -> drop reference, no 73.6 exists.
+  - Line 69 What-Comes-Next: "Chapter 53" -> Chapter 69.
+  - Line 73 In-Part: "Part XI" -> Part XIV.
+  - section-68.5.html line 49: "Section 68.6 (LLMs in Finance & Trading)" link goes to module-69-healthcare-llms/section-69.1.html (very wrong; goes to a healthcare section). Drop the reference or fix the target.
+  - section-68.5.html line 51: "Chapter 42 (LLM Strategy & Use Case Prioritization)" link to module-67-ideation. -> Chapter 67.
+  - section-68.5.html line 52: "Chapter 51 (Legal)" link to module-67-legal-llms. -> Chapter 67.
+  - section-68.5.html line 53: "Chapter 25 (Agent Safety & Production)" link to module-49-agent-safety-autonomy. -> Chapter 49.
+  - section-68.5.html line 63: "Chapter 53 on healthcare" link to module-74. -> Chapter 69. Plus same "Section 68.6 is a longer companion piece" with wrong target.
 - **Home fit**: 73.1-73.5 fit. Drop the 73.6 phantom.
 
-### Chapter 74: LLMs in Healthcare & Biomedical
+### Chapter 69: LLMs in Healthcare & Biomedical
 
 - **Title**: KEEP.
 - **Description (big-picture)**: KEEP. Captures the burnout-vs-regulation tension well.
 - **Section descriptions**: 74.1-74.5 KEEP. 74.6 "Healthcare & Biomedical AI" is a SPURIOUS self-link; drop.
 - **Ordering**: KEEP.
 - **Stale refs**:
-  - Line 21 breadcrumb: "Part XI" -> Part XV.
-  - Line 30 big-picture: "Section 74.6 is the longer production-pattern companion." -> drop.
-  - Line 67 What-Comes-Next: "Chapter 54" -> Chapter 75.
-  - Line 71 In-Part: "Part XI" -> Part XV.
-  - section-74.5.html line 50: "Section 74.6 (Healthcare & Biomedical AI)" link goes to module-75-education-llms/section-75.1.html (completely wrong target). Drop.
-  - section-74.5.html line 51: "Section 37.6 (Privacy & IP)" link to module-53-regulation-compliance/section-53.4.html. -> Section 53.4.
-  - section-74.5.html line 52: "Section 37.11 (Privacy attacks)" link to module-50-privacy-data-protection/section-50.1.html. -> Section 50.1.
-  - section-74.5.html line 53: "Chapter 24 (Conversational AI)" link to module-37-conversational-ai. -> Chapter 37.
-  - section-74.5.html line 65: "Section 74.6" + "Chapter 54 on education". -> drop 74.6 ref, change Ch 54 to Ch 75.
+  - Line 21 breadcrumb: "Part XI" -> Part XIV.
+  - Line 30 big-picture: "Section 69.6 is the longer production-pattern companion." -> drop.
+  - Line 67 What-Comes-Next: "Chapter 54" -> Chapter 70.
+  - Line 71 In-Part: "Part XI" -> Part XIV.
+  - section-69.5.html line 50: "Section 69.6 (Healthcare & Biomedical AI)" link goes to module-70-education-llms/section-70.1.html (completely wrong target). Drop.
+  - section-69.5.html line 51: "Section 37.6 (Privacy & IP)" link to module-53-regulation-compliance/section-53.4.html. -> Section 53.4.
+  - section-69.5.html line 52: "Section 37.11 (Privacy attacks)" link to module-50-privacy-data-protection/section-50.1.html. -> Section 50.1.
+  - section-69.5.html line 53: "Chapter 24 (Conversational AI)" link to module-37-conversational-ai. -> Chapter 37.
+  - section-69.5.html line 65: "Section 69.6" + "Chapter 54 on education". -> drop 74.6 ref, change Ch 54 to Ch 75.
 
-### Chapter 75: LLMs in Education
+### Chapter 70: LLMs in Education
 
 - **Title**: KEEP.
 - **Description (big-picture)**: KEEP. Excellent Khanmigo + NYC DOE + Turnitin anchors.
 - **Section descriptions**: 75.1-75.5 all KEEP. Clean.
 - **Ordering**: KEEP.
 - **Stale refs**:
-  - Line 21 breadcrumb: "Part XI" -> Part XV.
-  - Line 64 What-Comes-Next: "Chapter 55 on cybersecurity" -> Chapter 76.
-  - Line 68 In-Part: "Part XI" -> Part XV.
-  - section-75.1.html line 34: "Chapter 24" -> Chapter 37; "Chapter 23" -> Chapter 32; "Chapter 37" -> Chapter 47 (or whatever the new safety-ethics chapter number is). All hrefs are correct, labels wrong.
+  - Line 21 breadcrumb: "Part XI" -> Part XIV.
+  - Line 64 What-Comes-Next: "Chapter 55 on cybersecurity" -> Chapter 71.
+  - Line 68 In-Part: "Part XI" -> Part XIV.
+  - section-70.1.html line 34: "Chapter 24" -> Chapter 37; "Chapter 23" -> Chapter 32; "Chapter 37" -> Chapter 47 (or whatever the new safety-ethics chapter number is). All hrefs are correct, labels wrong.
 
-### Chapter 76: LLMs in Cybersecurity
+### Chapter 71: LLMs in Cybersecurity
 
 - **Title**: KEEP.
 - **Description (big-picture)**: KEEP.
 - **Section descriptions**: 76.1-76.5 KEEP. 76.6 "Cybersecurity & LLMs" is a SPURIOUS self-link; drop.
 - **Ordering**: KEEP. 76.1 blue team -> 76.2 red team -> 76.3 attack surface -> 76.4 trust boundaries -> 76.5 vendors is defense-first then offense-then-architecture, which reads well.
 - **Stale refs**:
-  - Line 21 breadcrumb: "Part XI" -> Part XV.
-  - Line 30 big-picture: "Section 76.6 is the longer production-pattern companion." -> drop.
-  - Line 67 What-Comes-Next: "Chapter 56 on government" -> Chapter 77.
-  - Line 71 In-Part: "Part XI" -> Part XV.
-  - section-76.5.html line 49: "Section 76.6 (Cybersecurity & LLMs)" link goes to module-77-government-llms/section-77.1.html. Drop.
-  - section-76.5.html line 50: "Chapter 37 (Safety, Ethics & Regulation)" -> chapter 47/48.
-  - section-76.5.html line 51: "Chapter 38 (Agent Safety & Security)" link goes to module-49-agent-safety-autonomy. -> Chapter 49.
-  - section-76.5.html line 52: "Chapter 25 (Agent Safety & Production)" link goes to module-49 same. Duplicate ref. Pick one.
-  - section-76.5.html line 64: "Chapter 56 on government" -> Chapter 77.
+  - Line 21 breadcrumb: "Part XI" -> Part XIV.
+  - Line 30 big-picture: "Section 71.6 is the longer production-pattern companion." -> drop.
+  - Line 67 What-Comes-Next: "Chapter 56 on government" -> Chapter 72.
+  - Line 71 In-Part: "Part XI" -> Part XIV.
+  - section-71.5.html line 49: "Section 71.6 (Cybersecurity & LLMs)" link goes to module-72-government-llms/section-72.1.html. Drop.
+  - section-71.5.html line 50: "Chapter 37 (Safety, Ethics & Regulation)" -> chapter 47/48.
+  - section-71.5.html line 51: "Chapter 38 (Agent Safety & Security)" link goes to module-49-agent-safety-autonomy. -> Chapter 49.
+  - section-71.5.html line 52: "Chapter 25 (Agent Safety & Production)" link goes to module-49 same. Duplicate ref. Pick one.
+  - section-71.5.html line 64: "Chapter 56 on government" -> Chapter 72.
 
-### Chapter 77: LLMs in Government & Public Sector
+### Chapter 72: LLMs in Government & Public Sector
 
 - **Title**: KEEP.
 - **Description (big-picture)**: KEEP. Strong ChatGPT Gov, GOV.UK Chat, IRS Direct File anchors.
 - **Section descriptions**: 77.1-77.5 KEEP. Clean.
 - **Ordering**: KEEP.
 - **Stale refs**:
-  - Line 21 breadcrumb: "Part XI" -> Part XV.
-  - Line 64 What-Comes-Next: "Chapter 57" -> Chapter 78.
-  - Line 68 In-Part: "Part XI" -> Part XV.
-  - section-77.5.html line 54: "Section 37.5" -> Section 53.3 (href target).
-  - section-77.5.html line 55: "Section 37.9" -> Section 53.2.
-  - section-77.5.html line 56: "Chapter 46 (Compute Planning)" -> Chapter 57.
-  - section-77.5.html line 57: "Chapter 55 (Cybersecurity)" -> Chapter 76.
-  - section-77.5.html line 69: "Chapter 57 on manufacturing" -> Chapter 78.
+  - Line 21 breadcrumb: "Part XI" -> Part XIV.
+  - Line 64 What-Comes-Next: "Chapter 57" -> Chapter 73.
+  - Line 68 In-Part: "Part XI" -> Part XIV.
+  - section-72.5.html line 54: "Section 37.5" -> Section 53.3 (href target).
+  - section-72.5.html line 55: "Section 37.9" -> Section 53.2.
+  - section-72.5.html line 56: "Chapter 46 (Compute Planning)" -> Chapter 57.
+  - section-72.5.html line 57: "Chapter 55 (Cybersecurity)" -> Chapter 71.
+  - section-72.5.html line 69: "Chapter 57 on manufacturing" -> Chapter 73.
 
-### Chapter 78: LLMs in Manufacturing & Supply Chain
+### Chapter 73: LLMs in Manufacturing & Supply Chain
 
 - **Title**: KEEP.
 - **Description (big-picture)**: KEEP. Strong "advisor with human on contracts" framing.
 - **Section descriptions**: 78.1-78.5 KEEP.
 - **Ordering**: KEEP (matches template).
 - **Stale refs**:
-  - Line 21 breadcrumb: "Part XI" -> Part XV.
+  - Line 21 breadcrumb: "Part XI" -> Part XIV.
   - All H2s in the chapter index use old numbering: line 32 `<h2>57.1 Use Cases...</h2>`, line 55 `<h2>57.2 Failure Modes...</h2>`, line 76 `<h2>57.3 Regulatory and Standards...</h2>`, line 86 `<h2>57.4 Architectural Pattern...</h2>`, line 98 `Table 57.4.1`, line 100 `Table 57.4.1: OT-safe LLM patterns...`, line 151 `<h2>57.5 Postmortems...</h2>`, line 157 `<h2>57.6 Where to Read More</h2>`. All should be 78.1-78.6.
   - Line 159 cross-ref: "Section 32.8 (Robotics, Embodied AI & Scientific Discovery)" link goes to module-24-vla-models. -> Section 24.x.
   - Line 160: "Section 38.1 (Agent Safety & Prompt Injection Defense)" link to module-49-agent-safety-autonomy/section-49.1.html. -> Section 49.1.
   - Line 161: "Section 37.5 (LLM Risk Governance & Audit)" -> Section 53.3.
   - Line 162: "Section 46.2 (Enterprise Integration Patterns)" -> Section 57.2.
   - Line 163: "FM.12 (production-patterns playbook (now part of Chapter 35 LLMOps coverage))" — this is a literal restructure artifact. The "FM.12" is gone, "Chapter 35" -> Chapter 62 LLMOps. Either drop or rewrite as "the LLMOps coverage in Chapter 62".
-  - Line 219 next: "Chapter 79: LLMs in Creative Industries" with href to module-78-manufacturing-llms/index.html (self-link). Needs target fix or drop.
-- **Home fit / consolidation**: Sections 78.6, 78.7 are CREATIVE INDUSTRIES content (Music, Video, Design, Marketing Copy; Suno, Udio, ElevenLabs licensing). Sections 78.8, 78.9, 78.10 are RECOMMENDATION & SEARCH content (Pinterest Lens, Spotify DJ, etc.). These five sections do not belong in module-78-manufacturing-llms. They should move to module-79-creative-llms (78.6, 78.7) and module-80-recommendation-search-llms (78.8-78.10), or be dropped if the chapter list is collapsed to seven verticals.
+  - Line 219 next: "Chapter 74: LLMs in Creative Industries" with href to module-73-manufacturing-llms/index.html (self-link). Needs target fix or drop.
+- **Home fit / consolidation**: Sections 73.6, 78.7 are CREATIVE INDUSTRIES content (Music, Video, Design, Marketing Copy; Suno, Udio, ElevenLabs licensing). Sections 73.8, 78.9, 78.10 are RECOMMENDATION & SEARCH content (Pinterest Lens, Spotify DJ, etc.). These five sections do not belong in module-73-manufacturing-llms. They should move to module-74-creative-llms (78.6, 78.7) and module-75-recommendation-search-llms (78.8-78.10), or be dropped if the chapter list is collapsed to seven verticals.
 
 ### Chapter "79" / "80" (orphan content in module-78)
 
-The Part-15 index references three Creative-Industries sections (79.1, 79.2, 79.3) and three Recommendation-&-Search sections (80.1, 80.2, 80.3). All six point at section files inside module-78-manufacturing-llms. The section files themselves have breadcrumbs referencing Chapter 79 (for 78.6, 78.7) and Chapter 80 (for 78.8, 78.9, 78.10), confirming the original split-out intent. The split-out was never executed. Either execute it (create module-79-creative-llms and module-80-recommendation-search-llms, move and renumber the sections) or remove the orphan content from the Part-15 index.
+The Part-15 index references three Creative-Industries sections (79.1, 79.2, 79.3) and three Recommendation-&-Search sections (80.1, 80.2, 80.3). All six point at section files inside module-73-manufacturing-llms. The section files themselves have breadcrumbs referencing Chapter 74 (for 78.6, 78.7) and Chapter 75 (for 78.8, 78.9, 78.10), confirming the original split-out intent. The split-out was never executed. Either execute it (create module-74-creative-llms and module-75-recommendation-search-llms, move and renumber the sections) or remove the orphan content from the Part-15 index.
 
-### Chapter 79 (current dir name) / 81 (Part-15-index label): Tools of the Trade
+### Chapter 74 (current dir name) / 81 (Part-15-index label): Tools of the Trade
 
-- **Title**: PICK ONE: either Chapter 79 (matches dir name) or Chapter 81 (matches Part-15 index card label and the natural ordering if creative+recommendation chapters exist). Currently the page's title and h1 say "Chapter 79: Tools of the Trade: Industry Solution Stack" but the Part-15 index labels its card "Chapter 81". The dir name `module-79-tools-of-the-trade` collides with the (planned) module-79-creative-llms.
-- **Description (big-picture)**: KEEP wording but fix "Part X" -> "Part XV".
+- **Title**: PICK ONE: either Chapter 74 (matches dir name) or Chapter 76 (matches Part-15 index card label and the natural ordering if creative+recommendation chapters exist). Currently the page's title and h1 say "Chapter 74: Tools of the Trade: Industry Solution Stack" but the Part-15 index labels its card "Chapter 76". The dir name `module-74-tools-of-the-trade` collides with the (planned) module-74-creative-llms.
+- **Description (big-picture)**: KEEP wording but fix "Part X" -> "Part XIV".
 - **Section descriptions**: ALL FIVE placeholders `A chapter from the Building Conversational AI textbook.` PROPOSE:
   - 79.1 Platforms: "The Harvey/Hebbia (legal), BloombergGPT/FactSet/Hebbia (finance), Abridge/Suki/Glass/Hippocratic (healthcare), Khanmigo/Magic School/Duolingo Max (education), Security Copilot/Charlotte AI (cyber), Palantir AIP/Anduril (government), Siemens Industrial Copilot/Foxconn Foxbrain (manufacturing) vendor map for 2026."
   - 79.2 Libraries & Frameworks: "Vertical-specific connectors in langchain-community (FHIR for healthcare, EDGAR for finance, CourtListener for legal, OPC-UA for manufacturing), plus the open-weight LLMs (Llama, Qwen, Mistral) that ship inside regulated deployments."
@@ -393,37 +393,37 @@ The Part-15 index references three Creative-Industries sections (79.1, 79.2, 79.
   - 79.5 External Reading & Communities: "The per-vertical Substacks, working-group blogs, regulator dockets, and conference proceedings worth tracking."
 - **Ordering**: KEEP.
 - **Stale refs**:
-  - Line 22 breadcrumb: "Part XI" -> Part XV.
-  - Line 28 pagefind meta: "Part XI" -> Part XV.
-  - Line 35 big-picture: "Part XI surveyed how LLMs are applied" -> Part XV.
-  - Line 73 What-Comes-Next: "Part XII (Frontiers) closes the book. Chapter 65 wraps up with the frontier-research toolbox." -> Part XVI; "Chapter 83 wraps up..." (or whatever Part-16 Tools chapter resolves to).
-  - Line 76 prev: nav-num "Chapter 80" but the chapter card label here implies Ch 81 prev should be Ch 80 Recommendation. Link points to module-78. Pick one.
-  - Line 78 In-Part: "Part XI" -> Part XV.
-  - Line 78 next: nav-num "Chapter 82: Frontier Architectures & Scaling" with link to part-16/module-80. The directory is module-80 and self-labels Ch 80 inside Part 16. Pick a single numbering.
+  - Line 22 breadcrumb: "Part XI" -> Part XIV.
+  - Line 28 pagefind meta: "Part XI" -> Part XIV.
+  - Line 35 big-picture: "Part XI surveyed how LLMs are applied" -> Part XIV.
+  - Line 73 What-Comes-Next: "Part XII (Frontiers) closes the book. Chapter 65 wraps up with the frontier-research toolbox." -> Part XV; "Chapter 78 wraps up..." (or whatever Part-16 Tools chapter resolves to).
+  - Line 76 prev: nav-num "Chapter 75" but the chapter card label here implies Ch 81 prev should be Ch 80 Recommendation. Link points to module-78. Pick one.
+  - Line 78 In-Part: "Part XI" -> Part XIV.
+  - Line 78 next: nav-num "Chapter 77: Frontier Architectures & Scaling" with link to part-15/module-80. The directory is module-80 and self-labels Ch 80 inside Part 16. Pick a single numbering.
 
 ## Part 16: LLM & Agentic AI Research Frontiers (modules 80-83)
 
-### Part-16 index (E:\Projects\BookBlogsHome\LLMBook\part-16-llm-agentic-ai-research-frontiers\index.html)
+### Part-16 index (E:\Projects\BookBlogsHome\LLMBook\part-15-llm-agentic-ai-research-frontiers\index.html)
 
-- **Title**: PROPOSE replace "Part XII: Frontiers" -> "Part XVI: LLM & Agentic AI Research Frontiers". Affects meta description (line 7), title (line 8), h1 (line 25), part-label (line 24), part-subtitle (line 26).
-- **Big picture**: KEEP wording but fix "Part XII" -> Part XVI.
+- **Title**: PROPOSE replace "Part XII: Frontiers" -> "Part XV: LLM & Agentic AI Research Frontiers". Affects meta description (line 7), title (line 8), h1 (line 25), part-label (line 24), part-subtitle (line 26).
+- **Big picture**: KEEP wording but fix "Part XII" -> Part XV.
 - **Chapter cards numbering mismatch**:
-  - Card 1: `<span class="mod-num">Chapter 82</span> Frontier Architectures & Scaling`, links to module-80-frontier-architectures/section-80.x.html, with section-num spans `82.1`, `82.2`, `82.3`, `82.4`. The directory is module-80, the section files are 80.x, the module's own title says "Chapter 80". The Part-16 index labels it Chapter 82.
-  - Card 2: `<span class="mod-num">Chapter 83</span> Frontier Theory & Cognition`, links to module-81-frontier-theory/section-81.x.html. Directory says 81, index card says 83.
-  - **Chapter 84 is missing entirely** (Frontier Systems & Hardware lives in part-12/module-58-frontier-systems-hardware, not in part-16).
-  - Card 3: `Chapter 85 AGI Trajectories & Open Questions`, links to module-82-agi-trajectories. Directory says 82, index card says 85.
-  - Card 4: `Chapter 86 Tools of the Trade: Frontier Research Stack`, links to module-83-tools-of-the-trade. Directory says 83, index card says 86.
-- **Resolution**: PICK ONE numbering and apply across all of: (a) Part-16 index `mod-num` and `sec-num` spans, (b) each module's directory name, (c) each module index's h1 and title and breadcrumb, (d) each section's breadcrumb and h1. Right now we have THREE numberings active simultaneously (80-83 in dirs, 80-83 in module-index self-labels, 82/83/85/86 in part-16 index). My recommendation: keep the directory numbering (80, 81, 82, 83) and rename the Part-16-index chapter cards to match. The Ch-84 (Frontier Systems & Hardware) chapter physically lives in Part 12 module 58. If the intent was for it to live in Part 16, move the directory. If the intent was for Part 16 to skip it (because hardware is properly a Part-12 systems concern), drop the Ch-84 references from the Part-16 chapter-nav blurbs.
+  - Card 1: `<span class="mod-num">Chapter 77</span> Frontier Architectures & Scaling`, links to module-75-frontier-architectures/section-80.x.html, with section-num spans `82.1`, `82.2`, `82.3`, `82.4`. The directory is module-80, the section files are 80.x, the module's own title says "Chapter 75". The Part-16 index labels it Chapter 77.
+  - Card 2: `<span class="mod-num">Chapter 78</span> Frontier Theory & Cognition`, links to module-76-frontier-theory/section-81.x.html. Directory says 81, index card says 83.
+  - **Chapter 84 is missing entirely** (Frontier Systems & Hardware lives in part-12/module-58-frontier-systems-hardware, not in part-15).
+  - Card 3: `Chapter 85 AGI Trajectories & Open Questions`, links to module-77-agi-trajectories. Directory says 82, index card says 85.
+  - Card 4: `Chapter 86 Tools of the Trade: Frontier Research Stack`, links to module-78-tools-of-the-trade. Directory says 83, index card says 86.
+- **Resolution**: PICK ONE numbering and apply across all of: (a) Part-16 index `mod-num` and `sec-num` spans, (b) each module's directory name, (c) each module index's h1 and title and breadcrumb, (d) each section's breadcrumb and h1. Right now we have THREE numberings active simultaneously (80-83 in dirs, 80-83 in module-index self-labels, 82/83/85/86 in part-15 index). My recommendation: keep the directory numbering (80, 81, 82, 83) and rename the Part-16-index chapter cards to match. The Ch-84 (Frontier Systems & Hardware) chapter physically lives in Part 12 module 58. If the intent was for it to live in Part 16, move the directory. If the intent was for Part 16 to skip it (because hardware is properly a Part-12 systems concern), drop the Ch-84 references from the Part-16 chapter-nav blurbs.
 - **Ordering**: KEEP within whatever numbering scheme is chosen. Architectures -> Theory -> AGI Trajectories -> Tools-of-Trade is the standard part shape.
 
-### Chapter 80 (per dir): Frontier Architectures & Scaling
+### Chapter 75 (per dir): Frontier Architectures & Scaling
 
-- **Title**: KEEP if directory numbering wins; otherwise rename "Chapter 82" to match Part-16 index.
+- **Title**: KEEP if directory numbering wins; otherwise rename "Chapter 77" to match Part-16 index.
 - **Description (big-picture)**: KEEP. Reasonable.
 - **Looking-back callout** (line 36) has multiple stale refs:
-  - "Theory of reasoning, memory, interpretability, and the agency question live in Chapter 62" -> Chapter 81 (Frontier Theory).
+  - "Theory of reasoning, memory, interpretability, and the agency question live in Chapter 62" -> Chapter 76 (Frontier Theory).
   - "hardware and systems live in Chapter 63" -> Chapter 58 (Part-12 module-58-frontier-systems-hardware) OR whatever the moved/renamed chapter is.
-  - "AGI trajectories live in Chapter 64" -> Chapter 82.
+  - "AGI trajectories live in Chapter 64" -> Chapter 77.
 - **Prerequisites** (lines 75-79) refs:
   - "Chapter 04: Transformer Architecture" -> Chapter 3 (part-1/module-03-transformer-architecture).
   - "Chapter 06: Pretraining & Scaling Laws" -> Chapter 6 (numbering is right, but in part-2/module-06-pretraining-scaling-laws).
@@ -435,33 +435,33 @@ The Part-15 index references three Creative-Industries sections (79.1, 79.2, 79.
   - 80.4 has a real description. KEEP.
 - **Ordering**: KEEP. Emergence -> Scaling -> Alternatives -> Beyond-text-domains is well-shaped.
 - **Stale refs in section files**:
-  - section-80.1.html line 24 breadcrumb: "Part XII" -> Part XVI.
-  - section-80.1.html line 39: "Section 7.3: Scaling Laws" -> Section 6.3 (href).
-  - section-80.1.html line 39: "Section 34.1: Evaluation Fundamentals" -> Section 42.1 (href).
-  - section-80.1.html line 67: "Section 7.3" -> Section 6.3.
-  - section-80.1.html line 121: "Section 34.1" -> Section 42.1.
-  - section-80.1.html line 135: "Section 7.2" -> Section 6.2.
-  - section-80.1.html line 143: "mixture-of-experts" link to "Section 7.2" -> Section 7.2 (per href; this OK).
+  - section-75.1.html line 24 breadcrumb: "Part XII" -> Part XV.
+  - section-75.1.html line 39: "Section 7.3: Scaling Laws" -> Section 6.3 (href).
+  - section-75.1.html line 39: "Section 34.1: Evaluation Fundamentals" -> Section 42.1 (href).
+  - section-75.1.html line 67: "Section 7.3" -> Section 6.3.
+  - section-75.1.html line 121: "Section 34.1" -> Section 42.1.
+  - section-75.1.html line 135: "Section 7.2" -> Section 6.2.
+  - section-75.1.html line 143: "mixture-of-experts" link to "Section 7.2" -> Section 7.2 (per href; this OK).
   - All H2 IDs in section-80.1, 80.2 use "33-1-1", "33-2-1" etc. (old Chapter 33 numbering). Update to 80.1.1, 80.2.1, etc.
 - **Chapter-nav**:
   - Line 106 What's-Next: "Part XI takes you from an idea to a shipped AI product" -> Part XIV.
-  - Line 109 prev: "Chapter 81: Tools of the Trade: Industry Solution Stack" link to part-15/module-79-tools-of-the-trade. Number depends on Part-15 resolution.
-  - Line 111 next: "Chapter 83: Frontier Theory & Cognition" -> Chapter 81 (if dir-numbering wins).
+  - Line 109 prev: "Chapter 76: Tools of the Trade: Industry Solution Stack" link to part-14/module-74-tools-of-the-trade. Number depends on Part-15 resolution.
+  - Line 111 next: "Chapter 78: Frontier Theory & Cognition" -> Chapter 76 (if dir-numbering wins).
 
-### Chapter 81 (per dir): Frontier Theory & Cognition
+### Chapter 76 (per dir): Frontier Theory & Cognition
 
-- **Title**: KEEP if dir-numbering wins; else "Chapter 83".
+- **Title**: KEEP if dir-numbering wins; else "Chapter 78".
 - **Description (big-picture)**: KEEP. Strong opening (Apple "Illusion of Reasoning", Anthropic attribution-graph).
 - **Section descriptions**: 81.1, 81.2, 81.3 have real descs. 81.4 description is TRUNCATED mid-sentence (line 59): "Is your smart thermostat an agent? It senses temperature, makes decisions, and takes actions without your involvement. What about a spam filter? A self-driving car? The answer depends on how you defin" — ends mid-word "defin". COMPLETE the description: "...how you define agency. This section proposes a working definition (goal directedness + autonomy + persistence + tool use) and tests it against the menagerie of systems that 2025-26 labs called 'agents'."
 - **Ordering**: KEEP. Reasoning -> Memory -> Interpretability -> Agency builds from cognitive function to system property.
 - **Stale refs**:
-  - All section files: breadcrumb "Part XII" -> Part XVI.
-  - section-81.4.html H2 ID `33-8-1-defining-agency-a-framework` is old Chapter 33 numbering.
+  - All section files: breadcrumb "Part XII" -> Part XV.
+  - section-76.4.html H2 ID `33-8-1-defining-agency-a-framework` is old Chapter 33 numbering.
   - Line 64 What-Comes-Next: "Chapter 63" (link to part-12/module-58-frontier-systems-hardware). The Ch-63 label is from the old numbering. Either retarget to whatever the new label is or note that Frontier Systems & Hardware lives in Part 12 (Ch 58).
-  - Line 67 prev: "Chapter 82: Frontier Architectures & Scaling" -> Chapter 80.
+  - Line 67 prev: "Chapter 77: Frontier Architectures & Scaling" -> Chapter 75.
   - Line 69 next: "Chapter 84: Frontier Systems & Hardware" linking to part-12/module-58. The chapter exists but is in Part 12, not Part 16. Either move it or update the next-link to point to module-82 (skipping the cross-part hop).
 
-### Chapter 82 (per dir): AGI Trajectories & Open Questions
+### Chapter 77 (per dir): AGI Trajectories & Open Questions
 
 - **Title**: KEEP if dir-numbering wins; else "Chapter 85".
 - **Description (big-picture)**: KEEP. Strong HLE / ARC-AGI-2 / FrontierMath anchors.
@@ -473,12 +473,12 @@ The Part-15 index references three Creative-Industries sections (79.1, 79.2, 79.
   - 82.5 EMPTY desc. PROPOSE "The four threads worth carrying out of this book and into your next decade of practice: what 2026 settled, what stayed open, and the practitioner-attitude that produces good work under deep uncertainty."
 - **Ordering**: KEEP. Benchmarks -> Alignment -> Timelines -> Economics -> Synthesis is well-shaped as a closing chapter.
 - **Stale refs**:
-  - All section files: breadcrumb "Part XII" -> Part XVI.
+  - All section files: breadcrumb "Part XII" -> Part XV.
   - section-82.1 through 82.5: ALL H2s use old `64.x.y` numbering in visible text (e.g., line "64.1.1 Humanity's Last Exam (HLE)") even though the H2 IDs use `82-1-1`. The visible text needs updating to match.
-  - Line 75 What-Comes-Next: "Chapter 65" -> Chapter 83.
-  - Line 78 prev: "Chapter 84" -> Chapter 81 (or wherever Frontier Theory ends up).
+  - Line 75 What-Comes-Next: "Chapter 65" -> Chapter 78.
+  - Line 78 prev: "Chapter 84" -> Chapter 76 (or wherever Frontier Theory ends up).
 
-### Chapter 83 (per dir): Tools of the Trade: Frontier Research Stack
+### Chapter 78 (per dir): Tools of the Trade: Frontier Research Stack
 
 - **Title**: KEEP if dir-numbering wins; else "Chapter 86".
 - **Description (big-picture)**: KEEP. Good arxiv/Papers-with-Code/lab-blogs/LMArena/Artificial-Analysis framing.
@@ -490,11 +490,11 @@ The Part-15 index references three Creative-Industries sections (79.1, 79.2, 79.
   - 83.5 External Reading & Communities: "AI Alignment Forum, LessWrong, the safety-research Substacks, the major lab-blog RSS feeds, and the workshops at NeurIPS/ICML/ICLR worth following for frontier-relevant work."
 - **Ordering**: KEEP.
 - **Stale refs**:
-  - Line 22 breadcrumb: "Part XII" -> Part XVI.
-  - Line 28 pagefind meta: "Part XII" -> Part XVI.
-  - Line 35 big-picture: "Part XII looked at the frontiers" -> Part XVI.
-  - Line 76 prev: "Chapter 85: AGI Trajectories" -> Chapter 82.
-  - Line 77 In-Part: "Part XII" -> Part XVI.
+  - Line 22 breadcrumb: "Part XII" -> Part XV.
+  - Line 28 pagefind meta: "Part XII" -> Part XV.
+  - Line 35 big-picture: "Part XII looked at the frontiers" -> Part XV.
+  - Line 76 prev: "Chapter 85: AGI Trajectories" -> Chapter 77.
+  - Line 77 In-Part: "Part XII" -> Part XV.
 
 ## Appendices
 
@@ -505,7 +505,7 @@ The user's brief listed Appendix A (Mathematical Foundations), B (ML Essentials)
 - **Title**: KEEP.
 - **Big picture**: PROPOSE rewrite. Current copy promises three groups (Foundations / Production Infrastructure / For Instructors) but the page renders only two `<h2>` placeholders ("Foundations" and "For Instructors") with NO cards/content under them, and the "Production Infrastructure" group is mentioned in the part-overview but absent from the actual rendered page. Either drop the Production-Infrastructure promise (since Docker/K8s now live in part-13/module-65) or add an empty placeholder with a pointer.
 - **Cards missing**: The two `<h2>` headers have no children. Add appendix cards (Appendix A: Mathematical Foundations; Appendix B: Course Syllabi; Appendix C: Reading Pathways) with one-line descriptions and links.
-- **Stale refs**: line 41 prev points to part-16/module-83/section-83.5. Reasonable as a "previous-page" link from the book end.
+- **Stale refs**: line 41 prev points to part-15/module-83/section-83.5. Reasonable as a "previous-page" link from the book end.
 - **Home fit / consolidation**: The page is essentially a stub. Needs real card content.
 
 ### Appendix A: Mathematical Foundations
@@ -546,7 +546,7 @@ The user's brief listed Appendix A (Mathematical Foundations), B (ML Essentials)
   - Line 23 h1: "Course Syllabi" — OK as title text, but pagefind metadata (line 25) says "Appendix A: Course Syllabi" — should be Appendix B.
   - Line 55: "Section 6.1 (Platforms)" linked to part-1/module-05-tools-of-the-trade/section-5.1.html -> Section 5.1.
   - Line 55: "Appendix A" link to appendix-a-mathematical-foundations/index.html. -> OK if Appendix A stays as math.
-  - In the week-by-week tables (lines 63-217): VERY many old chapter references in the display text (Chapter 0, 1, 2 are OK; Chapter 3, 4, 5 reasonable). Stale ones: "Chapter 13" -> 11; "Chapter 14" -> 12; "Chapter 22" -> 31; "Chapter 23" -> 32; "Chapter 24" -> 37; "Chapter 34" -> 42; "Chapter 35" -> 62; "Chapter 25" (agent safety) -> 49; "Chapter 26", "Chapter 27", "Chapter 28", "Chapter 29" OK (match new numbering); "Chapter 11" (interpretability) -> 10 (per href to module-10); "Chapter 17" (synthetic data) -> 15 (per href); "Chapter 18" (fine-tuning) -> 16; "Chapter 19" (PEFT) -> 17; "Chapter 20" (alignment) -> 18; "Chapter 31" (multimodal) -> 20 (per href to module-20-audio-music-generation); "Chapter 33" (frontiers) -> 80 (per href to part-16/module-80); "Chapter 37" (safety) -> 47 (per href to module-47-adversarial-security-red-team); "Chapter 8" (modern LLM landscape) -> 7 (per href to module-07-modern-llm-landscape); "Chapter 9" (reasoning) -> 8; "Chapter 10" (inference opt) -> 9; "Chapter 15" (hybrid) -> 13; "Chapter 31" (Strategy, week-10 bootcamp) -> 67.
+  - In the week-by-week tables (lines 63-217): VERY many old chapter references in the display text (Chapter 0, 1, 2 are OK; Chapter 3, 4, 5 reasonable). Stale ones: "Chapter 13" -> 11; "Chapter 14" -> 12; "Chapter 22" -> 31; "Chapter 23" -> 32; "Chapter 24" -> 37; "Chapter 34" -> 42; "Chapter 35" -> 62; "Chapter 25" (agent safety) -> 49; "Chapter 26", "Chapter 27", "Chapter 28", "Chapter 29" OK (match new numbering); "Chapter 11" (interpretability) -> 10 (per href to module-10); "Chapter 17" (synthetic data) -> 15 (per href); "Chapter 18" (fine-tuning) -> 16; "Chapter 19" (PEFT) -> 17; "Chapter 20" (alignment) -> 18; "Chapter 31" (multimodal) -> 20 (per href to module-20-audio-music-generation); "Chapter 33" (frontiers) -> 80 (per href to part-15/module-80); "Chapter 37" (safety) -> 47 (per href to module-47-adversarial-security-red-team); "Chapter 8" (modern LLM landscape) -> 7 (per href to module-07-modern-llm-landscape); "Chapter 9" (reasoning) -> 8; "Chapter 10" (inference opt) -> 9; "Chapter 15" (hybrid) -> 13; "Chapter 31" (Strategy, week-10 bootcamp) -> 67.
   - Line 225: "Appendix B (ML Essentials)" link to part-1/module-00-ml-pytorch-foundations. As noted at the top of this section, the ML Essentials appendix doesn't exist; the link is correct but the label should say "the ML & PyTorch foundations chapter (part-1 Ch 0)" rather than "Appendix B".
   - Line 226: "Section 6.1 (Platforms)" -> Section 5.1; "Section 6.2 (Libraries & Frameworks)" -> Section 5.2.
   - Line 227: **EMPTY `<li>` with " for worked-through fixes to common end-of-chapter problems."** Either delete or fill in. Looks like the link target was removed and the leading anchor got deleted leaving just " for worked-through...".
@@ -571,11 +571,11 @@ The user's brief listed Appendix A (Mathematical Foundations), B (ML Essentials)
   - Pathway 1 (RAG): "Chapter 13" -> 11; "Chapter 14" -> 12; "Chapter 22" -> 31; "Chapter 23" -> 32; "Section 34.1" -> Section 42.1; "Section 35.1" -> Section 70.5 (per href).
   - Pathway 2 (Agent): "Chapter 13" -> 11; "Section 14.2" -> Section 12.2; "Chapter 26" OK; "Chapter 27" OK; "Chapter 28" OK; "Chapter 29" OK; "Chapter 25" (Agent Safety & Production) link to module-49-agent-safety-autonomy -> Chapter 49; "Chapter 34" -> Chapter 42.
   - Pathway 3 (ML Practitioner): "Chapter 0" OK; "Chapter 3" OK; "Chapter 4" -> Chapter 3; "Chapter 7" -> Chapter 6; "Chapter 8" -> Chapter 7; "Chapter 15" -> Chapter 13; "Chapter 18" -> Chapter 16; "Chapter 19" -> Chapter 17; "Chapter 34" -> Chapter 42.
-  - Pathway 4 (Researcher): "Full Part I (Chapters 0–5)" — Part 1 is Ch 0-5 in new numbering OK; "Full Part II (Chapters 6-9 + 31)" — should be Ch 6-10 (Part 2 has modules 06-10); "+ 31" is unclear (could be old multimodal Ch 31). "Chapter 11 (Interpretability)" -> Chapter 10; "Full Part IV (Chapters 13-16)" -> Part 4 is modules 15-19. "Chapter 33 (Emerging Architectures & Frontiers)" -> Chapter 80 (Part 16); "Section 34.11" -> probably Section 42.5 (per href).
-  - Pathway 5 (Interpretability & Safety): "Chapter 4" -> 3; "Chapter 7" -> 6; "Chapter 11" -> 10; "Chapter 25" (Agent Safety) link to module-49 -> Chapter 49; "Chapter 37" (Safety/Ethics/Regulation) link to module-47-adversarial-security-red-team -> Chapter 47; "Section 33.7 (Mechanistic interpretability at scale)" — no link, dead reference. Probably wants to link to Part 16 Section 81.3.
+  - Pathway 4 (Researcher): "Full Part I (Chapters 0–5)" — Part 1 is Ch 0-5 in new numbering OK; "Full Part II (Chapters 6-9 + 31)" — should be Ch 6-10 (Part 2 has modules 06-10); "+ 31" is unclear (could be old multimodal Ch 31). "Chapter 11 (Interpretability)" -> Chapter 10; "Full Part IV (Chapters 13-16)" -> Part 4 is modules 15-19. "Chapter 33 (Emerging Architectures & Frontiers)" -> Chapter 75 (Part 16); "Section 34.11" -> probably Section 42.5 (per href).
+  - Pathway 5 (Interpretability & Safety): "Chapter 4" -> 3; "Chapter 7" -> 6; "Chapter 11" -> 10; "Chapter 25" (Agent Safety) link to module-49 -> Chapter 49; "Chapter 37" (Safety/Ethics/Regulation) link to module-47-adversarial-security-red-team -> Chapter 47; "Section 33.7 (Mechanistic interpretability at scale)" — no link, dead reference. Probably wants to link to Part 16 Section 76.3.
   - Pathway 6 (Founder/PM): "Chapter 8" -> 7; "Section 14.1" -> Section 12.1; "Section 18.1" -> Section 16.1; "Chapter 27 (LLM Applications by Industry)" no link, almost certainly meant Part 15 (Ch 72 onward); "Chapter 31 (Strategy, PM & ROI)" link to module-67-ideation -> Chapter 67 (or wherever the strategy content lands after Part 14 fix); "Chapter 45 (Building LLM and Agent Products)" link to module-67-ideation -> Chapter 67 (duplicate); "Chapter 48 (Shipping & Scaling)" link to module-70-shipping-products -> Chapter 70.
   - Pathway 7 (Course Instructor): "FM.7 Copyright & Legal" — references front-matter/copyright.html (OK, FM.7 is fine if that's the FM numbering); "Appendix A (Course Syllabi)" linked to appendix-b-course-syllabi -> Appendix B.
-  - Pathway 8 (Curious Generalist): "Chapter 8" -> 7; "Chapter 9" -> 8; "Chapter 26" OK; "Chapter 33 (Frontiers)" -> Chapter 80.
+  - Pathway 8 (Curious Generalist): "Chapter 8" -> 7; "Chapter 9" -> 8; "Chapter 26" OK; "Chapter 33 (Frontiers)" -> Chapter 75.
   - Line 188 prev: "Appendix A: Course Syllabi" linked to appendix-b-course-syllabi -> Appendix B.
   - Line 190 next: "Appendix E: Intermediate Projects" linked to ../index.html. **No Appendix D or E exists in the appendix directory**, so this link is broken (points to appendices index page that doesn't have those entries). Either drop the next-link or actually create Appendix D and E.
 - **Clarity (pedagogical)**: Eight pathways are well-articulated with time estimates, named skills, and skip-recommendations. Once chapter labels are updated, this is a strong pedagogical document.

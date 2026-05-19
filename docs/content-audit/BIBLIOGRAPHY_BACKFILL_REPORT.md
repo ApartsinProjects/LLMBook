@@ -44,7 +44,7 @@ Verified by `python scripts/run_book_audit.py --json` and filtering on `check_id
 | Module 76 (Cybersecurity LLMs) | 4 |
 | Module 77 (Government LLMs) | 4 |
 | Module 78 (Manufacturing / Misc Verticals) | 5 |
-| Module 79 (Tools of the Trade, Part XV) | 4 |
+| Module 79 (Tools of the Trade, Part XIV) | 4 |
 | **Total** | **114** |
 
 ## Format
@@ -93,7 +93,7 @@ Entries are grouped under h3 sub-headings (Foundational Papers, Recent Advances,
 </details>
 ```
 
-### Sample 2: Industry vertical (Section 72.1 -- Legal LLMs Use Cases)
+### Sample 2: Industry vertical (Section 67.1 -- Legal LLMs Use Cases)
 
 References anchored to legal-LLM empirical studies (Stanford HAI hallucination audit, Dahl et al. legal fictions paper, LegalBench, LexGLUE). Two h3 groupings: Foundational Papers and Legal Benchmarks.
 

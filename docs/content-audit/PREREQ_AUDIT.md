@@ -76,10 +76,10 @@ None.
 | part-14-designing-llm-agent-products/module-70-shipping-products/section-70.2.html | ../module-67-ideation/section-67.12.html | Intent + Evidence Bundle | link text and target h1 share no significant words |
 | part-14-designing-llm-agent-products/module-70-shipping-products/section-70.4.html | ../../part-9-llm-evaluation-observability/module-42-evaluati | observability | link text and target h1 share no significant words |
 | part-14-designing-llm-agent-products/module-70-shipping-products/section-70.5.html | ../../part-6-agentic-ai/module-26-ai-agents/section-26.1.htm | Section 26.1: Foundations of AI Agents | link text and target h1 share no significant words |
-| part-15-applications-of-llms-across-industries/module-78-manufacturing-llms/section-78.9.html | ../../part-8-conversational-ai-with-llms/module-37-conversat | conversational AI | link text and target h1 share no significant words |
-| part-16-llm-agentic-ai-research-frontiers/module-80-frontier-architectures/section-80.3.html | ../../part-1-llm-building-blocks/module-02-sequence-models-a | attention mechanism | link text and target h1 share no significant words |
-| part-16-llm-agentic-ai-research-frontiers/module-81-frontier-theory/section-81.1.html | ../../part-2-understanding-llms/module-08-reasoning-test-tim | Section 8.1: Chain-of-Thought Reasoning | link text and target h1 share no significant words |
-| part-16-llm-agentic-ai-research-frontiers/module-81-frontier-theory/section-81.2.html | ../../part-7-retrieval-information-extraction-with-llms/modu | RAG foundations | link text and target h1 share no significant words |
+| part-14-applications-of-llms-across-industries/module-73-manufacturing-llms/section-73.9.html | ../../part-8-conversational-ai-with-llms/module-37-conversat | conversational AI | link text and target h1 share no significant words |
+| part-15-llm-agentic-ai-research-frontiers/module-75-frontier-architectures/section-75.3.html | ../../part-1-llm-building-blocks/module-02-sequence-models-a | attention mechanism | link text and target h1 share no significant words |
+| part-15-llm-agentic-ai-research-frontiers/module-76-frontier-theory/section-76.1.html | ../../part-2-understanding-llms/module-08-reasoning-test-tim | Section 8.1: Chain-of-Thought Reasoning | link text and target h1 share no significant words |
+| part-15-llm-agentic-ai-research-frontiers/module-76-frontier-theory/section-76.2.html | ../../part-7-retrieval-information-extraction-with-llms/modu | RAG foundations | link text and target h1 share no significant words |
 | part-2-understanding-llms/module-09-inference-optimization/section-9.2.html | ../../part-1-llm-building-blocks/module-02-sequence-models-a | attention mechanism | link text and target h1 share no significant words |
 | part-2-understanding-llms/module-10-interpretability/section-10.1.html | ../../part-2-understanding-llms/module-06-pretraining-scalin | Section 6.1: The Landmark Models | link text and target h1 share no significant words |
 | part-2-understanding-llms/module-10-interpretability/section-10.6b.html | section-10.6a.html | Section 10.6a | link text and target h1 share no significant words |
@@ -148,11 +148,11 @@ None.
 | part-14-designing-llm-agent-products/module-71-tools-of-the-trade/section-71.3.html |  |  | no prerequisites block |
 | part-14-designing-llm-agent-products/module-71-tools-of-the-trade/section-71.4.html |  |  | no prerequisites block |
 | part-14-designing-llm-agent-products/module-71-tools-of-the-trade/section-71.5.html |  |  | no prerequisites block |
-| part-15-applications-of-llms-across-industries/module-79-tools-of-the-trade/section-79.1.html |  |  | no prerequisites block |
-| part-15-applications-of-llms-across-industries/module-79-tools-of-the-trade/section-79.2.html |  |  | no prerequisites block |
-| part-15-applications-of-llms-across-industries/module-79-tools-of-the-trade/section-79.3.html |  |  | no prerequisites block |
-| part-15-applications-of-llms-across-industries/module-79-tools-of-the-trade/section-79.4.html |  |  | no prerequisites block |
-| part-15-applications-of-llms-across-industries/module-79-tools-of-the-trade/section-79.5.html |  |  | no prerequisites block |
+| part-14-applications-of-llms-across-industries/module-74-tools-of-the-trade/section-74.1.html |  |  | no prerequisites block |
+| part-14-applications-of-llms-across-industries/module-74-tools-of-the-trade/section-74.2.html |  |  | no prerequisites block |
+| part-14-applications-of-llms-across-industries/module-74-tools-of-the-trade/section-74.3.html |  |  | no prerequisites block |
+| part-14-applications-of-llms-across-industries/module-74-tools-of-the-trade/section-74.4.html |  |  | no prerequisites block |
+| part-14-applications-of-llms-across-industries/module-74-tools-of-the-trade/section-74.5.html |  |  | no prerequisites block |
 | part-2-understanding-llms/module-07-modern-llm-landscape/section-7.1b.html |  |  | no prerequisites block |
 | part-2-understanding-llms/module-09-inference-optimization/section-9.1b.html |  |  | no prerequisites block |
 | part-2-understanding-llms/module-09-inference-optimization/section-9.4b.html |  |  | no prerequisites block |

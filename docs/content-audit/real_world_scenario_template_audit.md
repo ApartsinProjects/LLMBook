@@ -541,86 +541,86 @@ These are the alternate field names used across the book that deviate from the s
 
 - L43 title=`FastAPI + OpenAI streaming via Server-Sent Events` fields=`(no <strong> fields)` issues=missing Who:,Situation:,Result:,Lesson:; title not 'Real-World Scenario'
 
-### `part-15-applications-of-llms-across-industries/module-72-legal-llms/section-72.1.html` (1 non-conforming)
+### `part-14-applications-of-llms-across-industries/module-67-legal-llms/section-67.1.html` (1 non-conforming)
 
 - L53 title=`Real-World Scenario: Harvey at Allen &amp; Overy` fields=`(no <strong> fields)` issues=missing Who:,Situation:,Result:,Lesson:
 
-### `part-15-applications-of-llms-across-industries/module-72-legal-llms/section-72.2.html` (1 non-conforming)
+### `part-14-applications-of-llms-across-industries/module-67-legal-llms/section-67.2.html` (1 non-conforming)
 
 - L37 title=`Postmortem: Mata v. Avianca (S.D.N.Y. 2023)` fields=`(no <strong> fields)` issues=missing Who:,Situation:,Result:,Lesson:; title not 'Real-World Scenario'
 
-### `part-15-applications-of-llms-across-industries/module-73-finance-llms/section-73.1.html` (1 non-conforming)
+### `part-14-applications-of-llms-across-industries/module-68-finance-llms/section-68.1.html` (1 non-conforming)
 
 - L38 title=`BloombergGPT and the Domain-Pretraining Pattern` fields=`(no <strong> fields)` issues=missing Who:,Situation:,Result:,Lesson:; title not 'Real-World Scenario'
 
-### `part-15-applications-of-llms-across-industries/module-73-finance-llms/section-73.4.html` (1 non-conforming)
+### `part-14-applications-of-llms-across-industries/module-68-finance-llms/section-68.4.html` (1 non-conforming)
 
 - L78 title=`BlackRock Aladdin and Tier 2 in Practice` fields=`(no <strong> fields)` issues=missing Who:,Situation:,Result:,Lesson:; title not 'Real-World Scenario'
 
-### `part-15-applications-of-llms-across-industries/module-74-healthcare-llms/section-74.1.html` (1 non-conforming)
+### `part-14-applications-of-llms-across-industries/module-69-healthcare-llms/section-69.1.html` (1 non-conforming)
 
 - L38 title=`The Ambient-Scribe Pattern in Practice` fields=`(no <strong> fields)` issues=missing Who:,Situation:,Result:,Lesson:; title not 'Real-World Scenario'
 
-### `part-15-applications-of-llms-across-industries/module-75-education-llms/section-75.1.html` (1 non-conforming)
+### `part-14-applications-of-llms-across-industries/module-70-education-llms/section-70.1.html` (1 non-conforming)
 
 - L38 title=`Khanmigo: A Socratic Tutor at Scale` fields=`(no <strong> fields)` issues=missing Who:,Situation:,Result:,Lesson:; title not 'Real-World Scenario'
 
-### `part-15-applications-of-llms-across-industries/module-76-cybersecurity-llms/section-76.1.html` (1 non-conforming)
+### `part-14-applications-of-llms-across-industries/module-71-cybersecurity-llms/section-71.1.html` (1 non-conforming)
 
 - L38 title=`Security Copilot + Charlotte AI in a 2 a.m. SOC Workflow` fields=`(no <strong> fields)` issues=missing Who:,Situation:,Result:,Lesson:; title not 'Real-World Scenario'
 
-### `part-15-applications-of-llms-across-industries/module-77-government-llms/section-77.1.html` (1 non-conforming)
+### `part-14-applications-of-llms-across-industries/module-72-government-llms/section-72.1.html` (1 non-conforming)
 
 - L38 title=`A FedRAMP-Moderate LLM Deployment, Concretely` fields=`(no <strong> fields)` issues=missing Who:,Situation:,Result:,Lesson:; title not 'Real-World Scenario'
 
-### `part-15-applications-of-llms-across-industries/module-78-manufacturing-llms/section-78.1.html` (1 non-conforming)
+### `part-14-applications-of-llms-across-industries/module-73-manufacturing-llms/section-73.1.html` (1 non-conforming)
 
 - L49 title=`Predictive-Maintenance Triage and Supply-Chain Disruption, Concretely` fields=`(no <strong> fields)` issues=missing Who:,Situation:,Result:,Lesson:; title not 'Real-World Scenario'
 
-### `part-15-applications-of-llms-across-industries/module-78-manufacturing-llms/section-78.6.html` (1 non-conforming)
+### `part-14-applications-of-llms-across-industries/module-73-manufacturing-llms/section-73.6.html` (1 non-conforming)
 
 - L55 title=`Real-World Scenario: Coca-Cola Y3000 and AI-Co-Created Marketing` fields=`(no <strong> fields)` issues=missing Who:,Situation:,Result:,Lesson:
 
-### `part-15-applications-of-llms-across-industries/module-78-manufacturing-llms/section-78.8.html` (1 non-conforming)
+### `part-14-applications-of-llms-across-industries/module-73-manufacturing-llms/section-73.8.html` (1 non-conforming)
 
 - L51 title=`Real-World Scenario: Spotify Daylist and Personalized Generation` fields=`(no <strong> fields)` issues=missing Who:,Situation:,Result:,Lesson:
 
-### `part-15-applications-of-llms-across-industries/module-78-manufacturing-llms/section-78.9.html` (3 non-conforming)
+### `part-14-applications-of-llms-across-industries/module-73-manufacturing-llms/section-73.9.html` (3 non-conforming)
 
 - L478 title=`Real-World Scenario: NL-to-Dashboard for a Retail Analytics Team` fields=`Who:, Situation:, Problem:, Decision:, How:, Result:, Lesson:` issues=Lesson lacks nested bold
 - L500 title=`Real-World Scenario: Conversational Product Search at an Online Retailer` fields=`Who:, Situation:, Problem:, Decision:, How:, Result:, Lesson:` issues=Lesson lacks nested bold
 - L510 title=`Real-World Scenario: Conversational Product Recommendation for Home Furnishing` fields=`Who:, Situation:, Problem:, Dilemma:, Decision:, How:, Result:, Lesson:` issues=Lesson lacks nested bold
 
-### `part-16-llm-agentic-ai-research-frontiers/module-80-frontier-architectures/section-80.3.html` (2 non-conforming)
+### `part-15-llm-agentic-ai-research-frontiers/module-75-frontier-architectures/section-75.3.html` (2 non-conforming)
 
 - L456 title=`Real-World Scenario: When would you choose a hybrid architecture in production?` fields=`Who:, Situation:, Problem:, Decision:, Result:, Lesson:` issues=Lesson lacks nested bold
 - L614 title=`Real-World Scenario: Decision matrix for architecture selection` fields=`Who:, Situation:, Problem:, Decision:, Result:, Lesson:` issues=Lesson lacks nested bold
 
-### `part-16-llm-agentic-ai-research-frontiers/module-80-frontier-architectures/section-80.4.html` (1 non-conforming)
+### `part-15-llm-agentic-ai-research-frontiers/module-75-frontier-architectures/section-75.4.html` (1 non-conforming)
 
 - L87 title=`Real-World Scenario: The Tokenizer Is All You Need` fields=`Who:, Situation:, Problem:, Decision:, Result:, Lesson:` issues=Lesson lacks nested bold
 
-### `part-16-llm-agentic-ai-research-frontiers/module-81-frontier-theory/section-81.3.html` (1 non-conforming)
+### `part-15-llm-agentic-ai-research-frontiers/module-76-frontier-theory/section-76.3.html` (1 non-conforming)
 
 - L157 title=`Real-World Scenario: SAE Dimensions in Practice` fields=`Who:, Situation:, Problem:, Decision:, Result:, Lesson:` issues=Lesson lacks nested bold
 
-### `part-16-llm-agentic-ai-research-frontiers/module-82-agi-trajectories/section-82.1.html` (1 non-conforming)
+### `part-15-llm-agentic-ai-research-frontiers/module-77-agi-trajectories/section-77.1.html` (1 non-conforming)
 
 - L69 title=`Real-World Scenario: DeepSeek-R1 reasoning emergence (Q4 2025)` fields=`(no <strong> fields)` issues=missing Who:,Situation:,Result:,Lesson:
 
-### `part-16-llm-agentic-ai-research-frontiers/module-82-agi-trajectories/section-82.2.html` (1 non-conforming)
+### `part-15-llm-agentic-ai-research-frontiers/module-77-agi-trajectories/section-77.2.html` (1 non-conforming)
 
 - L65 title=`Real-World Scenario: Constitutional AI vs DPO vs GRPO compared` fields=`(no <strong> fields)` issues=missing Who:,Situation:,Result:,Lesson:
 
-### `part-16-llm-agentic-ai-research-frontiers/module-82-agi-trajectories/section-82.4.html` (1 non-conforming)
+### `part-15-llm-agentic-ai-research-frontiers/module-77-agi-trajectories/section-77.4.html` (1 non-conforming)
 
 - L77 title=`Real-World Scenario: where the augmentation pattern actually works` fields=`(no <strong> fields)` issues=missing Who:,Situation:,Result:,Lesson:
 
-### `part-16-llm-agentic-ai-research-frontiers/module-83-tools-of-the-trade/section-83.3.html` (1 non-conforming)
+### `part-15-llm-agentic-ai-research-frontiers/module-78-tools-of-the-trade/section-78.3.html` (1 non-conforming)
 
 - L104 title=`Real-World Scenario: the SWE-bench Verified leaderboard, Q1-Q2 2026` fields=`(no <strong> fields)` issues=missing Who:,Situation:,Result:,Lesson:
 
-### `part-16-llm-agentic-ai-research-frontiers/module-83-tools-of-the-trade/section-83.4.html` (2 non-conforming)
+### `part-15-llm-agentic-ai-research-frontiers/module-78-tools-of-the-trade/section-78.4.html` (2 non-conforming)
 
 - L67 title=`Case study: Stargate and the cost of staying on the frontier` fields=`(no <strong> fields)` issues=missing Who:,Situation:,Result:,Lesson:; title not 'Real-World Scenario'
 - L151 title=`Real-World Scenario: vLLM's 2025 inflection` fields=`(no <strong> fields)` issues=missing Who:,Situation:,Result:,Lesson:
