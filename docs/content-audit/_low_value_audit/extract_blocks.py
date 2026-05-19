@@ -28,6 +28,16 @@ PRE_BLOCK_RE = re.compile(
 IMPORT_RE = re.compile(r"^\s*(?:from\s+([\w\.]+)\s+import|import\s+([\w\.]+))", re.MULTILINE)
 
 
+SPAN_TAG_RE = re.compile(r"</?span[^>]*>", re.IGNORECASE)
+ANY_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def strip_html_tags(s: str) -> str:
+    # Pygments wraps tokens in <span class="...">...</span>. Strip all tags
+    # to recover the bare source code.
+    return ANY_TAG_RE.sub("", s)
+
+
 def extract_blocks(html_path: Path):
     text = html_path.read_text(encoding="utf-8", errors="replace")
     line_offsets = [0]
@@ -51,7 +61,8 @@ def extract_blocks(html_path: Path):
     for m in PRE_BLOCK_RE.finditer(text):
         lang_class = m.group(1)
         code_raw = m.group(2)
-        code = html.unescape(code_raw)
+        # First strip HTML tags (pygments wraps tokens in spans), then unescape entities.
+        code = html.unescape(strip_html_tags(code_raw))
         start = m.start()
         line_no = char_to_line(start)
         # surrounding context window
