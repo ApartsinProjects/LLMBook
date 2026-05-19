@@ -56,7 +56,7 @@ CANONICAL_PREFIXES = {
     "note": ["note", "note:"],
     "warning": ["warning", "caution"],
     "tip": ["tip", "pro tip", "production tip"],
-    "fun-note": ["fun fact", "fun note", "did you know"],
+    "fun-note": ["fun fact", "fun note", "did you know", "mental model", "trivia"],
     "exercise": ["exercise", "challenge"],
     "self-check": ["self-check", "self check", "check yourself", "quick check"],
     "lab": ["lab", "hands-on", "hands on"],
