@@ -70,12 +70,17 @@ def run(filepath, html, context):
     # discussion) and don't need a diagram; flagging them as P2 issues
     # produced 200+ noise lines.
     if filepath.name.startswith('section-'):
-        if not ANY_FIGURE.search(html) and not ANY_DIAGRAM.search(html):
-            issues.append(Issue("P3", CHECK_ID, filepath, 1,
-                'Section has no figure or diagram (consider adding illustration when content invites it)'))
-        # Fun-note presence is "nice to have", and only in non-reference content.
-        if not FUN_NOTE.search(html) and not _is_reference_section(rel):
-            issues.append(Issue("P3", CHECK_ID, filepath, 1,
-                'Section has no <div class="callout fun-note"> (consider adding comic/analogy)'))
+        # Tools-of-the-trade catalogs and reference sections are dense
+        # library/framework registries by design. Adding a figure to every
+        # entry would be visual noise. Same exclusion list as fun-note
+        # suggestions below.
+        is_reference = _is_reference_section(rel)
+        if not is_reference:
+            if not ANY_FIGURE.search(html) and not ANY_DIAGRAM.search(html):
+                issues.append(Issue("P3", CHECK_ID, filepath, 1,
+                    'Section has no figure or diagram (consider adding illustration when content invites it)'))
+            if not FUN_NOTE.search(html):
+                issues.append(Issue("P3", CHECK_ID, filepath, 1,
+                    'Section has no <div class="callout fun-note"> (consider adding comic/analogy)'))
 
     return issues
