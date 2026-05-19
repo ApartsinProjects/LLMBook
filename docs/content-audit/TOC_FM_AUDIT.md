@@ -161,3 +161,22 @@ Found 0 TOC mismatch(es).
 /c/Python314/python docs/content-audit/_audit_fm.py
 Found 0 broken hrefs in FM files.
 ```
+
+---
+
+## 11. index.html homepage stale counts (fixed, 2026-05-19 follow-up)
+
+The B.7 audit flagged `index.html` (the root book home page) as out of scope but extremely stale. Targeted fix performed:
+
+| Location | Stale claim | Fix |
+|----------|------------|-----|
+| `<p class="ms-lede">` (line ~739) | "35 chapters across 11 parts, plus 22 framework appendices" | "83 chapters across 16 parts, plus 4 reference appendices" |
+| Appendices tile tag (line ~777) | "Appendices A – AF" | "Appendices A – D" |
+| Appendices tile title (line ~778) | "28 framework + reference appendices" | "4 reference appendices" |
+| Appendices tile body (line ~779) | "Hugging Face, LangChain (with LangGraph, CrewAI, LlamaIndex, Semantic Kernel, DSPy), Docker, vLLM, plus 7 industry guides and 3 cross-cutting reference catalogs." | "Mathematical foundations, course syllabi, reading pathways, and the agent roster behind the book." (mirrors the actual A/B/C/D appendices that exist) |
+
+toc.html re-verified: per-part counts (`6 chapters · 28 sections`, etc.) match the modules on disk. No top-level "X chapters across Y parts" summary present in toc.html, so nothing to update there. Sum of per-part chapter counts in toc = 82, which differs from the ground-truth 83 by exactly the module-54b split (Part XI shows 5 chapters but module-54 plus module-54b account for two listed entries with one shared chapter number). This matches the intentional structure noted in section "Module 54b" above; no toc edit needed.
+
+### Out of scope on index.html (flagged, not edited to avoid fabrication)
+
+The "What You Will Learn" tile grid (lines 743-782) lists only **Parts I–X and XII** (skipping Part XI, with Part numbering that no longer matches the current 16-part toc structure). Each tile body also describes content that maps to an older book skeleton. Fixing this is not a numeric count update; it would require authoring 6 new tiles and rewriting the existing 11 to match the current part titles in toc.html. Flagged here for a separate content-writing pass.
