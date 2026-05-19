@@ -274,11 +274,14 @@ def already_collapsed(callout_body: str) -> bool:
 def transform_callout_body(
     body_html: str,
     section_prefix: str,
-    fragment_int: int,
+    fragment_int: int | None,
 ) -> tuple[str, int]:
     """Transform a single library-shortcut callout body.
 
     Returns (new_body, num_transformations).
+
+    `fragment_int` may be None if the callout already has a code-caption
+    (in which case no new caption is generated).
     """
     if already_collapsed(body_html):
         return body_html, 0
@@ -325,7 +328,11 @@ def transform_callout_body(
     # Decide whether to insert a caption.
     has_caption = 'code-caption' in wrap_block
 
-    fragment_label = f"Code Fragment {section_prefix}.{fragment_int}"
+    fragment_label = (
+        f"Code Fragment {section_prefix}.{fragment_int}"
+        if fragment_int is not None
+        else ""
+    )
 
     if has_wrapper:
         # Reuse existing wrapper. Append caption inside if missing.
@@ -382,14 +389,15 @@ def transform_html(html: str, section_prefix: str) -> tuple[str, int]:
     Returns (new_html, num_callouts_changed).
 
     Strategy:
-     - Forward pass: scan all callouts, assign fragment numbers (so the first
-       callout in document order gets the smallest free number, etc.).
+     - Forward pass: scan all callouts, assign fragment numbers only to those
+       that will need a NEW caption (so existing captions are preserved and
+       new numbers stay in document order).
      - Reverse pass: apply edits so earlier offsets remain valid.
     """
     used = existing_fragment_numbers(html, section_prefix)
 
     # Forward pass: collect callout spans + assign numbers.
-    plan = []  # list of (body_start, body_end, fragment_int)
+    plan = []  # list of (body_start, body_end, fragment_int_or_None)
     matches = list(CALLOUT_OPEN_RE.finditer(html))
     for m in matches:
         body_start = m.end()
@@ -402,8 +410,16 @@ def transform_html(html: str, section_prefix: str) -> tuple[str, int]:
         if not PRE_RE.search(body):
             # Skip callouts without code; not our problem.
             continue
-        n = next_fragment_int(used)
-        used.add(n)
+        # Determine if a NEW caption will be required: scan the same span we
+        # plan to wrap (largest enclosing code-block-wrapper around the first
+        # <pre>), and check whether it already contains a code-caption.
+        # If so, we don't need to reserve a fragment number.
+        needs_new_caption = _scan_needs_new_caption(body)
+        if needs_new_caption:
+            n = next_fragment_int(used)
+            used.add(n)
+        else:
+            n = None
         plan.append((body_start, body_end, n))
 
     # Reverse pass: apply edits.
@@ -415,6 +431,29 @@ def transform_html(html: str, section_prefix: str) -> tuple[str, int]:
             html = html[:body_start] + new_body + html[body_end:]
             changes += k
     return html, changes
+
+
+def _scan_needs_new_caption(body_html: str) -> bool:
+    """Quick scan: does this callout body need a NEW caption?
+
+    Returns True if the first <pre>...</pre> isn't already adjacent to a
+    code-caption inside its enclosing wrapper (or the callout body if no
+    wrapper).
+    """
+    pre_m = PRE_RE.search(body_html)
+    if not pre_m:
+        return False
+    pre_start, pre_end = pre_m.span()
+    # Find an enclosing code-block-wrapper.
+    for cbw_m in CBW_OPEN_RE.finditer(body_html):
+        if cbw_m.start() < pre_start:
+            cbw_close = find_div_close(body_html, cbw_m.end())
+            if cbw_close >= pre_end:
+                wrap_start = cbw_m.start()
+                wrap_end = cbw_close + len("</div>")
+                return 'code-caption' not in body_html[wrap_start:wrap_end]
+    # No wrapper: certainly needs a caption.
+    return True
 
 
 def main():
