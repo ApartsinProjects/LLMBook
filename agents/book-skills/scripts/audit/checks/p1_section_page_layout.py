@@ -67,16 +67,11 @@ def run(filepath, html, context):
     # catalog-style content, not narrative. Skip epigraph and big-picture
     # recommendations for them.
     rel_lower = rel.lower()
+    # Match any "-tools-of-the-trade/" suffix on a module dir (number-agnostic,
+    # survives book renumbers) plus the "module-NN-scale-tools" variant.
     is_reference_section = (
-        'module-05-tools-of-the-trade' in rel_lower
-        or '/tools-of-the-trade/' in rel_lower
-        or 'module-19-tools-of-the-trade' in rel_lower
-        or 'module-30-tools-of-the-trade' in rel_lower
-        or 'module-45-tools-of-the-trade' in rel_lower
-        or 'module-51-tools-of-the-trade' in rel_lower
-        or 'module-61-scale-tools' in rel_lower
-        or 'module-71-tools-of-the-trade' in rel_lower
-        or 'module-79-tools-of-the-trade' in rel_lower
+        bool(re.search(r'/module-\d+[ab]?-tools-of-the-trade/', rel_lower))
+        or bool(re.search(r'/module-\d+[ab]?-(?:scale|retrieval|conv-ai|responsible-ai)-tools/', rel_lower))
         or '/appendices/' in rel_lower
         or '/appendix-' in rel_lower
     )
