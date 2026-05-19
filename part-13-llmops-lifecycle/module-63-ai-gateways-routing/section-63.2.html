@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-PWPHBQL2VL"></script>
+<script>
+window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', 'G-PWPHBQL2VL');
+</script>
+
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<meta content="Section 63.2: Routing and Reliability. LiteLLM Proxy, fallback chains, rate limiting, OpenRouter, Portkey, Cloudflare AI Gateway, multi-region failover." name="description"/>
+<title>Section 63.2: Routing and Reliability | Building Conversational AI with LLMs and Agents</title>
+<link href="../../styles/book.css" rel="stylesheet"/>
+<link href="../../styles/pygments.css" rel="stylesheet"/>
+<link href="../../vendor/katex/katex.min.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/katex/katex.min.js"></script>
+<script defer="" onload="renderMathInElement(document.body, {
+ delimiters: [
+ {left: '$$', right: '$$', display: true},
+ {left: '$', right: '$', display: false}
+ ],
+ throwOnError: false
+ });" src="../../vendor/katex/contrib/auto-render.min.js"></script>
+<link href="../../vendor/prism/prism-theme.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/prism/prism-bundle.min.js"></script>
+<script defer="" src="../../scripts/book.js"></script>
+<link href="../../pagefind/pagefind-ui.css" rel="stylesheet"/>
+<script defer="" src="../../pagefind/pagefind-ui.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
+
+<header class="chapter-header">
+<nav class="header-nav">
+<a class="book-title-link" href="../../index.html">Building Conversational AI with LLMs and Agents</a>
+<a class="toc-link" href="../../toc.html" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+</nav>
+<div class="header-search">
+<div id="search"></div>
+</div>
+
+<div class="page-breadcrumb" data-pagefind-meta="chapter"><a href="../index.html">Part XIII: LLMOps Lifecycle</a><span class="bc-sep">›</span><a href="index.html">Chapter 63: AI Gateways &amp; Model Routing</a><span class="bc-sep">›</span><span class="bc-current">Section 63.2</span></div>
+<h1>Routing and Reliability</h1><div class="page-current">Section 63.2</div>
+
+</header>
+<main class="content" id="main-content"><span class="pagefind-meta-injected" data-pagefind-meta="part:Part XIII: LLMOps Lifecycle" hidden=""></span><span class="pagefind-meta-injected" data-pagefind-meta="chapter:Chapter 63: AI Gateways &amp; Model Routing" hidden=""></span>
+<blockquote class="epigraph">
+<p>Every provider is exactly one outage away from being your fallback.</p>
+<span class="agent-avatar-inline" style="background-color: #2c3e50;"><img alt="Deploy" height="28" src="../../front-matter/images/agents/deploy.png" width="28"/></span><cite>Deploy, <span class="agent-desc">Gateway-Guarding AI Agent</span></cite>
+</blockquote>
+<div class="callout big-picture">
+<div class="callout-title">Big Picture</div>
+<p>This section is the mechanical core of the chapter: how a real <strong>LLM</strong> gateway routes, retries, rate-limits, and ages out failed deployments. We start with <strong>LiteLLM Proxy</strong> as the canonical open-source reference, build a multi-provider fallback chain (so an outage at OpenAI silently fails over to Anthropic Claude or self-hosted vLLM), layer token-aware rate limiting on top, and then survey the commercial alternatives (<strong>OpenRouter</strong>, <strong>Portkey</strong>, <strong>Cloudflare AI Gateway</strong>) that either inspired or extend these patterns. By the end of this section you can reason about why an LLM-agent request takes the path it does, why it sometimes lands on a different provider than you expected, and what to change when that path produces the wrong answer or the wrong bill.</p>
+</div>
+<div class="prerequisites">
+<h3 id="prerequisites">Prerequisites</h3>
+<p>Read <a href="section-63.1.html">Section 63.1</a> first; it establishes the contract a gateway imposes and the architectural shape that the routing logic in this section operates inside. The error-recovery patterns in <a href="../../part-10-llm-security-runtime-safety/module-49-agent-safety-autonomy/section-49.4.html">Section 49.4</a> are the agent-layer analogue of the fallback chains discussed here.</p>
+</div>
+<h2 id="63-2-1-litellm-proxy-unified-model-access">63.2.1 LiteLLM Proxy: Unified Model Access</h2>
+<p>LiteLLM is an open-source library that provides a unified interface to 100+ LLM providers using
+ the OpenAI API format. The LiteLLM Proxy Server extends this into a standalone gateway service
+ that your applications call instead of calling LLM providers directly. It supports load balancing,
+ fallbacks, spend tracking, rate limiting, and virtual API keys for multi-team environments.
+ </p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-yaml"><span class="c1"># litellm_config.yaml - LiteLLM Proxy configuration</span>
+<span class="nt">model_list</span><span class="p">:</span>
+<span class="w"> </span><span class="c1"># Primary model with multiple deployments for load balancing</span>
+<span class="w"> </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">model_name</span><span class="p">:</span><span class="w"> </span><span class="s">"gpt-4o"</span>
+<span class="w"> </span><span class="nt">litellm_params</span><span class="p">:</span>
+<span class="w"> </span><span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="s">"openai/gpt-4o"</span>
+<span class="w"> </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="s">"os.environ/OPENAI_API_KEY"</span>
+<span class="w"> </span><span class="nt">rpm</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">500</span><span class="w"> </span><span class="c1"># Requests per minute limit</span>
+<span class="w"> </span><span class="nt">tpm</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">200000</span><span class="w"> </span><span class="c1"># Tokens per minute limit</span>
+
+<span class="w"> </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">model_name</span><span class="p">:</span><span class="w"> </span><span class="s">"gpt-4o"</span>
+<span class="w"> </span><span class="nt">litellm_params</span><span class="p">:</span>
+<span class="w"> </span><span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="s">"azure/gpt-4o-eastus"</span>
+<span class="w"> </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="s">"os.environ/AZURE_API_KEY"</span>
+<span class="w"> </span><span class="nt">api_base</span><span class="p">:</span><span class="w"> </span><span class="s">"https://my-eastus.openai.azure.com"</span>
+<span class="w"> </span><span class="nt">rpm</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">300</span>
+
+<span class="w"> </span><span class="c1"># Fallback model (cheaper, faster)</span>
+<span class="w"> </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">model_name</span><span class="p">:</span><span class="w"> </span><span class="s">"gpt-4o-mini"</span>
+<span class="w"> </span><span class="nt">litellm_params</span><span class="p">:</span>
+<span class="w"> </span><span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="s">"openai/gpt-4o-mini"</span>
+<span class="w"> </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="s">"os.environ/OPENAI_API_KEY"</span>
+
+<span class="w"> </span><span class="c1"># Alternative provider (Anthropic via OpenAI-compatible API)</span>
+<span class="w"> </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">model_name</span><span class="p">:</span><span class="w"> </span><span class="s">"claude-sonnet"</span>
+<span class="w"> </span><span class="nt">litellm_params</span><span class="p">:</span>
+<span class="w"> </span><span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="s">"anthropic/claude-sonnet-4-20250514"</span>
+<span class="w"> </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="s">"os.environ/ANTHROPIC_API_KEY"</span>
+
+<span class="c1"># Router settings</span>
+<span class="nt">router_settings</span><span class="p">:</span>
+<span class="w"> </span><span class="nt">routing_strategy</span><span class="p">:</span><span class="w"> </span><span class="s">"latency-based-routing"</span>
+<span class="w"> </span><span class="nt">num_retries</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span>
+<span class="w"> </span><span class="nt">retry_after</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5</span>
+<span class="w"> </span><span class="nt">allowed_fails</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span><span class="w"> </span><span class="c1"># Remove deployment after 2 consecutive failures</span>
+<span class="w"> </span><span class="nt">cooldown_time</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60</span><span class="w"> </span><span class="c1"># Re-check failed deployment after 60s</span>
+
+<span class="c1"># Budget and rate limiting</span>
+<span class="nt">general_settings</span><span class="p">:</span>
+<span class="w"> </span><span class="nt">master_key</span><span class="p">:</span><span class="w"> </span><span class="s">"sk-gateway-master-key"</span>
+<span class="w"> </span><span class="nt">database_url</span><span class="p">:</span><span class="w"> </span><span class="s">"postgresql://user:pass@db:5432/litellm"</span>
+<span class="w"> </span><span class="nt">max_budget</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1000.0</span><span class="w"> </span><span class="c1"># Monthly budget in USD</span>
+<span class="w"> </span><span class="nt">budget_duration</span><span class="p">:</span><span class="w"> </span><span class="s">"30d"</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> Q3 revenue grew 12% year-over-year to &#36;4.2B, driven by strong enterprise
+adoption. Cloud services contributed 68% of total revenue, up from 61% in
+the prior quarter. Operating margin expanded to 28%, reflecting improved
+cost efficiency in infrastructure spending.
+
+</div>
+<div class="code-caption"><strong>Code Fragment 63.2.1:</strong> A litellm_config.yaml that declares two deployments for gpt-4o (two API keys for load balancing) plus a claude-sonnet-4 fallback. The proxy reads this file on boot, exposes a single OpenAI-compatible endpoint, and round-robins traffic across deployments while tracking per-key spend.</div>
+</div>
+<p>With the proxy running, your application code uses the standard OpenAI client library pointed
+ at the gateway. No LiteLLM-specific code is needed in your application, which keeps the
+ gateway concern cleanly separated from business logic.
+ </p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="kn">import</span><span class="w"> </span><span class="nn">openai</span>
+
+<span class="c1"># Point the standard OpenAI client at the LiteLLM Proxy</span>
+<span class="n">client</span> <span class="o">=</span> <span class="n">openai</span><span class="o">.</span><span class="n">OpenAI</span><span class="p">(</span>
+ <span class="n">base_url</span><span class="o">=</span><span class="s2">"http://litellm-proxy:4000/v1"</span><span class="p">,</span>
+ <span class="n">api_key</span><span class="o">=</span><span class="s2">"sk-team-analytics-key"</span><span class="p">,</span> <span class="c1"># Virtual key for cost tracking</span>
+<span class="p">)</span>
+
+<span class="c1"># This request is transparently routed, load-balanced, and tracked</span>
+<span class="n">response</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">chat</span><span class="o">.</span><span class="n">completions</span><span class="o">.</span><span class="n">create</span><span class="p">(</span>
+ <span class="n">model</span><span class="o">=</span><span class="s2">"gpt-4o"</span><span class="p">,</span> <span class="c1"># Logical model name, resolved by the proxy</span>
+ <span class="n">messages</span><span class="o">=</span><span class="p">[{</span><span class="s2">"role"</span><span class="p">:</span> <span class="s2">"user"</span><span class="p">,</span> <span class="s2">"content"</span><span class="p">:</span> <span class="s2">"Summarize this quarter's revenue."</span><span class="p">}],</span>
+ <span class="n">temperature</span><span class="o">=</span><span class="mf">0.3</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="c1"># The proxy handles:</span>
+<span class="c1"># 1. Routing to the fastest available gpt-4o deployment</span>
+<span class="c1"># 2. Automatic retry if the first deployment fails</span>
+<span class="c1"># 3. Token counting and cost attribution to the virtual key</span>
+<span class="c1"># 4. Rate limiting per the team's allocated budget</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">response</span><span class="o">.</span><span class="n">choices</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">message</span><span class="o">.</span><span class="n">content</span><span class="p">)</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> Q3 revenue grew 12% year-over-year to $4.2B, driven by strong enterprise adoption. Cloud services contributed 68% of total revenue, up from 61% in the prior quarter. Operating margin expanded to 28%, reflecting improved cost efficiency in infrastructure spending.</div>
+<div class="code-caption"><strong>Code Fragment 63.2.2:</strong> Client code uses the unchanged openai.OpenAI class, but base_url points at http://litellm-proxy:4000/v1 and api_key is a virtual key (sk-team-analytics-key) issued by the proxy. The virtual key lets ops attribute every request to a team, set per-key budgets, and rotate credentials without touching client code.</div>
+</div>
+<h2 id="63-2-2-fallback-chains-and-provider-failover">63.2.2 Fallback Chains and Provider Failover</h2>
+<p>Provider outages are inevitable. OpenAI, Anthropic, Google, and Azure all experience periodic
+ degradation or downtime. A production LLM application must handle these outages gracefully,
+ ideally without the user noticing any disruption. AI gateways implement this through fallback
+ chains: ordered lists of alternative models or providers to try when the primary option fails.
+ </p>
+<p>Fallback strategies range from simple to sophisticated. The simplest approach is a static
+ ordered list: try OpenAI first, then Azure, then Anthropic. More advanced strategies consider
+ the nature of the failure (rate limit vs. server error), the request characteristics (latency
+ sensitivity, cost sensitivity, quality requirements), and real-time provider health metrics.
+ Some gateways support "hedging," where the request is sent to multiple providers simultaneously
+ and the fastest response wins.
+ </p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="kn">from</span><span class="w"> </span><span class="nn">litellm</span><span class="w"> </span><span class="kn">import</span> <span class="n">Router</span>
+
+<span class="c1"># Configure a router with fallback chains</span>
+<span class="n">router</span> <span class="o">=</span> <span class="n">Router</span><span class="p">(</span>
+    <span class="n">model_list</span><span class="o">=</span><span class="p">[</span>
+    <span class="p">{</span>
+    <span class="s2">&quot;model_name&quot;</span><span class="p">:</span> <span class="s2">&quot;primary-chat&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;litellm_params&quot;</span><span class="p">:</span> <span class="p">{</span>
+    <span class="s2">&quot;model&quot;</span><span class="p">:</span> <span class="s2">&quot;openai/gpt-4o&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="n">OPENAI_KEY</span><span class="p">,</span>
+    <span class="p">},</span>
+    <span class="p">},</span>
+    <span class="p">{</span>
+    <span class="s2">&quot;model_name&quot;</span><span class="p">:</span> <span class="s2">&quot;primary-chat&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;litellm_params&quot;</span><span class="p">:</span> <span class="p">{</span>
+    <span class="s2">&quot;model&quot;</span><span class="p">:</span> <span class="s2">&quot;anthropic/claude-sonnet-4-20250514&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="n">ANTHROPIC_KEY</span><span class="p">,</span>
+    <span class="p">},</span>
+    <span class="p">},</span>
+    <span class="p">{</span>
+    <span class="s2">&quot;model_name&quot;</span><span class="p">:</span> <span class="s2">&quot;primary-chat&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;litellm_params&quot;</span><span class="p">:</span> <span class="p">{</span>
+    <span class="s2">&quot;model&quot;</span><span class="p">:</span> <span class="s2">&quot;google/gemini-2.5-pro&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="n">GOOGLE_KEY</span><span class="p">,</span>
+    <span class="p">},</span>
+    <span class="p">},</span>
+    <span class="p">],</span>
+    <span class="c1"># Fallback configuration</span>
+    <span class="n">fallbacks</span><span class="o">=</span><span class="p">[</span>
+    <span class="p">{</span><span class="s2">&quot;primary-chat&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;fallback-chat&quot;</span><span class="p">]},</span>
+    <span class="p">],</span>
+    <span class="c1"># Context window overflow handling</span>
+    <span class="n">context_window_fallbacks</span><span class="o">=</span><span class="p">[</span>
+    <span class="p">{</span><span class="s2">&quot;primary-chat&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;long-context-chat&quot;</span><span class="p">]},</span>
+    <span class="p">],</span>
+    <span class="n">routing_strategy</span><span class="o">=</span><span class="s2">&quot;latency-based-routing&quot;</span><span class="p">,</span>
+    <span class="n">num_retries</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+    <span class="n">retry_after</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+    <span class="p">)</span>
+
+<span class="c1"># The router automatically handles failover</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">resilient_completion</span><span class="p">(</span><span class="n">messages</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Make an LLM call with automatic multi-provider failover.&quot;&quot;&quot;</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">response</span> <span class="o">=</span> <span class="k">await</span> <span class="n">router</span><span class="o">.</span><span class="n">acompletion</span><span class="p">(</span>
+            <span class="n">model</span><span class="o">=</span><span class="s2">&quot;primary-chat&quot;</span><span class="p">,</span>
+            <span class="n">messages</span><span class="o">=</span><span class="n">messages</span><span class="p">,</span>
+            <span class="o">**</span><span class="n">kwargs</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="k">return</span> <span class="n">response</span>
+    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="c1"># All providers failed; log and raise</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;All providers exhausted: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">raise</span> <span class="n">ServiceUnavailableError</span><span class="p">(</span><span class="s2">&quot;LLM service temporarily unavailable&quot;</span><span class="p">)</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> [router] selected deployment: openai/gpt-4o (latency p50=412ms)
+[router] openai/gpt-4o failed with RateLimitError; retrying
+[router] selected deployment: anthropic/claude-sonnet-4-20250514 (latency p50=587ms)
+[router] anthropic/claude-sonnet-4-20250514 succeeded in 612ms
+Response received: 184 tokens, 2 fallback hops</div>
+<div class="code-caption"><strong>Code Fragment 63.2.3:</strong> Multi-provider fallback chain using LiteLLM Router. Three deployments share the same logical model name; the router tries them in order based on latency. If a request exceeds the context window, it automatically falls back to a long-context model. The application code calls a single function without any provider-specific logic.</div>
+</div>
+<div class="callout practical-example">
+<div class="callout-title">Real-World Scenario: Designing a Fallback Strategy</div>
+<p><strong>Who:</strong> A reliability engineer at a wealth management firm operating a chatbot that helped financial advisors draft client communications.</p>
+<p><strong>Situation:</strong> The chatbot served 800 advisors during market hours, and any downtime meant advisors reverted to manual drafting, costing an estimated &#36;12,000 per hour in lost productivity.</p>
+<p><strong>Problem:</strong> During a peak trading day, the primary provider (GPT-4o via Azure) hit rate limits for 20 minutes. The chatbot returned errors for all requests during that window, triggering advisor complaints and an executive escalation.</p>
+<p><strong>Decision:</strong> The team configured a three-tier fallback strategy through their AI gateway. Tier 1: GPT-4o via Azure (lowest latency, data residency compliance). Tier 2: Claude Sonnet via direct API (slightly different behavior, but similar quality). Tier 3: GPT-4o-mini (lower quality, but highly reliable and fast). The gateway fell back to Tier 2 on rate limits or timeouts exceeding 3 seconds, and to Tier 3 only when both premium providers were unavailable.</p>
+<p><strong>Result:</strong> Over the following quarter, Tier 1 served 94% of requests, Tier 2 handled 5.5% during rate limit events, and Tier 3 caught the remaining 0.5%. Effective uptime rose from 99.2% to 99.97%. No advisor-facing outage occurred, even during two major provider incidents. The <a href="../../part-10-llm-security-runtime-safety/module-49-agent-safety-autonomy/section-49.4.html">resilience patterns in Section 49.4</a> apply the same principle at the agent level.</p>
+<p><strong>Lesson:</strong> Multi-provider fallback is not optional for business-critical LLM applications. The cost of maintaining three provider integrations is far less than the cost of a single extended outage during peak usage.</p>
+</div>
+<h3 id="63-2-2-1-multi-region-failover">Multi-Region Failover with Provider Region-Affinity</h3>
+<p>Provider outages are rarely global. When OpenAI's us-east-1 capacity is saturated at noon Pacific time, the eu-central-1 endpoint typically has headroom; the same is true in reverse during European business hours. Sophisticated gateway routing exploits this by giving each deployment a <em>region tag</em> and routing user traffic with regional affinity: a request from a user with detected latency under 40 ms to us-east goes to <code>openai/gpt-4o-useast</code>, a request from a Frankfurt user lands on <code>openai/gpt-4o-eucentral</code>, and the cross-region fallback only kicks in when the affinity-preferred region returns 5xx or exceeds an SLO-based latency budget.</p>
+<p>In LiteLLM this is expressed by declaring multiple deployments under the same logical model name, each tagged with a region in the deployment metadata, and using either tag-based routing or the latency-routing strategy combined with sticky per-user session affinity. The cost-of-data-egress argument matters: routing a user in Frankfurt to a us-east endpoint is correct for reliability but doubles the round-trip latency and may violate data-residency commitments. Production gateways separate the <em>preferred region list</em> from the <em>permitted region list</em>, so that a Frankfurt user can fail over to Dublin but never to Virginia when contractual data-residency is in force. The same machinery covers self-hosted vLLM clusters split across availability zones.</p>
+<h2 id="63-2-3-rate-limiting-and-request-management">63.2.3 Rate Limiting and Request Management</h2>
+<p>LLM providers impose rate limits measured in requests per minute (RPM) and tokens per minute
+ (TPM). Exceeding these limits results in 429 errors that degrade user experience. An AI gateway
+ centralizes rate limit management, ensuring that aggregate traffic from all application instances
+ stays within provider limits. This is especially important in multi-team environments where
+ several applications share the same provider account.
+ </p>
+<p>Gateway-level rate limiting operates at two levels. <strong>Upstream limiting</strong> ensures
+ that the total traffic to each provider stays within that provider's rate limits. The gateway
+ tracks request and token rates per deployment and queues or rejects requests that would exceed
+ limits. <strong>Downstream limiting</strong> enforces per-team or per-user quotas, ensuring
+ fair resource allocation across internal consumers. Virtual API keys enable this: each team
+ gets a key with specific RPM, TPM, and budget limits.
+ </p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span><span class="p">,</span> <span class="n">field</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">collections</span><span class="w"> </span><span class="kn">import</span> <span class="n">defaultdict</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
+
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">RateLimitConfig</span><span class="p">:</span>
+    <span class="n">requests_per_minute</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">60</span>
+    <span class="n">tokens_per_minute</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">100000</span>
+    <span class="n">max_budget_usd</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">500.0</span>
+    <span class="n">budget_period_days</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">30</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">GatewayRateLimiter</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Token-aware rate limiter for AI gateway traffic.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">team_configs</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">RateLimitConfig</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">request_windows</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="nb">float</span><span class="p">]]</span> <span class="o">=</span> <span class="n">defaultdict</span><span class="p">(</span><span class="nb">list</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">token_windows</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="nb">int</span><span class="p">]]]</span> <span class="o">=</span> <span class="n">defaultdict</span><span class="p">(</span><span class="nb">list</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_lock</span> <span class="o">=</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">Lock</span><span class="p">()</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">check_rate_limit</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">team_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">estimated_tokens</span><span class="p">:</span> <span class="nb">int</span>
+        <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Check if a request is within rate limits. Returns True if allowed.&quot;&quot;&quot;</span>
+        <span class="n">config</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">team_configs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">team_id</span><span class="p">,</span> <span class="n">RateLimitConfig</span><span class="p">())</span>
+        <span class="n">now</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">monotonic</span><span class="p">()</span>
+        <span class="n">window_start</span> <span class="o">=</span> <span class="n">now</span> <span class="o">-</span> <span class="mi">60</span> <span class="c1"># 1-minute window</span>
+
+        <span class="k">async</span> <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">_lock</span><span class="p">:</span>
+            <span class="c1"># Clean old entries</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">request_windows</span><span class="p">[</span><span class="n">team_id</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span>
+                <span class="n">t</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">request_windows</span><span class="p">[</span><span class="n">team_id</span><span class="p">]</span> <span class="k">if</span> <span class="n">t</span> <span class="o">&gt;</span> <span class="n">window_start</span>
+                <span class="p">]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">token_windows</span><span class="p">[</span><span class="n">team_id</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span>
+                <span class="p">(</span><span class="n">t</span><span class="p">,</span> <span class="n">n</span><span class="p">)</span> <span class="k">for</span> <span class="n">t</span><span class="p">,</span> <span class="n">n</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">token_windows</span><span class="p">[</span><span class="n">team_id</span><span class="p">]</span>
+                <span class="k">if</span> <span class="n">t</span> <span class="o">&gt;</span> <span class="n">window_start</span>
+                <span class="p">]</span>
+
+            <span class="c1"># Check RPM</span>
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">request_windows</span><span class="p">[</span><span class="n">team_id</span><span class="p">])</span> <span class="o">&gt;=</span> <span class="n">config</span><span class="o">.</span><span class="n">requests_per_minute</span><span class="p">:</span>
+                <span class="k">return</span> <span class="kc">False</span>
+
+                <span class="c1"># Check TPM</span>
+                <span class="n">current_tokens</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span>
+                    <span class="n">n</span> <span class="k">for</span> <span class="n">_</span><span class="p">,</span> <span class="n">n</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">token_windows</span><span class="p">[</span><span class="n">team_id</span><span class="p">]</span>
+                    <span class="p">)</span>
+                <span class="k">if</span> <span class="n">current_tokens</span> <span class="o">+</span> <span class="n">estimated_tokens</span> <span class="o">&gt;</span> <span class="n">config</span><span class="o">.</span><span class="n">tokens_per_minute</span><span class="p">:</span>
+                    <span class="k">return</span> <span class="kc">False</span>
+
+                    <span class="c1"># Record this request</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">request_windows</span><span class="p">[</span><span class="n">team_id</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">now</span><span class="p">)</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">token_windows</span><span class="p">[</span><span class="n">team_id</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">now</span><span class="p">,</span> <span class="n">estimated_tokens</span><span class="p">))</span>
+                    <span class="k">return</span> <span class="kc">True</span></code></pre>
+<div class="code-caption"><strong>Code Fragment 63.2.4:</strong> A token-aware rate limiter for AI gateway traffic. Unlike traditional rate limiters that only count requests, this implementation also tracks token consumption within sliding windows. The <code>estimated_tokens</code> parameter is calculated from the prompt length before the request is sent, preventing token-budget overruns.</div>
+</div>
+<div class="callout library-shortcut">
+<div class="callout-title">Library Shortcut: LiteLLM Proxy for Rate Limiting</div>
+<p>The same result in a YAML config with <strong>LiteLLM Proxy</strong>, which handles rate limiting, budget enforcement, and virtual keys out of the box:</p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># litellm_config.yaml:</span>
+<span class="c1"># general_settings:</span>
+<span class="c1"># master_key: sk-admin-key</span>
+<span class="c1"># model_list:</span>
+<span class="c1"># - model_name: gpt-4o</span>
+<span class="c1"># litellm_params:</span>
+<span class="c1"># model: openai/gpt-4o</span>
+<span class="c1"># rpm: 100</span>
+<span class="c1"># tpm: 500000</span>
+<span class="c1">#</span>
+<span class="c1"># Start: litellm --config litellm_config.yaml</span>
+<span class="c1"># Then create per-team keys via the admin API:</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">litellm</span>
+<span class="n">key</span> <span class="o">=</span> <span class="n">litellm</span><span class="o">.</span><span class="n">create_key</span><span class="p">(</span>
+ <span class="n">models</span><span class="o">=</span><span class="p">[</span><span class="s2">"gpt-4o"</span><span class="p">],</span> <span class="n">max_budget</span><span class="o">=</span><span class="mf">500.0</span><span class="p">,</span> <span class="n">budget_duration</span><span class="o">=</span><span class="s2">"30d"</span><span class="p">,</span> <span class="n">tpm_limit</span><span class="o">=</span><span class="mi">100000</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="c1"># All rate limiting and budget enforcement is handled by the proxy</span></code></pre>
+</div>
+</div>
+<h2 id="63-2-4-openrouter">63.2.4 OpenRouter: The Commercial Aggregator</h2>
+<p><a href="https://openrouter.ai/" rel="noopener" target="_blank">OpenRouter</a> is a commercial multi-model API that predates and, in several places, inspired the patterns LiteLLM Proxy later adopted. The pitch is operationally simple: OpenRouter holds the API keys for every major provider, exposes one OpenAI-compatible endpoint, presents one unified billing surface (per-million-tokens, vendor-by-vendor pricing rolled into a single invoice), and lets the caller choose a model by string identifier such as <code>anthropic/claude-sonnet-4</code> or <code>openai/gpt-4o</code>. From the application's point of view it is the gateway and the billing arrangement at the same time.</p>
+<p>The trade-off is who holds the contract. OpenRouter charges a small markup (typically a few percent) above the underlying provider price in exchange for unified billing, per-model price discovery, and a routing layer that already speaks every provider's quirks. For startups that do not want to negotiate enterprise contracts with five vendors, that is a clean win. For larger users, the markup eventually exceeds the cost of running LiteLLM Proxy in front of direct contracts with each vendor, which is why the production pattern often migrates from "OpenRouter as the gateway" to "LiteLLM Proxy as the gateway, with direct provider contracts" sometime between 50 and 500 thousand dollars of monthly LLM spend. Many of the routing-strategy ideas that ship in LiteLLM (latency-based ordering, per-model fallbacks, deployment health scoring) were observable in OpenRouter's user-facing behavior before they were documented as best practice.</p>
+<h2 id="63-2-5-portkey">63.2.5 Portkey: Gateway with Observability and Guardrails</h2>
+<p><a href="https://portkey.ai/" rel="noopener" target="_blank">Portkey</a> is a commercial gateway alternative whose differentiator is what sits next to the proxy: a built-in observability stack, a guardrails layer, and a prompt-management UI. The routing primitives overlap heavily with LiteLLM (virtual keys, fallback chains, budget enforcement, semantic caching), so the choice between them rarely turns on routing capability. It turns on whether the team wants to run its own metrics pipeline and prompt store or pay Portkey to host them.</p>
+<p>Portkey's guardrails are the more interesting wedge. The gateway can be configured to refuse outbound requests containing PII (pre-flight), or to refuse inbound responses containing flagged content (post-flight), without the application implementing any of that logic. For teams that have not yet built their own content moderation stack, this collapses several months of work into a configuration change. The risk, the standard one for any vendor-hosted policy enforcement, is that the policies become invisible: the team that adopts hosted guardrails should still maintain a small set of integration tests that exercise the boundary, so that the day the vendor's defaults change is not the same day a customer notices the change.</p>
+<h2 id="63-2-6-cloudflare-ai-gateway">63.2.6 Cloudflare AI Gateway: Edge-Deployed Routing</h2>
+<p><a href="https://developers.cloudflare.com/ai-gateway/" rel="noopener" target="_blank">Cloudflare AI Gateway</a> exploits a different leverage point: it runs at Cloudflare's edge PoPs, which means a cached response can be returned from a location within roughly 50 ms of the end user almost anywhere on the planet. For applications whose traffic is dominated by repeat queries (status pages, FAQ bots, public documentation assistants), the gateway pays for itself not through routing intelligence but through cache geography. The cache lives at the edge; the origin call to OpenAI or Anthropic only happens on a miss.</p>
+<p>The architectural trade-off is the reverse of Portkey's: Cloudflare AI Gateway has comparatively thin routing logic (one provider per route, simple fallbacks) but unmatched edge caching and analytics. The natural composition is to put Cloudflare AI Gateway in front of your origin LiteLLM Proxy: Cloudflare handles cache and bot mitigation at the edge, LiteLLM handles routing and budget enforcement at the origin. For a deeper treatment of the cache layer itself, see <a href="section-63.3.html">Section 63.3</a>.</p>
+<div class="callout lab" id="lab-63-2">
+<div class="callout-title">Lab: Stand Up LiteLLM with Per-Route Cost Limits and Fallback Chains</div>
+<div class="lab-meta">
+<span class="lab-duration">Duration: ~60 minutes</span>
+<span class="lab-difficulty">Intermediate</span>
+</div>
+<h3 id="objective">Objective</h3>
+<p>Deploy LiteLLM Proxy on your laptop or a small VM, configure two routes ("cheap" -&gt; gpt-4o-mini with Haiku fallback, "powerful" -&gt; claude-sonnet-4 with gpt-4o fallback), set a $1/day budget per route, and verify that exceeding the budget triggers a 429. By the end, you will have an OpenAI-compatible endpoint your apps can swap into via base_url.</p>
+<h3 id="setup">Setup</h3>
+<p>You need Docker (or Python 3.11+ if you prefer pip), an OpenAI key, and an Anthropic key. LiteLLM Proxy ships its own SQLite for local budget tracking; you can layer Redis for production but a single-file SQLite is fine for this lab.</p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-bash">pip install 'litellm[proxy]' &amp;&amp; export OPENAI_API_KEY=sk-... &amp;&amp; export ANTHROPIC_API_KEY=sk-ant-...</code></pre>
+</div>
+<h3 id="steps">Steps</h3>
+<ol>
+<li><strong>Write the config</strong>: Create <code>config.yaml</code> with two <code>model_list</code> entries ("cheap" and "powerful"). Each entry has a primary <code>litellm_params.model</code> and a <code>fallbacks</code> stanza pointing at the backup provider.</li>
+<li><strong>Set per-route budgets</strong>: Add <code>max_budget</code> and <code>budget_duration</code> on a per-model-name basis under <code>router_settings</code>. Set 1 USD/day for "cheap" and 5 USD/day for "powerful".</li>
+<li><strong>Launch the proxy</strong>: Run <code>litellm --config config.yaml --port 4000</code>. Test with a curl against <code>/v1/chat/completions</code> using <code>model=cheap</code>; the response should arrive transparently.</li>
+<li><strong>Force a fallback</strong>: Temporarily revoke or rate-limit the OpenAI key (set <code>OPENAI_API_KEY=invalid</code>) and re-request. LiteLLM should detect 401 and fall back to Claude Haiku; verify the response is non-empty.</li>
+<li><strong>Exceed the budget</strong>: Loop <code>cheap</code> calls in a tight loop with <code>max_tokens=512</code> until you hit the 1 USD cap. Confirm the proxy returns HTTP 429 with a structured error code.</li>
+</ol>
+<h3 id="expected-output">Expected Output</h3>
+<p>Fallback should kick in within 1 to 2 seconds of the primary failing. Budget enforcement should trigger within a few cents of the configured 1 USD (the slight overshoot is the in-flight request that pushed over). Logs show per-route spend.</p>
+<h3 id="extension">Extension</h3>
+<p>Add a third route that uses <code>tag-based</code> routing (header <code>X-Tier: premium</code>) and verify that only requests with the tag get the powerful model.</p>
+</div>
+
+<div class="callout key-takeaway">
+<div class="callout-title">Key Takeaways</div>
+<ul>
+<li><strong>LiteLLM Proxy</strong> is the open-source reference: one OpenAI-compatible endpoint in front of 100+ providers, with virtual keys, budgets, and routing strategies declared in YAML.</li>
+<li><strong>Fallback chains</strong> are not optional for business-critical apps. The cost of three provider integrations is far less than a single extended outage during peak usage.</li>
+<li><strong>Multi-region routing with affinity</strong> exploits the fact that provider outages are rarely global; route preferred by region but permit cross-region failover within data-residency constraints.</li>
+<li><strong>Token-aware rate limiting</strong> tracks both RPM and TPM in sliding windows, blocking requests <em>before</em> they hit the provider rather than relying on 429 retries.</li>
+<li><strong>The commercial landscape</strong> is OpenRouter (unified billing, predates LiteLLM patterns), Portkey (gateway plus observability and guardrails), and Cloudflare AI Gateway (edge cache geography). Most production stacks combine an open-source proxy with one commercial layer.</li>
+</ul>
+</div>
+<div class="callout self-check">
+<div class="callout-title">Self-Check</div>
+<div class="quiz-question"><strong>Q1:</strong> Your app calls OpenAI directly. OpenAI has a 45-minute outage. What happens, and how would an AI gateway with failover change the outcome?</div>
+<details><summary>Show Answer</summary><div class="answer">Without a gateway, your service returns errors for 45 minutes. With a gateway configured for automatic failover, it detects the provider failure (via health checks or HTTP 5xx) and routes requests to a fallback provider (Anthropic Claude or a self-hosted model) without any code change in the application. The gateway absorbs provider volatility. This is the primary reliability argument for introducing a gateway layer.</div></details>
+<div class="quiz-question"><strong>Q2:</strong> A team argues against using LiteLLM Proxy because "it adds latency." Evaluate the tradeoff.</div>
+<details><summary>Show Answer</summary><div class="answer">A co-located proxy adds 1-5ms. LLM inference takes 500ms-10s+, so overhead is under 1%. Worth paying when: managing multiple providers, needing centralized cost tracking, requiring failover without code changes, or A/B testing models without redeployment. Not worth paying when: single-provider edge deployments where the gateway cannot be co-located, or extremely latency-sensitive real-time apps (voice streaming) where 5ms matters.</div></details>
+<div class="quiz-question"><strong>Q3:</strong> When would you choose OpenRouter over running LiteLLM Proxy yourself?</div>
+<details><summary>Show Answer</summary><div class="answer">OpenRouter is the right call when (a) you do not want to negotiate enterprise contracts with five vendors, (b) you want unified billing on a single invoice, and (c) your monthly LLM spend is low enough that OpenRouter's per-token markup is less than the engineering cost of running LiteLLM plus direct contracts. The break-even is roughly tens to hundreds of thousands of dollars per month; below it OpenRouter is cheaper, above it self-hosted LiteLLM with direct provider contracts wins. The other reason to choose OpenRouter is rapid model experimentation: switching to a new vendor is one string change rather than a key rotation, a contract negotiation, and a config push.</div></details>
+</div>
+<h2 id="exercises">Exercises</h2>
+<div class="callout exercise">
+<div class="callout-title">Exercise 63.2.1: Gateway Setup <span class="exercise-type coding" title="Coding">Coding</span></div>
+<p>Deploy a LiteLLM Proxy with Docker and configure it with two model deployments (OpenAI and a fallback). Make a request through the proxy and verify that the response includes usage metadata.</p>
+<details open="">
+<summary>Answer Sketch</summary>
+<p>Run <code>docker run -p 4000:4000 -v ./config.yaml:/app/config.yaml ghcr.io/berriai/litellm:main-latest</code> with a config file containing two model entries. Point an OpenAI client at <code>http://localhost:4000/v1</code> and make a chat completion request. The response includes standard usage fields; the proxy logs show routing decisions and cost calculations.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 63.2.2: Fallback Chain Design <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+<p>Design a three-tier fallback strategy for a customer support chatbot. Specify which models to use at each tier, when to trigger fallback, and how to handle quality differences between tiers. Consider how you would test the fallback behavior.</p>
+<details open="">
+<summary>Answer Sketch</summary>
+<p>Tier 1: Claude Sonnet (best quality for nuanced customer interactions). Tier 2: GPT-4o-mini (fallback on rate limit or timeout after 5s). Tier 3: A cached FAQ response system (fallback when all LLM providers are down). Test by simulating provider failures using the gateway's health check override. Log the serving tier on every request and alert if Tier 3 usage exceeds 1% of traffic.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 63.2.3: Region-Affinity Routing <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+<p>Sketch a LiteLLM deployment-list entry that lets a Frankfurt user prefer <code>azure/gpt-4o-eu</code>, fall back to <code>azure/gpt-4o-uk</code>, and only as a last resort use <code>openai/gpt-4o-useast</code> (which violates the team's nominal EU-residency commitment). Describe how you would surface that residency-violation hop to the audit log so that compliance can review it later.</p>
+<details open="">
+<summary>Answer Sketch</summary>
+<p>Declare three deployments under model_name <code>chat</code>, each with a metadata tag <code>region</code>. Use latency-routing as the default and a custom callback that records the resolved region in the request log. Mark the non-EU deployment with metadata <code>residency: violates-eu-default</code> and configure the OpenTelemetry exporter to alert on any span whose <code>llm.region.violation=true</code>. The compliance team subscribes to that alert. The point is that the violation is permitted (because availability won) but auditable (because the gateway recorded the decision).</p>
+</details>
+</div>
+<div class="callout research-frontier">
+<div class="callout-title">Research Frontier: Learned Routing and Cascade Optimization</div>
+<p>The first generation of AI gateways routed on hand-written rules ("send code questions to GPT-4o, chat to Haiku"). The 2024 to 2026 generation is being driven by learned routers that predict, per query, which model gives the cheapest acceptable answer. <strong>RouteLLM</strong> (Ong et al., 2024, <a href="https://arxiv.org/abs/2404.14618" rel="noopener" target="_blank">arXiv:2404.14618</a>) trains a small classifier on preference data so that a gateway can route easy queries to a 7B model and hard ones to a frontier model, reporting 85 percent of GPT-4 quality at 25 percent of the cost on MT-Bench.</p>
+<p><strong>Hybrid LLM</strong> (Ding et al., ICLR 2024, <a href="https://arxiv.org/abs/2404.14618" rel="noopener" target="_blank">arXiv:2311.08837</a>) and <strong>FrugalGPT</strong> (Chen et al., 2023, <a href="https://arxiv.org/abs/2305.05176" rel="noopener" target="_blank">arXiv:2305.05176</a>) generalize the idea into cost-quality-aware cascades that try the cheapest model first, escalate on low confidence, and stop the cascade as soon as a verifier accepts the answer. <strong>Mixture-of-Agents</strong> (Wang et al., 2024) layers multiple models in parallel and aggregates their outputs, achieving GPT-4-level quality with open-source 70B models on AlpacaEval.</p>
+<p>Where this is heading: the gateway becomes a learned policy, not a static configuration. Production gateways will A/B test their own routing decisions in real time, learn from outcome telemetry (user feedback, downstream task success), and increasingly resemble the kind of online-learning systems that ads-ranking and search-ranking teams have built for two decades. The interesting open question is who pays for the exploration cost when each "expensive route" probe costs real dollars.</p>
+</div>
+<div class="callout whats-next">
+<div class="callout-title">What Comes Next</div>
+<p><a href="section-63.3.html">Section 63.3: Caching and Cost Management</a> picks up where this section leaves off. Once requests are routing correctly, the next levers are eliminating duplicate traffic with semantic caching and bounding spend with budget enforcement, prompt-budget patterns, and model-version pinning across vendors.</p>
+</div>
+<div class="callout cross-ref">
+<div class="callout-title">See Also</div>
+<p>For the API-engineering patterns (retries, streaming, structured output) the gateway sits in front of, see <a href="../../part-3-working-with-llms/module-11-llm-apis/section-11.3.html">Section 11.3: API Engineering Best Practices</a>. For the inference-time KV cache and prompt-caching that gateway routing decisions feed into, see <a href="../../part-2-understanding-llms/module-09-inference-optimization/section-9.3.html">Section 9.3: KV cache</a>.</p>
+</div>
+<details class="bibliography-collapsible">
+<summary><strong>Further Reading</strong></summary>
+<section class="bibliography">
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://docs.litellm.ai/" rel="noopener" target="_blank">BerriAI (2024). "LiteLLM: Call 100+ LLMs Using the OpenAI Format." <em>LiteLLM Documentation</em>.</a> Documentation for LiteLLM Proxy, the most widely adopted open-source AI gateway providing a unified OpenAI-compatible API across providers with built-in load balancing and fallbacks.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://openrouter.ai/" rel="noopener" target="_blank">OpenRouter (2024). "OpenRouter: One API for Any Model."</a> Commercial multi-model API aggregator with unified per-token billing across providers; predates and inspired several of the patterns LiteLLM later adopted.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://portkey.ai/docs" rel="noopener" target="_blank">Portkey (2024). "Portkey AI Gateway: Control Panel for AI Apps." <em>Portkey Documentation</em>.</a> Documentation for the Portkey managed gateway, covering routing strategies, semantic caching, guardrails, and multi-provider orchestration.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://developers.cloudflare.com/ai-gateway/" rel="noopener" target="_blank">Cloudflare (2024). "Cloudflare AI Gateway." <em>Cloudflare Developer Documentation</em>.</a> Edge-deployed AI gateway that runs at Cloudflare PoPs, offering low-latency cache hits and global analytics.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://arxiv.org/abs/2311.08837" rel="noopener" target="_blank">Ding, D., et al. (2024). "Hybrid LLM: Cost-Efficient and Quality-Aware Query Routing." <em>arXiv:2311.08837</em>.</a> Proposes routing strategies that direct simpler queries to smaller, cheaper models while reserving large models for complex tasks, reducing costs without sacrificing quality.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://arxiv.org/abs/2404.14618" rel="noopener" target="_blank">Ong, I., et al. (2024). "RouteLLM: Learning to Route LLMs with Preference Data." <em>arXiv:2404.14618</em>.</a> Introduces learned routing models that predict which LLM to use for each query, achieving significant cost savings while maintaining response quality.</div>
+</div>
+</section>
+</details>
+<nav class="chapter-nav">
+<a class="prev" href="section-63.1.html"><span class="nav-label">Previous</span><span class="nav-num">Section 63.1</span><span class="nav-title">The Gateway Pattern</span></a>
+<a class="up" href="index.html"><span class="nav-label">In Chapter</span><span class="nav-num">Chapter 63</span><span class="nav-title">AI Gateways &amp; Model Routing</span></a>
+<a class="next" href="section-63.3.html"><span class="nav-label">Next</span><span class="nav-num">Section 63.3</span><span class="nav-title">Caching and Cost Management</span></a>
+</nav>
+<footer><p>Fifteenth Edition, 2026 · <a href="../../toc.html">Contents</a></p></footer>
+</main>
+<script>
+window.addEventListener("DOMContentLoaded", function() {
+  if (window.PagefindUI) {
+    new PagefindUI({
+      element: "#search",
+      showSubResults: true,
+      showImages: false,
+      resetStyles: false,
+      pageSize: 8,
+      autofocus: false,
+      translations: {
+        placeholder: "Search the book…",
+      },
+      processResult: function (result) {
+        try {
+          var part = (result && result.meta && result.meta.part) ? result.meta.part : "";
+          var chap = (result && result.meta && result.meta.chapter) ? result.meta.chapter : "";
+          var partShort = part.split(":")[0].trim();
+          var chapShort = chap.split(":")[0].trim();
+          var crumb = [partShort, chapShort].filter(Boolean).join(" › ");
+          if (crumb && result.meta && result.meta.title
+              && result.meta.title.indexOf("[" + partShort) !== 0) {
+            result.meta.title = "[" + crumb + "]  " + result.meta.title;
+          }
+        } catch (e) { /* fall through */ }
+        return result;
+      },
+    });
+  }
+});
+</script>
+</body>
+</html>

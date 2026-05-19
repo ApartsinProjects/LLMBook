@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-PWPHBQL2VL"></script>
+<script>
+window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', 'G-PWPHBQL2VL');
+</script>
+
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<meta content="Section 63.3: Caching and Cost Management. Semantic caching, budget enforcement, prompt budgets, model-version pinning across vendors." name="description"/>
+<title>Section 63.3: Caching and Cost Management | Building Conversational AI with LLMs and Agents</title>
+<link href="../../styles/book.css" rel="stylesheet"/>
+<link href="../../styles/pygments.css" rel="stylesheet"/>
+<link href="../../vendor/katex/katex.min.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/katex/katex.min.js"></script>
+<script defer="" onload="renderMathInElement(document.body, {
+ delimiters: [
+ {left: '$$', right: '$$', display: true},
+ {left: '$', right: '$', display: false}
+ ],
+ throwOnError: false
+ });" src="../../vendor/katex/contrib/auto-render.min.js"></script>
+<link href="../../vendor/prism/prism-theme.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/prism/prism-bundle.min.js"></script>
+<script defer="" src="../../scripts/book.js"></script>
+<link href="../../pagefind/pagefind-ui.css" rel="stylesheet"/>
+<script defer="" src="../../pagefind/pagefind-ui.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
+
+<header class="chapter-header">
+<nav class="header-nav">
+<a class="book-title-link" href="../../index.html">Building Conversational AI with LLMs and Agents</a>
+<a class="toc-link" href="../../toc.html" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+</nav>
+<div class="header-search">
+<div id="search"></div>
+</div>
+
+<div class="page-breadcrumb" data-pagefind-meta="chapter"><a href="../index.html">Part XIII: LLMOps Lifecycle</a><span class="bc-sep">›</span><a href="index.html">Chapter 63: AI Gateways &amp; Model Routing</a><span class="bc-sep">›</span><span class="bc-current">Section 63.3</span></div>
+<h1>Caching and Cost Management</h1><div class="page-current">Section 63.3</div>
+
+</header>
+<main class="content" id="main-content"><span class="pagefind-meta-injected" data-pagefind-meta="part:Part XIII: LLMOps Lifecycle" hidden=""></span><span class="pagefind-meta-injected" data-pagefind-meta="chapter:Chapter 63: AI Gateways &amp; Model Routing" hidden=""></span>
+<blockquote class="epigraph">
+<p>A bill no one is watching is a bill that grows without permission.</p>
+<span class="agent-avatar-inline" style="background-color: #2c3e50;"><img alt="Deploy" height="28" src="../../front-matter/images/agents/deploy.png" width="28"/></span><cite>Deploy, <span class="agent-desc">Gateway-Guarding AI Agent</span></cite>
+</blockquote>
+<div class="callout big-picture">
+<div class="callout-title">Big Picture</div>
+<p>Once routing is sorted out (<a href="section-63.2.html">Section 63.2</a>), the next-order lever on production economics is eliminating duplicate traffic and bounding spend. This section covers <strong>semantic caching</strong> (embedding-similarity dedup of LLM responses), <strong>budget enforcement</strong> (tiered responses from warnings to downgrades to outright rejection), <strong>prompt-budget patterns</strong> (per-user and per-route token allowances with back-pressure), and <strong>model-version pinning across vendors</strong> (what to do the morning OpenAI deprecates the model name your application has been calling for nine months). These are the patterns that turn a routing layer into a cost control plane.</p>
+</div>
+<div class="prerequisites">
+<h3 id="prerequisites">Prerequisites</h3>
+<p>Read <a href="section-63.1.html">Section 63.1</a> for the gateway contract and <a href="section-63.2.html">Section 63.2</a> for the routing mechanics this section composes with. Familiarity with LLM API pricing from <a href="../../part-3-working-with-llms/module-11-llm-apis/section-11.1.html">Section 11.1</a> helps when reading the budget code.</p>
+</div>
+<h2 id="63-3-1-semantic-caching-for-llm-responses">63.3.1 Semantic Caching for LLM Responses</h2>
+<p>Traditional API caching uses exact key matching, but LLM requests rarely repeat exactly. Two
+ users might ask "What is the capital of France?" and "What's France's capital city?" and expect
+ the same answer. Semantic caching uses <a href="../../part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/index.html">embedding similarity</a> to identify semantically equivalent
+ requests and serve cached responses. This can reduce costs significantly for applications with
+ repetitive query patterns, such as customer support or FAQ bots.
+ </p>
+<p>The trade-off is cache freshness versus cost savings. Semantic caching works well for factual
+ queries with stable answers, but poorly for queries that depend on real-time data, user context,
+ or conversation history. Most gateway implementations allow you to configure which requests are
+ cache-eligible based on the model, temperature (only cache deterministic calls with
+ temperature=0), and custom metadata.
+ </p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Optional</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">SemanticCache</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Embedding-based semantic cache for LLM responses.&quot;&quot;&quot;</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">embedding_model</span><span class="p">,</span> <span class="n">similarity_threshold</span><span class="o">=</span><span class="mf">0.95</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">embedding_model</span> <span class="o">=</span> <span class="n">embedding_model</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">threshold</span> <span class="o">=</span> <span class="n">similarity_threshold</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cache</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span> <span class="c1"># In production, use a vector DB</span>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">get</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">messages</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Look up a semantically similar cached response.&quot;&quot;&quot;</span>
+        <span class="n">query</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_extract_query</span><span class="p">(</span><span class="n">messages</span><span class="p">)</span>
+        <span class="n">query_embedding</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">embedding_model</span><span class="o">.</span><span class="n">embed</span><span class="p">(</span><span class="n">query</span><span class="p">)</span>
+        <span class="n">best_score</span> <span class="o">=</span> <span class="mf">0.0</span>
+        <span class="n">best_response</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="k">for</span> <span class="n">entry</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">cache</span><span class="p">:</span>
+            <span class="n">score</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_cosine_similarity</span><span class="p">(</span>
+                <span class="n">query_embedding</span><span class="p">,</span> <span class="n">entry</span><span class="p">[</span><span class="s2">&quot;embedding&quot;</span><span class="p">]</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">score</span> <span class="o">&gt;</span> <span class="n">best_score</span><span class="p">:</span>
+                <span class="n">best_score</span> <span class="o">=</span> <span class="n">score</span>
+                <span class="n">best_response</span> <span class="o">=</span> <span class="n">entry</span><span class="p">[</span><span class="s2">&quot;response&quot;</span><span class="p">]</span>
+                <span class="k">if</span> <span class="n">best_score</span> <span class="o">&gt;=</span> <span class="bp">self</span><span class="o">.</span><span class="n">threshold</span><span class="p">:</span>
+                    <span class="k">return</span> <span class="n">best_response</span>
+                <span class="k">return</span> <span class="kc">None</span>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">put</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">messages</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">],</span> <span class="n">response</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Cache a response with its embedding.&quot;&quot;&quot;</span>
+        <span class="n">query</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_extract_query</span><span class="p">(</span><span class="n">messages</span><span class="p">)</span>
+        <span class="n">embedding</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">embedding_model</span><span class="o">.</span><span class="n">embed</span><span class="p">(</span><span class="n">query</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cache</span><span class="o">.</span><span class="n">append</span><span class="p">({</span>
+            <span class="s2">&quot;query&quot;</span><span class="p">:</span> <span class="n">query</span><span class="p">,</span>
+            <span class="s2">&quot;embedding&quot;</span><span class="p">:</span> <span class="n">embedding</span><span class="p">,</span>
+            <span class="s2">&quot;response&quot;</span><span class="p">:</span> <span class="n">response</span><span class="p">,</span>
+            <span class="s2">&quot;created_at&quot;</span><span class="p">:</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">(),</span>
+            <span class="p">})</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_extract_query</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">messages</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Extract the cacheable query from messages.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">messages</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">][</span><span class="s2">&quot;content&quot;</span><span class="p">]</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_cosine_similarity</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+        <span class="k">return</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">)</span> <span class="o">/</span> <span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">norm</span><span class="p">(</span><span class="n">a</span><span class="p">)</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">norm</span><span class="p">(</span><span class="n">b</span><span class="p">)))</span>
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 63.3.1:</strong> A semantic cache that uses embedding similarity to match incoming queries against cached responses. When the cosine similarity exceeds the threshold (0.95), the cached response is returned without making an LLM call. In production, replace the list-based cache with a <a href="../../part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/index.html">vector database</a> like Pinecone or Qdrant for efficient similarity search at scale.</div>
+</div>
+<div class="callout library-shortcut">
+<div class="callout-title">Library Shortcut: sklearn + Qdrant for production semantic caching</div>
+<p>Replace the linear scan with sklearn for prototyping or with a managed vector DB (Pinecone, Qdrant, Weaviate) for production. Qdrant's local client is a single import and persists the index to disk.</p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="kn">from</span><span class="w"> </span><span class="nn">qdrant_client</span><span class="w"> </span><span class="kn">import</span> <span class="n">QdrantClient</span><span class="p">,</span> <span class="n">models</span>
+
+<span class="n">client</span> <span class="o">=</span> <span class="n">QdrantClient</span><span class="p">(</span><span class="s2">&quot;:memory:&quot;</span><span class="p">)</span> <span class="c1"># or url=&quot;http://qdrant:6333&quot;</span>
+<span class="n">client</span><span class="o">.</span><span class="n">create_collection</span><span class="p">(</span><span class="s2">&quot;llm_cache&quot;</span><span class="p">,</span>
+    <span class="n">vectors_config</span><span class="o">=</span><span class="n">models</span><span class="o">.</span><span class="n">VectorParams</span><span class="p">(</span><span class="n">size</span><span class="o">=</span><span class="mi">1536</span><span class="p">,</span> <span class="n">distance</span><span class="o">=</span><span class="n">models</span><span class="o">.</span><span class="n">Distance</span><span class="o">.</span><span class="n">COSINE</span><span class="p">))</span>
+
+<span class="n">hits</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="s2">&quot;llm_cache&quot;</span><span class="p">,</span> <span class="n">query_vector</span><span class="o">=</span><span class="n">query_embedding</span><span class="p">,</span> <span class="n">limit</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+                     <span class="n">score_threshold</span><span class="o">=</span><span class="mf">0.95</span><span class="p">)</span>
+<span class="n">cached</span> <span class="o">=</span> <span class="n">hits</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">payload</span><span class="p">[</span><span class="s2">&quot;response&quot;</span><span class="p">]</span> <span class="k">if</span> <span class="n">hits</span> <span class="k">else</span> <span class="kc">None</span></code></pre>
+
+</div></div>
+<div class="callout warning">
+<div class="callout-title">Warning</div>
+<p>Semantic caching introduces a subtle correctness risk: two queries that appear semantically similar may require different answers depending on context. "What is the current stock price of AAPL?" asked at 10am and 3pm should return different answers. Always include relevant context (timestamps, user roles, session state) in the cache key computation, and set appropriate TTL (time-to-live) values. For conversational applications where responses depend on multi-turn context, semantic caching is generally not appropriate. Restrict it to stateless, factual queries.</p>
+</div>
+<h2 id="63-3-2-cost-tracking-and-budget-enforcement">63.3.2 Cost Tracking and Budget Enforcement</h2>
+<p>One of the most valuable functions of an AI gateway is centralized cost tracking. Every request
+ flowing through the gateway carries token count and model information, allowing precise cost
+ calculation. The gateway can enforce budgets at multiple levels: per team, per project, per
+ user, and globally. When a budget threshold is approached, the gateway can send alerts, switch
+ to cheaper models, or reject non-critical requests.
+ </p>
+<p>Cost tracking at the gateway level complements the <a href="../../part-9-llm-evaluation-observability/module-44-online-eval-observability/section-44.4.html">OTel-based cost attribution in Section 44.4</a>. While OTel provides per-request cost visibility for debugging and analysis, the gateway provides real-time enforcement: it can block a request before it is sent to a provider, preventing budget overruns rather than merely reporting them after the fact. The combination of gateway-level enforcement and OTel-level visibility provides complete cost control.
+ </p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="kn">from</span><span class="w"> </span><span class="nn">datetime</span><span class="w"> </span><span class="kn">import</span> <span class="n">datetime</span><span class="p">,</span> <span class="n">timedelta</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">BudgetEnforcer</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Enforce spending limits per team with tiered responses."""</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">db</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">db</span> <span class="o">=</span> <span class="n">db</span>
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">check_and_record</span><span class="p">(</span>
+    <span class="bp">self</span><span class="p">,</span> <span class="n">team_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">estimated_cost</span><span class="p">:</span> <span class="nb">float</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Check budget, record spend, return routing decision."""</span>
+    <span class="n">team</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">db</span><span class="o">.</span><span class="n">get_team</span><span class="p">(</span><span class="n">team_id</span><span class="p">)</span>
+    <span class="n">period_start</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">utcnow</span><span class="p">()</span> <span class="o">-</span> <span class="n">timedelta</span><span class="p">(</span><span class="n">days</span><span class="o">=</span><span class="n">team</span><span class="o">.</span><span class="n">budget_period_days</span><span class="p">)</span>
+    <span class="n">current_spend</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">db</span><span class="o">.</span><span class="n">get_spend</span><span class="p">(</span><span class="n">team_id</span><span class="p">,</span> <span class="n">since</span><span class="o">=</span><span class="n">period_start</span><span class="p">)</span>
+
+    <span class="n">remaining</span> <span class="o">=</span> <span class="n">team</span><span class="o">.</span><span class="n">max_budget</span> <span class="o">-</span> <span class="n">current_spend</span>
+    <span class="n">utilization</span> <span class="o">=</span> <span class="n">current_spend</span> <span class="o">/</span> <span class="n">team</span><span class="o">.</span><span class="n">max_budget</span>
+
+    <span class="c1"># Tiered response based on budget utilization</span>
+    <span class="k">if</span> <span class="n">utilization</span> <span class="o">&gt;=</span> <span class="mf">1.0</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="s2">"action"</span><span class="p">:</span> <span class="s2">"reject"</span><span class="p">,</span>
+            <span class="s2">"reason"</span><span class="p">:</span> <span class="sa">f</span><span class="s2">"Budget exhausted ($</span><span class="si">{</span><span class="n">current_spend</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">/$</span><span class="si">{</span><span class="n">team</span><span class="o">.</span><span class="n">max_budget</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">)"</span><span class="p">,</span>
+            <span class="p">}</span>
+    <span class="k">elif</span> <span class="n">utilization</span> <span class="o">&gt;=</span> <span class="mf">0.9</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="s2">"action"</span><span class="p">:</span> <span class="s2">"downgrade"</span><span class="p">,</span>
+            <span class="s2">"target_model"</span><span class="p">:</span> <span class="n">team</span><span class="o">.</span><span class="n">budget_fallback_model</span><span class="p">,</span>
+            <span class="s2">"reason"</span><span class="p">:</span> <span class="sa">f</span><span class="s2">"Budget &gt;90%, routing to </span><span class="si">{</span><span class="n">team</span><span class="o">.</span><span class="n">budget_fallback_model</span><span class="si">}</span><span class="s2">"</span><span class="p">,</span>
+            <span class="p">}</span>
+    <span class="k">elif</span> <span class="n">utilization</span> <span class="o">&gt;=</span> <span class="mf">0.75</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="s2">"action"</span><span class="p">:</span> <span class="s2">"allow"</span><span class="p">,</span>
+            <span class="s2">"warning"</span><span class="p">:</span> <span class="sa">f</span><span class="s2">"Budget at </span><span class="si">{</span><span class="n">utilization</span><span class="si">:</span><span class="s2">.0%</span><span class="si">}</span><span class="s2">. $</span><span class="si">{</span><span class="n">remaining</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> remaining."</span><span class="p">,</span>
+            <span class="p">}</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">{</span><span class="s2">"action"</span><span class="p">:</span> <span class="s2">"allow"</span><span class="p">}</span>
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">record_spend</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">team_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">cost</span><span class="p">:</span> <span class="nb">float</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">"""Record actual spend after a successful response."""</span>
+    <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">db</span><span class="o">.</span><span class="n">record_transaction</span><span class="p">(</span>
+        <span class="n">team_id</span><span class="o">=</span><span class="n">team_id</span><span class="p">,</span>
+        <span class="n">model</span><span class="o">=</span><span class="n">model</span><span class="p">,</span>
+        <span class="n">cost</span><span class="o">=</span><span class="n">cost</span><span class="p">,</span>
+        <span class="n">timestamp</span><span class="o">=</span><span class="n">datetime</span><span class="o">.</span><span class="n">utcnow</span><span class="p">(),</span>
+        <span class="p">)</span></code></pre>
+<div class="code-caption"><strong>Code Fragment 63.3.2:</strong> Budget enforcement with tiered responses. At 75% utilization, the system issues warnings. At 90%, requests are automatically downgraded to a cheaper model. At 100%, non-critical requests are rejected. This progressive approach prevents sudden service disruptions while keeping costs under control.</div>
+</div>
+<h3 id="63-3-2-1-prompt-budget-patterns">Prompt-Budget Patterns and Back-Pressure</h3>
+<p>The tiered budget enforcer above operates on dollars per period. A complementary pattern operates on <strong>tokens per user per period</strong>: a prompt budget. The motivation is asymmetric. A team budget protects the company from a runaway service; a prompt budget protects the service from a runaway user. The fintech anecdote from <a href="section-63.1.html">Section 63.1</a> (one user consuming 30% of spend as a homework tutor) is the textbook case where a per-user token budget would have caught the anomaly at hour one rather than month three.</p>
+<p>The mechanism is a token bucket per user identity, refilled at a configured rate (for example, 500 thousand tokens per day for free-tier users, 5 million for paid users) and decremented at request time by the estimated input plus generated tokens. When the bucket runs dry, the gateway has three options. <strong>Hard reject</strong> returns a 429 with a retry-after header; the simplest correct behaviour for transactional APIs. <strong>Soft reject</strong> downgrades the user to a cheaper model (the same downgrade lever from the team-budget enforcer, repurposed against the user dimension). <strong>Back-pressure</strong> intentionally introduces latency: the gateway accepts the request but holds it for a few seconds before forwarding, which throttles loop-style abuse without breaking the user experience for genuine human-pace usage.</p>
+<p>Back-pressure is the underused option. Loops that issue 50 requests per second collapse under a 3-second injected delay (their throughput drops to 0.3 RPS), while users typing prompts by hand never notice 3 seconds added to the second-or-longer LLM call they were already going to wait for. The gateway is the right place to implement this because it sits at the choke point between application and provider and already knows the user identity from the virtual key. Application-layer back-pressure cannot reliably enforce limits because every replica enforces its own, and the user simply round-robins across replicas.</p>
+<h3 id="63-3-2-2-version-pinning">Model-Version Pinning Across Vendors</h3>
+<p>Every major provider deprecates models on a rolling schedule. OpenAI announces a sunset for <code>gpt-4-turbo-2024-04-09</code>, Anthropic retires a Claude snapshot, Google rotates a Gemini point release. When that happens, every application calling the deprecated string by name starts failing at the deprecation date, regardless of how long the team has known about the change. Without a gateway, the migration is an N-application coordination problem; the prompts, retrieval indexes, and evaluation harnesses calibrated against the old snapshot all have to migrate at once.</p>
+<p>The gateway pattern is to <strong>pin the logical model name to a specific vendor snapshot in the gateway config</strong>, decoupled from the version the application requests. Application code calls <code>model="quality-tier-a"</code>; the gateway resolves it to <code>openai/gpt-4o-2024-08-06</code> today and to <code>anthropic/claude-sonnet-4-20250514</code> next month when the OpenAI snapshot is deprecated. The application never knew the underlying snapshot existed. The gateway log records every resolution, so the team can audit which application traffic was on which snapshot when.</p>
+<p>The harder variant is when the change is not a like-for-like swap: the new snapshot has different output formatting, a more restrictive content policy, or a smaller context window. The gateway's contract with the application is identical, but the gateway operator now owns a small <em>compatibility shim</em> that, for example, reformats the structured-output JSON to match what the old snapshot produced. This shim is the price of decoupling, and it is exactly the kind of code that belongs in a gateway and would be terrible in every application separately. Pair this with a thin set of integration tests that exercise the contract; the day the shim itself starts diverging from reality is the day you want a test to tell you, not a customer.</p>
+<div class="callout warning">
+<div class="callout-title">Warning: pinning is a debt clock, not a get-out-of-migration-free card</div>
+<p>Pinning to an old snapshot buys time; it does not buy permanence. Providers eventually 410-Gone the deprecated endpoint, at which point the gateway must have already migrated. The right operating mode is to use pinning to <em>desynchronize</em> the application's migration from the provider's deprecation, not to avoid migration entirely. The standard rhythm: when a provider announces a 90-day deprecation, the gateway team owns a 60-day window to pick a replacement, run shadow evals, and update the pin; the application teams do nothing until the gateway team is satisfied. The remaining 30 days are buffer for surprises.</p>
+</div>
+<div class="callout key-takeaway">
+<div class="callout-title">Key Takeaways</div>
+<ul>
+<li><strong>Semantic caching</strong> stores LLM responses keyed by embedding similarity. Worth 30 to 60% cost reduction on repetitive workloads; risky for context-dependent queries where the cache key must include time, user, or session state.</li>
+<li><strong>Tiered budget enforcement</strong> (warn at 75%, downgrade at 90%, reject at 100%) prevents the cliff-edge failure where service stops abruptly when the budget hits zero.</li>
+<li><strong>Prompt-budget back-pressure</strong> (3-second injected delay) collapses loop-style abuse without harming human-pace usage. Implement it at the gateway, never per-replica in the application.</li>
+<li><strong>Model-version pinning</strong> at the gateway level decouples application code from provider deprecation calendars; the gateway team migrates the snapshot, the application teams keep calling the same logical name.</li>
+<li><strong>The gateway is the cost control plane.</strong> OTel-based observability tells you what spent the money. The gateway is the only layer that can refuse to spend it in the first place.</li>
+</ul>
+</div>
+<div class="callout self-check">
+<div class="callout-title">Self-Check</div>
+<div class="quiz-question"><strong>Q1:</strong> Semantic caching differs from standard HTTP response caching. Explain why, and when does it save money?</div>
+<details><summary>Show Answer</summary><div class="answer">HTTP caching uses exact key matching (same URL returns same cached response). Semantic caching embeds the query and finds cached responses to semantically similar queries above a similarity threshold. It saves money when queries are paraphrases ("What is RAG?" and "Can you explain retrieval-augmented generation?"). Provides no benefit for creative generation (users want novel outputs), highly varied queries unlikely to repeat, or very low-traffic endpoints where cache hit rates stay near zero.</div></details>
+<div class="quiz-question"><strong>Q2:</strong> Why is back-pressure (an injected delay) a better response to per-user budget exhaustion than a hard 429 in many user-facing applications?</div>
+<details><summary>Show Answer</summary><div class="answer">A 429 breaks the user experience for everyone, including the genuine user who happens to be at the limit. A 3-second injected delay leaves human-pace usage essentially unchanged (an LLM call already takes seconds) while making loop-style automated abuse uneconomic (50 RPS drops to 0.3 RPS). The signal-to-noise ratio is what matters: back-pressure targets the abuser without harming the typical user. The catch is that back-pressure must be implemented at the gateway, not at the application layer, because per-replica throttles are bypassed by round-robin load balancing across replicas.</div></details>
+<div class="quiz-question"><strong>Q3:</strong> OpenAI announces that <code>gpt-4-turbo-2024-04-09</code> will be deprecated in 90 days. Your application calls that model name from forty different services. How does a gateway change the migration story?</div>
+<details><summary>Show Answer</summary><div class="answer">Without a gateway, each of forty services has to be migrated, evaluated, and redeployed before the deprecation date, all coordinated against a single calendar. With a gateway, the services call a logical name (e.g. <code>quality-tier-a</code>) that resolves to the deprecated snapshot. The gateway team picks a replacement (perhaps <code>gpt-4o-2024-08-06</code> or <code>claude-sonnet-4-20250514</code>), runs shadow evaluations, and changes one line of YAML to flip the resolution. The forty services do nothing and notice nothing. This is the maximally valuable form of the gateway contract: the application never has to know that any underlying snapshot existed.</div></details>
+</div>
+<h2 id="exercises">Exercises</h2>
+<div class="callout exercise">
+<div class="callout-title">Exercise 63.3.1: Semantic Cache Evaluation <span class="exercise-type project" title="Project">Project</span></div>
+<p>Implement a semantic cache for a FAQ chatbot. Measure the cache hit rate, latency improvement, and cost savings over a test dataset of 1,000 queries with natural paraphrasing variation. Determine the optimal similarity threshold for your use case.</p>
+<details open="">
+<summary>Answer Sketch</summary>
+<p>Generate 1,000 test queries from 100 base questions with 10 paraphrases each. Run without cache to establish baseline cost and latency. Then enable the cache with thresholds from 0.85 to 0.99 in 0.02 increments. Measure hit rate, correctness (manual spot-check of 50 cache hits for semantic equivalence), latency (cached vs. uncached P50/P95), and cost savings. Typical results: threshold of 0.93 to 0.96 gives 40 to 60% hit rate with fewer than 2% incorrect cache matches for FAQ-style queries.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 63.3.2: Multi-Team Budget Policy <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+<p>Design a budget allocation policy for an organization with five teams sharing a &#36;10,000 monthly LLM budget. Specify how to allocate budgets, handle overages, implement alerts, and manage end-of-month budget pressure.</p>
+<details open="">
+<summary>Answer Sketch</summary>
+<p>Allocate fixed budgets per team based on projected usage (e.g., &#36;3,000 for the main product team, &#36;2,000 each for two feature teams, &#36;1,500 for internal tools, &#36;1,500 reserve). Implement 75%/90%/100% threshold alerts. At 90%, automatically downgrade to cheaper models. At 100%, allow a 10% overflow buffer charged against next month. Track daily spend rates and project monthly totals. Alert the engineering lead if projected spend exceeds 120% of any team's budget by mid-month.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 63.3.3: Prompt-Budget Back-Pressure <span class="exercise-type coding" title="Coding">Coding</span></div>
+<p>Extend a LiteLLM Proxy deployment with a custom callback that implements per-user back-pressure: when a user has consumed more than 80% of their daily token allowance, all further requests from that user are held for 3 seconds before being forwarded. Measure the effect on a synthetic abuse loop (50 RPS) and on a synthetic human session (1 request per 20 seconds).</p>
+<details open="">
+<summary>Answer Sketch</summary>
+<p>Implement an async <code>pre_call</code> callback in LiteLLM that reads the daily token bucket from Redis (key = <code>budget:{user_id}:{YYYY-MM-DD}</code>), compares against the per-user daily limit, and if utilization &gt; 0.8 awaits <code>asyncio.sleep(3.0)</code> before returning. The 50-RPS loop collapses to ~0.33 RPS (one request every 3 seconds plus the actual LLM latency); the human session shows an extra 3 seconds on requests after the threshold but is otherwise unaffected. The Redis bucket resets at UTC midnight via a small cron or a TTL set on the key.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 63.3.4: Version Pin Migration Drill <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+<p>Your gateway pins <code>quality-tier-a</code> to <code>openai/gpt-4o-2024-08-06</code>. OpenAI announces deprecation in 90 days. Sketch the 90-day migration plan: shadow-eval the replacement candidate(s), define the compatibility shim if any, pick the swap date, communicate to application teams, and validate post-swap. Include the rollback procedure.</p>
+<details open="">
+<summary>Answer Sketch</summary>
+<p>Days 1-30: pick 2-3 replacement candidates (e.g. <code>gpt-4o-2024-11-20</code>, <code>anthropic/claude-sonnet-4-20250514</code>) and shadow-eval each on a sample of production traffic. Compare on the team's evaluation harness; if structured-output format drifted, write the compatibility shim. Days 31-60: announce the chosen replacement and the swap date to application teams; ask them to run their integration tests against the new resolution via a staging gateway. Days 61-75: cut over a canary fraction (10% of traffic) and watch error rate and quality metrics. Day 76: full cut-over; the previous resolution stays available as a feature-flagged fallback for 14 days. Days 77-90: monitor; if rollback is needed, flip the YAML pointer (takes seconds). Day 91: remove the old resolution.</p>
+</details>
+</div>
+<div class="callout whats-next">
+<div class="callout-title">What Comes Next</div>
+<p>The next chapter covers <a href="../module-64-workflow-orchestration/section-64.1.html">Workflow Orchestration and Durable Execution</a>, addressing how to make long-running LLM agent workflows resilient to crashes, timeouts, and provider outages using frameworks like Temporal, Inngest, and LangGraph persistence. The gateway absorbs short-lived volatility; the orchestrator absorbs long-lived volatility.</p>
+</div>
+<div class="callout cross-ref">
+<div class="callout-title">See Also</div>
+<p>For OTel-based per-request cost observability that complements the gateway-level enforcement here, see <a href="../../part-9-llm-evaluation-observability/module-44-online-eval-observability/section-44.4.html">Section 44.4</a>. For the LLM API pricing models that the budget code in this section converts to dollars, see <a href="../../part-3-working-with-llms/module-11-llm-apis/section-11.1.html">Section 11.1</a>. For the inference-time KV cache and prompt-caching that compose with the request-level cache discussed here, see <a href="../../part-2-understanding-llms/module-09-inference-optimization/section-9.3.html">Section 9.3</a>.</p>
+</div>
+<details class="bibliography-collapsible">
+<summary><strong>Further Reading</strong></summary>
+<section class="bibliography">
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://gptcache.readthedocs.io/" rel="noopener" target="_blank">Zilliz (2024). "GPTCache: Semantic Cache for LLM Queries." <em>GPTCache Documentation</em>.</a> An open-source semantic caching library that uses embedding similarity to match incoming queries against cached responses, reducing latency and API costs.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://arxiv.org/abs/2306.03427" rel="noopener" target="_blank">Bang, J., et al. (2023). "GPTCache: An Open-Source Semantic Cache for LLM Applications." <em>arXiv:2306.03427</em>.</a> Describes the architecture and evaluation of semantic caching for LLM queries, demonstrating how embedding-based similarity matching reduces redundant API calls.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://arxiv.org/abs/2305.05176" rel="noopener" target="_blank">Chen, L., Zaharia, M., &amp; Zou, J. (2023). "FrugalGPT: How to Use Large Language Models While Reducing Cost and Improving Performance." <em>arXiv:2305.05176</em>.</a> Introduces LLM cascades and prompt adaptation as cost-optimization primitives; the conceptual basis for the budget-aware routing policies a gateway implements.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://platform.openai.com/docs/deprecations" rel="noopener" target="_blank">OpenAI (2024). "Model Deprecations." <em>OpenAI Platform Documentation</em>.</a> The canonical schedule of OpenAI snapshot deprecations; reading it quarterly is the gateway operator's standing duty.</div>
+</div>
+</section>
+</details>
+<nav class="chapter-nav">
+<a class="prev" href="section-63.2.html"><span class="nav-label">Previous</span><span class="nav-num">Section 63.2</span><span class="nav-title">Routing and Reliability</span></a>
+<a class="up" href="index.html"><span class="nav-label">In Chapter</span><span class="nav-num">Chapter 63</span><span class="nav-title">AI Gateways &amp; Model Routing</span></a>
+<a class="next" href="../module-64-workflow-orchestration/section-64.1.html"><span class="nav-label">Next</span><span class="nav-num">Section 64.1</span><span class="nav-title">Workflow Orchestration and Durable Execution</span></a>
+</nav>
+<footer><p>Fifteenth Edition, 2026 · <a href="../../toc.html">Contents</a></p></footer>
+</main>
+<script>
+window.addEventListener("DOMContentLoaded", function() {
+  if (window.PagefindUI) {
+    new PagefindUI({
+      element: "#search",
+      showSubResults: true,
+      showImages: false,
+      resetStyles: false,
+      pageSize: 8,
+      autofocus: false,
+      translations: {
+        placeholder: "Search the book…",
+      },
+      processResult: function (result) {
+        try {
+          var part = (result && result.meta && result.meta.part) ? result.meta.part : "";
+          var chap = (result && result.meta && result.meta.chapter) ? result.meta.chapter : "";
+          var partShort = part.split(":")[0].trim();
+          var chapShort = chap.split(":")[0].trim();
+          var crumb = [partShort, chapShort].filter(Boolean).join(" › ");
+          if (crumb && result.meta && result.meta.title
+              && result.meta.title.indexOf("[" + partShort) !== 0) {
+            result.meta.title = "[" + crumb + "]  " + result.meta.title;
+          }
+        } catch (e) { /* fall through */ }
+        return result;
+      },
+    });
+  }
+});
+</script>
+</body>
+</html>
