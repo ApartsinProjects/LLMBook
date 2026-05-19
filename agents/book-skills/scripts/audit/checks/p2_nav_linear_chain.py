@@ -115,7 +115,10 @@ def run(filepath, html, context):
         else:
             # This is the last section in the module — next should be next
             # module's FIRST section, NOT the next module's index.
-            if href.endswith('index.html'):
+            # Exception: the appendices/index.html target is the canonical
+            # end-of-book destination for the very last section in the book
+            # (no "next module" exists past it).
+            if href.endswith('index.html') and 'appendices/index.html' not in href:
                 line = html.count('\n', 0, m.start()) + 1
                 issues.append(Issue(
                     PRIORITY, CHECK_ID, filepath, line,
