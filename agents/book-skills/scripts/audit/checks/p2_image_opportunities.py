@@ -38,6 +38,11 @@ ANY_FIGURE = re.compile(
 )
 ANY_DIAGRAM = re.compile(r'class="diagram-container"|<svg\b', re.I)
 FUN_NOTE = re.compile(r'class="callout\s+fun-note"', re.I)
+# A section may deliberately cross-reference a figure that lives in a sibling
+# section (e.g. <p class="figure-ref">See Figure 3.4.1 in Section 3.3</p>)
+# rather than duplicating the image. That is a valid authoring choice, so a
+# figure-ref cross-reference counts as "has a figure" for this check.
+FIGURE_REF = re.compile(r'class="figure-ref"|>\s*(?:See|see)\s+<a[^>]*>Figure\s', re.I)
 
 # Path fragments where reference / catalog content lives. Fun-note
 # comics don't belong in any of these.
@@ -76,7 +81,8 @@ def run(filepath, html, context):
         # suggestions below.
         is_reference = _is_reference_section(rel)
         if not is_reference:
-            if not ANY_FIGURE.search(html) and not ANY_DIAGRAM.search(html):
+            if (not ANY_FIGURE.search(html) and not ANY_DIAGRAM.search(html)
+                    and not FIGURE_REF.search(html)):
                 issues.append(Issue("P3", CHECK_ID, filepath, 1,
                     'Section has no figure or diagram (consider adding illustration when content invites it)'))
             if not FUN_NOTE.search(html):
