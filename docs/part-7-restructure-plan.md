@@ -78,9 +78,9 @@ Merge: Ch 32+33 (Audio+Video) → one chapter; Ch 37+38 (Unified+Streaming) → 
 
 ### Chapter 32 — Audio & Music Generation (5 sections, ~7,500 words)
 
-1. **32.1** TTS: VITS, Bark, F5-TTS *(from 31.2.1 minus real-time)*
+1. **32.1** TTS: VITS, Bark, F5-TTS *(from 31.3.1 minus real-time)*
 2. **32.2** Voice Cloning, Zero-Shot TTS, Voice Conversion
-3. **32.3** Music Generation: MusicLM, MusicGen, Suno, Udio *(from 31.2.2)*
+3. **32.3** Music Generation: MusicLM, MusicGen, Suno, Udio *(from 31.3.2)*
 4. **32.4** Audio Editing: Stems, Style Transfer, Remixing *(from 32.6.3)*
 5. **32.5** Speech Recognition for the Multimodal Stack *(NEW — Whisper, faster-whisper, AssemblyAI)*
 
@@ -126,7 +126,7 @@ Merge: Ch 32+33 (Audio+Video) → one chapter; Ch 37+38 (Unified+Streaming) → 
 
 ### Chapter 38 — Streaming & Real-Time Multimodal (4 sections, ~6,000 words)
 
-1. **38.1** Streaming Audio Architectures *(from 31.2.1 real-time)*
+1. **38.1** Streaming Audio Architectures *(from 31.3.1 real-time)*
 2. **38.2** Gemini Live & GPT-4o Realtime API *(NEW)*
 3. **38.3** Audio Token Budget & Latency Engineering
 4. **38.4** Open-Source Realtime: Moshi, Pipecat, LiveKit Agents *(NEW)*
@@ -177,10 +177,10 @@ Re-uses old 33.1–33.5 with entries re-tagged to the new chapter they reference
 (Per Section C — see plan source for full mapping table. Key splits:)
 
 - 31.1.1 splits 4 ways (Diffusion + Latent + Flow Matching + Models)
-- 31.1.3 splits 2 ways (ViT → Ch 35.1; CLIP → Ch 35.2)
-- 31.1.4 splits 2 ways
-- 31.2.1 splits 4 ways (TTS → Ch 32.1; Real-time → Ch 38.1; Token Budget → Ch 38.3; Whisper → Ch 32.5)
-- 31.2.3 splits 2 ways (DiT arch → Ch 33.1; Models → Ch 33.2)
+- 31.2.1 splits 2 ways (ViT → Ch 35.1; CLIP → Ch 35.2)
+- 31.2.2 splits 2 ways
+- 31.3.1 splits 4 ways (TTS → Ch 32.1; Real-time → Ch 38.1; Token Budget → Ch 38.3; Whisper → Ch 32.5)
+- 31.3.3 splits 2 ways (DiT arch → Ch 33.1; Models → Ch 33.2)
 - 32.6 splits 4 ways (Image edit → Ch 31.5; Video remix → Ch 33.4; Audio edit → Ch 32.4; Relighting → Ch 36.5)
 - 32.7.1 splits 2 ways (Encoder lineage → Ch 35.2; Retrieval framing → Ch 42.1)
 

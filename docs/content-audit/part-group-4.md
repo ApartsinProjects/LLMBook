@@ -154,7 +154,7 @@ Several issues recur across every part in this group; rather than restate them p
 Each of these section files has a breadcrumb that names a chapter that does not exist as a directory:
 
 - 67.4 From Hypothesis to Product Spec: breadcrumb "Chapter 64: LLM Product Management"; H2 IDs labelled `59.1.1`, `59.1.2`. Belongs in a Product Management chapter that does not currently exist as its own directory.
-- 67.5 LLM Product Management: breadcrumb "Chapter 64"; H2 ID labelled `31.2.1` (very stale).
+- 67.5 LLM Product Management: breadcrumb "Chapter 64"; H2 ID labelled `31.3.1` (very stale).
 - 67.6 UX and Iteration for LLM Products: breadcrumb "Chapter 64".
 - 67.7 LLM Strategy & Use Case Prioritization: breadcrumb "Chapter 65"; H2 ID labelled `65.1.1` (close to right).
 - 67.8 LLM Vendor Evaluation & Build vs. Buy: breadcrumb "Chapter 65"; H2 ID labelled `65.2.1` (close to right).
@@ -436,12 +436,12 @@ The Part-15 index references three Creative-Industries sections (79.1, 79.2, 79.
 - **Ordering**: KEEP. Emergence -> Scaling -> Alternatives -> Beyond-text-domains is well-shaped.
 - **Stale refs in section files**:
   - section-75.1.html line 24 breadcrumb: "Part XII" -> Part XV.
-  - section-75.1.html line 39: "Section 7.3: Scaling Laws" -> Section 6.3 (href).
+  - section-75.1.html line 39: "Section 7.4: Scaling Laws" -> Section 6.3 (href).
   - section-75.1.html line 39: "Section 34.1: Evaluation Fundamentals" -> Section 42.1 (href).
-  - section-75.1.html line 67: "Section 7.3" -> Section 6.3.
+  - section-75.1.html line 67: "Section 7.4" -> Section 6.3.
   - section-75.1.html line 121: "Section 34.1" -> Section 42.1.
-  - section-75.1.html line 135: "Section 7.2" -> Section 6.2.
-  - section-75.1.html line 143: "mixture-of-experts" link to "Section 7.2" -> Section 7.2 (per href; this OK).
+  - section-75.1.html line 135: "Section 7.3" -> Section 6.2.
+  - section-75.1.html line 143: "mixture-of-experts" link to "Section 7.3" -> Section 7.3 (per href; this OK).
   - All H2 IDs in section-80.1, 80.2 use "33-1-1", "33-2-1" etc. (old Chapter 33 numbering). Update to 80.1.1, 80.2.1, etc.
 - **Chapter-nav**:
   - Line 106 What's-Next: "Part XI takes you from an idea to a shipped AI product" -> Part XIV.

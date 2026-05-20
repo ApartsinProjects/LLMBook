@@ -52,7 +52,7 @@ Total: **3 edits applied**, all bug-level (factual errors or internal inconsiste
 
 **Verdict:** All claims accurate.
 
-### Section 7.2 - Open-Source & Open-Weight Models
+### Section 7.3 - Open-Source & Open-Weight Models
 
 **Facts checked:**
 - Llama 4 Scout: 17B active, 16 experts, 109B total. VERIFIED via ai.meta.com.
@@ -76,7 +76,7 @@ Total: **3 edits applied**, all bug-level (factual errors or internal inconsiste
 
 **Verdict:** No factual errors at the granularity I can verify. No edits.
 
-### Section 18.1a - RLHF with PPO
+### Section 18.1 - RLHF with PPO
 
 **Facts checked:**
 - InstructGPT paper attribution: Ouyang et al., 2022. VERIFIED via arxiv.org/abs/2203.02155.
@@ -84,7 +84,7 @@ Total: **3 edits applied**, all bug-level (factual errors or internal inconsiste
 
 **Verdict:** All claims accurate.
 
-### Section 18.2a - DPO
+### Section 18.3 - DPO
 
 **Facts checked:**
 - DPO paper: "Direct Preference Optimization: Your Language Model is Secretly a Reward Model", Rafailov et al., 2023. VERIFIED via arxiv.org/abs/2305.18290.
@@ -151,13 +151,13 @@ Total: **3 edits applied**, all bug-level (factual errors or internal inconsiste
 
 ## Files Modified
 
-1. `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.2.html` - Mixtral 8x22B parameter count corrected (176B -> 141B with explanation)
+1. `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.3.html` - Mixtral 8x22B parameter count corrected (176B -> 141B with explanation)
 2. `part-9-llm-evaluation-observability/module-42-evaluation-foundations/section-42.1.html` - GPQA citation date corrected (2024 -> 2023)
 3. `part-12-llm-systems-at-scale/module-57-compute-planning/section-57.1.html` - B200 specs corrected for text-table consistency (5 TB/s -> 8 TB/s; 192GB -> 180-192GB)
 
 ## Items Worth Flagging (Not Edited)
 
-- **Section 7.2 line 153 (in 22.2)**: SigLIP-So400M ImageNet zero-shot reported at 83.1%, and SigLIP-2-L/16 at 85.8%. These numbers come from the SigLIP-2 paper (arXiv:2502.14786). Plausible but not independently re-verified in this pass.
+- **Section 7.3 line 153 (in 22.2)**: SigLIP-So400M ImageNet zero-shot reported at 83.1%, and SigLIP-2-L/16 at 85.8%. These numbers come from the SigLIP-2 paper (arXiv:2502.14786). Plausible but not independently re-verified in this pass.
 - **Section 6.3 table 6.3.x**: DeepSeek-V3 training FLOPs estimated at ~3.3e24 using 6ND approximation on active parameters. Consistent with the published H800 GPU hours figure (2.788M H800-hours).
 - **Section 11 (pricing)**: All pricing claims are already caveated as "approximate rates as of 2026"; no actionable corrections.
 

@@ -49,22 +49,22 @@ Off-palette colors used by the tools-of-the-trade catalogs (modules 19, 26, 41, 
 
 1. `part-9-llm-evaluation-observability/module-45-tools-of-the-trade/section-45.1.html` (largest, 31 color replacements + stroke-width 1.8 -> 2 + font-family normalized)
 2. `part-6-agentic-ai/module-26-ai-agents/section-26.5.html` (27 color replacements including rust and mustard)
-3. `part-4-training-adaptation/module-19-tools-of-the-trade/section-19.3b.html` (19 color replacements + font-family normalized + mustard fix)
-4. `part-4-training-adaptation/module-19-tools-of-the-trade/section-19.4.html` (11 color replacements + stroke-width 2.5 -> 2 + font-family normalized + mustard fix)
-5. `part-8-conversational-ai-with-llms/module-37-conversational-ai/section-37.5a.html` (9 color replacements)
+3. `part-4-training-adaptation/module-19-tools-of-the-trade/section-19.4.html` (19 color replacements + font-family normalized + mustard fix)
+4. `part-4-training-adaptation/module-19-tools-of-the-trade/section-19.5.html` (11 color replacements + stroke-width 2.5 -> 2 + font-family normalized + mustard fix)
+5. `part-8-conversational-ai-with-llms/module-37-conversational-ai/section-37.5.html` (9 color replacements)
 6. `part-5-multimodal-llms/module-20-audio-music-generation/section-20.1.html` (7 color replacements)
 7. `part-8-conversational-ai-with-llms/module-41-conv-ai-tools/section-41.1.html` (6 color replacements)
 8. `part-8-conversational-ai-with-llms/module-41-conv-ai-tools/section-41.2.html` (6 color replacements)
 9. `part-8-conversational-ai-with-llms/module-41-conv-ai-tools/section-41.4.html` (5 color replacements)
 10. `part-4-training-adaptation/module-16-fine-tuning-fundamentals/section-16.7.html` (4 color replacements + stroke-width 3 -> 2)
-11. `part-4-training-adaptation/module-18-alignment-rlhf-dpo/section-18.5.html` (4 color replacements)
+11. `part-4-training-adaptation/module-18-alignment-rlhf-dpo/section-18.7.html` (4 color replacements)
 12. `part-4-training-adaptation/module-19-tools-of-the-trade/section-19.1.html` (3 color replacements)
 13. `part-8-conversational-ai-with-llms/module-37-conversational-ai/section-37.3.html` (3 color replacements)
 14. `part-4-training-adaptation/module-15-synthetic-data/section-15.3.html` (3 color replacements)
 15. `part-8-conversational-ai-with-llms/module-41-conv-ai-tools/section-41.3.html` (2 color replacements)
 
 Additional stroke-width normalizations:
-- `part-4-training-adaptation/module-17-peft/section-17.6.html`: stroke-width 2.5 -> 2 (one occurrence)
+- `part-4-training-adaptation/module-17-peft/section-17.7.html`: stroke-width 2.5 -> 2 (one occurrence)
 - `part-8-conversational-ai-with-llms/module-37-conversational-ai/section-37.1.html`: stroke-width 2.5 -> 2 (four occurrences)
 
 ## Sections checked and skipped (already canonical)
@@ -72,17 +72,17 @@ Additional stroke-width normalizations:
 Spot-checked these sections; they use the established Material Design / book palette (no rogue colors, all Segoe UI):
 
 - `section-26.1.html` (agents intro)
-- `section-31.2a.html` (embeddings spaces)
-- `section-31.3.html` (vector DB)
-- `section-31.4.html`
-- `section-32.2.html` (RAG retrieval)
+- `section-31.3.html` (embeddings spaces)
+- `section-31.5.html` (vector DB)
+- `section-31.6.html`
 - `section-32.3.html` (RAG retrieval)
-- `section-35.2.html` (advanced RAG)
-- `section-35.5a.html`
+- `section-32.4.html` (RAG retrieval)
+- `section-35.3.html` (advanced RAG)
+- `section-35.6.html`
 - `section-37.2.html`, `section-37.4.html` (conv-ai core)
 - `section-42.5.html`, `section-42.6.html`, `section-42.7.html` (eval foundations)
 - `section-43.1.html`
-- `section-17.5b.html`, `section-18.2a.html`, `section-18.3.html`, `section-18.4.html`
+- `section-17.6.html`, `section-18.3.html`, `section-18.5.html`, `section-18.6.html`
 - `section-44.2.html` stroke-width=8 is intentional (dashboard meter ring)
 
 Other 19.x and 41.x catalogs (19.2, 19.3a, 19.5-19.14, 41.5) were already clean.

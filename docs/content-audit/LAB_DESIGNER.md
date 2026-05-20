@@ -10,7 +10,7 @@ End-of-chapter "labs" are 2 to 4 hour hands-on builds that anchor each chapter's
 
 ## Starting state
 
-Grep for `callout lab` or `class="lab"` across the 30 candidate `index.html` files returned ZERO matches. Labs existed only at the section level (e.g. `section-35.4.html`), never at chapter-overview level. This was a fresh-add task across the board, not an audit-existing one.
+Grep for `callout lab` or `class="lab"` across the 30 candidate `index.html` files returned ZERO matches. Labs existed only at the section level (e.g. `section-35.5.html`), never at chapter-overview level. This was a fresh-add task across the board, not an audit-existing one.
 
 ## Placement decision
 

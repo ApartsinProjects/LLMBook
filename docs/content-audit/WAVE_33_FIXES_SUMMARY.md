@@ -66,7 +66,7 @@ Seven high-confidence corrections to URL-vs-title mismatches:
 | `section-26.6.html` | 240 | `docs.langgraph.dev` returns ECONNREFUSED (domain never existed) | now `langchain-ai.github.io/langgraph/concepts/persistence/` |
 | `section-29.1.html` | 322 | Devin attributed to arXiv:2411.01747 (that ID is DynaSaur; Devin has no preprint) | now Cognition blog `cognition.ai/blog/introducing-devin` |
 | `section-29.1.html` | 325 | Cursor attributed to arXiv:2502.14499 (that ID is Meta MLGym; Cursor has no preprint) | now product page `cursor.com` |
-| `section-35.3.html` | 424 | Leiden paper linked to `arxiv.org/abs/1810.00826` (wrong; that's the GIN paper) | now `arxiv.org/abs/1810.08473` (correct Leiden) |
+| `section-35.4.html` | 424 | Leiden paper linked to `arxiv.org/abs/1810.00826` (wrong; that's the GIN paper) | now `arxiv.org/abs/1810.08473` (correct Leiden) |
 | `section-56.1.html` | 187 | NeMo Guardrails attributed to "Rauber, A., et al. (2024)" (hallucinated lead author) | now real authors Rebedea, Dinu, Sreedhar, Parisien, Cohen (2023), with real arXiv:2310.10501 |
 | `section-61.3.html` | 87 | Llama-3 data mix listed as "25% code, 17% multilingual, 8% math" (code/math swapped) | now correct "25% math and reasoning, 17% code, 8% multilingual" (per Llama-3 paper 2407.21783) |
 

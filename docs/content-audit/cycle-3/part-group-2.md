@@ -14,7 +14,7 @@ Cycle 2 left Parts 5-8 in a state where almost every visible chapter number, sec
 - **In-prose `<a href="section-N.M.html">Section X.Y</a>` mismatches resolved.** 0 hits where the visible Section X.Y disagrees with the href section-N.M (cycle 2 had dozens). Wave 17d worked.
 - **Section 24.13 botched `T: VLA Models...` span fixed.** The orphan `<span>` artifact on line 27 is now a clean pagefind-meta tag.
 - **Part-index sections-list pages (Parts 5, 7, 8) match current chapter and section titles.** Wave 17e rebuilt them; titles align with the actual H1 of every module.
-- **Section 32.X "doesn't exist" cross-refs in prose mostly cleaned up.** Of the ~10 stale `Section 32.5 / 32.6 / 32.7 / 32.8 / 32.9` body-text references cycle 2 listed, only one survives (a code comment in 32.2, see below).
+- **Section 32.X "doesn't exist" cross-refs in prose mostly cleaned up.** Of the ~10 stale `Section 32.5 / 32.6 / 32.7 / 32.8 / 32.9` body-text references cycle 2 listed, only one survives (a code comment in 32.3, see below).
 - **`Section 42.X` cross-refs from Parts 5-8 to Part 9 eval foundations are correct.** Spot-check confirms Ch 42 has sections 42.1-42.12 and the `Section 42.1 / 42.9 / 42.2` references in Parts 5-8 prose resolve.
 
 ## Remaining issues
@@ -37,7 +37,7 @@ Cycle 2 left Parts 5-8 in a state where almost every visible chapter number, sec
    - `section-22.9.html`: "Chapter 37 closes here. Chapter 40: Streaming and Real-Time Multimodal goes deeper..." (Ch 40 ref is correct; "Chapter 37 closes here" should be "Chapter 22 closes here").
    - `module-25-tools-of-the-trade/index.html`: "Part VIII turns to evaluation and production... Chapter 46 closes Part VIII with the eval and production stack." (Ch 46 does not exist; Part VIII is Conversational AI not eval; the next part after Part 5 is Part 6).
    - `module-27-tool-use-protocols/section-27.6.html`: "the next chapter, Chapter 47: Safety, Ethics & Regulation" (Ch 47 is in Part 10 Adversarial Security; the actual next chapter after Ch 27 is Ch 28 in the same Part 6).
-   - `section-32.4.html`: "In Chapter 37: Building Conversational AI Systems..." (this one is correct, Ch 37 is the next chapter in flow).
+   - `section-32.5.html`: "In Chapter 37: Building Conversational AI Systems..." (this one is correct, Ch 37 is the next chapter in flow).
    - `section-33.4.html`: "Chapter 33 closes Part VII's coverage of multimodal generation... The remaining chapters in Part... Chapter 25..." (Ch 25 is in Part 5 not Part 7; cross-part link confusion).
    - `section-40.1.html`: "Chapter 26: AI Agent..." and "Chapter 29..." in What's Next (Ch 26 / Ch 29 are in Part 6; from Ch 40 the next chapter is Ch 41).
    - `section-40.5.html`: "Chapter 39 closes here. The next chapters in Part VII (39, 40, 41) cover Vision-Language-Action models, LLM robotics, and world models, then we return to Chapter 33 for cross-modal retrieval..." (entire paragraph is the old Part-7 mega-chapter structure; the actual chapter is Ch 40 in Part 8 and the next chapter is Ch 41).
@@ -56,7 +56,7 @@ Cycle 2 left Parts 5-8 in a state where almost every visible chapter number, sec
    - `module-26-ai-agents/index.html` Looking Back: "Parts I through V built up to ... the four-step pattern that everything in Chapters 21 through 24 specializes" (Ch 21-24 are document AI / VLMs / 3D / VLA, not agent specializations).
    - `module-29-specialized-agents/index.html` meta description AND body: "While Chapters 22 through 24 cover general agent principles" (Ch 22-24 are VLMs / 3D / VLA, not agents).
 6. **Two leftover stale `Section 32.5 / 38.2` code-comment references.** Pure cosmetic but they leak old structure:
-   - `section-32.2.html` line 192: `# Text-to-SQL pipeline (covered in Section 32.5)` (Text-to-SQL is now Sec 32.3 not 32.5).
+   - `section-32.3.html` line 192: `# Text-to-SQL pipeline (covered in Section 32.5)` (Text-to-SQL is now Sec 32.3 not 32.5).
    - `section-22.9.html`: `# See Section 38.2 for the full protocol walkthrough.` (Sec 38.2 does not exist; Ch 38 was the old Streaming chapter, now Ch 40).
 7. **Section card descriptions for Ch 34 still partly placeholder / truncated.** Cycle 2 flagged:
    - 34.3 desc: "Why this matters for production pipelines." (placeholder-like generic).
@@ -68,7 +68,7 @@ Cycle 2 left Parts 5-8 in a state where almost every visible chapter number, sec
    - **Agentic RAG**: `27.5` (29 KB, 7 hits on Corrective/CRAG/Self-RAG/Adaptive RAG) and `32.2` (94 KB, 15 hits) both still cover the same agentic-RAG techniques.
    - **Memory**: `26.6` (41 KB) "Memory Architecture for Agents" with five-layer taxonomy and `37.3` (209 KB, 55 hits on MemGPT / sliding window / summarization / Mem0). 37.3 is now significantly larger and well-developed.
    - **Sim-to-real**: `24.6` (22 KB) "VLA Limitations" with the Sim-to-Real Gap subsection and `24.13` (32 KB) "Sim-to-Real Gap" full section. Both in the same chapter; nearly verbatim overlap on the gap framing.
-   - **GraphRAG**: `35.2` (70 KB, 66 hits on GraphRAG/knowledge graph) and `35.3` (67 KB, 65 hits). 35.2 now explicitly cross-references 35.3 as "the GraphRAG community-summarization technique itself lives in Section 35.3" (cycle-2 acknowledged overlap), which softens the redundancy but does not eliminate it: 35.2 still teaches KG-as-retrieval-substrate end-to-end and 35.3 reteaches the same primitives for GraphRAG.
+   - **GraphRAG**: `35.2` (70 KB, 66 hits on GraphRAG/knowledge graph) and `35.3` (67 KB, 65 hits). 35.2 now explicitly cross-references 35.3 as "the GraphRAG community-summarization technique itself lives in Section 35.4" (cycle-2 acknowledged overlap), which softens the redundancy but does not eliminate it: 35.2 still teaches KG-as-retrieval-substrate end-to-end and 35.3 reteaches the same primitives for GraphRAG.
    - **Code-gen agents**: `29.1` (41 KB, 13 hits Claude Code/Cursor/Devin) and `29.4` (75 KB, 37 hits). 29.4 grew the bigger of the two and is the deeper coverage.
    - **Tools Ch 36 vs Ch 41**: Now well-differentiated (Ch 36 = retrieval, Ch 41 = conv-AI). Light remaining overlap: LangChain mentioned 9 times in Ch 36 sec 36.2 (for retrieval chains) and 14 times in Ch 41 sec 41.2 (for conversational memory). The boundary is defensible because LangChain truly has both use cases, but the two sections do not cross-reference each other.
 9. **Part 8 has a chapter-numbering gap.** Part 8 is `module-37`, `module-40`, `module-41` (skipping 38 and 39). Whether 38 and 39 were merged into 37/40 elsewhere or simply dropped is unclear; the gap is visible to anyone scrolling the part directory. Part-index renders only Chs 37 / 40 / 41 cleanly so most readers will not notice, but a future tool-of-record audit on the book structure should reconcile.

@@ -685,7 +685,7 @@ Has Key Insight, practical-example, warning callouts.
   shortcuts. Cross-field connection to **software ergonomics** (the IDE
   is a product, not just a UI). Size: 1 callout.
 
-#### Section 35.2 (Advanced RAG: query rewriting)
+#### Section 35.3 (Advanced RAG: query rewriting)
 
 Has Key Insight + fun-note.
 
@@ -696,7 +696,7 @@ Has Key Insight + fun-note.
   literature (Hinton 2006) provides the theoretical framing. Cross-field
   connection to **representation learning**.
 
-#### Section 35.3 (Advanced RAG: contextual / hierarchical retrieval)
+#### Section 35.4 (Advanced RAG: contextual / hierarchical retrieval)
 
 Has Key Insight + fun-note.
 
@@ -828,7 +828,7 @@ Excellent section already, multiple Key Insights, fun-note, library-shortcut.
 
 8. **The Wave 17i sections (24.6, 26.6, 35.2, 35.3, 37.3) are mostly well-done.**
    The largest additions for those are cross-field connection callouts (Multics
-   VM in 26.6, HyDE-as-autoencoder in 35.2, primacy effects in 46.1) and one
+   VM in 26.6, HyDE-as-autoencoder in 35.3, primacy effects in 46.1) and one
    anecdote each (the rainbow Frisbee in 24.13, the Cursor moat in 29.4).
 
 9. **The Wave 9 promotions (Ch 34, Ch 46) are short.** Ch 46 in particular is

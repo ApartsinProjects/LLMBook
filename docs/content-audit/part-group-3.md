@@ -191,7 +191,7 @@ Three structural recommendations for Part 9 (in priority order):
 - **Figure caption** (line 34): "Figure 49.0.1" — wrong number; should be 47.0.1.
 - **Looking Back callout** (line 38): "Parts III-VIII built and operated LLM systems. Part IX zooms out to..." — Part IX in the old map was the safety-ethics-regulation combo. Now this chapter is in Part X. Rewrite Looking Back to: "Part IX (the previous part) measured LLM quality. Part X turns to the question of whether the system survives a deliberate attack. This chapter is the threat map: adversarial attacks, jailbreaks, prompt-injection taxonomies, and red-teaming as an engineering discipline."
 - **Chapter Overview** (lines 41-57): refers to "Chapter 45", "Chapter 20", "Chapter 31" with old numbering and lists topics that span the entire old Part IX (bias, model cards, environmental impact, EU AI Act, federated learning, machine unlearning, licensing). Most of these now live in Part 11. Rewrite to focus only on Chapter 47's actual two sections (47.1 threats, 47.2 red-teaming).
-- **Big Picture** (line 61): generic for old combined chapter. **PROPOSE** "Adversaries treat your LLM as an attack surface. Section 47.1 catalogs the threat families (OWASP LLM Top 10, MITRE ATLAS, prompt-injection variants). Section 47.2 covers red-teaming as an engineering practice: PyRIT, Garak, HarmBench, JailbreakBench, and how to wire automated red-team runs into CI."
+- **Big Picture** (line 61): generic for old combined chapter. **PROPOSE** "Adversaries treat your LLM as an attack surface. Section 47.1 catalogs the threat families (OWASP LLM Top 10, MITRE ATLAS, prompt-injection variants). Section 47.3 covers red-teaming as an engineering practice: PyRIT, Garak, HarmBench, JailbreakBench, and how to wire automated red-team runs into CI."
 - **Learning Objectives** (lines 65-79): nine of the thirteen objectives are about content that has been moved out of this chapter (bias, EU AI Act, model cards, environmental impact, differential privacy, federated learning, machine unlearning, licensing). Trim to the four that apply to 47.1/47.2.
 - **Prerequisites** (lines 83-88): "Chapter 45 Production Engineering and Operations" — now Chapter 62. "Chapter 14 Prompt Engineering" — now Chapter 12. "Chapter 44 Evaluation and Observability" — now Chapter 42. "Chapter 20 Alignment, RLHF, and DPO" — still 20. Update all four numbers.
 - **Section descriptions**: both 47.1 and 47.2 say "A comprehensive chapter from the Building Conversational AI textbook." Replace:
@@ -326,7 +326,7 @@ Three structural recommendations for Part 9 (in priority order):
   - Section 53.1 line 42: "Section 49.3" / "Section 14.3" — stale. Bias is Section 52.1; prompt-injection defenses are Section 12.4 (current Prompt Engineering chapter).
   - Section 53.1 line 127: "Section 44.6" — link target `module-42-evaluation-foundations/section-42.6.html`. The link text and link target are now disconnected (text says 44.6, file is 42.6).
   - Section 53.1 nav prev (line 375): "Section 52.2 Why LLMs Hallucinate" — the file exists but is not exposed in Chapter 52's index. Coordinate with the 52.2-disposition decision above.
-  - Section 53.4 line 38: "Section 8.2" link target `module-07-modern-llm-landscape/section-7.2.html`. Mismatched numbering.
+  - Section 53.4 line 38: "Section 8.2" link target `module-07-modern-llm-landscape/section-7.3.html`. Mismatched numbering.
   - Section 53.4 line 42: "Section 49.5" / "Section 18.1" / "Section 7.1" — stale.
   - All section H2 numbering visible `55.x.y` (53.1 = 55.1.x, 53.2 = 55.2.x, 53.3 = 55.5.x, 53.4 = 55.7.x). Renumber.
 - **Chapter-nav** (lines 53-55): "Chapter 54 / Part IX / Chapter 56" — stale.
@@ -378,7 +378,7 @@ Three structural recommendations for Part 9 (in priority order):
 - **Stale prose refs in 55.1**:
   - Line 51: "Section 7.1" / "Section 49.3" / "Section 49.9" all stale. Section 49.x doesn't have bias or AI Act material anymore.
   - Line 200: "Section 45.1" — should be Section 9.x (inference optimization) or 48.x (production tools).
-  - Lines 603-606: "Section 19.5" / "Section 10.2" / "Section 45.1" — verify current numbering.
+  - Lines 603-606: "Section 19.6" / "Section 10.2" / "Section 45.1" — verify current numbering.
   - Line 614: "Section 49.9" — should be Section 53.2 (EU AI Act in practice).
   - Line 633: "Section 44.3" — should be Section 42.3.
 - **Chapter-nav** (lines 47-49): "Chapter 57 / Part IX / Chapter 59" — stale.

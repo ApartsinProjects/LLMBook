@@ -44,7 +44,7 @@ Inventory of inline SVGs (counts per file):
 
 9. **section-37.3.html Figure 37.3.3 caption has a markup bug**: `<strong><strong>Figure 37.3.3</strong>` — nested `<strong>` tags. Visible at line 499 of `section-37.3.html`.
 
-10. **section-35.2.html GraphRAG SVG has cluttered/duplicate edge labels.** Lines 99-110 of `section-35.2.html` add a `data-annotation-line` overlay (line 108) that is not labeled; combined with multiple `<text>` labels at similar coordinates the visual is busier than its content requires. Six nodes plus six labeled edges is at the upper end of comfortable; the dashed annotation line could be removed.
+10. **section-35.3.html GraphRAG SVG has cluttered/duplicate edge labels.** Lines 99-110 of `section-35.3.html` add a `data-annotation-line` overlay (line 108) that is not labeled; combined with multiple `<text>` labels at similar coordinates the visual is busier than its content requires. Six nodes plus six labeled edges is at the upper end of comfortable; the dashed annotation line could be removed.
 
 ## Per-chapter findings
 
@@ -130,9 +130,9 @@ All five 61.x SVGs follow the same template (cream background, Georgia serif, 5-
 
 - **section-29.4.html (`part-6-agentic-ai/module-29-specialized-agents/`)**: 0 inline SVGs. Comparison table for agentic-coding platforms is present. Section is mostly prose plus a single table; could benefit from a small **agency-vs-developer-control** quadrant diagram (Claude Code / Cursor / Windsurf / Devin positioned by autonomy axis).
 
-- **section-35.2.html (`part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/`)**: 1 inline SVG ("knowledge graph example", lines 81-116). REVIEW. 6 colored nodes (Einstein/Ulm/Relativity/Physics/Nobel/ETH) with 6 labeled edges. Uses circle nodes with distinct colors per node, which is visually busy compared with the book convention of consistent semantic colors (different colors should mean different *categories*, not different *instances*). The dashed `data-annotation-line` overlay (line 108) is unlabeled and adds visual noise. PROPOSE recoloring nodes by entity type (person / place / concept / award / institution) rather than per instance, and removing the spare dashed line.
+- **section-35.3.html (`part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/`)**: 1 inline SVG ("knowledge graph example", lines 81-116). REVIEW. 6 colored nodes (Einstein/Ulm/Relativity/Physics/Nobel/ETH) with 6 labeled edges. Uses circle nodes with distinct colors per node, which is visually busy compared with the book convention of consistent semantic colors (different colors should mean different *categories*, not different *instances*). The dashed `data-annotation-line` overlay (line 108) is unlabeled and adds visual noise. PROPOSE recoloring nodes by entity type (person / place / concept / award / institution) rather than per instance, and removing the spare dashed line.
 
-- **section-35.3.html (`part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/`)**: 0 inline SVGs. Section explains the Microsoft GraphRAG pipeline (community detection, summarization, hierarchical query) in prose plus a table. PROPOSE adding a **GraphRAG pipeline LR flow** SVG: documents → entity extraction → graph construction → community detection → community summaries → query answer. 6 boxes, top-down or LR. This is exactly the type of pipeline that needs a diagram.
+- **section-35.4.html (`part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/`)**: 0 inline SVGs. Section explains the Microsoft GraphRAG pipeline (community detection, summarization, hierarchical query) in prose plus a table. PROPOSE adding a **GraphRAG pipeline LR flow** SVG: documents → entity extraction → graph construction → community detection → community summaries → query answer. 6 boxes, top-down or LR. This is exactly the type of pipeline that needs a diagram.
 
 - **section-37.3.html (`part-8-conversational-ai-with-llms/module-37-conversational-ai/`)**: 2 inline SVGs.
 

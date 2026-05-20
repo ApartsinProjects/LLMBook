@@ -74,22 +74,22 @@ and how foundational it is to the book's curriculum.
 | 1 | `part-1-llm-building-blocks/module-01-foundations-nlp-text-representation/section-1.6.html` (Subword Tokenization Algorithms) | 2.5 | Algorithm callouts for BPE training (merge loop), WordPiece (likelihood-based merge), and Viterbi segmentation under Unigram; explicit Shannon code-length argument |
 | 2 | `part-1-llm-building-blocks/module-04-decoding-text-generation/section-4.2.html` (Stochastic Sampling) | 2.0 | Algorithm callouts for top-p, top-k, min-p, temperature-shifted softmax, repetition/frequency/presence penalties (formulas already in `SCIENTIFIC_DEPTH_OPPORTUNITIES.md` from 2024) |
 | 3 | `part-2-understanding-llms/module-08-reasoning-test-time-compute/section-8.2.html` (o1, o3, R1, QwQ) | 1.25 | Add the GRPO objective restatement next to R1 description; show the difference between hidden-CoT (o-series) and visible-CoT (R1) at training-objective level; PRM vs ORM contrast box |
-| 4 | `part-2-understanding-llms/module-09-inference-optimization/section-9.5.html` (Pruning & Sparsity) | 1.5 | Algorithm callout for SparseGPT (Hessian-inverse weight update across columns) and Wanda (importance = `|w_ij| * ‖x_j‖`); 2:4 sparsity mask construction |
-| 5 | `part-2-understanding-llms/module-09-inference-optimization/section-9.4a.html` (vLLM/Serving Stack) | 1.5 | Algorithm callout for continuous batching scheduler and PagedAttention block-table lookup; throughput-vs-latency trade-off equation |
+| 4 | `part-2-understanding-llms/module-09-inference-optimization/section-9.7.html` (Pruning & Sparsity) | 1.5 | Algorithm callout for SparseGPT (Hessian-inverse weight update across columns) and Wanda (importance = `|w_ij| * ‖x_j‖`); 2:4 sparsity mask construction |
+| 5 | `part-2-understanding-llms/module-09-inference-optimization/section-9.5.html` (vLLM/Serving Stack) | 1.5 | Algorithm callout for continuous batching scheduler and PagedAttention block-table lookup; throughput-vs-latency trade-off equation |
 | 6 | `part-2-understanding-llms/module-10-interpretability/section-10.2.html` (Mechanistic Interp) | 1.25 | SAE encoder-decoder math (`f = ReLU(W_enc(x-b_dec))`, reconstruction loss + L1), TopK variant, activation-patching causal-mediation formula |
 | 7 | `part-4-training-adaptation/module-17-peft/section-17.1.html` (LoRA & QLoRA) | 3.25 (close to deep) | Add the rank-stabilized scaling derivation `alpha / sqrt(r)` (rsLoRA), the QLoRA NF4 quantization quantile formula, and a unified parameter-budget equation across LoRA / DoRA / GaLore / VeRA |
 | 8 | `part-4-training-adaptation/module-17-peft/section-17.2.html` (Advanced PEFT) | 1.75 | Algorithm callouts for DoRA (`W = m · V/‖V‖`), GaLore (low-rank gradient projection via SVD), VeRA (shared random matrices, scalar adapter), Pissa (init from SVD of W) |
 | 9 | `part-4-training-adaptation/module-17-peft/section-17.4.html` (Soft Prompts) | 1.75 | Loss-gradient explanation: why gradient flows only into prompt embeddings; per-layer prefix-tuning KV-cache injection; P-Tuning v2 deep prefix re-parameterization |
-| 10 | `part-4-training-adaptation/module-18-alignment-rlhf-dpo/section-18.2b.html` (DPO Variants) | 1.75 | Equations for IPO (length-regularized), KTO (Kahneman-Tversky, unpaired), SimPO (length-normalized), ORPO (combined SFT+preference); when each one beats vanilla DPO |
+| 10 | `part-4-training-adaptation/module-18-alignment-rlhf-dpo/section-18.4.html` (DPO Variants) | 1.75 | Equations for IPO (length-regularized), KTO (Kahneman-Tversky, unpaired), SimPO (length-normalized), ORPO (combined SFT+preference); when each one beats vanilla DPO |
 | 11 | `part-5-multimodal-llms/module-22-vision-language-models/section-22.1.html` (ViT) | 1.0 | Patch-embedding equation `x_p = Linear(Flatten(Reshape(image)))`, position-embedding addition, [CLS]-token math, sequence length = 1 + (HW)/(P^2) |
 | 12 | `part-5-multimodal-llms/module-22-vision-language-models/section-22.2.html` (CLIP/SigLIP) | 2.0 | Symmetric InfoNCE loss with temperature `tau`, batch-size sensitivity discussion, SigLIP's pairwise sigmoid loss replacing softmax |
 | 13 | `part-5-multimodal-llms/module-22-vision-language-models/section-22.3.html` (LLaVA, BLIP-3, Qwen-VL) | 2.0 | Connector projection math (`[B, N_patch, D_vision] → [B, N_patch, D_llm]`), instruction-tuning loss, Q-Former cross-attention vs MLP connector |
 | 14 | `part-6-agentic-ai/module-26-ai-agents/section-26.1.html` (What Makes an Agent) | 4.0 | Has 3 algo callouts; add formal ReAct loop as numbered Algorithm with halt-condition and max-step guard; OODA loop analogue |
 | 15 | `part-6-agentic-ai/module-26-ai-agents/section-26.2.html` (Planning & Agentic Reasoning) | 3.0 | Algorithm callouts for Plan-and-Execute, Tree-of-Thoughts BFS+self-eval+prune, LATS with UCB selection, Reflexion attempt/critique/revise |
-| 16 | `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.1b.html` (Modern Embeddings) | 3.75 | Add explicit DPR loss `L = -log(exp(sim(q,p+)/tau) / sum_p exp(sim(q,p)/tau))`, ColBERT MaxSim formula, BGE 2-stage training (RetroMAE + contrastive), Matryoshka loss for nested dims |
-| 17 | `part-7-retrieval-information-extraction-with-llms/module-32-rag/section-32.1b.html` (RAG Long-Context) | 1.25 | Lost-in-the-middle quantitative analysis; long-context attention dilution math; chunking-vs-long-context Pareto frontier with metric examples |
+| 16 | `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.2.html` (Modern Embeddings) | 3.75 | Add explicit DPR loss `L = -log(exp(sim(q,p+)/tau) / sum_p exp(sim(q,p)/tau))`, ColBERT MaxSim formula, BGE 2-stage training (RetroMAE + contrastive), Matryoshka loss for nested dims |
+| 17 | `part-7-retrieval-information-extraction-with-llms/module-32-rag/section-32.2.html` (RAG Long-Context) | 1.25 | Lost-in-the-middle quantitative analysis; long-context attention dilution math; chunking-vs-long-context Pareto frontier with metric examples |
 | 18 | `part-7-retrieval-information-extraction-with-llms/module-33-cross-modal-reasoning-rag/section-33.1.html` (Joint Embedding Spaces) | 2.0 | Equations for ImageBind (binding modality to image space via contrastive learning), AudioCLIP (audio-image-text triplet loss), CLIP-as-prior derivation |
-| 19 | `part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.1b.html` (Query Transformation, HyDE, Multi-step) | 2.0 | Algorithm callouts for HyDE (hypothetical doc generation + embed), Step-back prompting, Multi-Query decomposition, Multi-step retrieval loop with termination criterion |
+| 19 | `part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.2.html` (Query Transformation, HyDE, Multi-step) | 2.0 | Algorithm callouts for HyDE (hypothetical doc generation + embed), Step-back prompting, Multi-Query decomposition, Multi-step retrieval loop with termination criterion |
 | 20 | `part-9-llm-evaluation-observability/module-43-specialized-evaluation/section-43.1.html` (RAG Eval: Ragas, BEIR) | 2.0 | Explicit Ragas formulas: faithfulness (claim-coverage), answer-relevance (cosine of generated question to original), context-precision (rank-weighted). nDCG with logarithmic discount formula |
 | 21 | `part-9-llm-evaluation-observability/module-44-online-eval-observability/section-44.5.html` (Drift Detection) | 0.0 | KL-divergence drift detection, KS test for univariate features, PSI (Population Stability Index) formula, sequential change-point methods (CUSUM) for online detection |
 | 22 | `part-10-llm-security-runtime-safety/module-49-agent-safety-autonomy/section-49.5.html` (Why LLMs Hallucinate) | 1.25 | Formal definition of factuality from Manakul SelfCheckGPT (token-level uncertainty), Chen et al. hallucination detection via self-consistency; Jaccard hallucination metric |
@@ -110,7 +110,7 @@ Three recurring patterns explain most of the gap:
 any of them.** The clearest cases are section 8.2 (lists o1/o3/R1/QwQ with
 17 named methods but 0 math/algo), section 17.4 (lists 42 soft-prompt methods),
 section 22.1 (ViT, lists all variants but no patch-embedding equation), and
-section 9.5 (SparseGPT/Wanda named but Hessian-inverse update never written
+section 9.7 (SparseGPT/Wanda named but Hessian-inverse update never written
 out). The pattern is "we named everything; we derived nothing." Fix: a
 single numbered Algorithm callout with the canonical formal statement
 per named method.
@@ -163,29 +163,29 @@ flagged out-of-scope.
 |---|---:|---:|---:|---:|---|
 | `module-00/section-0.1.html` (Classical ML) | 2.25 | 28 | 0 | 1 | Algorithm callouts for SGD vs Adam vs AdamW updates; bias-variance decomposition equation |
 | `module-00/section-0.2.html` (Deep Learning Essentials) | 2.75 | 29 | 0 | 0 | Backprop chain-rule derivation, vanishing/exploding-gradient math, Glorot vs He init formulas |
-| `module-00/section-0.3a.html` (PyTorch Tensors, Autograd) | 0.25 | 0 | 0 | 0 | Intentionally light tutorial; OK |
-| `module-00/section-0.3b.html` (PyTorch Debugging) | 0.25 | 0 | 0 | 0 | OK (operational) |
-| `module-00/section-0.4.html` (RL Foundations) | 4.25 | 6 | 0 | 45 | Has named methods; add Bellman equation + value iteration pseudocode |
+| `module-00/section-0.3.html` (PyTorch Tensors, Autograd) | 0.25 | 0 | 0 | 0 | Intentionally light tutorial; OK |
+| `module-00/section-0.4.html` (PyTorch Debugging) | 0.25 | 0 | 0 | 0 | OK (operational) |
+| `module-00/section-0.5.html` (RL Foundations) | 4.25 | 6 | 0 | 45 | Has named methods; add Bellman equation + value iteration pseudocode |
 | `module-01/section-1.1.html` (Intro to NLP) | 1.25 | 0 | 0 | 0 | Intentionally gentle; OK |
 | `module-01/section-1.2.html` (Text Preprocessing) | 3.00 | 14 | 0 | 9 | OK |
 | `module-01/section-1.3.html` (Word2Vec, GloVe, FastText) | 2.75 | 26 | 0 | 1 | Algorithm callouts for SGNS (skip-gram negative sampling), GloVe co-occurrence factorization, FastText subword averaging |
 | `module-01/section-1.4.html` (ELMo, contextual embeddings) | 1.50 | 0 | 0 | 0 | Bi-LSTM language-model objective equation; layer-weighted ELMo combination formula |
 | `module-01/section-1.5.html` (Why Tokenization Matters) | 1.25 | 4 | 0 | 0 | Shannon code-length bound on optimal vocabulary; Zipf's law connection (already mentioned but not formal) |
 | `module-01/section-1.6.html` (Subword Algorithms) | 2.50 | 10 | 0 | 0 | **Top-30 #1**: Algorithm callouts for BPE training (merge loop), WordPiece, Unigram with Viterbi; explicit corpus-likelihood objective |
-| `module-01/section-1.7a.html` (Special Tokens, Tiktoken) | 0.50 | 0 | 0 | 0 | OK (operational) |
-| `module-01/section-1.7b.html` (Multilingual / Multimodal Tokens) | 0.50 | 0 | 0 | 0 | Add normalized-byte-rate calculation across languages; multimodal token chunking math (image patches → tokens) |
+| `module-01/section-1.7.html` (Special Tokens, Tiktoken) | 0.50 | 0 | 0 | 0 | OK (operational) |
+| `module-01/section-1.8.html` (Multilingual / Multimodal Tokens) | 0.50 | 0 | 0 | 0 | Add normalized-byte-rate calculation across languages; multimodal token chunking math (image patches → tokens) |
 | `module-02/section-2.1.html` (Why RNNs Couldn't Scale) | 3.75 | 64 | 0 | 0 | Already deep; OK |
 | `module-02/section-2.2.html` (Attention Mechanism) | 2.75 | 69 | 0 | 0 | Numbered Algorithm callout for additive vs scaled dot-product attention contrast |
-| `module-02/section-2.3a.html` (QKV, Causal Masking) | 3.00 | 36 | 0 | 0 | Algorithm callout consolidating Q/K/V derivation + sqrt(d_k) scale + softmax + V multiplication |
-| `module-02/section-2.3b.html` (Multi-Head, Complexity, Lab) | 3.75 | 52 | 0 | 0 | Already deep; OK |
-| `module-03/section-3.1a.html` (Transformer Anatomy) | 5.00 | 51 | 2 | 0 | Benchmark; OK |
-| `module-03/section-3.1b.html` (Transformer Init, Causal Mask) | 5.00 | 42 | 3 | 1 | OK |
-| `module-03/section-3.2a.html` (Build a Transformer Architecture) | 1.25 | 0 | 0 | 0 | Lab section; could add gradient-flow diagram and per-layer parameter counting formula |
-| `module-03/section-3.2b.html` (Training Loop, Shapes) | 1.25 | 2 | 0 | 0 | Could add memory-usage formula (`activations + params + grads + optimizer-states`) |
-| `module-03/section-3.3.html` (Transformer Variants & Efficiency) | 5.00 | 45 | 5 | 0 | Benchmark; OK |
-| `module-03/section-3.4.html` (GPU Fundamentals) | 5.00 | 16 | 1 | 2 | OK |
-| `module-03/section-3.5.html` (Transformer Expressiveness Theory) | 3.75 | 35 | 0 | 0 | Could add Merrill-Sabharwal TC^0 vs log-depth formal bounds |
-| `module-03/section-3.6.html` (SSMs, MoE, Modern Variants) | 5.00 | 28 | 2 | 0 | OK |
+| `module-02/section-2.3.html` (QKV, Causal Masking) | 3.00 | 36 | 0 | 0 | Algorithm callout consolidating Q/K/V derivation + sqrt(d_k) scale + softmax + V multiplication |
+| `module-02/section-2.4.html` (Multi-Head, Complexity, Lab) | 3.75 | 52 | 0 | 0 | Already deep; OK |
+| `module-03/section-3.1.html` (Transformer Anatomy) | 5.00 | 51 | 2 | 0 | Benchmark; OK |
+| `module-03/section-3.2.html` (Transformer Init, Causal Mask) | 5.00 | 42 | 3 | 1 | OK |
+| `module-03/section-3.3.html` (Build a Transformer Architecture) | 1.25 | 0 | 0 | 0 | Lab section; could add gradient-flow diagram and per-layer parameter counting formula |
+| `module-03/section-3.4.html` (Training Loop, Shapes) | 1.25 | 2 | 0 | 0 | Could add memory-usage formula (`activations + params + grads + optimizer-states`) |
+| `module-03/section-3.5.html` (Transformer Variants & Efficiency) | 5.00 | 45 | 5 | 0 | Benchmark; OK |
+| `module-03/section-3.6.html` (GPU Fundamentals) | 5.00 | 16 | 1 | 2 | OK |
+| `module-03/section-3.7.html` (Transformer Expressiveness Theory) | 3.75 | 35 | 0 | 0 | Could add Merrill-Sabharwal TC^0 vs log-depth formal bounds |
+| `module-03/section-3.8.html` (SSMs, MoE, Modern Variants) | 5.00 | 28 | 2 | 0 | OK |
 | `module-04/section-4.1.html` (Deterministic Decoding) | 4.00 | 17 | 2 | 0 | Could add beam-search complexity (`O(B*V)` per step), length-penalty derivation |
 | `module-04/section-4.2.html` (Stochastic Sampling) | 2.00 | 23 | 0 | 0 | **Top-30 #2**: Algorithm callouts for top-p, top-k, min-p, temperature-shifted softmax, repetition penalty (formulas mostly present in prose, need to be lifted into Algorithm boxes) |
 | `module-04/section-4.3.html` (Advanced Decoding, Structured) | 3.00 | 11 | 0 | 0 | Algorithm callout for constrained decoding (grammar-state automaton), JSON-mode token-masking |
@@ -204,32 +204,32 @@ flagged out-of-scope.
 | `module-06/section-6.7.html` (In-Context Learning Theory) | 3.25 | 13 | 0 | 0 | Add Xie et al. Bayesian framing of ICL, Garg et al. linear-regression-as-task formalization |
 | `module-06/section-6.8.html` (Megatron, Elastic, k8s) | 3.00 | 37 | 0 | 0 | Already strong |
 | `module-06/section-6.9.html` (Lab: Tiny LM) | 1.75 | 0 | 0 | 4 | Lab; OK |
-| `module-07/section-7.1a.html` (Frontier Models: OpenAI/Anthropic) | 2.00 | 0 | 0 | 1 | Survey; could add tokens-per-param ratio across all named models as comparative table |
-| `module-07/section-7.1b.html` (Frontier: Gemini) | 2.00 | 0 | 0 | 1 | Same as 7.1a |
-| `module-07/section-7.2.html` (Open Models) | 3.25 | 6 | 0 | 7 | Already strong |
-| `module-07/section-7.3.html` (Multilingual / Cross-Cultural) | 1.25 | 5 | 0 | 0 | Add cross-lingual transfer math (XLM objective), tokenizer-coverage formula for low-resource languages |
+| `module-07/section-7.1.html` (Frontier Models: OpenAI/Anthropic) | 2.00 | 0 | 0 | 1 | Survey; could add tokens-per-param ratio across all named models as comparative table |
+| `module-07/section-7.2.html` (Frontier: Gemini) | 2.00 | 0 | 0 | 1 | Same as 7.1a |
+| `module-07/section-7.3.html` (Open Models) | 3.25 | 6 | 0 | 7 | Already strong |
+| `module-07/section-7.4.html` (Multilingual / Cross-Cultural) | 1.25 | 5 | 0 | 0 | Add cross-lingual transfer math (XLM objective), tokenizer-coverage formula for low-resource languages |
 | `module-08/section-8.1.html` (Test-Time Compute) | 5.00 | 28 | 2 | 21 | OK |
 | `module-08/section-8.2.html` (o1, o3, R1, QwQ) | 1.25 | 0 | 0 | 17 | **Top-30 #3**: forward-link GRPO objective inline, contrast hidden-CoT vs visible-CoT training objectives, PRM vs ORM box |
 | `module-08/section-8.3.html` (RLVR, GRPO, PRM) | 5.00 | 4 | 4 | 75 | OK (deep, but only 4 inline math; could augment GRPO group-advantage normalization formula) |
 | `module-08/section-8.4.html` (Prompting Reasoning Models) | 2.50 | 0 | 0 | 4 | Could add cost-vs-quality Pareto curve formula |
 | `module-08/section-8.5.html` (Compute-Optimal Inference) | 5.00 | 20 | 2 | 3 | OK |
 | `module-08/section-8.6.html` (Formal & Verifiable Reasoning) | 2.50 | 1 | 0 | 4 | Add LEAN/Coq proof-search algorithm, prover-verifier interaction loop |
-| `module-09/section-9.1a.html` (Quantization: Math) | 3.00 | 23 | 0 | 26 | Add explicit linear-quant equation `q = round(x/s) + z`, log-quant (NF4) quantile derivation |
-| `module-09/section-9.1b.html` (Quant Algorithms, QAT) | 3.25 | 15 | 0 | 70 | Algorithm callouts for GPTQ Hessian-based weight update, AWQ activation-aware scaling, SmoothQuant per-channel rescale |
-| `module-09/section-9.2.html` (KV Cache, Memory Opt) | 5.00 | 14 | 1 | 15 | OK |
-| `module-09/section-9.3.html` (Speculative Decoding) | 5.00 | 77 | 3 | 1 | OK |
-| `module-09/section-9.4a.html` (Serving Stack, vLLM Deep Dive) | 1.50 | 0 | 0 | 2 | **Top-30 #5**: Algorithm callout for continuous-batching scheduler, PagedAttention block-table mapping, throughput-vs-latency M/M/c formula |
-| `module-09/section-9.4b.html` (Serving Runtimes) | 3.25 | 5 | 0 | 27 | OK |
-| `module-09/section-9.5.html` (Pruning & Sparsity) | 1.50 | 0 | 0 | 14 | **Top-30 #4**: Algorithm callouts for SparseGPT (Hessian-inverse), Wanda (`|w_ij| * ‖x_j‖`), 2:4 sparsity mask |
-| `module-09/section-9.6.html` (Test-Time Compute & Reasoning) | 2.00 | 0 | 0 | 4 | Algorithm callout for best-of-N + verifier, self-consistency majority vote |
-| `module-09/section-9.7.html` (GPU Kernel Programming) | 5.00 | 17 | 2 | 0 | OK |
+| `module-09/section-9.1.html` (Quantization: Math) | 3.00 | 23 | 0 | 26 | Add explicit linear-quant equation `q = round(x/s) + z`, log-quant (NF4) quantile derivation |
+| `module-09/section-9.2.html` (Quant Algorithms, QAT) | 3.25 | 15 | 0 | 70 | Algorithm callouts for GPTQ Hessian-based weight update, AWQ activation-aware scaling, SmoothQuant per-channel rescale |
+| `module-09/section-9.3.html` (KV Cache, Memory Opt) | 5.00 | 14 | 1 | 15 | OK |
+| `module-09/section-9.4.html` (Speculative Decoding) | 5.00 | 77 | 3 | 1 | OK |
+| `module-09/section-9.5.html` (Serving Stack, vLLM Deep Dive) | 1.50 | 0 | 0 | 2 | **Top-30 #5**: Algorithm callout for continuous-batching scheduler, PagedAttention block-table mapping, throughput-vs-latency M/M/c formula |
+| `module-09/section-9.6.html` (Serving Runtimes) | 3.25 | 5 | 0 | 27 | OK |
+| `module-09/section-9.7.html` (Pruning & Sparsity) | 1.50 | 0 | 0 | 14 | **Top-30 #4**: Algorithm callouts for SparseGPT (Hessian-inverse), Wanda (`|w_ij| * ‖x_j‖`), 2:4 sparsity mask |
+| `module-09/section-9.8.html` (Test-Time Compute & Reasoning) | 2.00 | 0 | 0 | 4 | Algorithm callout for best-of-N + verifier, self-consistency majority vote |
+| `module-09/section-9.9.html` (GPU Kernel Programming) | 5.00 | 17 | 2 | 0 | OK |
 | `module-10/section-10.1.html` (Attention Analysis & Probing) | 0.75 | 0 | 0 | 0 | Probing-classifier accuracy as proxy for representation quality; logit-lens unembed projection |
 | `module-10/section-10.2.html` (Mechanistic Interp) | 1.25 | 0 | 0 | 0 | **Top-30 #6**: SAE encoder-decoder equations, TopK variant, activation-patching causal-mediation formula |
 | `module-10/section-10.3.html` (Practical Interp) | 1.75 | 0 | 0 | 0 | Could add unified pipeline pseudocode for SAE-feature discovery |
 | `module-10/section-10.4.html` (Explaining Transformers) | 0.75 | 0 | 0 | 0 | Layer-wise-relevance-propagation, integrated-gradients formal definition |
-| `module-10/section-10.4b.html` (Interp Tooling, LLM-Assisted) | 0.75 | 0 | 0 | 0 | Could add automated-circuit-discovery loop pseudocode |
-| `module-10/section-10.5.html` (Platforms - interp) | 1.00 | 1 | 0 | 0 | Catalog; OK |
-| `module-10/section-10.6a.html` (Interp Tools, TransformerLens) | 1.50 | 0 | 0 | 0 | Could add HookPoint mechanism formalization |
+| `module-10/section-10.5.html` (Interp Tooling, LLM-Assisted) | 0.75 | 0 | 0 | 0 | Could add automated-circuit-discovery loop pseudocode |
+| `module-10/section-10.6.html` (Platforms - interp) | 1.00 | 1 | 0 | 0 | Catalog; OK |
+| `module-10/section-10.7.html` (Interp Tools, TransformerLens) | 1.50 | 0 | 0 | 0 | Could add HookPoint mechanism formalization |
 
 ### Part III: Working with LLMs
 
@@ -272,17 +272,17 @@ flagged out-of-scope.
 | `module-17/section-17.2.html` (Advanced PEFT) | 1.75 | 0 | 0 | 133 | **Top-30 #8**: Algorithm callouts for DoRA, GaLore, VeRA, Pissa |
 | `module-17/section-17.3.html` (Training Platforms) | 2.25 | 1 | 0 | 58 | Catalog; OK |
 | `module-17/section-17.4.html` (Soft Prompts) | 1.75 | 0 | 0 | 42 | **Top-30 #9**: per-layer prefix KV injection equations, gradient-flow derivation |
-| `module-17/section-17.5a.html` (KD Foundations) | 3.25 | 6 | 0 | 4 | Already strong |
-| `module-17/section-17.5b.html` (Distillation: Licensing, Speculative) | 1.75 | 0 | 0 | 2 | Reasoning-trace distillation loss formula |
-| `module-17/section-17.6.html` (Model Merging) | 3.50 | 12 | 0 | 5 | OK (Task Arithmetic, TIES, DARE formulas mostly present) |
-| `module-17/section-17.7.html` (Continual Learning) | 3.25 | 7 | 0 | 16 | EWC Fisher matrix formula, LwF distillation regularizer, gradient projection methods |
-| `module-18/section-18.1a.html` (RLHF with PPO) | 5.00 | 14 | 5 | 80 | Benchmark; OK |
-| `module-18/section-18.1b.html` (GRPO, Reward Hacking) | 3.25 | 9 | 0 | 115 | Could add explicit GRPO group-relative advantage formula `A_i = (r_i - mean(r)) / std(r)` |
-| `module-18/section-18.2a.html` (DPO Derivation) | 5.00 | 19 | 4 | 91 | Benchmark; OK |
-| `module-18/section-18.2b.html` (DPO Variants, Iterative) | 1.75 | 0 | 0 | 139 | **Top-30 #10**: equations for IPO, KTO, SimPO, ORPO with when-each-wins |
-| `module-18/section-18.3.html` (Constitutional AI) | 2.25 | 0 | 0 | 17 | CAI two-stage loop pseudocode (critique-revise with constitution), RLAIF reward derivation |
-| `module-18/section-18.4.html` (RLVR) | 2.75 | 2 | 0 | 28 | Verifiable-reward objective formal statement; outcome vs process reward distinction equation |
-| `module-18/section-18.5.html` (Alignment Frontiers) | 4.00 | 0 | 2 | 9 | Has algos; could add weak-to-strong PGR formula |
+| `module-17/section-17.5.html` (KD Foundations) | 3.25 | 6 | 0 | 4 | Already strong |
+| `module-17/section-17.6.html` (Distillation: Licensing, Speculative) | 1.75 | 0 | 0 | 2 | Reasoning-trace distillation loss formula |
+| `module-17/section-17.7.html` (Model Merging) | 3.50 | 12 | 0 | 5 | OK (Task Arithmetic, TIES, DARE formulas mostly present) |
+| `module-17/section-17.8.html` (Continual Learning) | 3.25 | 7 | 0 | 16 | EWC Fisher matrix formula, LwF distillation regularizer, gradient projection methods |
+| `module-18/section-18.1.html` (RLHF with PPO) | 5.00 | 14 | 5 | 80 | Benchmark; OK |
+| `module-18/section-18.2.html` (GRPO, Reward Hacking) | 3.25 | 9 | 0 | 115 | Could add explicit GRPO group-relative advantage formula `A_i = (r_i - mean(r)) / std(r)` |
+| `module-18/section-18.3.html` (DPO Derivation) | 5.00 | 19 | 4 | 91 | Benchmark; OK |
+| `module-18/section-18.4.html` (DPO Variants, Iterative) | 1.75 | 0 | 0 | 139 | **Top-30 #10**: equations for IPO, KTO, SimPO, ORPO with when-each-wins |
+| `module-18/section-18.5.html` (Constitutional AI) | 2.25 | 0 | 0 | 17 | CAI two-stage loop pseudocode (critique-revise with constitution), RLAIF reward derivation |
+| `module-18/section-18.6.html` (RLVR) | 2.75 | 2 | 0 | 28 | Verifiable-reward objective formal statement; outcome vs process reward distinction equation |
+| `module-18/section-18.7.html` (Alignment Frontiers) | 4.00 | 0 | 2 | 9 | Has algos; could add weak-to-strong PGR formula |
 
 ### Part V: Multimodal LLMs
 
@@ -344,19 +344,19 @@ flagged out-of-scope.
 
 | Section | Depth | Math | Algo | Named | Suggested additions |
 |---|---:|---:|---:|---:|---|
-| `module-31/section-31.1a.html` (Classical Embeddings) | 2.25 | 0 | 0 | 6 | Word2Vec SGNS loss, GloVe co-occurrence factorization, FastText subword sum |
-| `module-31/section-31.1b.html` (Modern Embeddings) | 3.75 | 1 | 2 | 21 | **Top-30 #16**: explicit DPR contrastive loss, ColBERT MaxSim, BGE 2-stage training, Matryoshka nested-dim loss |
-| `module-31/section-31.2a.html` (HNSW, IVF) | 5.00 | 11 | 5 | 102 | Benchmark; OK |
-| `module-31/section-31.2b.html` (PQ, Composite, FAISS) | 3.50 | 2 | 2 | 95 | Already strong |
-| `module-31/section-31.3.html` (Vector DB Systems) | 1.50 | 0 | 0 | 51 | Catalog; OK (intentionally shallow) |
+| `module-31/section-31.1.html` (Classical Embeddings) | 2.25 | 0 | 0 | 6 | Word2Vec SGNS loss, GloVe co-occurrence factorization, FastText subword sum |
+| `module-31/section-31.2.html` (Modern Embeddings) | 3.75 | 1 | 2 | 21 | **Top-30 #16**: explicit DPR contrastive loss, ColBERT MaxSim, BGE 2-stage training, Matryoshka nested-dim loss |
+| `module-31/section-31.3.html` (HNSW, IVF) | 5.00 | 11 | 5 | 102 | Benchmark; OK |
+| `module-31/section-31.4.html` (PQ, Composite, FAISS) | 3.50 | 2 | 2 | 95 | Already strong |
+| `module-31/section-31.5.html` (Vector DB Systems) | 1.50 | 0 | 0 | 51 | Catalog; OK (intentionally shallow) |
 | `module-31/section-31.4a.html` (Document Processing, Chunking) | 2.50 | 8 | 0 | 5 | Could add explicit chunk-size optimization curve |
-| `module-31/section-31.4b.html` (Production RAG, Topic Modeling) | 1.75 | 3 | 0 | 2 | BERTopic clustering pseudocode; LDA likelihood as comparison |
-| `module-31/section-31.5.html` (Vision-Based Doc Retrieval) | 5.00 | 9 | 2 | 20 | OK |
-| `module-32/section-32.1a.html` (RAG Foundations) | 3.00 | 0 | 3 | 0 | Strong |
-| `module-32/section-32.1b.html` (RAG Indexing, Long-Context) | 1.25 | 4 | 0 | 1 | **Top-30 #17**: lost-in-the-middle quantitative analysis, long-context attention dilution, chunking-vs-long-context tradeoff |
-| `module-32/section-32.2.html` (Deep Research, Agentic RAG) | 2.00 | 0 | 0 | 4 | Could add iterative-query-refinement loop with termination criterion |
-| `module-32/section-32.3.html` (Structured Data, Text-to-SQL) | 1.50 | 0 | 0 | 1 | Spider/BIRD scoring math, semantic-parsing exact-match formula |
-| `module-32/section-32.4.html` (Source Attribution) | 1.00 | 0 | 0 | 0 | Could add attention-attribution vs gradient-attribution, F1 of citations |
+| `module-31/section-31.7.html` (Production RAG, Topic Modeling) | 1.75 | 3 | 0 | 2 | BERTopic clustering pseudocode; LDA likelihood as comparison |
+| `module-31/section-31.8.html` (Vision-Based Doc Retrieval) | 5.00 | 9 | 2 | 20 | OK |
+| `module-32/section-32.1.html` (RAG Foundations) | 3.00 | 0 | 3 | 0 | Strong |
+| `module-32/section-32.2.html` (RAG Indexing, Long-Context) | 1.25 | 4 | 0 | 1 | **Top-30 #17**: lost-in-the-middle quantitative analysis, long-context attention dilution, chunking-vs-long-context tradeoff |
+| `module-32/section-32.3.html` (Deep Research, Agentic RAG) | 2.00 | 0 | 0 | 4 | Could add iterative-query-refinement loop with termination criterion |
+| `module-32/section-32.4.html` (Structured Data, Text-to-SQL) | 1.50 | 0 | 0 | 1 | Spider/BIRD scoring math, semantic-parsing exact-match formula |
+| `module-32/section-32.5.html` (Source Attribution) | 1.00 | 0 | 0 | 0 | Could add attention-attribution vs gradient-attribution, F1 of citations |
 | `module-33/section-33.1.html` (Joint Embedding Spaces) | 2.00 | 15 | 0 | 0 | **Top-30 #18**: ImageBind / AudioCLIP / multi-modal contrastive setup formal |
 | `module-33/section-33.2.html` (Multimodal RAG) | 1.50 | 1 | 0 | 4 | Cross-modal retrieval Recall@k formula |
 | `module-33/section-33.3.html` (When to Retrieve, When to Reason) | 1.25 | 5 | 0 | 0 | Decision rule formalization (entropy of model's prior over answers) |
@@ -366,13 +366,13 @@ flagged out-of-scope.
 | `module-34/section-34.3.html` (Hybrid IE) | 1.00 | 1 | 0 | 0 | Hybrid rule+LLM precision-recall combination |
 | `module-34/section-34.4.html` (Production IE) | 0.50 | 0 | 0 | 0 | Operational; OK |
 | `module-34/section-34.5.html` (Coreference) | 1.00 | 0 | 0 | 0 | Mention-pair/span-ranking objective, CoNLL F1 |
-| `module-35/section-35.1a.html` (Hybrid Retrieval, Re-Ranking) | 3.50 | 0 | 4 | 52 | Strong; could add cross-encoder vs bi-encoder asymptotic-cost trade-off |
-| `module-35/section-35.1b.html` (Query Transformation, HyDE) | 2.00 | 0 | 0 | 18 | **Top-30 #19**: HyDE / Step-back / Multi-Query / Multi-step retrieval Algorithm callouts |
-| `module-35/section-35.2.html` (RAG with Knowledge Graphs) | 0.50 | 1 | 0 | 0 | Could add subgraph-extraction pseudocode, KG-RAG joint scoring |
-| `module-35/section-35.3.html` (GraphRAG) | 2.25 | 6 | 0 | 5 | Already strong (community-detection-Leiden pseudocode would complete) |
-| `module-35/section-35.4.html` (RAG Ingestion Pipelines) | 0.00 | 1 | 0 | 0 | Operational; OK |
-| `module-35/section-35.5a.html` (RAG Frameworks) | 0.50 | 0 | 0 | 1 | Catalog; OK |
-| `module-35/section-35.5b.html` (RAG Production, DSPy, Hardening) | 1.50 | 0 | 0 | 3 | DSPy compiler objective formal statement |
+| `module-35/section-35.1.html` (Hybrid Retrieval, Re-Ranking) | 3.50 | 0 | 4 | 52 | Strong; could add cross-encoder vs bi-encoder asymptotic-cost trade-off |
+| `module-35/section-35.2.html` (Query Transformation, HyDE) | 2.00 | 0 | 0 | 18 | **Top-30 #19**: HyDE / Step-back / Multi-Query / Multi-step retrieval Algorithm callouts |
+| `module-35/section-35.3.html` (RAG with Knowledge Graphs) | 0.50 | 1 | 0 | 0 | Could add subgraph-extraction pseudocode, KG-RAG joint scoring |
+| `module-35/section-35.4.html` (GraphRAG) | 2.25 | 6 | 0 | 5 | Already strong (community-detection-Leiden pseudocode would complete) |
+| `module-35/section-35.5.html` (RAG Ingestion Pipelines) | 0.00 | 1 | 0 | 0 | Operational; OK |
+| `module-35/section-35.6.html` (RAG Frameworks) | 0.50 | 0 | 0 | 1 | Catalog; OK |
+| `module-35/section-35.7.html` (RAG Production, DSPy, Hardening) | 1.50 | 0 | 0 | 3 | DSPy compiler objective formal statement |
 
 ### Part VIII: Conversational AI
 
@@ -423,10 +423,10 @@ flagged out-of-scope.
 
 | Section | Depth | Math | Algo | Named | Suggested additions |
 |---|---:|---:|---:|---:|---|
-| `module-47/section-47.1a.html` (Prompt Injection Part 1) | 1.00 | 1 | 0 | 0 | Adversarial-suffix optimization (GCG) gradient steps, prefix-tuning attack vector |
-| `module-47/section-47.1b.html` (Data Poisoning, Extraction Part 2) | 4.25 | 9 | 4 | 0 | OK |
-| `module-47/section-47.2.html` (Red Teaming Frameworks) | 4.00 | 13 | 2 | 0 | OK |
-| `module-47/section-47.3.html` (Supply Chain, Conf Compute) | 1.50 | 0 | 0 | 0 | TEE attestation flow pseudocode |
+| `module-47/section-47.1.html` (Prompt Injection Part 1) | 1.00 | 1 | 0 | 0 | Adversarial-suffix optimization (GCG) gradient steps, prefix-tuning attack vector |
+| `module-47/section-47.2.html` (Data Poisoning, Extraction Part 2) | 4.25 | 9 | 4 | 0 | OK |
+| `module-47/section-47.3.html` (Red Teaming Frameworks) | 4.00 | 13 | 2 | 0 | OK |
+| `module-47/section-47.4.html` (Supply Chain, Conf Compute) | 1.50 | 0 | 0 | 0 | TEE attestation flow pseudocode |
 | `module-48/section-48.1.html` (What Guardrails Are) | 1.00 | 0 | 0 | 3 | Could add classification taxonomy formal |
 | `module-48/section-48.2.html` (Input Guardrails) | 4.00 | 17 | 2 | 0 | OK |
 | `module-48/section-48.3.html` (Output Guardrails: Llama Guard, NeMo) | 4.25 | 14 | 2 | 0 | OK |
@@ -524,7 +524,7 @@ flagged out-of-scope.
 
 22 sections currently scored at depth 5.0 and 31 at depth 4+ are at or near
 research-paper depth and require no upgrade for theory content. They are the
-benchmark for what "depth 5" means in this book: sections 3.1a, 3.1b, 3.3, 3.4,
+benchmark for what "depth 5" means in this book: sections 3.1, 3.1b, 3.3, 3.4,
 3.6, 6.3, 8.1, 8.3, 8.5, 9.2, 9.3, 9.7, 18.1a, 18.2a, 31.2a, 31.5, 49.1,
 50.1, 53.2, 55.1, 75.3.
 

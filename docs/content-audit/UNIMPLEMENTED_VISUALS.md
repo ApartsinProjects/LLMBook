@@ -75,20 +75,20 @@ items in the table below, which sit in CONTENT modules (not tools modules).
 
 | Rank | Section | Source audit | Suggestion | Effort | Impact | Visibility | Priority |
 |---:|---|---|---|---|---|---|---|
-| 1 | `part-7-.../module-35-advanced-rag/section-35.3.html` | wave25 | 6-box LR pipeline: documents -> entity extraction -> graph construction -> community detection -> community summaries -> query. Section explains the Microsoft GraphRAG pipeline in prose+table only. | Small SVG (6 boxes, LR flow) | **HIGH** (unlocks pipeline mental model) | RAG chapter, foundational | **HIGH** |
+| 1 | `part-7-.../module-35-advanced-rag/section-35.4.html` | wave25 | 6-box LR pipeline: documents -> entity extraction -> graph construction -> community detection -> community summaries -> query. Section explains the Microsoft GraphRAG pipeline in prose+table only. | Small SVG (6 boxes, LR flow) | **HIGH** (unlocks pipeline mental model) | RAG chapter, foundational | **HIGH** |
 | 2 | `part-12-.../module-59-.../section-59.5.html` (Figure 59.5.1 reskin) | wave25 | Re-skin "Production Training Stack" 5-layer SVG: replace rainbow palette (`#9a2828`, `#5f2a8a`) with book navy/green/amber/purple to match the rest of Ch 59. Visual identity break. | Trivial CSS-only hex swap | LOW-MED (visual consistency) | Distributed-training chapter, foundational | MEDIUM |
 | 3 | `part-6-.../module-29-.../section-29.4.html` | wave25 | Agency-vs-developer-control quadrant: Claude Code / Cursor / Windsurf / Devin positioned by autonomy axis. Currently a single comparison table. | Small SVG quadrant | MEDIUM (helps mental model) | Specialized agents chapter | MEDIUM |
 | 4 | Figure 21.2.2 redraw | `FIGURE_FACT_CHECK_R2.md` follow-up | Current SVG depicts generic error categories; prose discusses FUNSD-specific (checkbox / multi-line / OCR cascade / header confusion). Either redraw SVG to match prose, or soften prose to match generic SVG. The R2 pass softened the prose; this is a deeper SVG rebuild option still on the table. | Small SVG redraw | LOW (caption now matches; this is polish) | OCR/document chapter | LOW |
 | 5 | Figure 73.1.1 dedicated illustration | `FIGURE_FACT_CHECK_R2.md` follow-up | Current image is `comic-three-parallelism-kitchens.jpg` borrowed from Ch 59 (factory-line as the analogy stand-in). Caption was rewritten to match what kitchens show. A dedicated factory-line illustration showing maintenance copilot / inspection summarizer / work-order drafter / supplier-risk briefer would land the original four-station-pipeline pedagogy more directly. | Medium (one new gemini-imagegen comic OR commissioned illustration) | MEDIUM (industry chapter, retains pedagogy) | Manufacturing-LLMs niche | LOW-MED |
 | 6 | `part-5-.../section-20.2.html` (Figure 20.2.1 source asset) | Inline TODO comment | Figure renamed from `figure-32-2-1` during chapter renumbering; source asset missing on disk. Section is voice-cloning anatomy. Comment reads "regenerate diagram or restore from archive". | Small (regen the diagram) | MEDIUM (specific cited figure, leaves a gap) | Voice/audio chapter | MEDIUM |
-| 7 | `part-4-.../module-19-tools-of-the-trade/section-19.12.html` (7152 words!) | cycle_62 IMAGE_OPPORTUNITY | Huge section (7k words) about Transformers library, currently zero figures. ILLUSTRATOR_R2 deliberately skipped (rationale: "API walk-throughs; figures would be filler"). Yet the word count alone makes this readable-fatigue territory. A small ecosystem diagram or one screenshot would help. | Small SVG | MEDIUM | PEFT chapter foundational | MEDIUM |
-| 8 | `part-4-.../module-19-tools-of-the-trade/section-19.10.html` (4798w) | cycle_62 | Same as #7: large HF-library deep-dive section, zero visuals. Per ILLUSTRATOR_R2 convention, these were skipped on purpose, but the largest ones are heavy on a reader. | Small SVG | LOW-MED | tools chapter (lower visibility) | LOW |
-| 9 | `part-4-.../module-19-tools-of-the-trade/section-19.11.html` (4781w) | cycle_62 | Same as #7-8. | Small SVG | LOW-MED | tools chapter | LOW |
-| 10 | `part-4-.../module-19-tools-of-the-trade/section-19.9.html` (3030w) | cycle_62 | Same as #7-9. | Small SVG | LOW | tools chapter | LOW |
+| 7 | `part-4-.../module-19-tools-of-the-trade/section-19.13.html` (7152 words!) | cycle_62 IMAGE_OPPORTUNITY | Huge section (7k words) about Transformers library, currently zero figures. ILLUSTRATOR_R2 deliberately skipped (rationale: "API walk-throughs; figures would be filler"). Yet the word count alone makes this readable-fatigue territory. A small ecosystem diagram or one screenshot would help. | Small SVG | MEDIUM | PEFT chapter foundational | MEDIUM |
+| 8 | `part-4-.../module-19-tools-of-the-trade/section-19.11.html` (4798w) | cycle_62 | Same as #7: large HF-library deep-dive section, zero visuals. Per ILLUSTRATOR_R2 convention, these were skipped on purpose, but the largest ones are heavy on a reader. | Small SVG | LOW-MED | tools chapter (lower visibility) | LOW |
+| 9 | `part-4-.../module-19-tools-of-the-trade/section-19.12.html` (4781w) | cycle_62 | Same as #7-8. | Small SVG | LOW-MED | tools chapter | LOW |
+| 10 | `part-4-.../module-19-tools-of-the-trade/section-19.10.html` (3030w) | cycle_62 | Same as #7-9. | Small SVG | LOW | tools chapter | LOW |
 | 11 | `part-9-.../module-45-tools-of-the-trade/section-45.3.html` (2978w) | cycle_62 | Evaluation tools-of-the-trade catalog. ILLUSTRATOR_R2 deliberately skipped (section 45.2 was rated "would dilute rather than help"; 45.3 same family). | None recommended | LOW | tools chapter | DROP candidate |
 | 12 | `part-9-.../module-45-tools-of-the-trade/section-45.4.html` (1470w) | cycle_62 | Same as #11. | None recommended | LOW | tools chapter | DROP candidate |
-| 13 | `part-4-.../module-19-tools-of-the-trade/section-19.5.html` (1358w) | cycle_62 | External-reading/community section per ILLUSTRATOR_R2 ("intended as text-heavy bibliographies"). | None recommended | LOW | tools chapter | DROP candidate |
-| 14 | `part-6-.../module-30-tools-of-the-trade/section-30.5.html` (1294w) | cycle_62 | Same category: external reading list. ILLUSTRATOR_R2 explicit skip ("no figure benefit"). | None recommended | LOW | tools chapter | DROP candidate |
+| 13 | `part-4-.../module-19-tools-of-the-trade/section-19.6.html` (1358w) | cycle_62 | External-reading/community section per ILLUSTRATOR_R2 ("intended as text-heavy bibliographies"). | None recommended | LOW | tools chapter | DROP candidate |
+| 14 | `part-6-.../module-30-tools-of-the-trade/section-30.6.html` (1294w) | cycle_62 | Same category: external reading list. ILLUSTRATOR_R2 explicit skip ("no figure benefit"). | None recommended | LOW | tools chapter | DROP candidate |
 | 15 | `part-9-.../module-45-tools-of-the-trade/section-45.5.html` (904w) | cycle_62 | Same external-reading category. | None recommended | LOW | tools chapter | DROP candidate |
 | 16 | Top fun-note opportunity: section index files in Part 5 (multimodal) | cycle_62 | 57 unique fun-note opportunities in Part 5 (multimodal). The IMAGEGEN MED tier already shipped 15 hand-crafted analogies, mostly in Parts 1-3. Part 5 had zero MED-tier inserts. | Written prose analogy (no image) | MEDIUM (Part 5 is fact-dense, fewer mental hooks) | Multimodal chapters, foundational for advanced material | MEDIUM |
 | 17 | Top fun-note opportunity: industry chapters Part 14 (67-74) | cycle_62 | 64 fun-note opportunities in Part 14. Each industry chapter (legal, finance, healthcare, education, cybersecurity, government, manufacturing, tools) has fewer than 2 comics. | Written prose analogy | MEDIUM (industry sections are dry; analogies improve memorability) | Application chapters, niche | LOW-MED |
@@ -101,7 +101,7 @@ items in the table below, which sit in CONTENT modules (not tools modules).
 Five rows above (11, 12, 13, 14, 15) are tools-of-the-trade sections that
 `ILLUSTRATOR_R2.md` explicitly chose not to illustrate, with the rationale:
 
-> "Tools-of-the-trade external-reading lists (sections 19.5, 30.5, 36.5, 41.5, 45.5)
+> "Tools-of-the-trade external-reading lists (sections 19.6, 30.5, 36.5, 41.5, 45.5)
 > are intended as text-heavy bibliographies. No figure benefit."
 > "Multimodal tools-of-trade catalogs 25.2 through 25.5 (libraries, datasets,
 > models, readings) are catalogs without a single conceptual frame."
@@ -131,7 +131,7 @@ If the user wants to close the visual gap, this is the proposed sequence:
 
 ### Wave C: Tools-of-the-trade exceptions (decision required)
 
-7. **Section 19.12 (Transformers library, 7152 words)**: Despite the ILLUSTRATOR_R2 skip rationale, a 7k-word library walkthrough does suffer from no-anchor-figure fatigue. One small "Transformers library mental map" SVG (~6 boxes: model class -> tokenizer -> trainer -> pipeline -> hub -> accelerate) could earn its space. Smaller siblings 19.9 / 19.10 / 19.11 follow the same pattern.
+7. **Section 19.13 (Transformers library, 7152 words)**: Despite the ILLUSTRATOR_R2 skip rationale, a 7k-word library walkthrough does suffer from no-anchor-figure fatigue. One small "Transformers library mental map" SVG (~6 boxes: model class -> tokenizer -> trainer -> pipeline -> hub -> accelerate) could earn its space. Smaller siblings 19.9 / 19.10 / 19.11 follow the same pattern.
 
 ### Wave D: Fun-note authoring (no images, written analogies)
 
@@ -176,7 +176,7 @@ the audit will refresh these paths.
 
 Per `ILLUSTRATOR_R2.md`:
 
-> "Tools-of-the-trade external-reading lists (sections 19.5, 30.5, 36.5, 41.5, 45.5)
+> "Tools-of-the-trade external-reading lists (sections 19.6, 30.5, 36.5, 41.5, 45.5)
 > are intended as text-heavy bibliographies. No figure benefit."
 
 The cycle_62 audit re-flags these. Recommend treating them as a known exception

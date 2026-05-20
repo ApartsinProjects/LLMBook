@@ -99,7 +99,7 @@ hesitation.
 - **Top offending files (up to 10):**
   - `part-12-llm-systems-at-scale/module-61-scale-tools/section-61.3.html`: 37 hit(s); pretraining=36, Pretraining=1
   - `part-12-llm-systems-at-scale/module-61-scale-tools/section-61.2.html`: 17 hit(s); pretraining=16, Pretraining=1
-  - `part-2-understanding-llms/module-10-interpretability/section-10.7.html`: 15 hit(s); pretraining=10, Pretraining=5
+  - `part-2-understanding-llms/module-10-interpretability/section-10.9.html`: 15 hit(s); pretraining=10, Pretraining=5
   - `part-15-llm-agentic-ai-research-frontiers/module-75-frontier-architectures/section-75.2.html`: 13 hit(s); pretraining=9, Pretraining=4
   - `part-11-llm-ethics-trust-governance/module-55-environmental-sustainability/section-55.1.html`: 12 hit(s); pretraining=10, Pretraining=2
   - `part-12-llm-systems-at-scale/module-61-scale-tools/section-61.1.html`: 11 hit(s); pretraining=11
@@ -119,15 +119,15 @@ hesitation.
   - `Chain of Thought (use hyphens)`: 4 occurrence(s)
 
 - **Top offending files (up to 10):**
-  - `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.5.html`: 21 hit(s); chain-of-thought=18, Chain-of-thought (lower t)=3
+  - `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.7.html`: 21 hit(s); chain-of-thought=18, Chain-of-thought (lower t)=3
   - `part-2-understanding-llms/module-08-reasoning-test-time-compute/section-8.1.html`: 17 hit(s); chain-of-thought=12, Chain-of-thought (lower t)=3, Chain of Thought (use hyphens)=2
   - `part-15-llm-agentic-ai-research-frontiers/module-76-frontier-theory/section-76.1.html`: 13 hit(s); chain-of-thought=10, Chain-of-thought (lower t)=3
   - `part-3-working-with-llms/module-12-prompt-engineering/section-12.2.html`: 11 hit(s); chain-of-thought=9, Chain-of-thought (lower t)=1, Chain of Thought (use hyphens)=1
   - `part-4-training-adaptation/module-15-synthetic-data/section-15.6.html`: 11 hit(s); chain-of-thought=11
-  - `part-4-training-adaptation/module-17-peft/section-17.5b.html`: 10 hit(s); chain-of-thought=8, Chain-of-thought (lower t)=2
+  - `part-4-training-adaptation/module-17-peft/section-17.6.html`: 10 hit(s); chain-of-thought=8, Chain-of-thought (lower t)=2
   - `part-2-understanding-llms/module-08-reasoning-test-time-compute/section-8.2.html`: 9 hit(s); chain-of-thought=9
   - `part-2-understanding-llms/module-08-reasoning-test-time-compute/section-8.4.html`: 8 hit(s); chain-of-thought=8
-  - `part-4-training-adaptation/module-18-alignment-rlhf-dpo/section-18.4.html`: 7 hit(s); chain-of-thought=7
+  - `part-4-training-adaptation/module-18-alignment-rlhf-dpo/section-18.6.html`: 7 hit(s); chain-of-thought=7
   - `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.1.html`: 6 hit(s); chain-of-thought=5, Chain-of-thought (lower t)=1
 
 ### Hugging Face (vendor/library)
@@ -140,16 +140,16 @@ hesitation.
   - `huggingface`: 2 occurrence(s)
 
 - **Top offending files (up to 10):**
-  - `part-2-understanding-llms/module-10-interpretability/section-10.6b.html`: 14 hit(s); HuggingFace (one word)=14
+  - `part-2-understanding-llms/module-10-interpretability/section-10.8.html`: 14 hit(s); HuggingFace (one word)=14
   - `part-13-llmops-lifecycle/module-66-reliability-slos-registry/section-66.2.html`: 8 hit(s); HuggingFace (one word)=8
   - `part-4-training-adaptation/module-19-tools-of-the-trade/index.html`: 8 hit(s); HuggingFace (one word)=8
-  - `part-4-training-adaptation/module-19-tools-of-the-trade/section-19.3b.html`: 7 hit(s); HuggingFace (one word)=7
-  - `part-4-training-adaptation/module-19-tools-of-the-trade/section-19.6.html`: 7 hit(s); HuggingFace (one word)=7
+  - `part-4-training-adaptation/module-19-tools-of-the-trade/section-19.4.html`: 7 hit(s); HuggingFace (one word)=7
+  - `part-4-training-adaptation/module-19-tools-of-the-trade/section-19.7.html`: 7 hit(s); HuggingFace (one word)=7
   - `part-11-llm-ethics-trust-governance/module-56-responsible-ai-tools/section-56.2.html`: 6 hit(s); HuggingFace (one word)=6
   - `part-5-multimodal-llms/module-24-vla-models/section-24.2.html`: 6 hit(s); HuggingFace (one word)=6
   - `part-5-multimodal-llms/module-25-tools-of-the-trade/section-25.2.html`: 6 hit(s); HuggingFace (one word)=6
   - `part-1-llm-building-blocks/module-05-tools-of-the-trade/section-5.1.html`: 5 hit(s); HuggingFace (one word)=5
-  - `part-1-llm-building-blocks/module-05-tools-of-the-trade/section-5.2a.html`: 5 hit(s); HuggingFace (one word)=5
+  - `part-1-llm-building-blocks/module-05-tools-of-the-trade/section-5.2.html`: 5 hit(s); HuggingFace (one word)=5
 
 ### Llama-3 (model family)
 
@@ -162,8 +162,8 @@ hesitation.
   - `LLaMA-3`: 4 occurrence(s)
 
 - **Top offending files (up to 10):**
-  - `part-2-understanding-llms/module-09-inference-optimization/section-9.2.html`: 26 hit(s); Llama 3 (use hyphen: Llama-3)=26
-  - `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.2.html`: 19 hit(s); Llama 3 (use hyphen: Llama-3)=19
+  - `part-2-understanding-llms/module-09-inference-optimization/section-9.3.html`: 26 hit(s); Llama 3 (use hyphen: Llama-3)=26
+  - `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.3.html`: 19 hit(s); Llama 3 (use hyphen: Llama-3)=19
   - `part-1-llm-building-blocks/module-01-foundations-nlp-text-representation/section-1.7.html`: 12 hit(s); Llama 3 (use hyphen: Llama-3)=12
   - `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.3.html`: 10 hit(s); Llama 3 (use hyphen: Llama-3)=8, LLaMA 3=2
   - `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.8.html`: 6 hit(s); Llama 3 (use hyphen: Llama-3)=6
@@ -183,15 +183,15 @@ hesitation.
   - `KV Cache (lower 'cache')`: 29 occurrence(s)
 
 - **Top offending files (up to 10):**
-  - `part-2-understanding-llms/module-09-inference-optimization/section-9.3.html`: 22 hit(s); KV-cache (use space)=21, KV Cache (lower 'cache')=1
-  - `part-2-understanding-llms/module-09-inference-optimization/section-9.2.html`: 8 hit(s); KV Cache (lower 'cache')=8
-  - `part-2-understanding-llms/module-09-inference-optimization/section-9.1b.html`: 7 hit(s); KV-cache (use space)=6, KV Cache (lower 'cache')=1
-  - `part-2-understanding-llms/module-10-interpretability/section-10.6b.html`: 5 hit(s); KV Cache (lower 'cache')=3, KV-cache (use space)=2
+  - `part-2-understanding-llms/module-09-inference-optimization/section-9.4.html`: 22 hit(s); KV-cache (use space)=21, KV Cache (lower 'cache')=1
+  - `part-2-understanding-llms/module-09-inference-optimization/section-9.3.html`: 8 hit(s); KV Cache (lower 'cache')=8
+  - `part-2-understanding-llms/module-09-inference-optimization/section-9.2.html`: 7 hit(s); KV-cache (use space)=6, KV Cache (lower 'cache')=1
+  - `part-2-understanding-llms/module-10-interpretability/section-10.8.html`: 5 hit(s); KV Cache (lower 'cache')=3, KV-cache (use space)=2
   - `part-12-llm-systems-at-scale/module-57-compute-planning/section-57.4.html`: 4 hit(s); KV Cache (lower 'cache')=4
-  - `part-2-understanding-llms/module-09-inference-optimization/section-9.5.html`: 4 hit(s); KV-cache (use space)=3, KV Cache (lower 'cache')=1
-  - `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.3.html`: 3 hit(s); KV-cache (use space)=2, KV Cache (lower 'cache')=1
+  - `part-2-understanding-llms/module-09-inference-optimization/section-9.7.html`: 4 hit(s); KV-cache (use space)=3, KV Cache (lower 'cache')=1
+  - `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.5.html`: 3 hit(s); KV-cache (use space)=2, KV Cache (lower 'cache')=1
   - `part-2-understanding-llms/module-09-inference-optimization/index.html`: 3 hit(s); KV-cache (use space)=2, KV Cache (lower 'cache')=1
-  - `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.1b.html`: 2 hit(s); KV Cache (lower 'cache')=2
+  - `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.2.html`: 2 hit(s); KV Cache (lower 'cache')=2
   - `part-12-llm-systems-at-scale/module-58-frontier-systems-hardware/section-58.4.html`: 2 hit(s); KV-cache (use space)=2
 
 ### FlashAttention (method)
@@ -205,12 +205,12 @@ hesitation.
 - **Top offending files (up to 10):**
   - `part-12-llm-systems-at-scale/module-61-scale-tools/section-61.2.html`: 23 hit(s); Flash Attention=23
   - `part-4-training-adaptation/module-16-fine-tuning-fundamentals/section-16.7.html`: 5 hit(s); Flash Attention=5
-  - `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.2b.html`: 2 hit(s); Flash Attention=2
   - `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.4.html`: 2 hit(s); Flash Attention=2
+  - `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.6.html`: 2 hit(s); Flash Attention=2
   - `part-12-llm-systems-at-scale/module-61-scale-tools/index.html`: 2 hit(s); Flash Attention=2
   - `part-12-llm-systems-at-scale/module-61-scale-tools/section-61.5.html`: 2 hit(s); Flash Attention=2
   - `part-13-llmops-lifecycle/module-65-containers-kubernetes/section-65.4.html`: 2 hit(s); Flash Attention=2
-  - `part-1-llm-building-blocks/module-02-sequence-models-attention/section-2.3b.html`: 1 hit(s); Flash Attention=1
+  - `part-1-llm-building-blocks/module-02-sequence-models-attention/section-2.4.html`: 1 hit(s); Flash Attention=1
   - `part-12-llm-systems-at-scale/module-61-scale-tools/section-61.3.html`: 1 hit(s); Flash Attention=1
   - `part-2-understanding-llms/module-08-reasoning-test-time-compute/section-8.1.html`: 1 hit(s); Flash Attention=1
 
@@ -224,15 +224,15 @@ hesitation.
   - `LLaMA 2`: 3 occurrence(s)
 
 - **Top offending files (up to 10):**
-  - `part-2-understanding-llms/module-09-inference-optimization/section-9.2.html`: 6 hit(s); Llama 2 (use hyphen: Llama-2)=6
+  - `part-2-understanding-llms/module-09-inference-optimization/section-9.3.html`: 6 hit(s); Llama 2 (use hyphen: Llama-2)=6
   - `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.1.html`: 5 hit(s); Llama 2 (use hyphen: Llama-2)=5
-  - `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.2.html`: 4 hit(s); Llama 2 (use hyphen: Llama-2)=4
+  - `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.3.html`: 4 hit(s); Llama 2 (use hyphen: Llama-2)=4
   - `part-4-training-adaptation/module-16-fine-tuning-fundamentals/section-16.7.html`: 3 hit(s); Llama 2 (use hyphen: Llama-2)=3
-  - `part-1-llm-building-blocks/module-02-sequence-models-attention/section-2.3b.html`: 2 hit(s); Llama 2 (use hyphen: Llama-2)=2
-  - `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.3.html`: 2 hit(s); LLaMA 2=1, Llama 2 (use hyphen: Llama-2)=1
+  - `part-1-llm-building-blocks/module-02-sequence-models-attention/section-2.4.html`: 2 hit(s); Llama 2 (use hyphen: Llama-2)=2
+  - `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.5.html`: 2 hit(s); LLaMA 2=1, Llama 2 (use hyphen: Llama-2)=1
   - `part-12-llm-systems-at-scale/module-57-compute-planning/section-57.4.html`: 2 hit(s); Llama 2 (use hyphen: Llama-2)=2
   - `part-1-llm-building-blocks/module-01-foundations-nlp-text-representation/section-1.6.html`: 1 hit(s); Llama 2 (use hyphen: Llama-2)=1
-  - `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.4.html`: 1 hit(s); Llama 2 (use hyphen: Llama-2)=1
+  - `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.6.html`: 1 hit(s); Llama 2 (use hyphen: Llama-2)=1
   - `part-12-llm-systems-at-scale/module-61-scale-tools/section-61.3.html`: 1 hit(s); Llama 2 (use hyphen: Llama-2)=1
 
 ### scikit-learn (library)
@@ -246,10 +246,10 @@ hesitation.
 - **Top offending files (up to 10):**
   - `part-11-llm-ethics-trust-governance/module-56-responsible-ai-tools/section-56.2.html`: 8 hit(s); sklearn (use 'scikit-learn' in prose)=8
   - `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.1.html`: 3 hit(s); sklearn (use 'scikit-learn' in prose)=3
-  - `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.4b.html`: 3 hit(s); sklearn (use 'scikit-learn' in prose)=3
+  - `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.7.html`: 3 hit(s); sklearn (use 'scikit-learn' in prose)=3
   - `part-11-llm-ethics-trust-governance/module-56-responsible-ai-tools/section-56.1.html`: 2 hit(s); sklearn (use 'scikit-learn' in prose)=2
   - `part-13-llmops-lifecycle/module-63-ai-gateways-routing/section-63.1.html`: 2 hit(s); sklearn (use 'scikit-learn' in prose)=2
-  - `part-8-conversational-ai-with-llms/module-37-conversational-ai/section-37.5b.html`: 2 hit(s); sklearn (use 'scikit-learn' in prose)=2
+  - `part-8-conversational-ai-with-llms/module-37-conversational-ai/section-37.6.html`: 2 hit(s); sklearn (use 'scikit-learn' in prose)=2
   - `part-1-llm-building-blocks/module-01-foundations-nlp-text-representation/section-1.2.html`: 1 hit(s); sklearn (use 'scikit-learn' in prose)=1
   - `part-1-llm-building-blocks/module-01-foundations-nlp-text-representation/section-1.4.html`: 1 hit(s); sklearn (use 'scikit-learn' in prose)=1
   - `part-1-llm-building-blocks/module-05-tools-of-the-trade/section-5.1.html`: 1 hit(s); sklearn (use 'scikit-learn' in prose)=1
@@ -266,7 +266,7 @@ hesitation.
 
 - **Top offending files (up to 10):**
   - `part-12-llm-systems-at-scale/module-61-scale-tools/section-61.3.html`: 7 hit(s); instruction-tuning=6, Instruction-tuning=1
-  - `part-4-training-adaptation/module-19-tools-of-the-trade/section-19.3a.html`: 3 hit(s); instruction-tuning=2, Instruction-tuning=1
+  - `part-4-training-adaptation/module-19-tools-of-the-trade/section-19.3.html`: 3 hit(s); instruction-tuning=2, Instruction-tuning=1
   - `part-5-multimodal-llms/module-22-vision-language-models/section-22.3.html`: 3 hit(s); instruction-tuning=3
   - `part-3-working-with-llms/module-14-tools-of-the-trade/section-14.3.html`: 2 hit(s); instruction-tuning=2
   - `part-4-training-adaptation/module-16-fine-tuning-fundamentals/section-16.2.html`: 2 hit(s); instruction-tuning=2
@@ -287,9 +287,9 @@ hesitation.
   - `mixture of experts`: 2 occurrence(s)
 
 - **Top offending files (up to 10):**
-  - `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.2.html`: 5 hit(s); Mixture of Experts=5
+  - `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.3.html`: 5 hit(s); Mixture of Experts=5
   - `part-15-llm-agentic-ai-research-frontiers/module-75-frontier-architectures/section-75.3.html`: 3 hit(s); Mixture of Experts=1, mixture of experts=1, mixture-of-experts=1
-  - `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.6.html`: 1 hit(s); mixture-of-experts=1
+  - `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.8.html`: 1 hit(s); mixture-of-experts=1
   - `part-11-llm-ethics-trust-governance/module-55-environmental-sustainability/section-55.1.html`: 1 hit(s); Mixture of Experts=1
   - `part-12-llm-systems-at-scale/module-61-scale-tools/section-61.4.html`: 1 hit(s); mixture-of-experts=1
   - `part-15-llm-agentic-ai-research-frontiers/module-75-frontier-architectures/index.html`: 1 hit(s); mixture-of-experts=1
@@ -310,9 +310,9 @@ hesitation.
   - `part-3-working-with-llms/module-14-tools-of-the-trade/section-14.2.html`: 6 hit(s); openai (in prose, use 'OpenAI')=6
   - `part-12-llm-systems-at-scale/module-57-compute-planning/section-57.2.html`: 1 hit(s); openai (in prose, use 'OpenAI')=1
   - `part-14-designing-llm-agent-products/module-69-llm-economics/section-69.3.html`: 1 hit(s); openai (in prose, use 'OpenAI')=1
-  - `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.1a.html`: 1 hit(s); openai (in prose, use 'OpenAI')=1
+  - `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.1.html`: 1 hit(s); openai (in prose, use 'OpenAI')=1
   - `part-5-multimodal-llms/module-25-tools-of-the-trade/section-25.2.html`: 1 hit(s); openai (in prose, use 'OpenAI')=1
-  - `part-6-agentic-ai/module-30-tools-of-the-trade/section-30.2a.html`: 1 hit(s); openai (in prose, use 'OpenAI')=1
+  - `part-6-agentic-ai/module-30-tools-of-the-trade/section-30.2.html`: 1 hit(s); openai (in prose, use 'OpenAI')=1
   - `part-7-retrieval-information-extraction-with-llms/module-36-retrieval-tools/section-36.5.html`: 1 hit(s); openai (in prose, use 'OpenAI')=1
   - `part-9-llm-evaluation-observability/module-43-specialized-evaluation/section-43.4.html`: 1 hit(s); openai (in prose, use 'OpenAI')=1
   - `part-9-llm-evaluation-observability/module-45-tools-of-the-trade/section-45.2.html`: 1 hit(s); openai (in prose, use 'OpenAI')=1
@@ -328,14 +328,14 @@ hesitation.
 
 - **Top offending files (up to 10):**
   - `part-1-llm-building-blocks/module-01-foundations-nlp-text-representation/section-1.5.html`: 1 hit(s); Context Window (title case in prose)=1
-  - `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.3.html`: 1 hit(s); context-window (use space)=1
+  - `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.5.html`: 1 hit(s); context-window (use space)=1
   - `part-12-llm-systems-at-scale/module-61-scale-tools/section-61.4.html`: 1 hit(s); context-window (use space)=1
-  - `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.1b.html`: 1 hit(s); Context Window (title case in prose)=1
+  - `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.2.html`: 1 hit(s); Context Window (title case in prose)=1
   - `part-5-multimodal-llms/module-22-vision-language-models/section-22.3.html`: 1 hit(s); context-window (use space)=1
   - `part-5-multimodal-llms/module-22-vision-language-models/section-22.4.html`: 1 hit(s); Context Window (title case in prose)=1
   - `part-5-multimodal-llms/module-24-vla-models/section-24.10.html`: 1 hit(s); context-window (use space)=1
   - `part-7-retrieval-information-extraction-with-llms/module-32-rag/index.html`: 1 hit(s); context-window (use space)=1
-  - `part-7-retrieval-information-extraction-with-llms/module-32-rag/section-32.1a.html`: 1 hit(s); Context Window (title case in prose)=1
+  - `part-7-retrieval-information-extraction-with-llms/module-32-rag/section-32.1.html`: 1 hit(s); Context Window (title case in prose)=1
   - `part-8-conversational-ai-with-llms/module-37-conversational-ai/section-37.3.html`: 1 hit(s); Context Window (title case in prose)=1
 
 ### SOC 2 (certification)
@@ -381,7 +381,7 @@ hesitation.
   - `part-3-working-with-llms/module-14-tools-of-the-trade/section-14.2.html`: 5 hit(s); anthropic (in prose, use 'Anthropic')=5
   - `part-3-working-with-llms/module-11-llm-apis/section-11.3.html`: 2 hit(s); anthropic (in prose, use 'Anthropic')=2
   - `part-12-llm-systems-at-scale/module-57-compute-planning/section-57.2.html`: 1 hit(s); anthropic (in prose, use 'Anthropic')=1
-  - `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.1a.html`: 1 hit(s); anthropic (in prose, use 'Anthropic')=1
+  - `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.1.html`: 1 hit(s); anthropic (in prose, use 'Anthropic')=1
   - `part-6-agentic-ai/module-26-ai-agents/section-26.3.html`: 1 hit(s); anthropic (in prose, use 'Anthropic')=1
 
 ### Fine-tuning (concept)
@@ -409,9 +409,9 @@ hesitation.
   - `Pandas (canonical is lowercase 'pandas')`: 8 occurrence(s)
 
 - **Top offending files (up to 10):**
-  - `part-1-llm-building-blocks/module-05-tools-of-the-trade/section-5.2a.html`: 3 hit(s); Pandas (canonical is lowercase 'pandas')=3
-  - `part-1-llm-building-blocks/module-00-ml-pytorch-foundations/section-0.3a.html`: 2 hit(s); Pandas (canonical is lowercase 'pandas')=2
-  - `part-4-training-adaptation/module-19-tools-of-the-trade/section-19.12.html`: 2 hit(s); Pandas (canonical is lowercase 'pandas')=2
+  - `part-1-llm-building-blocks/module-05-tools-of-the-trade/section-5.2.html`: 3 hit(s); Pandas (canonical is lowercase 'pandas')=3
+  - `part-1-llm-building-blocks/module-00-ml-pytorch-foundations/section-0.3.html`: 2 hit(s); Pandas (canonical is lowercase 'pandas')=2
+  - `part-4-training-adaptation/module-19-tools-of-the-trade/section-19.13.html`: 2 hit(s); Pandas (canonical is lowercase 'pandas')=2
   - `part-9-llm-evaluation-observability/module-43-specialized-evaluation/section-43.4.html`: 1 hit(s); Pandas (canonical is lowercase 'pandas')=1
 
 ### Hallucination (concept)
@@ -430,7 +430,7 @@ hesitation.
   - `part-11-llm-ethics-trust-governance/module-54b-transparency-and-disclosure/section-54.8.html`: 1 hit(s); Hallucinations (mid-sentence)=1
   - `part-14-designing-llm-agent-products/module-67-ideation/section-67.9.html`: 1 hit(s); Hallucinations (mid-sentence)=1
   - `part-3-working-with-llms/module-12-prompt-engineering/section-12.1.html`: 1 hit(s); Hallucinations (mid-sentence)=1
-  - `part-6-agentic-ai/module-30-tools-of-the-trade/section-30.2b.html`: 1 hit(s); Hallucinations (mid-sentence)=1
+  - `part-6-agentic-ai/module-30-tools-of-the-trade/section-30.3.html`: 1 hit(s); Hallucinations (mid-sentence)=1
 
 ### NumPy (library)
 
@@ -444,11 +444,11 @@ hesitation.
 - **Top offending files (up to 10):**
   - `part-1-llm-building-blocks/module-01-foundations-nlp-text-representation/section-1.2.html`: 1 hit(s); numpy=1
   - `part-1-llm-building-blocks/module-05-tools-of-the-trade/index.html`: 1 hit(s); numpy=1
-  - `part-1-llm-building-blocks/module-05-tools-of-the-trade/section-5.2a.html`: 1 hit(s); Numpy=1
+  - `part-1-llm-building-blocks/module-05-tools-of-the-trade/section-5.2.html`: 1 hit(s); Numpy=1
   - `part-10-llm-security-runtime-safety/module-49-agent-safety-autonomy/section-49.2.html`: 1 hit(s); numpy=1
   - `part-4-training-adaptation/module-15-synthetic-data/section-15.4.html`: 1 hit(s); numpy=1
   - `part-4-training-adaptation/module-16-fine-tuning-fundamentals/section-16.5.html`: 1 hit(s); numpy=1
-  - `part-7-retrieval-information-extraction-with-llms/module-32-rag/section-32.1b.html`: 1 hit(s); numpy=1
+  - `part-7-retrieval-information-extraction-with-llms/module-32-rag/section-32.2.html`: 1 hit(s); numpy=1
 
 ### RAG (method)
 
@@ -474,8 +474,8 @@ hesitation.
   - `paged-attention`: 1 occurrence(s)
 
 - **Top offending files (up to 10):**
-  - `part-2-understanding-llms/module-09-inference-optimization/section-9.2.html`: 2 hit(s); paged attention=2
-  - `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.1b.html`: 1 hit(s); paged attention=1
+  - `part-2-understanding-llms/module-09-inference-optimization/section-9.3.html`: 2 hit(s); paged attention=2
+  - `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.2.html`: 1 hit(s); paged attention=1
   - `part-11-llm-ethics-trust-governance/module-56-responsible-ai-tools/section-56.5.html`: 1 hit(s); paged attention=1
   - `part-4-training-adaptation/module-16-fine-tuning-fundamentals/section-16.7.html`: 1 hit(s); paged-attention=1
 
@@ -489,10 +489,10 @@ hesitation.
 
 - **Top offending files (up to 10):**
   - `part-14-applications-of-llms-across-industries/module-70-education-llms/section-70.1.html`: 1 hit(s); Bert=1
-  - `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.1a.html`: 1 hit(s); Bert=1
-  - `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.1b.html`: 1 hit(s); Bert=1
+  - `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.1.html`: 1 hit(s); Bert=1
   - `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.2.html`: 1 hit(s); Bert=1
   - `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.3.html`: 1 hit(s); Bert=1
+  - `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.4.html`: 1 hit(s); Bert=1
 
 ### LangChain (library)
 
@@ -505,8 +505,8 @@ hesitation.
 
 - **Top offending files (up to 10):**
   - `part-1-llm-building-blocks/module-01-foundations-nlp-text-representation/section-1.7.html`: 1 hit(s); Langchain=1
-  - `part-1-llm-building-blocks/module-05-tools-of-the-trade/section-5.2a.html`: 1 hit(s); langchain=1
-  - `part-6-agentic-ai/module-30-tools-of-the-trade/section-30.5.html`: 1 hit(s); langchain=1
+  - `part-1-llm-building-blocks/module-05-tools-of-the-trade/section-5.2.html`: 1 hit(s); langchain=1
+  - `part-6-agentic-ai/module-30-tools-of-the-trade/section-30.6.html`: 1 hit(s); langchain=1
   - `part-7-retrieval-information-extraction-with-llms/module-36-retrieval-tools/section-36.5.html`: 1 hit(s); langchain=1
 
 ### Context length (concept)
@@ -518,7 +518,7 @@ hesitation.
   - `context-length`: 4 occurrence(s)
 
 - **Top offending files (up to 10):**
-  - `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.3.html`: 1 hit(s); context-length=1
+  - `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.5.html`: 1 hit(s); context-length=1
   - `part-12-llm-systems-at-scale/module-60-edge-on-device-llms/section-60.1.html`: 1 hit(s); context-length=1
   - `part-5-multimodal-llms/module-22-vision-language-models/section-22.7.html`: 1 hit(s); context-length=1
   - `part-5-multimodal-llms/module-24-vla-models/section-24.10.html`: 1 hit(s); context-length=1
@@ -547,7 +547,7 @@ hesitation.
 - **Top offending files (up to 10):**
   - `part-13-llmops-lifecycle/module-65-containers-kubernetes/section-65.4.html`: 1 hit(s); vllm=1
   - `part-13-llmops-lifecycle/module-65-containers-kubernetes/section-65.5.html`: 1 hit(s); vllm=1
-  - `part-2-understanding-llms/module-09-inference-optimization/section-9.4a.html`: 1 hit(s); vllm=1
+  - `part-2-understanding-llms/module-09-inference-optimization/section-9.5.html`: 1 hit(s); vllm=1
 
 ### Cross-attention (concept)
 
@@ -559,7 +559,7 @@ hesitation.
 
 - **Top offending files (up to 10):**
   - `part-1-llm-building-blocks/module-02-sequence-models-attention/index.html`: 1 hit(s); cross attention=1
-  - `part-1-llm-building-blocks/module-02-sequence-models-attention/section-2.3a.html`: 1 hit(s); cross attention=1
+  - `part-1-llm-building-blocks/module-02-sequence-models-attention/section-2.3.html`: 1 hit(s); cross attention=1
 
 ### "Attention Is All You Need" (paper title)
 
@@ -571,7 +571,7 @@ hesitation.
 
 - **Top offending files (up to 10):**
   - `part-1-llm-building-blocks/module-03-transformer-architecture/index.html`: 1 hit(s); Attention is all you need=1
-  - `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.6.html`: 1 hit(s); Attention is all you need=1
+  - `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.8.html`: 1 hit(s); Attention is all you need=1
 
 ### PyTorch (library)
 
@@ -583,7 +583,7 @@ hesitation.
   - `Pytorch`: 1 occurrence(s)
 
 - **Top offending files (up to 10):**
-  - `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.2a.html`: 1 hit(s); pytorch=1
+  - `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.3.html`: 1 hit(s); pytorch=1
   - `part-12-llm-systems-at-scale/module-61-scale-tools/section-61.2.html`: 1 hit(s); Pytorch=1
 
 ### RLHF (method)
@@ -595,8 +595,8 @@ hesitation.
   - `rlhf`: 2 occurrence(s)
 
 - **Top offending files (up to 10):**
-  - `part-4-training-adaptation/module-18-alignment-rlhf-dpo/section-18.2a.html`: 1 hit(s); rlhf=1
   - `part-4-training-adaptation/module-18-alignment-rlhf-dpo/section-18.3.html`: 1 hit(s); rlhf=1
+  - `part-4-training-adaptation/module-18-alignment-rlhf-dpo/section-18.5.html`: 1 hit(s); rlhf=1
 
 ### DPO (method)
 
@@ -607,8 +607,8 @@ hesitation.
   - `dpo`: 2 occurrence(s)
 
 - **Top offending files (up to 10):**
-  - `part-4-training-adaptation/module-18-alignment-rlhf-dpo/section-18.2a.html`: 1 hit(s); dpo=1
   - `part-4-training-adaptation/module-18-alignment-rlhf-dpo/section-18.3.html`: 1 hit(s); dpo=1
+  - `part-4-training-adaptation/module-18-alignment-rlhf-dpo/section-18.5.html`: 1 hit(s); dpo=1
 
 ### GPT-4 (model)
 

@@ -55,16 +55,16 @@ in a list. The catalog tag stays.
 | `part-15-llm-agentic-ai-research-frontiers/.../section-75.4.html` | 12 | 631 | 48 | LLMs applied to non-text domains |
 | `part-2-understanding-llms/.../section-6.3.html` | 11 | 769 | 64 | scaling-law regimes |
 | `part-2-understanding-llms/.../section-6.4.html` | 11 | 565 | 45 | pretraining-data pipeline steps |
-| `part-2-understanding-llms/.../section-7.2.html` | 11 | 879 | 74 | open-weight model families |
-| `part-2-understanding-llms/.../section-9.2.html` | 11 | 670 | 54 | KV-cache techniques |
-| `part-2-understanding-llms/.../section-9.4b.html` | 11 | 661 | 54 | inference frameworks |
+| `part-2-understanding-llms/.../section-7.3.html` | 11 | 879 | 74 | open-weight model families |
+| `part-2-understanding-llms/.../section-9.3.html` | 11 | 670 | 54 | KV-cache techniques |
+| `part-2-understanding-llms/.../section-9.6.html` | 11 | 661 | 54 | inference frameworks |
 | `part-2-understanding-llms/.../section-10.2.html` | 11 | 877 | 73 | interpretability tools |
 | `part-3-working-with-llms/.../section-11.1.html` | 11 | 752 | 63 | LLM API providers |
 | `part-3-working-with-llms/.../section-11.3.html` | 10 | 870 | 81 | production-reliability patterns |
 | `part-3-working-with-llms/.../section-12.2.html` | 9 | 895 | 92 | reasoning prompt techniques |
 | `part-3-working-with-llms/.../section-12.3.html` | 9 | 819 | 84 | prompt-optimization techniques |
 | `part-4-training-adaptation/.../section-16.4.html` | 9 | 903 | 94 | managed fine-tuning providers |
-| `part-7-retrieval-information-extraction-with-llms/.../section-31.3.html` | 9 | 851 | 88 | vector database engines |
+| `part-7-retrieval-information-extraction-with-llms/.../section-31.5.html` | 9 | 851 | 88 | vector database engines |
 | `part-9-llm-evaluation-observability/.../section-42.2.html` | 9 | 846 | 88 | statistical-rigor methods |
 
 (Some "catalog" entries average 80-95 lines per h2; those are

@@ -9,7 +9,7 @@ Goal: replace shopping-list-style coverage of safety and ethics with mathematica
 | Module | Section | Insertions | Priority | In-place? |
 |---|---|---|---|---|
 | 47 | section-47.1.html | GCG loss + Algorithm; FGSM + PGD Algorithm | HIGH | yes |
-| 47 | section-47.2.html | ASR / shadow-prompting Key Insight (Monte Carlo + Wilson CI) | HIGH | yes |
+| 47 | section-47.3.html | ASR / shadow-prompting Key Insight (Monte Carlo + Wilson CI) | HIGH | yes |
 | 48 | section-48.2.html | Bayesian threshold Key Insight + Algorithm (Platt + cost-min) | HIGH | yes |
 | 48 | section-48.3.html | Constitutional classifier (token vs sequence level) + Algorithm with early-stop decoding | HIGH | yes |
 | 49 | section-49.1.html | Cost-controller math Key Insight + Algorithm; ReAct-with-guardrails pre/post-tool Algorithm | HIGH | yes |

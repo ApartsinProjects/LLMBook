@@ -57,7 +57,7 @@ Wave-11-16 remediation closed most title/breadcrumb-level issues. Cycle 2 finds 
   - Next-chapter nav: `Chapter 64 LLM Product Management` linking to `../module-67-ideation/index.html` (broken self-link).
 - **Section 67.1**: visible H2 `58.1.1`…`58.1.6` (stale).
 - **Section 67.2**: unnumbered bare `1.`…`5.`.
-- **Section 67.5**: `31.2.1`…`31.2.6`.
+- **Section 67.5**: `31.3.1`…`31.4.3`.
 - **Section 67.7**: visible `65.1.1`…`65.1.6` but anchor ids `67-7-1`…`67-7-6` (anchor right, text wrong).
 - **Section 67.8**: visible `65.2.1`…`65.2.4`, anchor ids `65-4-1`…`65-4-4` (both wrong, two different stale prefixes).
 - **Section 67.9**: visible `63.1.1`…`63.1.7`, anchor ids `45-1-1`…`45-1-7`.

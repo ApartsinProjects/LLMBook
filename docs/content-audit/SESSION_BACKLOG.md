@@ -161,7 +161,7 @@ User asked for canonical chapter/part/section/callout/table/footer-nav/code stru
   - CALLOUT_NON_CANONICAL (0 issues — proves callout-type consolidation succeeded)
 - ✅ W35-discovery-1. section-40.1 confirmed forcibly-merged: explicit "(merged content)" marker at line 599 + duplicate h2 numbering 40.1.1-40.1.7
 - ✅ W35-discovery-2. Two MORE forcibly-merged sections detected by new validator: section-50.1 (Privacy, 50.1.1-50.1.5 duplicate), section-52.1 (Bias, 52.1.1-52.1.4 duplicate)
-- ✅ W35-discovery-3. Other duplicate-h2 typos: section-0.3 (0.3.7), section-16.4 (16.4.5) - single-h2 typos
+- ✅ W35-discovery-3. Other duplicate-h2 typos: section-0.3 (0.4.1), section-16.4 (16.4.5) - single-h2 typos
 - ✅ W35-image-audit. Image opportunities catalogued (524+ open opportunities for hero/figure/fun-note generation)
 - ❌ W35-gemini. GEMINI_API_KEY NOT SET in env (verified via Python os.environ). Image generation BLOCKED.
 - 📋 W35-split-40.1. Section-40.1 split: recommended but not applied (changes URLs, needs user approval)

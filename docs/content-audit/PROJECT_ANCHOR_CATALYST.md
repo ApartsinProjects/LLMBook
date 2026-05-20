@@ -137,7 +137,7 @@ section of the chapter.
 **Steps**:
 1. Scrape or download a documentation corpus (use `sitemap.xml` plus
    `httpx`, or git-clone a docs repo). Aim for 200 to 2,000 pages.
-2. Build an ingestion pipeline (Section 32.1a): chunk with
+2. Build an ingestion pipeline (Section 32.1): chunk with
    `RecursiveCharacterTextSplitter` (target ~500 tokens with 80 overlap),
    embed with `text-embedding-3-small` or `bge-small-en-v1.5`, store in
    Chroma or FAISS.
@@ -145,11 +145,11 @@ section of the chapter.
    reranker (`bge-reranker-base`) so you can compare retrieval quality
    before and after.
 4. Wire the retrieved chunks into a prompt that asks for an answer **with
-   inline source citations** (Section 32.4) and prints "I do not know" if
+   inline source citations** (Section 32.5) and prints "I do not know" if
    the top score falls below a threshold.
-5. Evaluate (Section 32.1b): hand-write 20 ground-truth Q&A pairs; compute
+5. Evaluate (Section 32.2): hand-write 20 ground-truth Q&A pairs; compute
    answer-correctness (LLM-as-judge) and retrieval recall@5; log results.
-6. Stretch goal: swap in HyDE (Section 32.2) for ambiguous queries and
+6. Stretch goal: swap in HyDE (Section 32.3) for ambiguous queries and
    compare against the baseline.
 
 **Expected outcome**:
@@ -298,16 +298,16 @@ chapter at once.
 2. Implement short-term memory (Section 37.3): keep the last N turns in a
    `deque`; when the window overflows, summarize the oldest 50% with a
    cheap model and keep the rest verbatim.
-3. Add long-term memory (Section 37.5a): on every user turn, embed and
+3. Add long-term memory (Section 37.5): on every user turn, embed and
    write the turn to Chroma with a `user_id` and timestamp. On every
    turn, retrieve the top-K relevant memories and inject them into the
    system prompt as "What you remember about this user".
 4. Implement persistence: store conversation history in SQLite keyed on
    `user_id` so the chatbot survives a process restart.
-5. Implement consolidation (Section 37.5b): every 20 turns, run a
+5. Implement consolidation (Section 37.6): every 20 turns, run a
    summarizer over the user's memories and replace raw turns with a
    distilled profile snippet.
-6. Evaluate (Section 37.5b): run a 3-session role-play. In session 3,
+6. Evaluate (Section 37.6): run a 3-session role-play. In session 3,
    ask 5 questions about facts mentioned in sessions 1 and 2; measure
    recall.
 
@@ -368,7 +368,7 @@ Every numbered step should hyperlink the relevant `section-NN.M.html` so
 the project doubles as a study guide. Example:
 
 ```html
-<li>Build an ingestion pipeline (<a href="section-32.1a.html">Section 32.1a</a>):
+<li>Build an ingestion pipeline (<a href="section-32.1.html">Section 32.1</a>):
 chunk with RecursiveCharacterTextSplitter ...</li>
 ```
 

@@ -7,21 +7,21 @@ Scope: `part-1-llm-building-blocks/` (modules 00-05), `part-2-understanding-llms
 - **Wave 17c (H2 / H3 visible-numbering)** verified working: section-body H2 IDs and visible text now agree everywhere we sampled (Part 1 modules 2/3/4 sections, Part 2 module-07 section-7.1, Part 3 module-14 section-14.1, Part 4 module-15 section-15.1, module-19 section-19.2). The cycle-2 dual-numbering pattern (`id="14-1-1"` rendered as "16.1.1") is gone for normal subsection h2s. Stragglers documented under "Remaining" below.
 - **Wave 17c (figure caption sync)** mostly working: section-2.1 figures now read "Figure 2.1.1", "Figure 2.1.2"; section-3.1 figures read "Figure 3.1.1" through "3.1.6"; section-15.1 H2s read "15.1.X". The chapter-opener `<figcaption>` figures in module index files (e.g. "Figure 3.0.1", "Figure 5.0.1", "Figure 7.0.1") are still off, but the section bodies are clean.
 - **Wave 17d (in-prose visible labels)** verified for body files where a `Section N.M` / `Chapter N` label sits adjacent to its `href`: section-13.5 hyperlinks now read "Section 15.1", "Chapter 18", "Section 11.1" with matching targets; section-12.4 hyperlinks read "Section 11.1", "Section 52.1" with matching targets. The cycle-2-dominant body drift ("Chapter 22", "Chapter 23", "Section 20.1" etc.) is largely cleared for hyperlinks that the sweep could resolve via href.
-- **Wave 17e (module-index sections-list rebuild)** verified for module-10: sections 10.5-10.9 are now LISTED in `<ul class="sections-list">` of the module-10 index (cycle-2 said they were missing). Module-01 index now lists sections 1.5-1.7 (tokenization).
+- **Wave 17e (module-index sections-list rebuild)** verified for module-10: sections 10.6-10.9 are now LISTED in `<ul class="sections-list">` of the module-10 index (cycle-2 said they were missing). Module-01 index now lists sections 1.5-1.7 (tokenization).
 - **Wave 17g (chapter-nav rebuild)** verified for module-index files: prev/next chapter labels now use unpadded current numbers ("Chapter 0", "Chapter 1", ..., "Chapter 19") and target the correct neighbouring chapter. Module-01's prior self-pointing "Next Chapter" link is gone. Module-08 prereq labels now read "Chapter 3", "Chapter 4", "Chapter 6", "Chapter 7" (cycle-2 said they were "Chapter 04/05/06/08").
 - **Wave 16 PEFT rename** propagated to the module-17 chapter index (`<title>` and h1 both read "Parameter-Efficient Fine-Tuning, Distillation & Model Merging").
-- Cycle 2 #5 partially: module-10 sections 10.5-10.9 are now discoverable from the chapter index (Wave 17e), so the cycle-2 discoverability complaint is closed even though the content still claims to be Chapter 12 (see below).
+- Cycle 2 #5 partially: module-10 sections 10.6-10.9 are now discoverable from the chapter index (Wave 17e), so the cycle-2 discoverability complaint is closed even though the content still claims to be Chapter 12 (see below).
 
 ## Remaining issues (priority order)
 
 ### P1. Tools-of-the-Trade misplaced/inflated content unchanged
 
-- **Part 2 Tools content still lives as module-10 sections 10.5-10.9 with `<a href="index.html">Chapter 12: Tools of the Trade: Models &amp; Tokenizers</a>` breadcrumbs and `<meta data-pagefind-meta="chapter:Chapter 12: ...">` injection.** Every section file 10.5 through 10.9 still pagefind-indexes as Chapter 12 while physically being Chapter 10 sections. Confirmed in `section-10.5.html` line 23,27 and `section-10.6.html` line 23,27. Cycle 2 #5 still open.
+- **Part 2 Tools content still lives as module-10 sections 10.6-10.9 with `<a href="index.html">Chapter 12: Tools of the Trade: Models &amp; Tokenizers</a>` breadcrumbs and `<meta data-pagefind-meta="chapter:Chapter 12: ...">` injection.** Every section file 10.5 through 10.9 still pagefind-indexes as Chapter 12 while physically being Chapter 10 sections. Confirmed in `section-10.6.html` line 23,27 and `section-10.6.html` line 23,27. Cycle 2 #5 still open.
 - **section-10.6 still has 5 `<nav class="chapter-nav">` blocks** with mid-content navs at lines 78, 321, 572, 845, 1092; four say `<span class="nav-num">Chapter 12</span>`. section-10.8 still has 2 chapter-nav blocks. Cycle 2 #11 unchanged.
 - **section-5.1 still has 7 `chapter-nav` blocks** (lines 57, 130, 165, 231, 274, 356, 487) with nav-num labels "Section 5.7" through "Section 5.17" and `href="section-5.1.html#6-1-..."` self-pointing anchors using the OLD "6-1-" prefix. Visible chapter labels are "Chapter 5" inside the navs but the first nav still uses `<span class="nav-num">Chapter 05</span>` (zero-padded). The h2 IDs were rewritten to `5-1-X` by Wave 17c, but the `href="#6-1-..."` anchors point into nonexistent IDs.
 - **section-5.2 still has 8 `chapter-nav` blocks**; cycle 2 #4 unchanged.
 - **section-14.2 still has 3 `chapter-nav` blocks** with anchor-deep self-pointing hrefs.
-- **section-19.2 still has 10 `chapter-nav` blocks** (lines 72, 377, 723, 1048, 1138, 1331, 1538, 1803, 1928, 2229) with nav-num labels "Section 19.5" through "Section 22.1" (the last one even spills into Part 7) and `href="section-19.2.html#21-2-..."` / `href="section-19.3.html#21-3-..."` self-pointing anchors using the OLD "21-2-" / "21-3-" prefix. section-19.3 still has 5 such blocks. Cycle 2 #4 unchanged.
+- **section-19.2 still has 10 `chapter-nav` blocks** (lines 72, 377, 723, 1048, 1138, 1331, 1538, 1803, 1928, 2229) with nav-num labels "Section 19.6" through "Section 22.1" (the last one even spills into Part 7) and `href="section-19.2.html#21-2-..."` / `href="section-19.3.html#21-3-..."` self-pointing anchors using the OLD "21-2-" / "21-3-" prefix. section-19.3 still has 5 such blocks. Cycle 2 #4 unchanged.
 
 ### P2. Tokenization (Chapter 2) still inside module-01
 
@@ -55,7 +55,7 @@ Cycle 2 #7 unchanged. The chapter-card grids themselves are correct; only the su
 
 ### P5. Module-17 section-file breadcrumbs lag the Wave 16 rename
 
-All 7 module-17 section files (`section-17.1.html` through `section-17.7.html`) still link to `index.html` with the OLD label `Chapter 17: Parameter-Efficient Fine-Tuning (PEFT)`. The chapter index itself has the new title "Parameter-Efficient Fine-Tuning, Distillation & Model Merging" but the section breadcrumbs were not updated. Cycle 2 #12 unchanged.
+All 7 module-17 section files (`section-17.1.html` through `section-17.8.html`) still link to `index.html` with the OLD label `Chapter 17: Parameter-Efficient Fine-Tuning (PEFT)`. The chapter index itself has the new title "Parameter-Efficient Fine-Tuning, Distillation & Model Merging" but the section breadcrumbs were not updated. Cycle 2 #12 unchanged.
 
 ### P6. Section-6.9 duplicate not de-duped
 
@@ -118,7 +118,7 @@ This class of issue is dominated by **stale visible numbers in prose without an 
 
 ### P9. `concept-link title="..."` and code-fragment caption stragglers
 
-- `module-09/index.html` line 74: `title="Section Q.4: Quantization for Serving (GPTQ, AWQ, GGUF)"` while the href target uses anchor `#12-4-quantization-for-serving` and lives in `module-10/section-10.8.html`. Both the "Q.4" label and the "12-4" anchor are pre-renumbering artifacts.
+- `module-09/index.html` line 74: `title="Section Q.4: Quantization for Serving (GPTQ, AWQ, GGUF)"` while the href target uses anchor `#12-4-quantization-for-serving` and lives in `module-10/section-10.10.html`. Both the "Q.4" label and the "12-4" anchor are pre-renumbering artifacts.
 - `module-09/index.html` line 42 looking-back: `title="Section Q.2: Text Generation Inference (TGI)"`, `title="Section Q.3: SGLang: Structured Generation and RadixAttention"` — same stale-label class.
 - section-3.1 (Chapter 3 transformer) has section-body table titles with stale numerical em-prefixes inside `<em>` tags:
   - Line 500: `<em>8.1 Pre-LN vs. Post-LN ...</em>` inside a Table 3.1.1 title.
@@ -135,7 +135,7 @@ This class of issue is dominated by **stale visible numbers in prose without an 
 In each inflated Tools section, the embedded mid-content `<nav class="chapter-nav">` blocks point at anchors using the OLD prefix:
 
 - section-5.1 / section-5.2 (Part 1 module-05): `href="section-5.1.html#6-1-..."`, `href="section-5.2.html#6-2-..."` (old "6-" because Tools used to be Chapter 6).
-- section-10.6 / section-10.8 (Part 2 module-10): `href="section-10.6.html#12-2-..."`, `href="section-10.8.html#12-4-..."` (old "12-" because Tools used to be Chapter 12).
+- section-10.6 / section-10.8 (Part 2 module-10): `href="section-10.6.html#12-2-..."`, `href="section-10.10.html#12-4-..."` (old "12-" because Tools used to be Chapter 12).
 - section-14.2 (Part 3 module-14): `href="section-14.2.html#16-2-..."` (old "16-").
 - section-19.2 / section-19.3 (Part 4 module-19): `href="section-19.2.html#21-2-..."`, `href="section-19.3.html#21-3-..."` (old "21-").
 
@@ -163,10 +163,10 @@ Both fall under the same root cause as P10 (anchor prefixes not rewritten when s
 3. **Renumber the 14 chapter-opener `<figcaption>` figures in module indexes** to match the new chapter number (Figure 5.0.1 → 4.0.1, etc.). Path-derived: read `module-XX-…/index.html`, find `<strong>Figure A.0.B</strong>`, rewrite A to the chapter number. About 14 figures total in Parts 1-4.
 
 4. **Resolve the Tools-of-the-Trade misplaced content (P1) decisively.** Two options:
-   - **(a) Move sections 10.5-10.9 out of module-10 into a new module-NN-tools-of-the-trade folder under Part 2, give them their own chapter index and add a chapter card to the Part-2 index.** This matches the structure used in Parts 1 (Tools = Chapter 5 / module-05), 3 (Tools = Chapter 14 / module-14), 4 (Tools = Chapter 19 / module-19). It requires renaming hrefs that point in but the result is a clean Part 2 structure with 6 chapters (6-11) — though that pushes downstream chapter numbers further if applied beyond Part 2.
-   - **(b) Keep the content inside module-10 but rebrand the breadcrumbs from "Chapter 12: Tools of the Trade: Models & Tokenizers" to "Chapter 10: Interpretability & Mechanistic Understanding"** and dedupe the inflated chapter-nav blocks. This treats sections 10.5-10.9 as additional sections of the interpretability chapter (Tools of the Trade subsumed). Lighter touch.
+   - **(a) Move sections 10.6-10.9 out of module-10 into a new module-NN-tools-of-the-trade folder under Part 2, give them their own chapter index and add a chapter card to the Part-2 index.** This matches the structure used in Parts 1 (Tools = Chapter 5 / module-05), 3 (Tools = Chapter 14 / module-14), 4 (Tools = Chapter 19 / module-19). It requires renaming hrefs that point in but the result is a clean Part 2 structure with 6 chapters (6-11) — though that pushes downstream chapter numbers further if applied beyond Part 2.
+   - **(b) Keep the content inside module-10 but rebrand the breadcrumbs from "Chapter 12: Tools of the Trade: Models & Tokenizers" to "Chapter 10: Interpretability & Mechanistic Understanding"** and dedupe the inflated chapter-nav blocks. This treats sections 10.6-10.9 as additional sections of the interpretability chapter (Tools of the Trade subsumed). Lighter touch.
 
-   Either way: (i) drop the duplicate / inflated `<nav class="chapter-nav">` blocks inside sections 10.5-10.9 down to one per file, (ii) rewrite `href="#12-X-..."` anchors to current `#10-X-...` IDs.
+   Either way: (i) drop the duplicate / inflated `<nav class="chapter-nav">` blocks inside sections 10.6-10.9 down to one per file, (ii) rewrite `href="#12-X-..."` anchors to current `#10-X-...` IDs.
 
 5. **Resolve the tokenization location (P2).** Same fork as #4: either lift sections 1.5-1.7 into their own module-NN-tokenization folder as Chapter 2 (pushing the rest of Part 1 forward) or rebrand the breadcrumbs from "Chapter 2: Tokenization and Subword Models" to "Chapter 1: Foundations of NLP & Text Representation". Whichever path, fix the section-card descs in `module-01/index.html` lines 110, 115 that reference "Section 2.1" / "Section 2.2" pointing at section-1.5/1.6.
 

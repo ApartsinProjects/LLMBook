@@ -75,7 +75,7 @@ The following figures were spot-checked and the caption/SVG/prose triangulation 
 - Figure C.1.2 (Precision formats for 7B): 28 GB / 14 GB / 7 GB / 4 GB at 32 / 16 / 8 / 4 bits all consistent (7 GB-params * bits / 8).
 - Figure 23.1.1 + Table 23.1.2 (Gaussian splatting parameter budget): per-Gaussian byte counts (12 MB / 16 MB / 12 MB / 4 MB / 192 MB) all verified for 1M Gaussians.
 - Figure 57.1.2 (Workload categories): 12x cost spread ($4800 / $400) verified.
-- Figure 9.6.1 (Reasoning models): 5000 thinking tokens, 83% AIME, 13% GPT-4o baseline, 30-120 s latency, ~$0.50 all match SVG.
+- Figure 9.8.1 (Reasoning models): 5000 thinking tokens, 83% AIME, 13% GPT-4o baseline, 30-120 s latency, ~$0.50 all match SVG.
 
 ## Notes on Scope and Bias
 

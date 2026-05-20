@@ -404,22 +404,22 @@ Five phases, each deliverable on its own without breaking the published book.
 
 What used to take a "_zero_p1_round_N" cleanup pass is now two commands, both of which are deterministic and idempotent.
 
-### 6.2 Move section 8.3 to part 9 as section 9.5
+### 6.2 Move section 8.3 to part 9 as section 9.7
 
 ```
 1. Edit book_structure.yaml: cut section sec-reasoning-test-time-compute from
    chapter 8's sections, paste into chapter ~46's sections at position 5.
 2. Run: python scripts/render_book.py --apply
    - git mv part-2-understanding-llms/module-08-modern-llm-landscape/section-8.3.html
-            part-9-safety-security-ethics/module-46-???/section-9.5.html  (path computed from yaml)
+            part-9-safety-security-ethics/module-46-???/section-9.7.html  (path computed from yaml)
    - Rewrites breadcrumb, prev/next, page-current, title, chapter-pagefind-meta.
    - Every <!--ref:sec-reasoning-test-time-compute|...--> across the book re-renders
-     as "Section 9.5" instead of "Section 8.3" with the new path.
+     as "Section 9.7" instead of "Section 8.3" with the new path.
    - Chapter 8's index regenerated without the orphan section.
    - Chapter 46's index regenerated with the new section.
    - Both part indexes regenerated.
    - toc.html regenerated.
-   - Redirects.json: section-8.3.html -> section-9.5.html.
+   - Redirects.json: section-8.3.html -> section-9.7.html.
 3. Commit.
 ```
 

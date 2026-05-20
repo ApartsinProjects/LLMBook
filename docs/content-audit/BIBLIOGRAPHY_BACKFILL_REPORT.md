@@ -17,7 +17,7 @@ Verified by `python scripts/run_book_audit.py --json` and filtering on `check_id
 | Appendix A (Mathematical Foundations) | 5 |
 | Module 5 (Tools of the Trade, Part I) | 4 |
 | Module 6 (Pretraining and Scaling Laws) | 1 (lab section 6.9) |
-| Module 10 (Interpretability tools sub-section) | 4 (sections 10.5-10.8) |
+| Module 10 (Interpretability tools sub-section) | 4 (sections 10.6-10.8) |
 | Module 14 (Tools of the Trade, Part III) | 4 |
 | Module 19 (Tools of the Trade, Part IV) | 14 |
 | Module 25 (Tools of the Trade, Part V) | 4 |
@@ -28,7 +28,7 @@ Verified by `python scripts/run_book_audit.py --json` and filtering on `check_id
 | Module 44 (Online Evaluation, Observability) | 3 |
 | Module 45 (Tools of the Trade, Part IX) | 4 |
 | Module 46 (LLM-as-Judge) | 4 |
-| Module 47 (Adversarial Security, Red Team) | 1 (section 47.3) |
+| Module 47 (Adversarial Security, Red Team) | 1 (section 47.4) |
 | Module 50 (Privacy and Data Protection) | 1 (section 50.3) |
 | Module 51 (Tools of the Trade, Part X) | 4 |
 | Module 57 (Compute Planning and Infrastructure) | 3 |
@@ -97,7 +97,7 @@ Entries are grouped under h3 sub-headings (Foundational Papers, Recent Advances,
 
 References anchored to legal-LLM empirical studies (Stanford HAI hallucination audit, Dahl et al. legal fictions paper, LegalBench, LexGLUE). Two h3 groupings: Foundational Papers and Legal Benchmarks.
 
-### Sample 3: Frontier research section (Section 47.3 -- Supply Chain, Confidential Compute, Multimodal Threats)
+### Sample 3: Frontier research section (Section 47.4 -- Supply Chain, Confidential Compute, Multimodal Threats)
 
 Three h3 groupings: Supply Chain and Provenance (Carlini et al. on data poisoning, Hugging Face Sigstore signing, OpenSSF Model Signing), Confidential Compute (NVIDIA H100/H200 TEE docs, Costan and Devadas SGX paper), and Multimodal Attacks (Bagdasaryan et al. on image-prompt-injection, Greshake et al. on indirect prompt injection).
 
@@ -105,7 +105,7 @@ Three h3 groupings: Supply Chain and Provenance (Carlini et al. on data poisonin
 
 Three h3 groupings: Foundational Sources (official Docker docs, Merkel 2014 paper), Container Internals (OCI Runtime Spec, Burns/Beda/Hightower Kubernetes book), and ML Container Patterns (NVIDIA NGC catalog, NVIDIA Container Toolkit).
 
-### Sample 5: Tools-of-the-trade section (Section 19.13 -- Distributed Training Deep Dive)
+### Sample 5: Tools-of-the-trade section (Section 19.14 -- Distributed Training Deep Dive)
 
 One h3 grouping (Distributed Training) with four entries: ZeRO paper (Rajbhandari et al.), FSDP paper (Zhao et al.), Megatron-LM paper (Shoeybi et al.), and GPipe paper (Huang et al.). Anchors the implementation walkthroughs in the section to canonical primary literature.
 

@@ -32,11 +32,11 @@ Heuristics used:
 3. **[duplication (substantive)]** §25.3 Datasets & Benchmarks ↔ §25.4 Models
    Jaccard 0.50, big_picture sim 0.07. Shared tokens: video, music, audio, image, comparing. Paths: `part-5-multimodal-llms/module-25-tools-of-the-trade/section-25.3.html` and `part-5-multimodal-llms/module-25-tools-of-the-trade/section-25.4.html`. Verify cross-reference exists, otherwise consolidate.
 4. **[focus]** §9.3 Speculative Decoding
-   25 headings; top theme 'speculative' covers only 3/25; themes: speculative, draft, model, based. `part-2-understanding-llms/module-09-inference-optimization/section-9.3.html`
+   25 headings; top theme 'speculative' covers only 3/25; themes: speculative, draft, model, based. `part-2-understanding-llms/module-09-inference-optimization/section-9.4.html`
 5. **[focus]** §9.7 GPU Kernel Programming for LLM Optimization
-   25 headings; top theme 'triton' covers only 3/25; themes: triton, kernel, step, gpu. `part-2-understanding-llms/module-09-inference-optimization/section-9.7.html`
+   25 headings; top theme 'triton' covers only 3/25; themes: triton, kernel, step, gpu. `part-2-understanding-llms/module-09-inference-optimization/section-9.9.html`
 6. **[focus]** §31.3 Vector Database Systems
-   25 headings; top theme 'filtering' covers only 3/25; themes: filtering, amp, vector, reciprocal. `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.3.html`
+   25 headings; top theme 'filtering' covers only 3/25; themes: filtering, amp, vector, reciprocal. `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.5.html`
 7. **[under-content (systemic)]** 5 sections in chapter ('part-9-llm-evaluation-observability', 46) flagged severe
    Multiple stub sections in the same chapter. Either expand each to median size or merge into siblings.
 8. **[under-content]** §71.3 Datasets & Benchmarks
@@ -84,24 +84,24 @@ Heuristics used:
 - **§10.8 Models** ↔ **§14.4 Models**
   - heading-Jaccard 0.40; big_picture similarity 0.05; CROSS-CHAPTER (check for uncoordinated duplication)
   - top shared tokens: `api, open, closed, default, weight, picking, small, tier`
-  - paths: `part-2-understanding-llms/module-10-interpretability/section-10.8.html` , `part-3-working-with-llms/module-14-tools-of-the-trade/section-14.4.html`
+  - paths: `part-2-understanding-llms/module-10-interpretability/section-10.10.html` , `part-3-working-with-llms/module-14-tools-of-the-trade/section-14.4.html`
   - action: Verify both sections explicitly cross-reference each other; otherwise consolidate.
 
 ## Loss-of-focus sections
 
-- **§9.3 Speculative Decoding** (`part-2-understanding-llms/module-09-inference-optimization/section-9.3.html`)
+- **§9.3 Speculative Decoding** (`part-2-understanding-llms/module-09-inference-optimization/section-9.4.html`)
   - 25 sub-headings; reasons: top heading token 'speculative' covers only 12% of 25 headings; 8 distinct recurring themes
   - top heading themes (token, freq): speculative (3), draft (2), model (2), based (2), tree (2), implementation (2)
   - first 6 headings: _Prerequisites; The Core Principle; Acceptance and Rejection Sampling; Why the Output Distribution Is Preserved (Informal Proof); Expected Speedup; Draft Model Strategies_
   - action: split into focused sub-sections, or rescope title + big_picture to honestly cover what is taught.
 
-- **§9.7 GPU Kernel Programming for LLM Optimization** (`part-2-understanding-llms/module-09-inference-optimization/section-9.7.html`)
+- **§9.7 GPU Kernel Programming for LLM Optimization** (`part-2-understanding-llms/module-09-inference-optimization/section-9.9.html`)
   - 25 sub-headings; reasons: top heading token 'triton' covers only 12% of 25 headings; 8 distinct recurring themes
   - top heading themes (token, freq): triton (3), kernel (3), step (3), gpu (2), programming (2), flashattention (2)
   - first 6 headings: _Prerequisites; Why Custom Kernels Matter; Arithmetic Intensity Analysis; Triton: Python-Based GPU Kernel Programming; A First Triton Kernel: Vector Addition; Fused Softmax Kernel_
   - action: split into focused sub-sections, or rescope title + big_picture to honestly cover what is taught.
 
-- **§31.3 Vector Database Systems** (`part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.3.html`)
+- **§31.3 Vector Database Systems** (`part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.5.html`)
   - 25 sub-headings; reasons: top heading token 'filtering' covers only 12% of 25 headings; 6 distinct recurring themes
   - top heading themes (token, freq): filtering (3), amp (3), vector (2), reciprocal (2), rank (2), fusion (2)
   - first 6 headings: _Prerequisites; Vector Database Architecture; Purpose-Built Vector Databases; Pinecone; Qdrant; Weaviate_
@@ -137,7 +137,7 @@ Heuristics used:
   - first 6 headings: _Prerequisites; What We Are Building; The Complete Implementation; Imports and Configuration; Causal Self-Attention; Feed-Forward Network_
   - action: split into focused sub-sections, or rescope title + big_picture to honestly cover what is taught.
 
-- **§3.4 GPU Fundamentals & Systems** (`part-1-llm-building-blocks/module-03-transformer-architecture/section-3.4.html`)
+- **§3.4 GPU Fundamentals & Systems** (`part-1-llm-building-blocks/module-03-transformer-architecture/section-3.6.html`)
   - 21 sub-headings; reasons: top heading token 'gpu' covers only 14% of 21 headings; 7 distinct recurring themes; (title signals broad-scope coverage, penalty applied)
   - top heading themes (token, freq): gpu (3), memory (3), architecture (2), bound (2), softmax (2), triton (2)
   - first 6 headings: _Prerequisites; Why GPU Architecture Matters; GPU Architecture Overview; Streaming Multiprocessors (SMs); Memory Hierarchy; Compute-Bound vs. Memory-Bound Operations_
@@ -288,9 +288,9 @@ _Pages whose content size is below threshold or missing structural elements._
   - action: EXPAND to ~3500 words or MERGE into a sibling section.
 - **§14.5 External Reading & Communities** (`part-3-working-with-llms/module-14-tools-of-the-trade/section-14.5.html`): wc 360, h2/3 4, callouts 1; flags: wc=360, no big_picture
   - action: EXPAND to ~3500 words or MERGE into a sibling section.
-- **§30.5 External Reading & Communities** (`part-6-agentic-ai/module-30-tools-of-the-trade/section-30.5.html`): wc 363, h2/3 4, callouts 1; flags: wc=363, no big_picture
+- **§30.5 External Reading & Communities** (`part-6-agentic-ai/module-30-tools-of-the-trade/section-30.6.html`): wc 363, h2/3 4, callouts 1; flags: wc=363, no big_picture
   - action: EXPAND to ~3500 words or MERGE into a sibling section.
-- **§19.5 External Reading & Communities** (`part-4-training-adaptation/module-19-tools-of-the-trade/section-19.5.html`): wc 367, h2/3 3, callouts 1; flags: wc=367, no big_picture
+- **§19.5 External Reading & Communities** (`part-4-training-adaptation/module-19-tools-of-the-trade/section-19.6.html`): wc 367, h2/3 3, callouts 1; flags: wc=367, no big_picture
   - action: EXPAND to ~3500 words or MERGE into a sibling section.
 - **§34.4 Production IE Deployment Patterns** (`part-7-retrieval-information-extraction-with-llms/module-34-structured-information-extraction-ner/section-34.4.html`): wc 409, h2/3 4, callouts 2; flags: wc=409, no big_picture
   - action: EXPAND to ~3500 words or MERGE into a sibling section.
@@ -298,7 +298,7 @@ _Pages whose content size is below threshold or missing structural elements._
   - action: EXPAND to ~3500 words or MERGE into a sibling section.
 - **App A.2 Probability and Statistics** (`appendices/appendix-a-mathematical-foundations/section-a.2.html`): wc 492, h2/3 4, callouts 1; flags: wc=492, no big_picture
   - action: EXPAND to ~3500 words or MERGE into a sibling section.
-- **§10.9 External Reading & Communities** (`part-2-understanding-llms/module-10-interpretability/section-10.9.html`): wc 492, h2/3 4, callouts 2; flags: wc=492, no big_picture
+- **§10.9 External Reading & Communities** (`part-2-understanding-llms/module-10-interpretability/section-10.11.html`): wc 492, h2/3 4, callouts 2; flags: wc=492, no big_picture
   - action: EXPAND to ~3500 words or MERGE into a sibling section.
 - **§51.4 Models** (`part-10-llm-security-runtime-safety/module-51-tools-of-the-trade/section-51.4.html`): wc 573, h2/3 3, callouts 1; flags: wc=573, no big_picture
   - action: EXPAND to ~3500 words or MERGE into a sibling section.
@@ -306,23 +306,23 @@ _Pages whose content size is below threshold or missing structural elements._
   - action: EXPAND to ~3500 words or MERGE into a sibling section.
 - **§14.3 Datasets & Benchmarks** (`part-3-working-with-llms/module-14-tools-of-the-trade/section-14.3.html`): wc 698, h2/3 5, callouts 3; flags: wc=698, no big_picture
   - action: EXPAND to ~3500 words or MERGE into a sibling section.
-- **§5.5 External Reading & Communities** (`part-1-llm-building-blocks/module-05-tools-of-the-trade/section-5.5.html`): wc 736, h2/3 4, callouts 2; flags: wc=736, no big_picture
+- **§5.5 External Reading & Communities** (`part-1-llm-building-blocks/module-05-tools-of-the-trade/section-5.6.html`): wc 736, h2/3 4, callouts 2; flags: wc=736, no big_picture
   - action: EXPAND to ~3500 words or MERGE into a sibling section.
 - **App A.4 Information Theory** (`appendices/appendix-a-mathematical-foundations/section-a.4.html`): wc 741, h2/3 4, callouts 2; flags: wc=741, no big_picture
   - action: EXPAND to ~3500 words or MERGE into a sibling section.
 - **§83.5 External Reading & Communities** (`part-15-llm-agentic-ai-research-frontiers/module-78-tools-of-the-trade/section-78.5.html`): wc 777, h2/3 1, callouts 6; flags: wc=777, h2/3=1
   - action: EXPAND to ~3500 words or MERGE into a sibling section.
-- **§10.7 Datasets & Benchmarks** (`part-2-understanding-llms/module-10-interpretability/section-10.7.html`): wc 777, h2/3 4, callouts 3; flags: wc=777, no big_picture
+- **§10.7 Datasets & Benchmarks** (`part-2-understanding-llms/module-10-interpretability/section-10.9.html`): wc 777, h2/3 4, callouts 3; flags: wc=777, no big_picture
   - action: EXPAND to ~3500 words or MERGE into a sibling section.
 - **§51.3 Datasets & Benchmarks** (`part-10-llm-security-runtime-safety/module-51-tools-of-the-trade/section-51.3.html`): wc 782, h2/3 4, callouts 1; flags: wc=782, no big_picture
   - action: EXPAND to ~3500 words or MERGE into a sibling section.
-- **§5.4 Models** (`part-1-llm-building-blocks/module-05-tools-of-the-trade/section-5.4.html`): wc 836, h2/3 4, callouts 2; flags: wc=836, no big_picture
+- **§5.4 Models** (`part-1-llm-building-blocks/module-05-tools-of-the-trade/section-5.5.html`): wc 836, h2/3 4, callouts 2; flags: wc=836, no big_picture
   - action: ADD missing pieces (big_picture, at least one callout, more headings).
-- **§10.5 Platforms** (`part-2-understanding-llms/module-10-interpretability/section-10.5.html`): wc 875, h2/3 5, callouts 3; flags: wc=875, no big_picture
+- **§10.5 Platforms** (`part-2-understanding-llms/module-10-interpretability/section-10.6.html`): wc 875, h2/3 5, callouts 3; flags: wc=875, no big_picture
   - action: ADD missing pieces (big_picture, at least one callout, more headings).
 - **App A.1 Linear Algebra Essentials** (`appendices/appendix-a-mathematical-foundations/section-a.1.html`): wc 887, h2/3 4, callouts 2; flags: wc=887, no big_picture
   - action: ADD missing pieces (big_picture, at least one callout, more headings).
-- **§5.3 Datasets & Benchmarks** (`part-1-llm-building-blocks/module-05-tools-of-the-trade/section-5.3.html`): wc 910, h2/3 5, callouts 3; flags: wc=910, no big_picture
+- **§5.3 Datasets & Benchmarks** (`part-1-llm-building-blocks/module-05-tools-of-the-trade/section-5.4.html`): wc 910, h2/3 5, callouts 3; flags: wc=910, no big_picture
   - action: ADD missing pieces (big_picture, at least one callout, more headings).
 - **§45.3 Datasets & Benchmarks** (`part-9-llm-evaluation-observability/module-45-tools-of-the-trade/section-45.3.html`): wc 957, h2/3 4, callouts 1; flags: wc=957, no big_picture
   - action: ADD missing pieces (big_picture, at least one callout, more headings).
@@ -330,11 +330,11 @@ _Pages whose content size is below threshold or missing structural elements._
   - action: ADD missing pieces (big_picture, at least one callout, more headings).
 - **§42.12 Classical ML Evaluation Metrics** (`part-9-llm-evaluation-observability/module-42-evaluation-foundations/section-42.12.html`): wc 1000, h2/3 7, callouts 5; flags: wc=1000, no big_picture
   - action: ADD missing pieces (big_picture, at least one callout, more headings).
-- **§30.3 Datasets & Benchmarks** (`part-6-agentic-ai/module-30-tools-of-the-trade/section-30.3.html`): wc 1022, h2/3 4, callouts 1; flags: wc=1022, no big_picture
+- **§30.3 Datasets & Benchmarks** (`part-6-agentic-ai/module-30-tools-of-the-trade/section-30.4.html`): wc 1022, h2/3 4, callouts 1; flags: wc=1022, no big_picture
   - action: ADD missing pieces (big_picture, at least one callout, more headings).
 - **§14.4 Models** (`part-3-working-with-llms/module-14-tools-of-the-trade/section-14.4.html`): wc 1114, h2/3 5, callouts 4; flags: wc=1114, no big_picture
   - action: ADD missing pieces (big_picture, at least one callout, more headings).
-- **§30.4 Models** (`part-6-agentic-ai/module-30-tools-of-the-trade/section-30.4.html`): wc 1162, h2/3 4, callouts 2; flags: wc=1162, no big_picture
+- **§30.4 Models** (`part-6-agentic-ai/module-30-tools-of-the-trade/section-30.5.html`): wc 1162, h2/3 4, callouts 2; flags: wc=1162, no big_picture
   - action: ADD missing pieces (big_picture, at least one callout, more headings).
 - **§25.2 Libraries & Frameworks** (`part-5-multimodal-llms/module-25-tools-of-the-trade/section-25.2.html`): wc 1188, h2/3 3, callouts 2; flags: wc=1188, no big_picture
   - action: ADD missing pieces (big_picture, at least one callout, more headings).
@@ -388,7 +388,7 @@ _Pages whose content size is below threshold or missing structural elements._
   - action: consider splitting at major H2 boundaries; or moving deep-dive material into an appendix/sidebar.
 - **§45.2 Libraries & Frameworks** (`part-9-llm-evaluation-observability/module-45-tools-of-the-trade/section-45.2.html`): 171 KB body, 10646 words, 9 sub-headings
   - action: consider splitting at major H2 boundaries; or moving deep-dive material into an appendix/sidebar.
-- **§31.4 Document Processing & Chunking** (`part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.4.html`): 170 KB body, 7997 words, 36 sub-headings
+- **§31.4 Document Processing & Chunking** (`part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.6.html`): 170 KB body, 7997 words, 36 sub-headings
   - action: consider splitting at major H2 boundaries; or moving deep-dive material into an appendix/sidebar.
 - **§10.4 Explaining Transformers** (`part-2-understanding-llms/module-10-interpretability/section-10.4.html`): 160 KB body, 8348 words, 24 sub-headings
   - action: consider splitting at major H2 boundaries; or moving deep-dive material into an appendix/sidebar.

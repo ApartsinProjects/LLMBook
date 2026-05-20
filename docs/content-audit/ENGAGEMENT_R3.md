@@ -26,7 +26,7 @@ All edits made to sections in parts 8-11 only (no index.html touches).
    - Key Insight on hallucination rates per domain: replaced the "may" hedges and "yields better coverage than any single technique alone" with the sharper "Teams that measure per-domain rates catch reliability problems before users do; teams that measure aggregate rates learn about the problem from a press release."
    - Note callout on RAG: replaced "RAG reduces but does not eliminate hallucination. Models can hallucinate even with perfect context if..." with the explicit "RAG reduces hallucinations on topics where the retrieved docs are relevant and recent. It does NOT reduce hallucinations on topics where retrieval fails (off-topic, missing context, contradictory sources)..." (the exact pattern from the task brief's example).
 
-4. `part-10-llm-security-runtime-safety/module-47-adversarial-security-red-team/section-47.2.html` (red teaming frameworks)
+4. `part-10-llm-security-runtime-safety/module-47-adversarial-security-red-team/section-47.3.html` (red teaming frameworks)
    - Common Misconception warning: replaced "Red teaming can only find vulnerabilities that the testers think to look for. A model that passes all tests from PyRIT and Garak may still be vulnerable..." with "Red teams find only the vulnerabilities they think to look for. A model that clears every PyRIT and Garak probe today is vulnerable to next month's novel attack. Red teaming reduces risk; it does not eliminate it."
    - Penetration testing scope paragraph: replaced "pipelines (which may surface sensitive documents), tool-use capabilities (which may allow file access...)" with active framing "(which surface sensitive documents when misconfigured), (which expose file access or API calls)" and added the structural insight that most real exploits chain across layers.
 
@@ -93,7 +93,7 @@ Many sections (49.5 big-picture, 53.5 jurisdiction comparison, 54.5 watermarking
 
 These were left untouched. The instruction was explicit: keep hedges where factually warranted, drop only decoration.
 
-21. `part-10-llm-security-runtime-safety/module-47-adversarial-security-red-team/section-47.1b.html` (jailbreaks)
+21. `part-10-llm-security-runtime-safety/module-47-adversarial-security-red-team/section-47.2.html` (jailbreaks)
     - Multi-turn jailbreaks paragraph: replaced "Each individual message may appear harmless, but the cumulative trajectory leads to a harmful output. This is particularly effective against models that lack robust per-turn safety checks." with the sharper "Each individual message looks harmless in isolation; the cumulative trajectory lands on a harmful output. This is the dominant jailbreak mode against models that do not run per-turn safety checks."
 
 22. `part-9-llm-evaluation-observability/module-43-specialized-evaluation/section-43.4.html` (code benchmarks)

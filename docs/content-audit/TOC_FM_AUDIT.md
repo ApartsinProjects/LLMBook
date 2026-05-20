@@ -106,7 +106,7 @@ Three places said "82 chapters"; actual count is 83 (Chapter 0 through Chapter 7
 
 ## 8. Stale section reference "Section 0.3" (fixed)
 
-`fm-who-should-read.html` referenced "Section 0.3 teaches PyTorch in 90 minutes" but section 0.3 was split into 0.3a and 0.3b. Updated to "Sections 0.3a and 0.3b".
+`fm-who-should-read.html` referenced "Section 0.3 teaches PyTorch in 90 minutes" but section 0.3 was split into 0.3a and 0.3b. Updated to "Sections 0.3 and 0.3b".
 
 ## 9. Stale Part V chapter descriptions in fm-what-this-book-covers.html (fixed)
 

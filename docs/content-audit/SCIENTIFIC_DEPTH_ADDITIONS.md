@@ -42,9 +42,9 @@ Audit deltas after all insertions:
 |---|---|---|
 | `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.1.html` | Algorithm 3.1.1: Scaled Dot-Product Attention (Forward Pass) | Vaswani et al., NeurIPS 2017, arXiv:1706.03762 |
 | `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.1.html` | Algorithm 3.1.2: Pre-LN Decoder-Only Transformer Forward Pass | Xiong et al., ICML 2020, arXiv:2002.04745 |
-| `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.3.html` | Algorithm 3.3.1: Rotary Position Embedding (RoPE) | Su et al., arXiv:2104.09864, 2021 |
-| `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.3.html` | Algorithm 3.3.2: MHA, GQA, MQA as a Single Parameter Family | Shazeer 2019 + Ainslie et al. 2023 |
-| `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.6.html` | Algorithm 3.6.1: Top-k MoE Routing with Load-Balancing Loss | Shazeer 2017 + Fedus et al. 2021 |
+| `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.5.html` | Algorithm 3.5.1: Rotary Position Embedding (RoPE) | Su et al., arXiv:2104.09864, 2021 |
+| `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.5.html` | Algorithm 3.5.2: MHA, GQA, MQA as a Single Parameter Family | Shazeer 2019 + Ainslie et al. 2023 |
+| `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.8.html` | Algorithm 3.8.1: Top-k MoE Routing with Load-Balancing Loss | Shazeer 2017 + Fedus et al. 2021 |
 
 ### Module 6: Pretraining & Scaling Laws
 
@@ -64,8 +64,8 @@ Audit deltas after all insertions:
 
 | File | Algorithm | Citation |
 |---|---|---|
-| `part-2-understanding-llms/module-09-inference-optimization/section-9.3.html` | Algorithm 9.3.1: Lossless Speculative Decoding (Modified Rejection Sampling) | Leviathan et al., ICML 2023, arXiv:2211.17192 + Chen et al., arXiv:2302.01318 |
-| `part-2-understanding-llms/module-09-inference-optimization/section-9.7.html` | Algorithm 9.7.1: Online Softmax Recurrence | Milakov and Gimelshein, arXiv:1805.02867; used by FlashAttention, Dao 2022 |
+| `part-2-understanding-llms/module-09-inference-optimization/section-9.4.html` | Algorithm 9.4.1: Lossless Speculative Decoding (Modified Rejection Sampling) | Leviathan et al., ICML 2023, arXiv:2211.17192 + Chen et al., arXiv:2302.01318 |
+| `part-2-understanding-llms/module-09-inference-optimization/section-9.9.html` | Algorithm 9.9.1: Online Softmax Recurrence | Milakov and Gimelshein, arXiv:1805.02867; used by FlashAttention, Dao 2022 |
 
 ### Module 18: Alignment, RLHF, DPO
 
@@ -73,23 +73,23 @@ Audit deltas after all insertions:
 |---|---|---|
 | `part-4-training-adaptation/module-18-alignment-rlhf-dpo/section-18.1.html` | Algorithm 18.1.1: Bradley-Terry Reward Model from Pairwise Preferences | Bradley and Terry 1952; Christiano et al. 2017; Ouyang et al. (InstructGPT) 2022 |
 | `part-4-training-adaptation/module-18-alignment-rlhf-dpo/section-18.1.html` | Algorithm 18.1.2: PPO training loop for RLHF (renumbered from Algorithm 19.1.3) | Schulman et al. 2017 |
-| `part-4-training-adaptation/module-18-alignment-rlhf-dpo/section-18.2.html` | Algorithm 18.2.1: DPO vs PPO Loss Contrast | Rafailov et al., NeurIPS 2023, arXiv:2305.18290 |
+| `part-4-training-adaptation/module-18-alignment-rlhf-dpo/section-18.2.html` | Algorithm 18.3.1: DPO vs PPO Loss Contrast | Rafailov et al., NeurIPS 2023, arXiv:2305.18290 |
 
 ### Module 31: Embeddings & Vector DB
 
 | File | Algorithm | Citation |
 |---|---|---|
 | `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.1.html` | Algorithm 31.1.1: Matryoshka Representation Learning (MRL) Training Objective | Kusupati et al., NeurIPS 2022, arXiv:2205.13147 |
-| `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.2.html` | Algorithm 31.2.1: HNSW Approximate Nearest-Neighbor Search | Malkov and Yashunin, IEEE TPAMI 2020, arXiv:1603.09320 |
-| `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.2.html` | Algorithm 31.2.2: IVF (Inverted-File) Two-Stage Search | Jegou, Douze, Schmid, IEEE TPAMI 2011 |
-| `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.2.html` | Algorithm 31.2.3: Product Quantization: Encode and Asymmetric Distance Computation | Jegou, Douze, Schmid, IEEE TPAMI 2011 |
-| `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.5.html` | Algorithm 31.5.1: ColBERT MaxSim (Late Interaction) Scoring | Khattab and Zaharia, SIGIR 2020, arXiv:2004.12832 |
+| `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.2.html` | Algorithm 31.3.1: HNSW Approximate Nearest-Neighbor Search | Malkov and Yashunin, IEEE TPAMI 2020, arXiv:1603.09320 |
+| `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.2.html` | Algorithm 31.3.2: IVF (Inverted-File) Two-Stage Search | Jegou, Douze, Schmid, IEEE TPAMI 2011 |
+| `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.2.html` | Algorithm 31.3.3: Product Quantization: Encode and Asymmetric Distance Computation | Jegou, Douze, Schmid, IEEE TPAMI 2011 |
+| `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.8.html` | Algorithm 31.8.1: ColBERT MaxSim (Late Interaction) Scoring | Khattab and Zaharia, SIGIR 2020, arXiv:2004.12832 |
 
 ### Module 35: Advanced RAG (chosen over Module 32 for the BM25/RRF math placement)
 
 | File | Algorithm | Citation |
 |---|---|---|
-| `part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.1.html` | Algorithm 35.1.1: BM25 Term-Weighting and Document Scoring | Robertson and Walker, SIGIR 1994 |
+| `part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.1.html` | Algorithm 35.2.1: BM25 Term-Weighting and Document Scoring | Robertson and Walker, SIGIR 1994 |
 | `part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.1.html` | Algorithm 35.1.2: Reciprocal Rank Fusion (RRF) for Hybrid Retrieval | Cormack, Clarke, Buettcher, SIGIR 2009 |
 
 ### Module 42: Evaluation Foundations
@@ -127,7 +127,7 @@ arxiv link to Vaswani et al. 2017.
 
 Two more illustrative additions:
 
-- **Algorithm 18.2.1 (DPO vs PPO Loss Contrast)** in section-18.2.html.
+- **Algorithm 18.3.1 (DPO vs PPO Loss Contrast)** in section-18.2.html.
   Before: each loss appeared on its own page with $L_\text{DPO}$ derived
   symbolically but no side-by-side update rule. After: a single Algorithm
   callout shows the PPO inner loop (sample, KL-shaped reward, GAE,
@@ -136,7 +136,7 @@ Two more illustrative additions:
   loss; 2 models in GPU), with the Rafailov et al. equivalence theorem and
   the trade-offs (on-policy vs offline, reusable reward vs implicit).
 
-- **Algorithm 31.2.1 (HNSW search)** in section-31.2.html.
+- **Algorithm 31.3.1 (HNSW search)** in section-31.2.html.
   Before: prose described "start at the top layer, descend, beam search at
   layer 0" but the explicit greedy-descent + ef-beam-search structure was
   not given in a callout. After: a numbered Algorithm callout with
@@ -160,11 +160,11 @@ authoring in a follow-up pass.
 - **8.3.2 GRPO**: needs Algorithm callout for DeepSeek's
   Group Relative Policy Optimization (the GRPO advantage = (r - mean(r)) /
   std(r) over a group of N completions, PPO-style clip).
-- **9.1.4 GPTQ + AWQ**: needs Algorithm callouts for GPTQ's Hessian-based
+- **9.2.1 GPTQ + AWQ**: needs Algorithm callouts for GPTQ's Hessian-based
   weight update (block iteration with error compensation) and AWQ's
   activation-aware per-channel scaling.
-- **9.2.4 MHA/MQA/GQA architectural deep dive**: redundant with
-  Algorithm 3.3.2 above; cross-reference rather than duplicate.
+- **9.3.4 MHA/MQA/GQA architectural deep dive**: redundant with
+  Algorithm 3.5.2 above; cross-reference rather than duplicate.
 - **18.3 KTO/IPO/ORPO/SimPO**: these are DPO variants and could share
   one Algorithm callout that parameterizes the family by their margin /
   reference treatment.
@@ -178,9 +178,9 @@ authoring in a follow-up pass.
 
 ## 5. Low-priority gaps noted (not inserted)
 
-- **3.3.3 Sliding-window + sink-token attention**: nice-to-have Algorithm
+- **3.5.3 Sliding-window + sink-token attention**: nice-to-have Algorithm
   callout for the mask construction.
-- **9.3.4 EAGLE / 9.3.5 Medusa**: tree-attention verification could get an
+- **9.4.4 EAGLE / 9.4.5 Medusa**: tree-attention verification could get an
   Algorithm callout if the chapter expands.
 - **31.4 Embedding model distillation**: KD objective is generic, not
   specific to embeddings; lower leverage.

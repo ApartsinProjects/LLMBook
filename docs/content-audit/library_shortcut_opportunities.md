@@ -291,15 +291,15 @@ This chapter has lots of inline links already; the gaps are in adjacent librarie
     **Library**: `mcp` Python SDK (Anthropic) - the canonical implementation for the MCP protocol. Currently mentioned but not given a library-shortcut. Add one.  
     **Placement**: in 29.4's discussion of MCP-based tool servers.
 
-### Section 35.2: RAG with Knowledge Graphs
+### Section 35.3: RAG with Knowledge Graphs
 59. **Concept**: LLM-based knowledge-graph construction from text.  
     **Library**: `LangChain LLMGraphTransformer` and `LlamaIndex KnowledgeGraphIndex`. Add a library-shortcut callout naming LLMGraphTransformer as the easiest path: "from text to a Neo4j graph in 10 lines".  
-    **Placement**: in 35.2's "LLM-based KG construction" subsection.
+    **Placement**: in 35.3's "LLM-based KG construction" subsection.
 60. **Concept**: Cypher-based retrieval.  
     **Library**: `neo4j` Python driver + `langchain-neo4j`. Add a library-shortcut callout: "Use `Neo4jGraph(url, username, password)` + `GraphCypherQAChain` for end-to-end natural-language-to-Cypher retrieval."  
-    **Placement**: in 35.2's Cypher subsection.
+    **Placement**: in 35.3's Cypher subsection.
 
-### Section 35.3: GraphRAG
+### Section 35.4: GraphRAG
 61. **Concept**: GraphRAG community detection + summarization.  
     **Library**: `graphrag` (Microsoft) - the canonical implementation. Currently the prose names "Microsoft GraphRAG" but never explicitly tells the reader the pip-installable package name. Add a one-line library-shortcut.  
     **Placement**: at the start of 35.3 or right after the indexing pipeline description.
@@ -341,7 +341,7 @@ This chapter has lots of inline links already; the gaps are in adjacent librarie
 6. **Section 56.2 `Fairlearn MetricFrame` snippet callout** (item 30) - one snippet teaches the whole library.
 7. **Section 59.2 `accelerate launch --use_fsdp` callout** (item 37) - the easiest entry to FSDP.
 8. **Section 59.4 `torch.distributed.pipelining` callout** (item 40) - the official-PyTorch path is underused.
-9. **Section 35.3 `graphrag` pip-installable callout** (item 61) - prose names the technique but not the package.
+9. **Section 35.4 `graphrag` pip-installable callout** (item 61) - prose names the technique but not the package.
 10. **Section 37.3 `letta` callout** (item 64) - readers asking "how do I get memory now" deserve a direct pointer.
 
 These ten land in sections that already discuss the concept but currently leave readers to figure out the right library on their own.

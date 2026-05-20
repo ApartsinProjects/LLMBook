@@ -28,13 +28,13 @@ Total figures added: 29 sections.
    (Figure 28.4.1): Four-layer testing pyramid for agent systems (unit,
    integration, scenario, chaos) with per-layer cost and count annotations.
 
-5. **part-7-retrieval-information-extraction-with-llms/module-32-rag/section-32.4.html**
-   (Figure 32.4.1): Citation pipeline showing retrieved sources, generation
+5. **part-7-retrieval-information-extraction-with-llms/module-32-rag/section-32.5.html**
+   (Figure 32.5.1): Citation pipeline showing retrieved sources, generation
    with inline cites, and NLI / quote-match verifier catching citation
    hallucinations.
 
-6. **part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.5b.html**
-   (Figure 35.5.1): Compound AI / RAG pipeline as six swappable boxes
+6. **part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.7.html**
+   (Figure 35.6.1): Compound AI / RAG pipeline as six swappable boxes
    (query rewriter, retriever, reranker, generator, verifier, output) with a
    router across the top.
 
@@ -101,12 +101,12 @@ Total figures added: 29 sections.
     (Figure 30.1.1): Six-layer agent platform stack from UI to observability
     (AG-UI, A2A, runtime, MCP, sandboxes, observability).
 
-22. **part-6-agentic-ai/module-30-tools-of-the-trade/section-30.3.html**
-    (Figure 30.3.1): Six-cell grid of agent benchmark families (SWE, browser,
+22. **part-6-agentic-ai/module-30-tools-of-the-trade/section-30.4.html**
+    (Figure 30.4.1): Six-cell grid of agent benchmark families (SWE, browser,
     tool-use, customer service, general assistants, computer use).
 
-23. **part-6-agentic-ai/module-30-tools-of-the-trade/section-30.4.html**
-    (Figure 30.4.1): Three-panel summary of what agents need from a model
+23. **part-6-agentic-ai/module-30-tools-of-the-trade/section-30.5.html**
+    (Figure 30.5.1): Three-panel summary of what agents need from a model
     (tool-call reliability, long-trace coherence, reasoning) vs chat.
 
 24. **part-5-multimodal-llms/module-25-tools-of-the-trade/section-25.1.html**
@@ -126,18 +126,18 @@ Total figures added: 29 sections.
     (Figure 46.5.1): Three-judge ensemble that majority-votes on a comparison,
     showing how partly-uncorrelated biases cancel in the aggregate verdict.
 
-28. **part-8-conversational-ai-with-llms/module-37-conversational-ai/section-37.5b.html**
+28. **part-8-conversational-ai-with-llms/module-37-conversational-ai/section-37.6.html**
     (Figure 37.5.1): Memory consolidation pipeline: raw memory log -> four-step
     consolidator (merge, resolve, score, decay) -> compact canonical store.
 
-29. **part-6-agentic-ai/module-30-tools-of-the-trade/section-30.2b.html**
+29. **part-6-agentic-ai/module-30-tools-of-the-trade/section-30.3.html**
     (Figure 30.2.1): Four multi-agent topology patterns side by side
     (hierarchical, peer / debate, pipeline, competitive) with named framework
     and primary failure mode per cell.
 
 ## Sections skipped (intentionally)
 
-- Tools-of-the-trade external-reading lists (sections 19.5, 30.5, 36.5, 41.5,
+- Tools-of-the-trade external-reading lists (sections 19.6, 30.5, 36.5, 41.5,
   45.5) are intended as text-heavy bibliographies. No figure benefit.
 - HuggingFace library deep-dive sections (19.6, 19.8, 19.9, 19.10, 19.11,
   19.12, 19.13, 19.14) are API walk-throughs; figures would be filler.

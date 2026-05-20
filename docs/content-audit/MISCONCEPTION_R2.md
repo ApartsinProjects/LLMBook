@@ -19,13 +19,13 @@ intent is unambiguous in the rendered HTML.)
 
 ### Module 3 (Transformer Architecture) — 2 callouts
 
-1. **section-3.1a.html — "Attention Means the Model Is 'Focusing On' Important Words"**
+1. **section-3.1.html — "Attention Means the Model Is 'Focusing On' Important Words"**
    Inserted after the "Why Divide by sqrt(d_k)?" key-insight (around the
    Scaled Dot-Product Attention section). Clarifies that attention weights are
    routing decisions over value vectors, not interpretability signals; cites
    Jain & Wallace (2019) and Bibal et al. (2022).
 
-2. **section-3.2a.html — "Multi-Head Attention Is 'Multiple Independent Attention Layers'"**
+2. **section-3.3.html — "Multi-Head Attention Is 'Multiple Independent Attention Layers'"**
    Inserted after the "Why Use Multiple Heads?" key-insight. Clarifies that
    n_heads heads each operate on d_model/n_heads slices, so total FLOPs are the
    same as single full-width attention; multi-head buys diverse subspaces, not
@@ -69,13 +69,13 @@ intent is unambiguous in the rendered HTML.)
 
 ### Module 9 (Inference Optimization) — 2 callouts
 
-8. **section-9.1a.html — "INT4 Quantization Makes the Model 4x Faster"**
+8. **section-9.1.html — "INT4 Quantization Makes the Model 4x Faster"**
    Inserted after the "quantization helps in two complementary ways" paragraph.
    Distinguishes 4x memory shrink from 2-3x throughput gain, explains
    dequantization overhead and the difference between memory-bandwidth-bound
    and compute-bound workloads.
 
-9. **section-9.2.html — "Doubling the Context Window Doubles the Memory Cost"**
+9. **section-9.3.html — "Doubling the Context Window Doubles the Memory Cost"**
    Inserted at the start of the KV-cache-explained section. Clarifies that
    for batched serving, the binding constraint is KV-per-request times batch
    size, so doubling context window can cut your operational batch size,
@@ -83,7 +83,7 @@ intent is unambiguous in the rendered HTML.)
 
 ### Module 18 (Alignment) — 1 callout
 
-10. **section-18.1b.html — "DPO Is Just RLHF Without the RL"**
+10. **section-18.2.html — "DPO Is Just RLHF Without the RL"**
     Inserted after the RLHF/DPO/GRPO comparison table. Cites Xu et al. (2024)
     and Tajwar et al. (2024): DPO's closed-form is offline so the implicit
     reward miscalibrates as the policy drifts from the preference data; PPO
@@ -92,13 +92,13 @@ intent is unambiguous in the rendered HTML.)
 
 ### Module 32 (RAG) — 2 callouts
 
-11. **section-32.1a.html — "Smaller Chunks Are More Precise, So Use the Smallest Chunks Possible"**
+11. **section-32.1.html — "Smaller Chunks Are More Precise, So Use the Smallest Chunks Possible"**
     Inserted after the optimal-chunk-size note. Explains that very small
     chunks strip surrounding context the embedding model needs; below ~200
     tokens, retrieval quality degrades sharply. Recommends starting at 512
     with 50-token overlap.
 
-12. **section-32.1a.html — "Chunk Boundaries Don't Matter If I Use Overlap"**
+12. **section-32.1.html — "Chunk Boundaries Don't Matter If I Use Overlap"**
     Immediately after the previous callout. Clarifies that overlap does not
     rescue a chunk that splits a numbered list, table row, or multi-sentence
     claim; structure-aware splitters (headings, HTML tags, code blocks) are
@@ -155,8 +155,8 @@ insertion point as a contrastive pair, but they count as separate callouts.)
 - **section-8.1.html** — already has a `warning` callout titled "The Hidden
   Cost of Over-Thinking" addressing the routing aspect of reasoning models.
   Verified before adding the CoT-helps-vs-hurts callout.
-- **section-9.5.html** — already has multiple `warning` callouts including
+- **section-9.7.html** — already has multiple `warning` callouts including
   one explicitly titled "Common Misconception" for pruning.
-- **section-9.1a.html** — already had two `postmortem` callouts about INT4
+- **section-9.1.html** — already had two `postmortem` callouts about INT4
   quantization killing math; my new callout covers the orthogonal
   throughput-vs-memory-shrink confusion.

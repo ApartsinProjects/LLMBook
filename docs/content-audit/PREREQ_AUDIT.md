@@ -10,13 +10,13 @@ None.
 
 | Section | href | link text | issue |
 |---|---|---|---|
-| part-1-llm-building-blocks/module-02-sequence-models-attention/section-2.3a.html | ../module-03-transformer-architecture/section-3.1a.html | Section 3.1 | prereq points FORWARD: target is at (1, 3, 301), this section is at (1, 2, 203) |
-| part-1-llm-building-blocks/module-02-sequence-models-attention/section-2.3a.html | ../module-03-transformer-architecture/section-3.2a.html | Section 3.2 | prereq points FORWARD: target is at (1, 3, 302), this section is at (1, 2, 203) |
-| part-10-llm-security-runtime-safety/module-47-adversarial-security-red-team/section-47.1a.html | ../../part-14-designing-llm-agent-products/module-70-shippin | Section 70.5: Application Architecture and Deploym | prereq points FORWARD: target is at (14, 70, 7005), this section is at (10, 47,  |
-| part-10-llm-security-runtime-safety/module-47-adversarial-security-red-team/section-47.1b.html | ../../part-14-designing-llm-agent-products/module-70-shippin | Section 70.5: Application Architecture and Deploym | prereq points FORWARD: target is at (14, 70, 7005), this section is at (10, 47,  |
-| part-2-understanding-llms/module-07-modern-llm-landscape/section-7.1a.html | ../../part-4-training-adaptation/module-18-alignment-rlhf-dp | Section 18.1 | prereq points FORWARD: target is at (4, 18, 1801), this section is at (2, 7, 701 |
-| part-2-understanding-llms/module-10-interpretability/section-10.6a.html | ../../part-3-working-with-llms/module-12-prompt-engineering/ | Section 12.1 | prereq points FORWARD: target is at (3, 12, 1201), this section is at (2, 10, 10 |
-| part-2-understanding-llms/module-10-interpretability/section-10.6b.html | ../../part-3-working-with-llms/module-11-llm-apis/section-11 | Section 11.1 | prereq points FORWARD: target is at (3, 11, 1101), this section is at (2, 10, 10 |
+| part-1-llm-building-blocks/module-02-sequence-models-attention/section-2.3.html | ../module-03-transformer-architecture/section-3.1.html | Section 3.1 | prereq points FORWARD: target is at (1, 3, 301), this section is at (1, 2, 203) |
+| part-1-llm-building-blocks/module-02-sequence-models-attention/section-2.3.html | ../module-03-transformer-architecture/section-3.3.html | Section 3.2 | prereq points FORWARD: target is at (1, 3, 302), this section is at (1, 2, 203) |
+| part-10-llm-security-runtime-safety/module-47-adversarial-security-red-team/section-47.1.html | ../../part-14-designing-llm-agent-products/module-70-shippin | Section 70.5: Application Architecture and Deploym | prereq points FORWARD: target is at (14, 70, 7005), this section is at (10, 47,  |
+| part-10-llm-security-runtime-safety/module-47-adversarial-security-red-team/section-47.2.html | ../../part-14-designing-llm-agent-products/module-70-shippin | Section 70.5: Application Architecture and Deploym | prereq points FORWARD: target is at (14, 70, 7005), this section is at (10, 47,  |
+| part-2-understanding-llms/module-07-modern-llm-landscape/section-7.1.html | ../../part-4-training-adaptation/module-18-alignment-rlhf-dp | Section 18.1 | prereq points FORWARD: target is at (4, 18, 1801), this section is at (2, 7, 701 |
+| part-2-understanding-llms/module-10-interpretability/section-10.7.html | ../../part-3-working-with-llms/module-12-prompt-engineering/ | Section 12.1 | prereq points FORWARD: target is at (3, 12, 1201), this section is at (2, 10, 10 |
+| part-2-understanding-llms/module-10-interpretability/section-10.8.html | ../../part-3-working-with-llms/module-11-llm-apis/section-11 | Section 11.1 | prereq points FORWARD: target is at (3, 11, 1101), this section is at (2, 10, 10 |
 | part-9-llm-evaluation-observability/module-42-evaluation-foundations/section-42.3.html | ../module-44-online-eval-observability/section-44.4.html | observability | prereq points FORWARD: target is at (9, 44, 4404), this section is at (9, 42, 42 |
 | part-9-llm-evaluation-observability/module-42-evaluation-foundations/section-42.4.html | ../module-44-online-eval-observability/section-44.4.html | Section 44.4 | prereq points FORWARD: target is at (9, 44, 4404), this section is at (9, 42, 42 |
 | part-9-llm-evaluation-observability/module-42-evaluation-foundations/section-42.7.html | ../module-44-online-eval-observability/section-44.4.html | Section 44.4 | prereq points FORWARD: target is at (9, 44, 4404), this section is at (9, 42, 42 |
@@ -35,13 +35,13 @@ None.
 | Section | href | link text | issue |
 |---|---|---|---|
 | part-1-llm-building-blocks/module-00-ml-pytorch-foundations/section-0.2.html | section-0.1.html | Section 0.1: ML Basics | link text and target h1 share no significant words |
-| part-1-llm-building-blocks/module-00-ml-pytorch-foundations/section-0.3a.html | section-0.1.html | Section 0.1: ML Basics | link text and target h1 share no significant words |
-| part-1-llm-building-blocks/module-00-ml-pytorch-foundations/section-0.3a.html | section-0.2.html | backpropagation | link text and target h1 share no significant words |
-| part-1-llm-building-blocks/module-00-ml-pytorch-foundations/section-0.4.html | section-0.1.html | Section 0.1: ML Basics | link text and target h1 share no significant words |
+| part-1-llm-building-blocks/module-00-ml-pytorch-foundations/section-0.3.html | section-0.1.html | Section 0.1: ML Basics | link text and target h1 share no significant words |
+| part-1-llm-building-blocks/module-00-ml-pytorch-foundations/section-0.3.html | section-0.2.html | backpropagation | link text and target h1 share no significant words |
+| part-1-llm-building-blocks/module-00-ml-pytorch-foundations/section-0.5.html | section-0.1.html | Section 0.1: ML Basics | link text and target h1 share no significant words |
 | part-1-llm-building-blocks/module-02-sequence-models-attention/section-2.1.html | ../module-00-ml-pytorch-foundations/section-0.2.html | backpropagation | link text and target h1 share no significant words |
-| part-1-llm-building-blocks/module-03-transformer-architecture/section-3.1a.html | ../module-00-ml-pytorch-foundations/section-0.2.html | backpropagation | link text and target h1 share no significant words |
-| part-1-llm-building-blocks/module-03-transformer-architecture/section-3.3.html | ../module-02-sequence-models-attention/section-2.3a.html | self-attention | link text and target h1 share no significant words |
-| part-10-llm-security-runtime-safety/module-47-adversarial-security-red-team/section-47.3.html | section-47.1a.html | Section 47.1: LLM Security Threats | link text and target h1 share no significant words |
+| part-1-llm-building-blocks/module-03-transformer-architecture/section-3.1.html | ../module-00-ml-pytorch-foundations/section-0.2.html | backpropagation | link text and target h1 share no significant words |
+| part-1-llm-building-blocks/module-03-transformer-architecture/section-3.5.html | ../module-02-sequence-models-attention/section-2.3.html | self-attention | link text and target h1 share no significant words |
+| part-10-llm-security-runtime-safety/module-47-adversarial-security-red-team/section-47.4.html | section-47.1.html | Section 47.1: LLM Security Threats | link text and target h1 share no significant words |
 | part-10-llm-security-runtime-safety/module-48-guardrails-runtime-safety/section-48.1.html | ../../part-4-training-adaptation/module-18-alignment-rlhf-dp | alignment training | link text and target h1 share no significant words |
 | part-10-llm-security-runtime-safety/module-48-guardrails-runtime-safety/section-48.2.html | section-48.1.html | the three-layer safety model | link text and target h1 share no significant words |
 | part-10-llm-security-runtime-safety/module-48-guardrails-runtime-safety/section-48.2.html | ../../part-3-working-with-llms/module-11-llm-apis/section-11 | LLM API patterns | link text and target h1 share no significant words |
@@ -80,28 +80,28 @@ None.
 | part-15-llm-agentic-ai-research-frontiers/module-75-frontier-architectures/section-75.3.html | ../../part-1-llm-building-blocks/module-02-sequence-models-a | attention mechanism | link text and target h1 share no significant words |
 | part-15-llm-agentic-ai-research-frontiers/module-76-frontier-theory/section-76.1.html | ../../part-2-understanding-llms/module-08-reasoning-test-tim | Section 8.1: Chain-of-Thought Reasoning | link text and target h1 share no significant words |
 | part-15-llm-agentic-ai-research-frontiers/module-76-frontier-theory/section-76.2.html | ../../part-7-retrieval-information-extraction-with-llms/modu | RAG foundations | link text and target h1 share no significant words |
-| part-2-understanding-llms/module-09-inference-optimization/section-9.2.html | ../../part-1-llm-building-blocks/module-02-sequence-models-a | attention mechanism | link text and target h1 share no significant words |
+| part-2-understanding-llms/module-09-inference-optimization/section-9.3.html | ../../part-1-llm-building-blocks/module-02-sequence-models-a | attention mechanism | link text and target h1 share no significant words |
 | part-2-understanding-llms/module-10-interpretability/section-10.1.html | ../../part-2-understanding-llms/module-06-pretraining-scalin | Section 6.1: The Landmark Models | link text and target h1 share no significant words |
-| part-2-understanding-llms/module-10-interpretability/section-10.6b.html | section-10.6a.html | Section 10.6a | link text and target h1 share no significant words |
+| part-2-understanding-llms/module-10-interpretability/section-10.8.html | section-10.7.html | Section 10.7 | link text and target h1 share no significant words |
 | part-3-working-with-llms/module-12-prompt-engineering/section-12.2.html | ../../part-1-llm-building-blocks/module-02-sequence-models-a | attention mechanisms | link text and target h1 share no significant words |
 | part-4-training-adaptation/module-16-fine-tuning-fundamentals/index.html | ../../part-1-llm-building-blocks/module-00-ml-pytorch-founda | loss functions | link text and target h1 share no significant words |
 | part-4-training-adaptation/module-16-fine-tuning-fundamentals/section-16.1.html | ../../part-2-understanding-llms/module-06-pretraining-scalin | Section 6.1: The Landmark Models | link text and target h1 share no significant words |
 | part-4-training-adaptation/module-17-peft/section-17.1.html | ../module-16-fine-tuning-fundamentals/section-16.3.html | catastrophic forgetting | link text and target h1 share no significant words |
-| part-4-training-adaptation/module-17-peft/section-17.5a.html | ../../part-2-understanding-llms/module-06-pretraining-scalin | Section 6.1: The Landmark Models | link text and target h1 share no significant words |
-| part-4-training-adaptation/module-17-peft/section-17.7.html | ../module-16-fine-tuning-fundamentals/section-16.3.html | catastrophic forgetting | link text and target h1 share no significant words |
+| part-4-training-adaptation/module-17-peft/section-17.5.html | ../../part-2-understanding-llms/module-06-pretraining-scalin | Section 6.1: The Landmark Models | link text and target h1 share no significant words |
+| part-4-training-adaptation/module-17-peft/section-17.8.html | ../module-16-fine-tuning-fundamentals/section-16.3.html | catastrophic forgetting | link text and target h1 share no significant words |
 | part-4-training-adaptation/module-18-alignment-rlhf-dpo/index.html | ../../part-1-llm-building-blocks/module-00-ml-pytorch-founda | loss functions | link text and target h1 share no significant words |
 | part-4-training-adaptation/module-18-alignment-rlhf-dpo/section-18.1.html | ../../part-2-understanding-llms/module-06-pretraining-scalin | Section 6.1: The Landmark Models | link text and target h1 share no significant words |
-| part-4-training-adaptation/module-18-alignment-rlhf-dpo/section-18.3.html | section-18.2a.html | Section 18.2: DPO and Modern Preference Optimizati | link text and target h1 share no significant words |
-| part-4-training-adaptation/module-18-alignment-rlhf-dpo/section-18.5.html | ../../part-2-understanding-llms/module-10-interpretability/s | interpretability | link text and target h1 share no significant words |
+| part-4-training-adaptation/module-18-alignment-rlhf-dpo/section-18.5.html | section-18.3.html | Section 18.2: DPO and Modern Preference Optimizati | link text and target h1 share no significant words |
+| part-4-training-adaptation/module-18-alignment-rlhf-dpo/section-18.7.html | ../../part-2-understanding-llms/module-10-interpretability/s | interpretability | link text and target h1 share no significant words |
 | part-5-multimodal-llms/module-21-document-understanding-ocr/section-21.2.html | ../../part-1-llm-building-blocks/module-02-sequence-models-a | transformer architectures | link text and target h1 share no significant words |
 | part-5-multimodal-llms/module-21-document-understanding-ocr/section-21.3.html | ../../part-3-working-with-llms/module-12-prompt-engineering/ | structured-output prompting | link text and target h1 share no significant words |
 | part-5-multimodal-llms/module-22-vision-language-models/section-22.2.html | ../../part-1-llm-building-blocks/module-02-sequence-models-a | transformer encoders | link text and target h1 share no significant words |
 | part-5-multimodal-llms/module-22-vision-language-models/section-22.3.html | ../../part-2-understanding-llms/module-06-pretraining-scalin | LLM pretraining | link text and target h1 share no significant words |
-| part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.1a.html | ../../part-1-llm-building-blocks/module-00-ml-pytorch-founda | loss functions | link text and target h1 share no significant words |
-| part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.1b.html | section-31.1a.html | Section 31.1a | link text and target h1 share no significant words |
-| part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.2.html | ../module-31-embeddings-vector-db/section-31.1a.html | cosine similarity | link text and target h1 share no significant words |
-| part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.3.html | section-35.1a.html | advanced RAG techniques | link text and target h1 share no significant words |
-| part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.3.html | ../../part-3-working-with-llms/module-11-llm-apis/index.html | LLM API calls | link text and target h1 share no significant words |
+| part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.1.html | ../../part-1-llm-building-blocks/module-00-ml-pytorch-founda | loss functions | link text and target h1 share no significant words |
+| part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.2.html | section-31.1.html | Section 31.1 | link text and target h1 share no significant words |
+| part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.2.html | ../module-31-embeddings-vector-db/section-31.1.html | cosine similarity | link text and target h1 share no significant words |
+| part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.4.html | section-35.1.html | advanced RAG techniques | link text and target h1 share no significant words |
+| part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.4.html | ../../part-3-working-with-llms/module-11-llm-apis/index.html | LLM API calls | link text and target h1 share no significant words |
 | part-9-llm-evaluation-observability/module-42-evaluation-foundations/section-42.10.html | ../module-42-evaluation-foundations/section-42.4.html | Section 42.4: LLM Experiment Reproducibility | link text and target h1 share no significant words |
 | part-9-llm-evaluation-observability/module-42-evaluation-foundations/section-42.3.html | ../module-44-online-eval-observability/section-44.4.html | observability | link text and target h1 share no significant words |
 | part-9-llm-evaluation-observability/module-42-evaluation-foundations/section-42.5.html | ../../part-7-retrieval-information-extraction-with-llms/modu | RAG pipelines | link text and target h1 share no significant words |
@@ -123,16 +123,16 @@ None.
 | appendices/appendix-a-mathematical-foundations/section-a.4.html |  |  | no prerequisites block |
 | appendices/appendix-a-mathematical-foundations/section-a.5.html |  |  | no prerequisites block |
 | appendices/appendix-a-mathematical-foundations/section-a.6.html |  |  | no prerequisites block |
-| part-1-llm-building-blocks/module-00-ml-pytorch-foundations/section-0.3b.html |  |  | no prerequisites block |
-| part-1-llm-building-blocks/module-02-sequence-models-attention/section-2.3b.html |  |  | no prerequisites block |
-| part-1-llm-building-blocks/module-03-transformer-architecture/section-3.1b.html |  |  | no prerequisites block |
-| part-1-llm-building-blocks/module-03-transformer-architecture/section-3.2b.html |  |  | no prerequisites block |
+| part-1-llm-building-blocks/module-00-ml-pytorch-foundations/section-0.4.html |  |  | no prerequisites block |
+| part-1-llm-building-blocks/module-02-sequence-models-attention/section-2.4.html |  |  | no prerequisites block |
+| part-1-llm-building-blocks/module-03-transformer-architecture/section-3.2.html |  |  | no prerequisites block |
+| part-1-llm-building-blocks/module-03-transformer-architecture/section-3.4.html |  |  | no prerequisites block |
 | part-1-llm-building-blocks/module-05-tools-of-the-trade/section-5.1.html |  |  | no prerequisites block |
-| part-1-llm-building-blocks/module-05-tools-of-the-trade/section-5.2a.html |  |  | no prerequisites block |
-| part-1-llm-building-blocks/module-05-tools-of-the-trade/section-5.2b.html |  |  | no prerequisites block |
+| part-1-llm-building-blocks/module-05-tools-of-the-trade/section-5.2.html |  |  | no prerequisites block |
 | part-1-llm-building-blocks/module-05-tools-of-the-trade/section-5.3.html |  |  | no prerequisites block |
 | part-1-llm-building-blocks/module-05-tools-of-the-trade/section-5.4.html |  |  | no prerequisites block |
 | part-1-llm-building-blocks/module-05-tools-of-the-trade/section-5.5.html |  |  | no prerequisites block |
+| part-1-llm-building-blocks/module-05-tools-of-the-trade/section-5.6.html |  |  | no prerequisites block |
 | part-10-llm-security-runtime-safety/module-51-tools-of-the-trade/section-51.1.html |  |  | no prerequisites block |
 | part-10-llm-security-runtime-safety/module-51-tools-of-the-trade/section-51.2.html |  |  | no prerequisites block |
 | part-10-llm-security-runtime-safety/module-51-tools-of-the-trade/section-51.3.html |  |  | no prerequisites block |
@@ -153,35 +153,35 @@ None.
 | part-14-applications-of-llms-across-industries/module-74-tools-of-the-trade/section-74.3.html |  |  | no prerequisites block |
 | part-14-applications-of-llms-across-industries/module-74-tools-of-the-trade/section-74.4.html |  |  | no prerequisites block |
 | part-14-applications-of-llms-across-industries/module-74-tools-of-the-trade/section-74.5.html |  |  | no prerequisites block |
-| part-2-understanding-llms/module-07-modern-llm-landscape/section-7.1b.html |  |  | no prerequisites block |
-| part-2-understanding-llms/module-09-inference-optimization/section-9.1b.html |  |  | no prerequisites block |
-| part-2-understanding-llms/module-09-inference-optimization/section-9.4b.html |  |  | no prerequisites block |
-| part-4-training-adaptation/module-17-peft/section-17.5b.html |  |  | no prerequisites block |
-| part-4-training-adaptation/module-18-alignment-rlhf-dpo/section-18.2b.html |  |  | no prerequisites block |
+| part-2-understanding-llms/module-07-modern-llm-landscape/section-7.2.html |  |  | no prerequisites block |
+| part-2-understanding-llms/module-09-inference-optimization/section-9.2.html |  |  | no prerequisites block |
+| part-2-understanding-llms/module-09-inference-optimization/section-9.6.html |  |  | no prerequisites block |
+| part-4-training-adaptation/module-17-peft/section-17.6.html |  |  | no prerequisites block |
+| part-4-training-adaptation/module-18-alignment-rlhf-dpo/section-18.4.html |  |  | no prerequisites block |
 | part-4-training-adaptation/module-19-tools-of-the-trade/section-19.1.html |  |  | no prerequisites block |
-| part-4-training-adaptation/module-19-tools-of-the-trade/section-19.10.html |  |  | no prerequisites block |
 | part-4-training-adaptation/module-19-tools-of-the-trade/section-19.11.html |  |  | no prerequisites block |
 | part-4-training-adaptation/module-19-tools-of-the-trade/section-19.12.html |  |  | no prerequisites block |
 | part-4-training-adaptation/module-19-tools-of-the-trade/section-19.13.html |  |  | no prerequisites block |
 | part-4-training-adaptation/module-19-tools-of-the-trade/section-19.14.html |  |  | no prerequisites block |
+| part-4-training-adaptation/module-19-tools-of-the-trade/section-19.15.html |  |  | no prerequisites block |
 | part-4-training-adaptation/module-19-tools-of-the-trade/section-19.2.html |  |  | no prerequisites block |
-| part-4-training-adaptation/module-19-tools-of-the-trade/section-19.3a.html |  |  | no prerequisites block |
-| part-4-training-adaptation/module-19-tools-of-the-trade/section-19.3b.html |  |  | no prerequisites block |
+| part-4-training-adaptation/module-19-tools-of-the-trade/section-19.3.html |  |  | no prerequisites block |
 | part-4-training-adaptation/module-19-tools-of-the-trade/section-19.4.html |  |  | no prerequisites block |
 | part-4-training-adaptation/module-19-tools-of-the-trade/section-19.5.html |  |  | no prerequisites block |
 | part-4-training-adaptation/module-19-tools-of-the-trade/section-19.6.html |  |  | no prerequisites block |
 | part-4-training-adaptation/module-19-tools-of-the-trade/section-19.7.html |  |  | no prerequisites block |
 | part-4-training-adaptation/module-19-tools-of-the-trade/section-19.8.html |  |  | no prerequisites block |
 | part-4-training-adaptation/module-19-tools-of-the-trade/section-19.9.html |  |  | no prerequisites block |
+| part-4-training-adaptation/module-19-tools-of-the-trade/section-19.10.html |  |  | no prerequisites block |
 | part-6-agentic-ai/module-30-tools-of-the-trade/section-30.1.html |  |  | no prerequisites block |
-| part-6-agentic-ai/module-30-tools-of-the-trade/section-30.2a.html |  |  | no prerequisites block |
-| part-6-agentic-ai/module-30-tools-of-the-trade/section-30.2b.html |  |  | no prerequisites block |
+| part-6-agentic-ai/module-30-tools-of-the-trade/section-30.2.html |  |  | no prerequisites block |
 | part-6-agentic-ai/module-30-tools-of-the-trade/section-30.3.html |  |  | no prerequisites block |
 | part-6-agentic-ai/module-30-tools-of-the-trade/section-30.4.html |  |  | no prerequisites block |
 | part-6-agentic-ai/module-30-tools-of-the-trade/section-30.5.html |  |  | no prerequisites block |
-| part-7-retrieval-information-extraction-with-llms/module-32-rag/section-32.1b.html |  |  | no prerequisites block |
-| part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.5b.html |  |  | no prerequisites block |
-| part-8-conversational-ai-with-llms/module-37-conversational-ai/section-37.5b.html |  |  | no prerequisites block |
+| part-6-agentic-ai/module-30-tools-of-the-trade/section-30.6.html |  |  | no prerequisites block |
+| part-7-retrieval-information-extraction-with-llms/module-32-rag/section-32.2.html |  |  | no prerequisites block |
+| part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.7.html |  |  | no prerequisites block |
+| part-8-conversational-ai-with-llms/module-37-conversational-ai/section-37.6.html |  |  | no prerequisites block |
 | part-9-llm-evaluation-observability/module-45-tools-of-the-trade/section-45.1.html |  |  | no prerequisites block |
 | part-9-llm-evaluation-observability/module-45-tools-of-the-trade/section-45.2.html |  |  | no prerequisites block |
 | part-9-llm-evaluation-observability/module-45-tools-of-the-trade/section-45.3.html |  |  | no prerequisites block |

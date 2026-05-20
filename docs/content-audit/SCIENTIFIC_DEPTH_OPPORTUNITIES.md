@@ -7,9 +7,9 @@ Scan of ~30 main-content sections across Parts I-XVI looking for opportunities t
 - Section 3.1.5 (Scaled Dot-Product Attention): needs Algorithm callout for the full per-head forward pass (Q, K, V projections; QK^T scaled by sqrt(d_k); softmax; attention @ V; output projection) with explicit tensor shapes at each step.
 - Section 3.1.6 (Position-Wise FFN): needs Algorithm callout for the two-layer FFN (W1, GELU/SwiGLU, W2) with shape annotations [B, T, d_model] to [B, T, 4*d_model] to [B, T, d_model].
 - Section 3.1.8 (Layer Normalization): needs Algorithm callout contrasting LayerNorm vs RMSNorm step-by-step (mean, variance, scale, shift vs RMS-only).
-- Section 3.1.11 (The Complete Forward Pass): needs Algorithm callout for the full decoder-block forward pass (pre-norm, attention, residual, pre-norm, FFN, residual) with shapes.
-- Section 3.3.2 (Positional Encoding Variants): needs Algorithm callout for RoPE rotation per pair (cos/sin matrix construction, complex-rotation form) and a separate one for ALiBi bias slope schedule.
-- Section 3.3.3 (Efficient Attention Mechanisms): needs Algorithm callout for Sliding-Window Attention and Sink-Token Attention masking patterns (boundary indices, mask construction).
+- Section 3.2.3 (The Complete Forward Pass): needs Algorithm callout for the full decoder-block forward pass (pre-norm, attention, residual, pre-norm, FFN, residual) with shapes.
+- Section 3.5.2 (Positional Encoding Variants): needs Algorithm callout for RoPE rotation per pair (cos/sin matrix construction, complex-rotation form) and a separate one for ALiBi bias slope schedule.
+- Section 3.5.3 (Efficient Attention Mechanisms): needs Algorithm callout for Sliding-Window Attention and Sink-Token Attention masking patterns (boundary indices, mask construction).
 
 ## 2. Decoding and Sampling (Part I, Chapter 4)
 
@@ -19,13 +19,13 @@ Scan of ~30 main-content sections across Parts I-XVI looking for opportunities t
 
 ## 3. Inference Optimization (Part II, Chapter 9)
 
-- Section 9.1.4 (Post-Training Quantization Algorithms): needs Algorithm callout for GPTQ Hessian-based weight update (block iteration, error compensation across columns) and a separate one for AWQ activation-aware scaling.
-- Section 9.2.3 (PagedAttention): needs Algorithm callout for the block-table lookup that maps logical KV positions to physical pages, with the allocation/eviction step on sequence growth.
-- Section 9.2.4 (MHA, MQA, GQA Architectural Deep Dive): needs neural-architecture tensor diagram (or pseudocode) showing the three variants side-by-side with Q-head count, KV-head count, and grouping factor explicit in the tensor shapes.
-- Section 9.3.2 (Speculative Decoding, Acceptance and Rejection Sampling): needs Algorithm callout for the rejection-sampling acceptance criterion (draft p, target q, accept with probability min(1, q/p), resample on rejection) with the proof sketch that the marginal matches the target.
-- Section 9.3.4 (EAGLE): needs neural-architecture diagram of the feature-level draft head (last hidden state to draft head to token logits) showing where it taps the target model.
-- Section 9.3.5 (Medusa): needs Algorithm callout for the tree-attention verification across the multi-head proposal set.
-- Section 9.6.4 (Search at Inference Time): needs Algorithm callout for beam search and a separate one for Monte Carlo Tree Search over reasoning steps with a process reward signal.
+- Section 9.2.1 (Post-Training Quantization Algorithms): needs Algorithm callout for GPTQ Hessian-based weight update (block iteration, error compensation across columns) and a separate one for AWQ activation-aware scaling.
+- Section 9.3.3 (PagedAttention): needs Algorithm callout for the block-table lookup that maps logical KV positions to physical pages, with the allocation/eviction step on sequence growth.
+- Section 9.3.4 (MHA, MQA, GQA Architectural Deep Dive): needs neural-architecture tensor diagram (or pseudocode) showing the three variants side-by-side with Q-head count, KV-head count, and grouping factor explicit in the tensor shapes.
+- Section 9.4.2 (Speculative Decoding, Acceptance and Rejection Sampling): needs Algorithm callout for the rejection-sampling acceptance criterion (draft p, target q, accept with probability min(1, q/p), resample on rejection) with the proof sketch that the marginal matches the target.
+- Section 9.4.4 (EAGLE): needs neural-architecture diagram of the feature-level draft head (last hidden state to draft head to token logits) showing where it taps the target model.
+- Section 9.4.5 (Medusa): needs Algorithm callout for the tree-attention verification across the multi-head proposal set.
+- Section 9.8.4 (Search at Inference Time): needs Algorithm callout for beam search and a separate one for Monte Carlo Tree Search over reasoning steps with a process reward signal.
 
 ## 4. Training and Alignment (Part IV, Chapters 17-18)
 
@@ -38,10 +38,10 @@ Scan of ~30 main-content sections across Parts I-XVI looking for opportunities t
 
 ## 5. Vector Search and Retrieval (Part VII, Chapter 31)
 
-- Section 31.2.2 (HNSW): needs Algorithm callout for the multi-layer greedy search (entry-point selection, level descent, per-level candidate expansion with priority queue, beam parameter ef).
-- Section 31.2.3 (IVF): needs Algorithm callout for the two-stage search: (a) coarse quantizer over centroids selects nprobe lists, (b) exhaustive search within selected lists.
-- Section 31.2.4 (Product Quantization): needs Algorithm callout showing the codebook training (k-means per subvector) and the lookup-table-based distance computation at query time.
-- Section 31.3.6 (Reciprocal Rank Fusion): needs Algorithm callout for the RRF score combination: sum over retrievers of 1/(k + rank_i(doc)), then re-rank.
+- Section 31.3.2 (HNSW): needs Algorithm callout for the multi-layer greedy search (entry-point selection, level descent, per-level candidate expansion with priority queue, beam parameter ef).
+- Section 31.3.3 (IVF): needs Algorithm callout for the two-stage search: (a) coarse quantizer over centroids selects nprobe lists, (b) exhaustive search within selected lists.
+- Section 31.4.1 (Product Quantization): needs Algorithm callout showing the codebook training (k-means per subvector) and the lookup-table-based distance computation at query time.
+- Section 31.5.6 (Reciprocal Rank Fusion): needs Algorithm callout for the RRF score combination: sum over retrievers of 1/(k + rank_i(doc)), then re-rank.
 
 ## 6. Agentic AI and Reasoning (Part VI, Chapter 26 and Part II, Chapter 8)
 
@@ -70,9 +70,9 @@ Scan of ~30 main-content sections across Parts I-XVI looking for opportunities t
 If only a subset can be authored in a follow-up pass, the highest-leverage opportunities are:
 
 1. Section 3.1.5 (attention forward pass): foundational; missing the canonical algorithm is unusual for a textbook.
-2. Section 9.3.2 (speculative decoding rejection sampling): the proof-and-algorithm pairing is the cleanest didactic moment in inference optimization.
+2. Section 9.4.2 (speculative decoding rejection sampling): the proof-and-algorithm pairing is the cleanest didactic moment in inference optimization.
 3. Section 18.2 (DPO vs PPO): the contrast is what makes alignment intelligible; an Algorithm callout side-by-side is high-impact.
-4. Sections 31.2.2 to 31.2.4 (HNSW, IVF, PQ): three foundational algorithms in the same section, currently described in prose only.
+4. Sections 31.3.2 to 31.4.1 (HNSW, IVF, PQ): three foundational algorithms in the same section, currently described in prose only.
 5. Section 26.1.3 (ReAct): the canonical agentic loop deserves a numbered Algorithm callout since the book references it everywhere.
 
 All other opportunities are valuable but secondary to those five.

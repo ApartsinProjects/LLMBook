@@ -48,18 +48,18 @@ manual semantic verification (target H1 vs prose context):
 | section-6.1.html | `Section 20.1` (×2) for "RLHF" | 20.1 is Text-to-Speech, not RLHF |
 | section-6.1.html | `Section 17.1` for "synthetic data generation" | 17.1 is LoRA, not synthetic data |
 | section-6.4.html | `Section 17.1` for "synthetic data generation" | same as above |
-| section-7.2.html | `Section 27.3` for "healthcare applications" | 27.3 is A2A Protocol |
-| section-7.2.html | `Section 27.2` for "two-stage pipeline" | 27.2 is MCP |
-| section-7.2.html | `Section 19.1` for "LoRA fine-tuning" | 19.1 is Platforms |
-| section-7.2.html | `Section 19.5` for "knowledge distillation" | 19.5 is External Reading |
-| section-7.3.html | `Section 37.3` for "safety frameworks" | 37.3 is Short-Term Memory |
+| section-7.3.html | `Section 27.3` for "healthcare applications" | 27.3 is A2A Protocol |
+| section-7.3.html | `Section 27.2` for "two-stage pipeline" | 27.2 is MCP |
+| section-7.3.html | `Section 19.1` for "LoRA fine-tuning" | 19.1 is Platforms |
+| section-7.3.html | `Section 19.6` for "knowledge distillation" | 19.5 is External Reading |
+| section-7.4.html | `Section 37.3` for "safety frameworks" | 37.3 is Short-Term Memory |
 | section-8.1.html | `Section 20.1` for "RL methods" | 20.1 is TTS |
 | section-8.1.html | `Section 20.4` for "RLVR" | 20.4 is Audio Editing |
-| section-9.1b.html | `Section 0.4` for "floating-point arithmetic" | 0.4 is RL Foundations |
-| section-9.2.html | `Section 4.3` for "attention basics" | 4.3 is Advanced Decoding |
-| section-9.5.html | `Section 19.1` for "LoRA adapters" | 19.1 is Platforms |
+| section-9.2.html | `Section 0.5` for "floating-point arithmetic" | 0.4 is RL Foundations |
+| section-9.3.html | `Section 4.3` for "attention basics" | 4.3 is Advanced Decoding |
+| section-9.7.html | `Section 19.1` for "LoRA adapters" | 19.1 is Platforms |
 | section-10.3.html | `Section 20.1` (×2) for "safety/behavior" | 20.1 is TTS |
-| section-10.5.html | `Section 16.2` for "runtime layer" | 16.2 is Data Prep |
+| section-10.6.html | `Section 16.2` for "runtime layer" | 16.2 is Data Prep |
 | section-12.4.html | `Section 20.1` for "alignment techniques" | 20.1 is TTS |
 | section-12.4.html | `Section 15.4` for "cost optimization" | 15.4 is LLM Labeling |
 
@@ -72,23 +72,23 @@ them as bad-target hyperlinks rather than letting them stay invisible.
 
 | Count | File |
 |---:|---|
-| 1 | part-1-llm-building-blocks/module-02-sequence-models-attention/section-2.3b.html |
-| 1 | part-1-llm-building-blocks/module-03-transformer-architecture/section-3.1b.html |
-| 1 | part-1-llm-building-blocks/module-03-transformer-architecture/section-3.2a.html |
-| 2 | part-1-llm-building-blocks/module-03-transformer-architecture/section-3.2b.html |
+| 1 | part-1-llm-building-blocks/module-02-sequence-models-attention/section-2.4.html |
+| 1 | part-1-llm-building-blocks/module-03-transformer-architecture/section-3.2.html |
 | 1 | part-1-llm-building-blocks/module-03-transformer-architecture/section-3.3.html |
+| 2 | part-1-llm-building-blocks/module-03-transformer-architecture/section-3.4.html |
+| 1 | part-1-llm-building-blocks/module-03-transformer-architecture/section-3.5.html |
 | 2 | part-1-llm-building-blocks/module-04-decoding-text-generation/section-4.1.html |
 | 1 | part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.8.html |
 | 2 | part-2-understanding-llms/module-07-modern-llm-landscape/index.html |
 | 2 | part-2-understanding-llms/module-08-reasoning-test-time-compute/index.html |
 | 2 | part-2-understanding-llms/module-08-reasoning-test-time-compute/section-8.5.html |
-| 1 | part-2-understanding-llms/module-09-inference-optimization/section-9.1b.html |
 | 1 | part-2-understanding-llms/module-09-inference-optimization/section-9.2.html |
-| 2 | part-2-understanding-llms/module-09-inference-optimization/section-9.4a.html |
-| 2 | part-2-understanding-llms/module-09-inference-optimization/section-9.4b.html |
-| 1 | part-2-understanding-llms/module-09-inference-optimization/section-9.5.html |
+| 1 | part-2-understanding-llms/module-09-inference-optimization/section-9.3.html |
+| 2 | part-2-understanding-llms/module-09-inference-optimization/section-9.5.html |
+| 2 | part-2-understanding-llms/module-09-inference-optimization/section-9.6.html |
+| 1 | part-2-understanding-llms/module-09-inference-optimization/section-9.7.html |
 | 2 | part-2-understanding-llms/module-10-interpretability/section-10.4.html |
-| 2 | part-2-understanding-llms/module-10-interpretability/section-10.4b.html |
+| 2 | part-2-understanding-llms/module-10-interpretability/section-10.5.html |
 | 1 | part-3-working-with-llms/module-11-llm-apis/section-11.1.html |
 | 1 | part-3-working-with-llms/module-11-llm-apis/section-11.2.html |
 | 1 | part-3-working-with-llms/module-12-prompt-engineering/section-12.1.html |

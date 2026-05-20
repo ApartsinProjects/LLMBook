@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-PWPHBQL2VL"></script>
+<script>
+window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', 'G-PWPHBQL2VL');
+</script>
+
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<meta content="Section 9.1: Quantization: Why, Math &amp; Data Types. Why inference is expensive, the mathematics of quantization, and the data types (INT8, INT4, NF4, FP8) used to store quantized weights." name="description"/>
+<title>Section 9.1: Quantization: Why, Math &amp; Data Types</title>
+<link href="../../styles/book.css" rel="stylesheet"/>
+<link href="../../styles/pygments.css" rel="stylesheet"/>
+<link href="../../vendor/katex/katex.min.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/katex/katex.min.js"></script>
+<script defer="" onload="renderMathInElement(document.body, {
+ delimiters: [
+ {left: '$$', right: '$$', display: true},
+ {left: '$', right: '$', display: false}
+ ],
+ throwOnError: false
+ });" src="../../vendor/katex/contrib/auto-render.min.js"></script>
+<link href="../../vendor/prism/prism-theme.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/prism/prism-bundle.min.js"></script>
+<script defer="" src="../../scripts/book.js"></script>
+<link href="../../pagefind/pagefind-ui.css" rel="stylesheet"/>
+<script defer="" src="../../pagefind/pagefind-ui.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
+
+<header class="chapter-header">
+<nav class="header-nav">
+<a class="book-title-link" href="../../index.html">Building Conversational AI with LLMs and Agents</a>
+<a class="toc-link" href="../../toc.html" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+</nav>
+<div class="header-search">
+<div id="search"></div>
+</div>
+
+<div class="page-breadcrumb" data-pagefind-meta="chapter"><a href="../index.html">Part II: Understanding LLMs</a><span class="bc-sep">›</span><a href="index.html">Chapter 9: Inference Optimization &amp; Efficient Serving</a></div>
+<h1>Quantization: Why, Math & Data Types</h1><div class="page-current">Section 9.1</div>
+
+</header>
+<main class="content" id="main-content"><span class="pagefind-meta-injected" data-pagefind-meta="part:Part II: Understanding LLMs" hidden=""></span><span class="pagefind-meta-injected" data-pagefind-meta="chapter:Chapter 9: Inference Optimization &amp; Efficient Serving" hidden=""></span>
+<blockquote class="epigraph">
+<p>Quantization is the fine art of convincing a 70-billion-parameter model that it never really needed all those decimal places. Surprisingly, it usually agrees.</p>
+<span class="agent-avatar-inline" style="background-color: #1abc9c;"><img alt="Quant" height="28" src="../../front-matter/images/agents/quant.png" width="28"/></span><cite>Quant, <span class="agent-desc">Precision Trimming AI Agent</span></cite>
+</blockquote>
+<div class="callout big-picture">
+<div class="callout-title">Big Picture</div>
+<p>Why quantize? A 70B-parameter model stored in FP16 requires approximately 140 GB of GPU memory just for the weights. That exceeds the capacity of even the largest single GPU (the A100 has 80 GB, the H100 has 80 GB). Quantization compresses weights from 16-bit or 32-bit floating point down to 8-bit, 4-bit, or even lower precision integers. A 4-bit quantized 70B model fits in roughly 35 GB, making it servable on a single GPU. This same principle underlies <a href="../../part-4-training-adaptation/module-17-peft/section-17.2.html">QLoRA</a>, which combines 4-bit quantization with <a href="../../part-4-training-adaptation/module-17-peft/section-17.1.html">parameter-efficient</a> <a href="../../part-4-training-adaptation/module-16-fine-tuning-fundamentals/index.html">fine-tuning</a>. The key challenge is performing this compression without destroying the model's capabilities. Building on the distributed training techniques from <a href="../module-06-pretraining-scaling-laws/section-6.6.html">Section 6.6</a> that addressed the training-time memory problem, this section covers the mathematics of quantization, the major algorithms (GPTQ, AWQ, bitsandbytes), and practical techniques for evaluating the quality tradeoff.</p>
+</div>
+<div class="prerequisites">
+<h3 id="prerequisites">Prerequisites</h3>
+<p>This section assumes understanding of floating-point number representation and <a class="prereq-link" href="../../part-1-llm-building-blocks/module-00-ml-pytorch-foundations/section-0.3.html">Section 0.3</a> tensor operations from <a href="../../part-1-llm-building-blocks/module-00-ml-pytorch-foundations/section-0.2.html">Section 0.2</a>. The matrix multiplication concepts from <a href="../../part-1-llm-building-blocks/module-03-transformer-architecture/section-3.1.html">Section 3.1</a> (attention computations) are essential for understanding where quantization is applied.</p>
+</div>
+<div class="callout note">
+<div class="callout-title">Note</div>
+<p><strong>Intuition:</strong> Quantization is like reducing the color depth of an image. A photo in 24-bit color uses 16.7 million distinct colors. Reduce it to 8-bit (256 colors) and the image is 3x smaller with barely visible quality loss. Reduce further to 4-bit (16 colors) and you start to see artifacts, but the image remains recognizable. Model quantization works the same way: reducing the precision of each weight from 16-bit to 4-bit shrinks the model 4x, with a small and often acceptable quality tradeoff.</p>
+</div>
+<h2 id="9-1-1-why-inference-is-expensive">9.1.1 Why Inference Is Expensive</h2>
+<div class="callout key-insight">
+<div class="callout-title">Key Insight: Why: NF4 beats INT4 on the same bit budget</div>
+<p>NF4 ("4-bit NormalFloat") is the QLoRA paper's signature trick and a beautiful example of distribution-aware quantization. The insight: pretrained weight tensors are empirically near-Gaussian with mean 0 and known variance. Integer quantization spends equal precision on values that almost never occur (the tails) and values that occur constantly (near zero). NF4 instead places its 16 quantization levels at the quantiles of a standard normal, so each level carries equal <em>probability mass</em>. This is information-theoretically optimal for Gaussian data and beats INT4 by 0.5-1.0 perplexity points on the same bit budget. The lesson generalizes: every quantization scheme is implicitly a prior on the value distribution.</p>
+</div>
+<div class="callout key-insight">
+<div class="callout-title">Key Insight: Why: BF16 replaced FP16 in modern training pipelines</div>
+<p>BF16 has the same exponent width as FP32 (8 bits) but a truncated mantissa (7 bits vs FP16's 5 exponent + 10 mantissa). This is not arbitrary: in mixed-precision training the dangerous failure mode is gradient <em>underflow</em> into zero, not precision loss in the high-order bits. BF16 preserves the FP32 dynamic range, so loss scaling (the awkward hack required for FP16) becomes unnecessary. FP16's wider mantissa would only matter if activations were already near the same magnitude; in transformers they span many orders of magnitude across layers, so range beats precision. This is why every modern LLM training pipeline since GPT-NeoX uses BF16.</p>
+</div>
+<div class="callout cross-ref">
+<div class="callout-title">See Also</div>
+<p>The decision to quantize is rarely purely technical. For the cost/quality tradeoff framed as a build-vs-buy decision (self-host quantized vs API), see <a href="../../part-3-working-with-llms/module-11-llm-apis/section-11.1.html">Section 11.1: LLM API Landscape and Pricing</a> and <a href="../../part-12-llm-systems-at-scale/module-57-compute-planning/section-57.1.html">Section 57.1: Compute Planning</a>.</p>
+</div>
+<div class="callout postmortem">
+<div class="callout-title">Postmortem: 4-bit Quantization That Killed Arithmetic</div>
+<p>A finance startup quantized their fine-tuned Llama-3 70B model from FP16 to INT4 to fit on a single A100. Throughput tripled. Then their evaluation harness flagged a 22-point drop on GSM8K (grade-school math). Investigation showed that numerical reasoning relies on precise intermediate activations; INT4 quantization introduced enough noise in the residual stream to flip digits during multi-step arithmetic. Lesson: quantization quality is task-dependent. Always evaluate on the tasks that matter <em>before</em> shipping a quantized model, not just on aggregate benchmarks. The fix here was per-channel quantization on the FFN layers and FP8 on the attention output, recovering 18 of the 22 points.</p>
+</div>
+<div class="callout postmortem">
+<div class="callout-title">Postmortem: The Math Benchmark That Quantization Killed</div>
+<p>Team G deployed an INT4 quantized version of their fine-tuned 13B model in production. End-to-end accuracy on their internal eval dropped 1pp, acceptable. Two weeks in, math-heavy customer queries showed 18pp accuracy drop. Internal eval had under-sampled math. Root cause: INT4 quantization preserves average-case behavior but destroys precision for arithmetic where small numerical errors compound across reasoning steps. Fix: stratified eval covering math, code, reasoning, and other arithmetic-sensitive categories before any quantization-level deployment. Use INT8 or BF16 for arithmetic-heavy queries (route by classifier). Lesson: aggregate accuracy metrics hide subgroup-specific regressions; always stratify your eval by capability category.</p>
+</div>
+<figure class="illustration">
+<img alt="A model going on a diet, shrinking from 32-bit to 4-bit precision while trying to maintain its figure (accuracy)" src="images/quantization-diet.png" width="1160" height="896"/>
+<figcaption><strong>Figure 9.1.1</strong>: Quantization puts your model on a strict diet: fewer bits per weight, smaller memory footprint, and surprisingly little loss of intelligence.</figcaption>
+</figure>
+<p>During autoregressive generation, the model produces one token at a time. Each token requires a full forward pass through every layer, reading all model weights from GPU memory. For a 70B model in FP16, this means transferring 140 GB of data per token through the memory bus. On an A100 with 2 TB/s memory bandwidth, merely reading the weights takes about 70 milliseconds. The actual computation (matrix multiplications) takes far less time. This makes LLM inference <strong>memory-bandwidth-bound</strong>, not compute-bound. The models most commonly quantized in practice are the open-weight families surveyed in <a href="../module-07-modern-llm-landscape/section-7.3.html">Section 7.3</a>.</p>
+<p>Quantization helps in two complementary ways. First, smaller weights mean less data to transfer from memory, directly improving throughput. Second, smaller weights let the entire model fit on fewer (or smaller) GPUs, slashing hardware costs (a critical factor for the deployment scenarios discussed in <a href="../../part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.3.html">Section 13.3</a>). A model quantized to 4-bit occupies one quarter of the original memory, so weight transfer is roughly 4x faster.</p>
+<div class="callout warning">
+<div class="callout-title">Warning: Common Misconception: "INT4 Quantization Makes the Model 4x Faster"</div>
+<p>The memory footprint shrinks 4x, but throughput often grows by 2 to 3x, not 4x. The reason: dequantization back to FP16 for the matrix multiply is not free, and the activations are still in higher precision (W4A16 means 4-bit weights but 16-bit activations). End-to-end speedup also depends on whether the workload is memory-bandwidth-bound (single user, decode) or compute-bound (batched prefill); only the first regime sees the full 4x. Always benchmark on your actual workload shape before promising users a "4x speedup."</p>
+</div>
+<p><strong>Why models survive losing precision.</strong> Neural network weights are inherently approximate: they are the result of a stochastic optimization process that could have converged to slightly different values with a different random seed. Most individual weights can be perturbed by a small amount without measurably changing the model's output. Quantization exploits this tolerance by rounding each weight to the nearest value on a coarse grid. The precision chain from training to deployment typically goes FP32 (master weights) to BF16 (inference baseline) to FP8 or INT4 (optimized inference), with each step trading numerical precision for speed and memory savings. This is why the same principle works both during training (mixed-precision training in <a href="../module-06-pretraining-scaling-laws/section-6.6.html">Section 6.6</a>) and during inference: the weights were never exact to begin with, so rounding them further changes very little.</p>
+<div class="callout practical-example">
+<div class="callout-title">Real-World Scenario: Quantizing a 70B Model to Run on Consumer Hardware</div>
+<p><strong>Who:</strong> An independent AI researcher wanting to run Llama-3.1 70B locally for private experimentation on a workstation with two RTX 4090 GPUs (24 GB VRAM each, 48 GB total).</p>
+<p><strong>Situation:</strong> The FP16 model required 140 GB of VRAM, far exceeding the available 48 GB. Even with tensor parallelism across both GPUs, the model could not fit.</p>
+<p><strong>Problem:</strong> The researcher needed the 70B model's quality for their NLP research <a href="../../part-9-llm-evaluation-observability/module-42-evaluation-foundations/section-42.2.html">benchmarks</a>; the 8B model was insufficient for their experiments on complex reasoning tasks.</p>
+<p><strong>Dilemma:</strong> GPTQ 4-bit quantization would shrink the model to roughly 35 GB (fits in 48 GB with room for <a href="../module-09-inference-optimization/section-9.3.html">KV cache</a>), but the researcher worried about quality degradation on their specific evaluation suite. AWQ claimed better quality preservation but was slower to quantize.</p>
+<p><strong>Decision:</strong> They compared GPTQ-4bit, AWQ-4bit, and bitsandbytes NF4 on their evaluation suite of 1,000 reasoning questions, ultimately selecting AWQ-4bit.</p>
+<p><strong>How:</strong> Using a pre-quantized AWQ model from <a href="../../part-2-understanding-llms/module-10-interpretability/section-10.7.html#12-2-huggingface-transformers-deep-dive">Hugging Face</a>, they loaded it across both GPUs using device_map="auto" in the Transformers library, served through a local vLLM instance.</p>
+<p><strong>Result:</strong> AWQ-4bit retained 96.8% of the FP16 model's accuracy on their benchmark (vs. 95.1% for GPTQ and 96.2% for NF4). The model fit comfortably in 36 GB, leaving 12 GB for KV cache, enabling a 4K context window at batch size 1. Generation speed reached 18 tokens/second.</p>
+<p><strong>Lesson:</strong> <strong>4-bit quantization makes 70B-class models accessible on consumer GPUs with minimal quality loss. Always benchmark quantized models on your specific tasks, as quality degradation varies across domains and methods.</strong></p>
+</div>
+<p>The practical example above shows quantization in action, but to choose wisely between methods (and debug issues when they arise), you need to understand what is happening mathematically. How exactly do we compress 16-bit or 32-bit floating point numbers into 4-bit integers without destroying the model?</p>
+<h2 id="9-1-2-quantization-mathematics">9.1.2 Quantization Mathematics</h2>
+<div class="callout fun-note">
+<div class="callout-title">Fun Fact</div>
+<p>Quantization is the art of convincing a model that it does not actually need 32 bits of precision per weight. In practice, most models barely notice the difference between 16-bit and 4-bit weights, which is the neural network equivalent of discovering that expensive wine and mid-range wine taste the same in a blind test.</p>
+</div>
+<h3 id="9-1-2-1-absmax-symmetric-quantization">9.1.2.1 Absmax (Symmetric) Quantization</h3>
+<p>The simplest quantization scheme maps a floating-point tensor to integers using only a scale factor. For an <span class="math">$n$</span>-bit signed integer representation with range [<span class="math">$-2^{n-1}$</span>, <span class="math">&#36;2^{n-1}-1$</span>], the quantization formula is:</p>
+<div class="math-block">
+ $$\text{scale} = \max(|X|) / (2^{n-1} - 1)$$
+
+</div>
+<p>Each value is then divided by this scale and rounded to the nearest integer:</p>
+<div class="math-block">
+ $$X_{q} = \text{round}(X / \text{scale})$$
+
+</div>
+<p>To recover an approximation of the original values, the quantized integers are multiplied back by the scale:</p>
+<div class="math-block">
+ $$\hat{X} = X_{q} \times \text{scale}$$
+ 
+</div>
+<p>Here, <span class="math">$X$</span> is the original floating-point tensor, <span class="math">$X_{q}$</span> is the quantized integer tensor, and <span class="math">$\hat{X}$</span> is the dequantized approximation. The zero point in the floating-point space always maps to integer zero, which is why this scheme is called <em>symmetric</em>. It works well when values are roughly centered around zero, which is typically true for neural network weights.</p>
+<p>A worked example makes the round-trip concrete. Consider quantizing a small weight tensor to INT8 (n=8, range [−127, 127]):</p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># Numeric example: absmax (symmetric) INT8 quantization round-trip</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="n">X</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mf">0.3</span><span class="p">,</span> <span class="o">-</span><span class="mf">0.5</span><span class="p">,</span> <span class="mf">0.1</span><span class="p">,</span> <span class="mf">0.8</span><span class="p">,</span> <span class="o">-</span><span class="mf">0.2</span><span class="p">])</span>
+<span class="n">n_bits</span> <span class="o">=</span> <span class="mi">8</span>
+<span class="n">scale</span> <span class="o">=</span> <span class="n">X</span><span class="o">.</span><span class="n">abs</span><span class="p">()</span><span class="o">.</span><span class="n">max</span><span class="p">()</span> <span class="o">/</span> <span class="p">(</span><span class="mi">2</span><span class="o">**</span><span class="p">(</span><span class="n">n_bits</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="c1"># 0.8 / 127 = 0.0063</span>
+<span class="n">X_q</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">X</span> <span class="o">/</span> <span class="n">scale</span><span class="p">)</span><span class="o">.</span><span class="n">clamp</span><span class="p">(</span><span class="o">-</span><span class="mi">127</span><span class="p">,</span> <span class="mi">127</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">int8</span><span class="p">)</span>
+<span class="n">X_hat</span> <span class="o">=</span> <span class="n">X_q</span><span class="o">.</span><span class="n">float</span><span class="p">()</span> <span class="o">*</span> <span class="n">scale</span> <span class="c1"># dequantize</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Original: </span><span class="si">{</span><span class="n">X</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Scale: </span><span class="si">{</span><span class="n">scale</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Quantized: </span><span class="si">{</span><span class="n">X_q</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Dequantized: </span><span class="si">{</span><span class="p">[</span><span class="nb">round</span><span class="p">(</span><span class="n">v</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">)</span><span class="w"> </span><span class="k">for</span><span class="w"> </span><span class="n">v</span><span class="w"> </span><span class="ow">in</span><span class="w"> </span><span class="n">X_hat</span><span class="o">.</span><span class="n">tolist</span><span class="p">()]</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Max error: </span><span class="si">{</span><span class="p">(</span><span class="n">X</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">X_hat</span><span class="p">)</span><span class="o">.</span><span class="n">abs</span><span class="p">()</span><span class="o">.</span><span class="n">max</span><span class="p">()</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> Original: [0.3, -0.5, 0.1, 0.8, -0.2]
+Scale: 0.006299
+Quantized: [48, -79, 16, 127, -32]
+Dequantized: [0.3024, -0.4976, 0.1008, 0.8, -0.2016]
+Max error: 0.002362</div>
+<div class="code-caption"><strong>Code Fragment 9.1.1</strong>: A worked example makes the round-trip concrete.</div>
+</div>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># Example 3: Quantizing with AWQ using the autoawq library</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">awq</span><span class="w"> </span><span class="kn">import</span> <span class="n">AutoAWQForCausalLM</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">AutoTokenizer</span>
+<span class="n">model_name</span> <span class="o">=</span> <span class="s2">"meta-llama/Llama-3.1-8B-Instruct"</span>
+<span class="n">quant_path</span> <span class="o">=</span> <span class="s2">"./llama-8b-awq-4bit"</span>
+<span class="c1"># Load model for quantization</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">AutoAWQForCausalLM</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span><span class="n">model_name</span><span class="p">)</span>
+<span class="n">tokenizer</span> <span class="o">=</span> <span class="n">AutoTokenizer</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span><span class="n">model_name</span><span class="p">)</span>
+<span class="c1"># Configure AWQ</span>
+<span class="n">quant_config</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">"zero_point"</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span> <span class="c1"># Use asymmetric quantization</span>
+    <span class="s2">"q_group_size"</span><span class="p">:</span> <span class="mi">128</span><span class="p">,</span> <span class="c1"># Group size</span>
+    <span class="s2">"w_bit"</span><span class="p">:</span> <span class="mi">4</span><span class="p">,</span> <span class="c1"># 4-bit weights</span>
+    <span class="s2">"version"</span><span class="p">:</span> <span class="s2">"GEMM"</span><span class="p">,</span> <span class="c1"># Optimized GEMM kernels</span>
+<span class="p">}</span>
+<span class="c1"># Quantize (uses calibration data internally)</span>
+<span class="n">model</span><span class="o">.</span><span class="n">quantize</span><span class="p">(</span><span class="n">tokenizer</span><span class="p">,</span> <span class="n">quant_config</span><span class="o">=</span><span class="n">quant_config</span><span class="p">)</span>
+<span class="n">model</span><span class="o">.</span><span class="n">save_quantized</span><span class="p">(</span><span class="n">quant_path</span><span class="p">)</span>
+<span class="n">tokenizer</span><span class="o">.</span><span class="n">save_pretrained</span><span class="p">(</span><span class="n">quant_path</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"AWQ model saved to </span><span class="si">{</span><span class="n">quant_path</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Original size: ~16 GB (FP16)"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Quantized size: ~4.5 GB (INT4)"</span><span class="p">)</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> AWQ: 100%|####| 32/32 [08:15&lt;00:00, 15.47s/layer]
+AWQ model saved to ./llama-8b-awq-4bit
+Original size: ~16 GB (FP16)
+Quantized size: ~4.5 GB (INT4)</div>
+<div class="code-caption"><strong>Code Fragment 9.1.2:</strong> Absmax quantization round-trip. The largest value (0.8) maps exactly to 127; other values incur small rounding errors.</div>
+</div>
+<h3 id="9-1-2-2-zero-point-asymmetric-quantization">9.1.2.2 Zero-Point (Asymmetric) Quantization</h3>
+<p>In practice, PyTorch provides built-in quantization primitives that handle scale computation, rounding, and clamping in a single call:</p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># Library shortcut: PyTorch built-in symmetric quantization</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="n">X</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mf">0.3</span><span class="p">,</span> <span class="o">-</span><span class="mf">0.5</span><span class="p">,</span> <span class="mf">0.1</span><span class="p">,</span> <span class="mf">0.8</span><span class="p">,</span> <span class="o">-</span><span class="mf">0.2</span><span class="p">])</span>
+<span class="n">scale</span> <span class="o">=</span> <span class="n">X</span><span class="o">.</span><span class="n">abs</span><span class="p">()</span><span class="o">.</span><span class="n">max</span><span class="p">()</span> <span class="o">/</span> <span class="mi">127</span>
+<span class="n">X_q</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">quantize_per_tensor</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">scale</span><span class="o">=</span><span class="n">scale</span><span class="o">.</span><span class="n">item</span><span class="p">(),</span> <span class="n">zero_point</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">qint8</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Quantized: </span><span class="si">{</span><span class="n">X_q</span><span class="o">.</span><span class="n">int_repr</span><span class="p">()</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Dequantized: </span><span class="si">{</span><span class="n">X_q</span><span class="o">.</span><span class="n">dequantize</span><span class="p">()</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> Quantized: [48, -79, 16, 127, -32]
+Dequantized: [0.3024, -0.4976, 0.1008, 0.8, -0.2016]</div>
+<div class="code-caption"><strong>Code Fragment 9.1.3:</strong> PyTorch's <code>quantize_per_tensor</code> handles the full round-trip in a single call, matching the manual implementation above.</div>
+</div>
+<p>When the tensor values are not symmetric around zero (common for activations, which often have a positive bias), asymmetric quantization adds a zero-point offset:</p>
+<div class="math-block">
+ $$\text{scale} = (\max(X) - \min(X)) / (2^{n} - 1)$$
+
+</div>
+<p>The zero-point offset shifts the integer range so that floating-point zero maps to a specific integer value:</p>
+<div class="math-block">
+ $$\text{zero}_{\text{point}} = \text{round}(-\min(X) / \text{scale})$$
+
+</div>
+<p>The quantized value then combines the scaled rounding with this offset:</p>
+<div class="math-block">
+ $$X_{q} = \text{round}(X / \text{scale}) + \text{zero}_{\text{point}}$$
+ 
+</div>
+<p>This maps the full range [min(X), max(X)] onto the unsigned integer range [0, 2<sup>n</sup>−1]. Dequantization reverses the process: <span class="math">$\hat{X} = (X_{q} - zero_{point}) \times scale$</span>. The extra zero-point parameter adds slight overhead but significantly reduces quantization error for skewed distributions.</p>
+<h3 id="9-1-2-3-granularity-per-tensor-per-channel-per-group">9.1.2.3 Granularity: Per-Tensor, Per-Channel, Per-Group</h3>
+<p>The scale (and zero-point) can be computed at different granularities:</p>
+<ul>
+<li><strong>Per-tensor:</strong> One scale for the entire weight matrix. Simplest and fastest, but the largest outlier in the tensor dominates the scale for all values.</li>
+<li><strong>Per-channel:</strong> One scale per output channel (row of the weight matrix). Common for INT8 quantization. Each row gets its own range, reducing the impact of outliers.</li>
+<li><strong>Per-group:</strong> One scale per group of <span class="math">$g$</span> consecutive values (typically <span class="math">$g$</span> = 128). This is the standard for 4-bit quantization (GPTQ, AWQ, bitsandbytes). The overhead of storing extra scales is small (one FP16 scale per 128 INT4 values adds only 0.125 bits per value), but the accuracy improvement is substantial.</li>
+</ul>
+<!-- Diagram: Quantization Granularity -->
+<div class="diagram-container">
+<img alt="Quantization granularity levels. Per-group quantization (bottom..." src="images/fig-9.1.2-quantization-granularity-levels-per-group-quantization-bot.png" width="1400" height="754"/>
+<div class="diagram-caption"><strong>Figure 9.1.2</strong>: Quantization granularity levels. Per-group quantization (bottom) provides the best accuracy for 4-bit models.</div>
+</div>
+<h2 id="9-1-3-data-types-for-quantization">9.1.3 Data Types for Quantization</h2>
+<div class="comparison-table">
+<div class="comparison-table-title"><strong>Table 9.1.1</strong>: <em>3. Data Types for Quantization Basic Comparison (as of 2026).</em></div>
+<table class="complex-table">
+<thead>
+<tr><th scope="col">Data Type</th><th scope="col">Bits</th><th scope="col">Range</th><th scope="col">Use Case</th></tr>
+</thead>
+<tr><td>FP32</td><td>32</td><td>±3.4 × 10<sup>38</sup></td><td>Training (master weights)</td></tr>
+<tr><td>FP16 / BF16</td><td>16</td><td>±65504 / ±3.4 × 10<sup>38</sup></td><td>Standard inference, mixed-precision training</td></tr>
+<tr><td>FP8 (E4M3)</td><td>8</td><td>±448</td><td>Hopper GPU inference, training forward pass</td></tr>
+<tr><td>FP8 (E5M2)</td><td>8</td><td>±57344</td><td>Training backward pass (wider range)</td></tr>
+<tr><td>INT8</td><td>8</td><td>−128 to 127</td><td>Weight + activation quantization</td></tr>
+<tr><td>INT4</td><td>4</td><td>−8 to 7</td><td>Weight-only quantization (GPTQ, AWQ)</td></tr>
+<tr><td>NF4</td><td>4</td><td>16 quantile levels</td><td>bitsandbytes / <a href="../../part-4-training-adaptation/module-17-peft/section-17.2.html">QLoRA</a></td></tr>
+</table>
+</div>
+<h3 id="9-1-3-1-nf4-normal-float-4-bit">9.1.3.1 NF4: Normal Float 4-bit</h3>
+<p>NF4 is a special 4-bit data type designed by Tim Dettmers for use in QLoRA. The key insight is that neural network weights are approximately normally distributed. Instead of using uniformly spaced quantization levels (as standard INT4 does), NF4 places its 16 quantization levels at the quantiles of the standard normal distribution. This means each of the 16 bins captures approximately the same probability mass, making NF4 <em>information-theoretically optimal</em> for normally distributed data.</p>
+<div class="callout key-insight">
+<div class="callout-title">Key Insight</div>
+<p>Standard INT4 wastes quantization levels in low-density tails and crowds them in the high-density center. NF4 fixes this by spacing levels at normal quantiles. The 16 NF4 values are precomputed: {−1.0, −0.6962, −0.5251, −0.3949, −0.2844, −0.1848, −0.0911, 0.0, 0.0796, 0.1609, 0.2461, 0.3379, 0.4407, 0.5626, 0.7230, 1.0}.</p>
+</div>
+<h3 id="9-1-3-2-fp8-inference-on-hopper-gpus">9.1.3.2 FP8 Inference on Hopper GPUs</h3>
+<p>FP8 (8-bit floating point) has emerged as the sweet spot for production inference on NVIDIA's Hopper architecture (H100, H200) and its successors. Unlike INT8 quantization, which requires calibration to determine scale factors and zero points, FP8 preserves the floating-point format with an exponent and mantissa. Two FP8 variants exist: <strong>E4M3</strong> (4 exponent bits, 3 mantissa bits, range ±448) optimized for the forward pass, and <strong>E5M2</strong> (5 exponent bits, 2 mantissa bits, range ±57344) designed for gradients during training. For inference, E4M3 is the standard choice because it offers better precision within the value ranges typical of activations and weights.</p>
+<p>The Hopper Tensor Cores provide native hardware support for FP8 matrix multiplications, delivering roughly 2x the throughput of FP16/BF16 operations on the same hardware. This is not a software emulation; the H100 includes dedicated FP8 datapaths that process twice as many elements per clock cycle compared to their 16-bit counterparts. The result is that an FP8 model on a single H100 can match or exceed the throughput of the same model in FP16 on two H100s, effectively halving infrastructure costs.</p>
+<p>The quality impact of FP8 inference is remarkably small. For models with 8 billion parameters and above, FP8 quantization typically introduces less than 0.1% <a href="../../part-9-llm-evaluation-observability/module-42-evaluation-foundations/section-42.12.html">perplexity</a> degradation, a difference well within the noise of most benchmark evaluations. This is because 8 bits of floating-point precision are sufficient to represent the value distributions found in transformer weights and activations. Smaller models (under 3B parameters) may show slightly more sensitivity, but the effect remains modest.</p>
+<p>In practice, FP8 inference is straightforward to enable in modern serving frameworks: </p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># vLLM with FP8 quantization on H100</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">vllm</span><span class="w"> </span><span class="kn">import</span> <span class="n">LLM</span><span class="p">,</span> <span class="n">SamplingParams</span>
+<span class="n">llm</span> <span class="o">=</span> <span class="n">LLM</span><span class="p">(</span>
+    <span class="n">model</span><span class="o">=</span><span class="s2">"meta-llama/Llama-3.1-70B-Instruct"</span><span class="p">,</span>
+    <span class="n">quantization</span><span class="o">=</span><span class="s2">"fp8"</span><span class="p">,</span> <span class="c1"># Enable FP8 weight quantization</span>
+    <span class="n">dtype</span><span class="o">=</span><span class="s2">"float16"</span><span class="p">,</span> <span class="c1"># Compute dtype for non-quantized ops</span>
+    <span class="n">tensor_parallel_size</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="c1"># TensorRT-LLM: FP8 is enabled during engine build</span>
+<span class="c1"># trtllm-build --model_dir ./llama-70b \</span>
+<span class="c1"># --output_dir ./engines/fp8 \</span>
+<span class="c1"># --dtype float16 \</span>
+<span class="c1"># --quantization fp8 \</span>
+<span class="c1"># --tp_size 4</span></code></pre>
+<div class="code-caption"><strong>Code Fragment 9.1.4a:</strong> Enabling FP8 quantization in vLLM and TensorRT-LLM. Both frameworks support native FP8 on H100 GPUs, roughly doubling throughput compared to FP16 with negligible quality loss.</div>
+</div>
+<div class="callout note">
+<div class="callout-title">Note</div>
+<p>FP8 inference requires Hopper (SM90) or newer GPUs. On Ampere (A100) and older hardware, INT8 or INT4 quantization remains the best option for reducing memory footprint and increasing throughput. If you are deploying on cloud providers, look for H100 or H200 instance types to take advantage of native FP8 support.</p>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 9.1.1: Memory budget for an 8B model <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+<p>Compute the model weights memory footprint for an 8B-parameter LLM stored as FP16, INT8, INT4, and NF4. Then determine which of those fit in a 24 GB consumer GPU (RTX 4090) once you reserve 8 GB for the KV cache and activations.</p>
+<details><summary>Answer Sketch</summary>
+<p>FP16: 8B x 2 bytes = 16 GB. INT8: 8B x 1 byte = 8 GB. INT4 / NF4: 8B x 0.5 bytes = 4 GB. With 16 GB available for weights, FP16 just barely fits (no headroom for the KV cache), INT8 leaves 8 GB free, and INT4 leaves 12 GB. Real workloads on RTX 4090 typically choose INT4 or NF4 to leave room for a longer context window.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 9.1.2: Quantization error budget <span class="exercise-type analysis" title="Analysis">Analysis</span></div>
+<p>You quantize a 7B model with symmetric INT8 weights and observe a 0.6-point drop on MMLU (from 64.2 to 63.6). Then you switch to GPTQ INT4 and the drop grows to 1.8 points. Explain why GPTQ INT4 still ships in production even with the larger drop, and identify one workload where you would refuse to go below INT8.</p>
+<details><summary>Answer Sketch</summary>
+<p>INT4 halves memory vs INT8 and roughly doubles token throughput on memory-bound workloads, which pays for the 1.8-point quality drop in most chat use cases. Refuse INT4 when (a) the model is used for high-stakes tool selection or code generation where small accuracy drops compound, or (b) outputs are graded against a reference rubric where the drop crosses a release threshold. Math benchmarks (GSM8K) typically drop harder than MMLU under INT4 and are a useful guardrail.</p>
+</details>
+</div>
+<div class="whats-next">
+<h3 id="what-s-next">What's Next?</h3>
+<p>In the next part of this section, <a href="section-9.2.html">Section 9.2: Quantization: Algorithms, Practice &amp; QAT</a>, why inference is expensive, the mathematics of quantization, and the data types (int8, int4, nf4, fp8) used to store quantized weights.</p>
+</div>
+<details class="bibliography-collapsible">
+<summary><strong>Further Reading</strong></summary>
+<section class="bibliography">
+<h3 id="weight-only-quantization">Weight-Only Quantization</h3>
+<div class="bib-entry-card">
+<div class="bib-ref">Frantar, E. et al. (2023). <a href="https://arxiv.org/abs/2210.17323" rel="noopener" target="_blank">"GPTQ: Accurate Post-Training Quantization for Generative Pre-trained Transformers."</a> <em>ICLR 2023</em>. Introduces one-shot weight quantization using approximate second-order information to minimize reconstruction error. The method that made 4-bit LLM inference practical, widely adopted in the open-source community through AutoGPTQ.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Lin, J. et al. (2024). <a href="https://arxiv.org/abs/2306.00978" rel="noopener" target="_blank">"AWQ: Activation-aware Weight Quantization for LLM Compression and Acceleration."</a> <em>MLSys 2024</em>. Proposes protecting salient weight channels identified through activation magnitudes, achieving better quality than round-to-nearest at the same bit width. Particularly effective for hardware-efficient deployment on edge devices.</div>
+</div>
+<h3 id="mixed-precision-and-activation-quantization">Mixed-Precision &amp; Activation Quantization</h3>
+<div class="bib-entry-card">
+<div class="bib-ref">Dettmers, T. et al. (2022). <a href="https://arxiv.org/abs/2208.07339" rel="noopener" target="_blank">"LLM.int8(): 8-bit Matrix Multiplication for Transformers at Scale."</a> <em>NeurIPS 2022</em>. Identifies the "emergent outlier" problem in transformer activations and proposes mixed-precision decomposition to handle it. The first method enabling billion-parameter inference on consumer GPUs without quality degradation.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Xiao, G. et al. (2023). <a href="https://arxiv.org/abs/2211.10438" rel="noopener" target="_blank">"SmoothQuant: Accurate and Efficient Post-Training Quantization for Large Language Models."</a> <em>ICML 2023</em>. Migrates quantization difficulty from activations to weights through mathematically equivalent transformations. Enables W8A8 quantization that is both accurate and hardware-friendly, making it ideal for production serving.</div>
+</div>
+<h3 id="quantization-aware-training-and-fine-tuning">Quantization-Aware Training &amp; Fine-Tuning</h3>
+<div class="bib-entry-card">
+<div class="bib-ref">Dettmers, T. et al. (2023). <a href="https://arxiv.org/abs/2305.14314" rel="noopener" target="_blank">"QLoRA: Efficient Finetuning of Quantized Language Models."</a> <em>NeurIPS 2023</em>. Combines 4-bit NormalFloat quantization with Low-Rank Adaptation to fine-tune 65B models on a single 48GB GPU. Democratized LLM fine-tuning and introduced innovations like double quantization and paged optimizers.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Shao, W. et al. (2024). <a href="https://arxiv.org/abs/2308.13137" rel="noopener" target="_blank">"OmniQuant: Omnidirectionally Calibrated Quantization for Large Language Models."</a> <em>ICLR 2024</em>. Unifies weight and activation quantization through learnable equivalent transformations optimized end-to-end. Achieves state-of-the-art results across multiple bit-width configurations, particularly strong at aggressive 2-bit and 3-bit quantization.</div>
+</div>
+</section>
+</details>
+<nav class="chapter-nav">
+<a class="prev" href="index.html"><span class="nav-label">Previous</span><span class="nav-num">Chapter 9</span><span class="nav-title">Inference Optimization &amp; Efficient Serving</span></a>
+<a class="up" href="index.html"><span class="nav-label">In Chapter</span><span class="nav-num">Chapter 9</span><span class="nav-title">Inference Optimization &amp; Efficient Serving</span></a>
+<a class="next" href="section-9.2.html"><span class="nav-label">Next</span><span class="nav-num">Section 9.2</span><span class="nav-title">Quantization: Algorithms, Practice & QAT</span></a>
+</nav>
+<footer><p>Fifteenth Edition, 2026 · <a href="../../toc.html">Contents</a></p></footer>
+</main>
+</body>
+</html>

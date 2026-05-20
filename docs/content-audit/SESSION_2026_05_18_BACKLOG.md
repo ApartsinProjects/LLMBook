@@ -103,7 +103,7 @@
 - section-55.2 → module-53/section-53.5
 - section-31.4 + section-31.4b
 - section-10.4 + section-10.4b
-- 2 P0 dup-h2 fixed (16.4.5, 0.3.7)
+- 2 P0 dup-h2 fixed (16.4.5, 0.4.1)
 - Module 16 broken-structure repair (5 sections)
 
 ## Authoring Rounds (8 rounds)

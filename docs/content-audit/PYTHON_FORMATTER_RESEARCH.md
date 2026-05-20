@@ -101,7 +101,7 @@ black --line-length 78 file.py
 
 ## 2. Sample Before/After: One Non-Trivial 30-Line Function
 
-The sample is `block 1` of `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.2a.html` -- the `CausalSelfAttention` class. The original (extracted with span tags stripped and HTML entities decoded) is 46 lines with a max line length of **91 characters**.
+The sample is `block 1` of `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.3.html` -- the `CausalSelfAttention` class. The original (extracted with span tags stripped and HTML entities decoded) is 46 lines with a max line length of **91 characters**.
 
 ### Input (original, hand-formatted by the author)
 
@@ -413,10 +413,10 @@ if __name__ == '__main__':
 1. **Skip the `_archive/` tree.** Many of the dropped Part 14 sections still contain `pygments-highlighted lang-python` blocks; do not waste cycles on retired content.
 2. **AST-equivalence check is mandatory.** Without it, you risk introducing subtle bugs from formatter edge cases (rare in ruff, but the cost of a silent breakage in a published book is catastrophic).
 3. **Fragments are the hard case.** Roughly 30-40% of book code blocks are fragments (e.g., a single function shown for pedagogy, with undefined names). The `is_complete_module` heuristic above is conservative: it runs the full pipeline only on blocks with `def`/`class`/`import` at top level. For pure-expression fragments, `ruff format` alone is safe; isort would do nothing useful and docformatter is harmless. **The script above runs ruff on everything that parses, and the full pipeline only on modules.**
-4. **Preserving Pygments token classes:** Re-highlighting via Pygments produces the same `<span class="kn">`, `<span class="sd">`, etc. tokens used in the book. The book's CSS targets these classes, so visual output is identical. Confirmed by reading `section-3.2a.html` lines 130-147 and comparing to a fresh `HtmlFormatter(nowrap=True)` output of the same source.
+4. **Preserving Pygments token classes:** Re-highlighting via Pygments produces the same `<span class="kn">`, `<span class="sd">`, etc. tokens used in the book. The book's CSS targets these classes, so visual output is identical. Confirmed by reading `section-3.3.html` lines 130-147 and comparing to a fresh `HtmlFormatter(nowrap=True)` output of the same source.
 5. **Dry-run first.** Always run without `--write`, inspect the per-file stats, then commit one part at a time (`--glob "part-1-*/**/*.html"`). The LLMBook has 1495 blocks across ~15 parts; batching by part lets you spot-check rendered HTML before merging the next batch.
-6. **Diff review.** Even with AST-equivalence, eyeball-review a sample of diffs per part (e.g., 10 random blocks per chapter) before committing. Watch especially for: (a) docstring wrapping that splits a sentence awkwardly, (b) comment lines that exceed 78 chars and got re-wrapped weirdly, (c) the rare case where the original was hand-formatted with column-aligned `#` comments (e.g., the `TransformerConfig` dataclass in section 3.2a block 0) -- formatters destroy column alignment because PEP 8 doesn't recognize it.
-7. **Hand-formatted aesthetics.** Section 3.2a block 0 has hand-aligned `vocab_size: int = 65    # number of unique characters` style comments. Black/ruff *will* destroy this alignment (it collapses excessive whitespace before `#`). **Recommend either:** (a) flag blocks containing column-aligned comments and skip them, or (b) add a `# fmt: off` ... `# fmt: on` guard around such blocks before running the script. The detection heuristic is "multiple consecutive lines where `#` appears at column > 30 with whitespace before it".
+6. **Diff review.** Even with AST-equivalence, eyeball-review a sample of diffs per part (e.g., 10 random blocks per chapter) before committing. Watch especially for: (a) docstring wrapping that splits a sentence awkwardly, (b) comment lines that exceed 78 chars and got re-wrapped weirdly, (c) the rare case where the original was hand-formatted with column-aligned `#` comments (e.g., the `TransformerConfig` dataclass in section 3.3 block 0) -- formatters destroy column alignment because PEP 8 doesn't recognize it.
+7. **Hand-formatted aesthetics.** Section 3.3 block 0 has hand-aligned `vocab_size: int = 65    # number of unique characters` style comments. Black/ruff *will* destroy this alignment (it collapses excessive whitespace before `#`). **Recommend either:** (a) flag blocks containing column-aligned comments and skip them, or (b) add a `# fmt: off` ... `# fmt: on` guard around such blocks before running the script. The detection heuristic is "multiple consecutive lines where `#` appears at column > 30 with whitespace before it".
 
 ### Performance estimate
 
@@ -441,7 +441,7 @@ if __name__ == '__main__':
 
 ## Verification of Round-Trip Safety on a Real LLMBook Block
 
-The sample (`fmt-research/sample_in.py`, extracted from `section-3.2a.html` block 1) was processed through ruff format at line-length 78 with `quote-style=preserve`. AST-equivalence check:
+The sample (`fmt-research/sample_in.py`, extracted from `section-3.3.html` block 1) was processed through ruff format at line-length 78 with `quote-style=preserve`. AST-equivalence check:
 
 ```
 ast.dump(ast.parse(original)) == ast.dump(ast.parse(formatted))
@@ -456,7 +456,7 @@ Confirmed safe. The 46-line input became a 59-line output (function calls wrappe
 
 All test artifacts live under `E:\Claude\LLMBook\romantic-ardinghelli-50c3ba\fmt-research\` (workspace scratch dir, not part of the book):
 
-- `sample_in.py` -- extracted `CausalSelfAttention` source from section 3.2a
+- `sample_in.py` -- extracted `CausalSelfAttention` source from section 3.3
 - `sample_black.py`, `sample_ruff.py`, `sample_ruff_pres.py`, `sample_pyink.py`, `sample_pyink_split.py`, `sample_autopep8.py`, `sample_yapf.py`, `sample_isort_then_ruff.py` -- output of each formatter
 - `long_sig.py`, `L_black.py`, `L_ruff.py`, `L_pyink.py`, `L_yapf.py`, `L_doc_then_ruff.py` -- second test case (long function with docstring and call site)
 - `imports_test.py`, `imports_isort.py` -- isort behavior verification

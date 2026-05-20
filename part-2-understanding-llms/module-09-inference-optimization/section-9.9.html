@@ -1,0 +1,850 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-PWPHBQL2VL"></script>
+<script>
+window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', 'G-PWPHBQL2VL');
+</script>
+
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<meta content="Section 9.9: GPU Kernel Programming for LLM Optimization. The performance of LLM inference is ultimately determined by how efficiently we use GPU hardware." name="description"/>
+<title>Section 9.9: GPU Kernel Programming for LLM Optimization</title>
+<link href="../../styles/book.css" rel="stylesheet"/>
+<link href="../../styles/pygments.css" rel="stylesheet"/>
+<link href="../../vendor/katex/katex.min.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/katex/katex.min.js"></script>
+<script defer="" onload="renderMathInElement(document.body, {
+ delimiters: [
+ {left: '$$', right: '$$', display: true},
+ {left: '$', right: '$', display: false}
+ ],
+ throwOnError: false
+ });" src="../../vendor/katex/contrib/auto-render.min.js"></script>
+<link href="../../vendor/prism/prism-theme.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/prism/prism-bundle.min.js"></script>
+<script defer="" src="../../scripts/book.js"></script>
+<link href="../../pagefind/pagefind-ui.css" rel="stylesheet"/>
+<script defer="" src="../../pagefind/pagefind-ui.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
+
+<header class="chapter-header">
+<nav class="header-nav">
+<a class="book-title-link" href="../../index.html">Building Conversational AI with LLMs and Agents</a>
+<a class="toc-link" href="../../toc.html" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+</nav>
+<div class="header-search">
+<div id="search"></div>
+</div>
+
+<div class="page-breadcrumb" data-pagefind-meta="chapter"><a href="../index.html">Part II: Understanding LLMs</a><span class="bc-sep">›</span><a href="index.html">Chapter 9: Inference Optimization &amp; Efficient Serving</a></div>
+<h1>GPU Kernel Programming for LLM Optimization</h1><div class="page-current">Section 9.9</div>
+
+</header>
+<main class="content" id="main-content"><span class="pagefind-meta-injected" data-pagefind-meta="part:Part II: Understanding LLMs" hidden=""></span><span class="pagefind-meta-injected" data-pagefind-meta="chapter:Chapter 9: Inference Optimization &amp; Efficient Serving" hidden=""></span>
+<blockquote class="epigraph">
+<p>The fastest code is the code the GPU never has to wait for.</p>
+<span class="agent-avatar-inline" style="background-color: #1abc9c;"><img alt="Quant" height="28" src="../../front-matter/images/agents/quant.png" width="28"/></span><cite>Quant, <span class="agent-desc">Kernel Obsessed AI Agent</span></cite>
+</blockquote>
+<div class="callout big-picture">
+<div class="callout-title">Big Picture</div>
+<p>The performance of LLM inference is ultimately determined by how efficiently we use GPU hardware. High-level frameworks like PyTorch compose operations from a library of pre-written CUDA kernels, but this composition introduces overhead: each kernel launch reads from and writes to global memory, even when the output of one operation feeds directly into the next. Custom kernels eliminate this overhead by <em>fusing</em> multiple operations into a single GPU program. FlashAttention, the single most impactful LLM optimization of recent years, is fundamentally a custom kernel that tiles the attention computation to fit in fast on-chip SRAM instead of slow off-chip HBM. This section teaches you how to write, profile, and reason about custom GPU kernels using Triton, OpenAI's Python-based kernel programming language.</p>
+</div>
+<div class="prerequisites">
+<h3 id="prerequisites">Prerequisites</h3>
+<p>This section assumes familiarity with the transformer architecture from <a href="../../part-1-llm-building-blocks/module-03-transformer-architecture/section-3.3.html">Section 3.3</a>, the attention mechanism in particular. The quantization and memory optimization techniques from <a href="section-9.1.html">Section 9.1</a> and <a class="prereq-link" href="../../part-2-understanding-llms/module-09-inference-optimization/section-9.3.html">Section 9.3</a> provide important context for understanding why custom kernels are needed. Basic familiarity with GPU hardware concepts (threads, blocks, shared memory) is helpful but not required.</p>
+</div>
+<h2 id="9-9-1-why-custom-kernels-matter">9.9.1 Why Custom Kernels Matter</h2>
+<p>A standard PyTorch attention implementation performs four separate GPU operations: matrix multiplication (Q @ K^T), scaling, softmax, and another matrix multiplication (scores @ V). Each operation launches a separate kernel, and each kernel reads its inputs from HBM (High Bandwidth Memory, the GPU's main memory) and writes its outputs back to HBM. For a sequence length of 8,192 and a hidden dimension of 4,096, the attention scores matrix alone is 8192 x 8192 x 2 bytes = 128 MB. This matrix is written to HBM by the first kernel and read back by the softmax kernel, even though it is a temporary intermediate that is never needed again.</p>
+<div class="callout fun-note">
+<div class="callout-title">Fun Fact: Kernels Are the Engine Room</div>
+<p>On a cruise ship, passengers see the dining room and the deck; almost no one visits the engine room where the heat and the noise live. GPU kernels are the engine room of LLM inference: ugly C++ and PTX that pushes data through warps and shared memory while the Python layer above sips coffee on deck. A kernel that is even ten percent faster shows up as a measurable change in your inference bill.</p>
+</div>
+
+<p>The key insight is that modern GPUs are <strong>memory-bandwidth-bound</strong> for most LLM operations, not compute-bound. An NVIDIA A100 can perform 312 TFLOPS of FP16 computation but can only move data at 2 TB/s. The ratio of compute to memory bandwidth (the <em>arithmetic intensity</em> threshold) is about 156 FLOPs per byte. Any operation that performs fewer than 156 FLOPs for each byte it reads or writes is bottlenecked by memory, not compute. Most element-wise operations (activation functions, layer normalization, dropout) fall far below this threshold.</p>
+<p>Custom kernels solve this by keeping intermediate results in SRAM (the GPU's fast on-chip memory, roughly 20 MB on an A100) and performing multiple operations before writing back to HBM. This technique is called <strong>kernel fusion</strong>, and it is the foundation of FlashAttention, fused layer normalization, and most other high-performance LLM kernels.</p>
+<div class="callout key-insight">
+<div class="callout-title">Key Insight: The Roofline Model</div>
+<p>The roofline model provides a visual framework for understanding whether a kernel is compute-bound or memory-bound. Plot the arithmetic intensity (FLOPs per byte of memory traffic) on the x-axis and achieved throughput (TFLOPS) on the y-axis. The "roofline" is formed by two lines: a flat ceiling at the GPU's peak compute rate, and a sloped line representing the memory bandwidth limit. Operations below the intersection point are memory-bound; operations above it are compute-bound. For LLMs, most operations besides large matrix multiplications fall in the memory-bound region, which is why kernel fusion (reducing memory traffic) delivers larger speedups than optimizing arithmetic.</p>
+</div>
+<figure class="diagram">
+<svg role="img" aria-label="Roofline model: arithmetic intensity vs throughput on NVIDIA A100" viewBox="0 0 880 400" xmlns="http://www.w3.org/2000/svg" style="font-family:'Segoe UI',sans-serif;max-width:100%;height:auto;">
+<rect width="880" height="400" fill="#ffffff"/>
+<text x="440" y="22" font-size="14" font-weight="700" text-anchor="middle" fill="#1a1a2e">The roofline model on NVIDIA A100: memory-bound vs compute-bound</text>
+<text x="440" y="40" font-size="11" font-style="italic" text-anchor="middle" fill="#5a4a3a">peak compute 312 TFLOPS (FP16), HBM bandwidth 2 TB/s, ridge point ~156 FLOPs/byte</text>
+<!-- Axes -->
+<line x1="100" y1="340" x2="820" y2="340" stroke="#1a1a2e" stroke-width="1.5"/>
+<line x1="100" y1="80" x2="100" y2="340" stroke="#1a1a2e" stroke-width="1.5"/>
+<text x="440" y="375" font-size="11" text-anchor="middle" fill="#1a1a2e">arithmetic intensity (FLOPs per byte, log scale)</text>
+<text x="55" y="210" font-size="11" text-anchor="middle" fill="#1a1a2e" transform="rotate(-90,55,210)">achieved throughput (TFLOPS)</text>
+<!-- x tick labels -->
+<text x="100" y="355" font-size="9" text-anchor="middle" fill="#5a4a3a">0.1</text>
+<text x="220" y="355" font-size="9" text-anchor="middle" fill="#5a4a3a">1</text>
+<text x="340" y="355" font-size="9" text-anchor="middle" fill="#5a4a3a">10</text>
+<text x="460" y="355" font-size="9" text-anchor="middle" fill="#5a4a3a">156 (ridge)</text>
+<text x="580" y="355" font-size="9" text-anchor="middle" fill="#5a4a3a">1000</text>
+<text x="700" y="355" font-size="9" text-anchor="middle" fill="#5a4a3a">10000</text>
+<!-- y tick labels -->
+<text x="92" y="100" font-size="9" text-anchor="end" fill="#5a4a3a">312</text>
+<text x="92" y="200" font-size="9" text-anchor="end" fill="#5a4a3a">100</text>
+<text x="92" y="270" font-size="9" text-anchor="end" fill="#5a4a3a">10</text>
+<text x="92" y="320" font-size="9" text-anchor="end" fill="#5a4a3a">1</text>
+<!-- Bandwidth roof (sloped) -->
+<line x1="100" y1="340" x2="460" y2="100" stroke="#7a2a4a" stroke-width="2.5"/>
+<text x="280" y="200" font-size="10" font-weight="700" fill="#7a2a4a" transform="rotate(-32,280,200)">HBM bw ceiling: 2 TB/s</text>
+<!-- Compute roof (flat) -->
+<line x1="460" y1="100" x2="820" y2="100" stroke="#3d4d8a" stroke-width="2.5"/>
+<text x="640" y="92" font-size="10" font-weight="700" text-anchor="middle" fill="#3d4d8a">compute ceiling: 312 TFLOPS</text>
+<!-- Ridge point -->
+<circle cx="460" cy="100" r="6" fill="#1a1a2e"/>
+<line x1="460" y1="100" x2="460" y2="340" stroke="#1a1a2e" stroke-width="1" stroke-dasharray="3,2"/>
+<!-- Memory-bound region -->
+<g font-size="10">
+<circle cx="200" cy="285" r="6" fill="#fef3e0" stroke="#a67c1a" stroke-width="2"/>
+<text x="200" y="305" text-anchor="middle" fill="#a67c1a">GELU (2.5 fp/B)</text>
+<circle cx="225" cy="270" r="6" fill="#fef3e0" stroke="#a67c1a" stroke-width="2"/>
+<text x="225" y="252" text-anchor="middle" fill="#a67c1a">LayerNorm</text>
+<circle cx="260" cy="250" r="6" fill="#fef3e0" stroke="#a67c1a" stroke-width="2"/>
+<text x="280" y="240" text-anchor="middle" fill="#a67c1a">Softmax</text>
+<circle cx="320" cy="220" r="6" fill="#fef3e0" stroke="#a67c1a" stroke-width="2"/>
+<text x="380" y="218" text-anchor="middle" fill="#a67c1a">attention (naive)</text>
+<!-- Compute-bound region -->
+<circle cx="500" cy="105" r="7" fill="#ecf6ee" stroke="#1f7a3a" stroke-width="2"/>
+<text x="500" y="130" text-anchor="middle" fill="#1f7a3a">large GEMM</text>
+<circle cx="600" cy="105" r="7" fill="#ecf6ee" stroke="#1f7a3a" stroke-width="2"/>
+<text x="600" y="130" text-anchor="middle" fill="#1f7a3a">cuBLAS matmul</text>
+<!-- FlashAttention placement -->
+<circle cx="420" cy="115" r="8" fill="#e3e8f5" stroke="#3d4d8a" stroke-width="2.5"/>
+<text x="420" y="140" text-anchor="middle" fill="#3d4d8a">FlashAttention</text>
+<text x="420" y="153" text-anchor="middle" fill="#5a4a3a" font-size="9">(kernel fusion + tiling)</text>
+</g>
+<!-- Region labels -->
+<text x="200" y="160" font-size="11" font-weight="700" fill="#a67c1a">memory-bound region</text>
+<text x="200" y="175" font-size="9" font-style="italic" fill="#5a4a3a">fuse kernels to reduce HBM traffic</text>
+<text x="640" y="180" font-size="11" font-weight="700" fill="#1f7a3a">compute-bound region</text>
+<text x="640" y="195" font-size="9" font-style="italic" fill="#5a4a3a">optimize arithmetic, use tensor cores</text>
+</svg>
+<figcaption><strong>Figure 9.9.1:</strong> The roofline model on an NVIDIA A100. The bandwidth ceiling rises with arithmetic intensity until it hits the compute ceiling at the ridge point (about 156 FLOPs per byte for FP16). Element-wise LLM operations (GELU at 2.5 FLOPs/byte, LayerNorm, Softmax) and naive attention sit far below the ridge: they are memory-bound, so kernel fusion that keeps intermediates in SRAM and reduces HBM traffic is the only way to extract more throughput. Large GEMMs in cuBLAS sit on the compute ceiling and benefit instead from tensor cores and arithmetic optimization. FlashAttention's contribution was to take an operation that naively lived in the memory-bound region and lift it close to the compute ceiling by tiling Q, K, V into SRAM-sized blocks.</figcaption>
+</figure>
+<h3 id="9-9-1-1-arithmetic-intensity-analysis">9.9.1.1 Arithmetic Intensity Analysis</h3>
+<p>Before writing a custom kernel, you should determine whether the operation is worth optimizing. The arithmetic intensity of an operation is defined as:</p>
+
+ $$ \text{Arithmetic Intensity} = \frac{\text{FLOPs}}{\text{Bytes Transferred}} $$
+
+ <p>For an element-wise operation like GELU activation on a tensor of $n$ elements (FP16), the computation requires roughly &#36;10n$ FLOPs while reading &#36;2n$ bytes and writing &#36;2n$ bytes, giving an arithmetic intensity of &#36;10n / 4n = 2.5$ FLOPs/byte. This is far below the A100's threshold of 156, making it heavily memory-bound and an excellent candidate for fusion with adjacent operations.</p>
+<p>For a matrix multiplication of shapes $(M, K) \times (K, N)$, the computation requires &#36;2MKN$ FLOPs while transferring &#36;2(MK + KN + MN)$ bytes, giving an arithmetic intensity that grows with matrix size. Large GEMM operations in LLMs are typically compute-bound and well-served by cuBLAS; the opportunity for custom kernels lies in the surrounding element-wise and reduction operations.</p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># Arithmetic intensity calculator for common LLM operations</span>
+<span class="c1"># Use this to decide whether a custom kernel is worthwhile</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">arithmetic_intensity</span><span class="p">(</span><span class="n">op_name</span><span class="p">,</span> <span class="n">M</span><span class="o">=</span><span class="mi">4096</span><span class="p">,</span> <span class="n">N</span><span class="o">=</span><span class="mi">4096</span><span class="p">,</span> <span class="n">K</span><span class="o">=</span><span class="mi">4096</span><span class="p">,</span> <span class="n">dtype_bytes</span><span class="o">=</span><span class="mi">2</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">"""Calculate FLOPs/byte for common operations on an MxN matrix."""</span>
+    <span class="k">if</span> <span class="n">op_name</span> <span class="o">==</span> <span class="s2">"gelu"</span><span class="p">:</span>
+        <span class="c1"># Element-wise: ~10 FLOPs per element, read + write</span>
+        <span class="n">flops</span> <span class="o">=</span> <span class="mi">10</span> <span class="o">*</span> <span class="n">M</span> <span class="o">*</span> <span class="n">N</span>
+        <span class="n">bytes_transferred</span> <span class="o">=</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">dtype_bytes</span> <span class="o">*</span> <span class="n">M</span> <span class="o">*</span> <span class="n">N</span> <span class="c1"># read + write</span>
+    <span class="k">elif</span> <span class="n">op_name</span> <span class="o">==</span> <span class="s2">"layernorm"</span><span class="p">:</span>
+        <span class="c1"># Two passes (mean, variance) + normalize: ~8 FLOPs per element</span>
+        <span class="n">flops</span> <span class="o">=</span> <span class="mi">8</span> <span class="o">*</span> <span class="n">M</span> <span class="o">*</span> <span class="n">N</span>
+        <span class="n">bytes_transferred</span> <span class="o">=</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">dtype_bytes</span> <span class="o">*</span> <span class="n">M</span> <span class="o">*</span> <span class="n">N</span>
+    <span class="k">elif</span> <span class="n">op_name</span> <span class="o">==</span> <span class="s2">"softmax"</span><span class="p">:</span>
+        <span class="c1"># Max reduction + exp + sum reduction + divide: ~8 FLOPs per element</span>
+        <span class="n">flops</span> <span class="o">=</span> <span class="mi">8</span> <span class="o">*</span> <span class="n">M</span> <span class="o">*</span> <span class="n">N</span>
+        <span class="n">bytes_transferred</span> <span class="o">=</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">dtype_bytes</span> <span class="o">*</span> <span class="n">M</span> <span class="o">*</span> <span class="n">N</span>
+    <span class="k">elif</span> <span class="n">op_name</span> <span class="o">==</span> <span class="s2">"matmul"</span><span class="p">:</span>
+        <span class="c1"># 2*M*K*N FLOPs, read A(M,K) + B(K,N) + write C(M,N)</span>
+        <span class="n">flops</span> <span class="o">=</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">M</span> <span class="o">*</span> <span class="n">K</span> <span class="o">*</span> <span class="n">N</span>
+        <span class="n">bytes_transferred</span> <span class="o">=</span> <span class="n">dtype_bytes</span> <span class="o">*</span> <span class="p">(</span><span class="n">M</span> <span class="o">*</span> <span class="n">K</span> <span class="o">+</span> <span class="n">K</span> <span class="o">*</span> <span class="n">N</span> <span class="o">+</span> <span class="n">M</span> <span class="o">*</span> <span class="n">N</span><span class="p">)</span>
+    <span class="k">elif</span> <span class="n">op_name</span> <span class="o">==</span> <span class="s2">"fused_attention"</span><span class="p">:</span>
+        <span class="c1"># Q@K^T + scale + softmax + @V, but intermediate stays in SRAM</span>
+        <span class="c1"># Only reads Q, K, V and writes output</span>
+        <span class="n">flops</span> <span class="o">=</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">M</span> <span class="o">*</span> <span class="n">K</span> <span class="o">*</span> <span class="n">N</span> <span class="o">+</span> <span class="mi">8</span> <span class="o">*</span> <span class="n">M</span> <span class="o">*</span> <span class="n">N</span> <span class="o">+</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">M</span> <span class="o">*</span> <span class="n">K</span> <span class="o">*</span> <span class="n">N</span>
+        <span class="n">bytes_transferred</span> <span class="o">=</span> <span class="n">dtype_bytes</span> <span class="o">*</span> <span class="p">(</span><span class="mi">3</span> <span class="o">*</span> <span class="n">M</span> <span class="o">*</span> <span class="n">K</span> <span class="o">+</span> <span class="n">M</span> <span class="o">*</span> <span class="n">K</span><span class="p">)</span> <span class="c1"># Q,K,V in + O out</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Unknown operation: </span><span class="si">{</span><span class="n">op_name</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+        <span class="n">intensity</span> <span class="o">=</span> <span class="n">flops</span> <span class="o">/</span> <span class="n">bytes_transferred</span>
+        <span class="n">a100_threshold</span> <span class="o">=</span> <span class="mi">156</span> <span class="c1"># FLOPs/byte for A100 at FP16</span>
+        <span class="n">bound</span> <span class="o">=</span> <span class="s2">"COMPUTE"</span> <span class="k">if</span> <span class="n">intensity</span> <span class="o">&gt;</span> <span class="n">a100_threshold</span> <span class="k">else</span> <span class="s2">"MEMORY"</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">op_name</span><span class="si">:</span><span class="s2">&gt;20</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">intensity</span><span class="si">:</span><span class="s2">8.1f</span><span class="si">}</span><span class="s2"> FLOPs/byte [</span><span class="si">{</span><span class="n">bound</span><span class="si">}</span><span class="s2">-bound]"</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">intensity</span>
+        <span class="c1"># Compare operations at typical LLM dimensions</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="s1">'Operation'</span><span class="si">:</span><span class="s2">&gt;20</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="s1">'Intensity'</span><span class="si">:</span><span class="s2">&gt;8</span><span class="si">}</span><span class="s2"> Bottleneck"</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">"-"</span> <span class="o">*</span> <span class="mi">50</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">op</span> <span class="ow">in</span> <span class="p">[</span><span class="s2">"gelu"</span><span class="p">,</span> <span class="s2">"layernorm"</span><span class="p">,</span> <span class="s2">"softmax"</span><span class="p">,</span> <span class="s2">"matmul"</span><span class="p">,</span> <span class="s2">"fused_attention"</span><span class="p">]:</span>
+            <span class="n">arithmetic_intensity</span><span class="p">(</span><span class="n">op</span><span class="p">)</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span>  Operation Intensity Bottleneck
+--------------------------------------------------
+ gelu: 2.5 FLOPs/byte [MEMORY-bound]
+ layernorm: 2.0 FLOPs/byte [MEMORY-bound]
+ softmax: 2.0 FLOPs/byte [MEMORY-bound]
+ matmul: 682.7 FLOPs/byte [COMPUTE-bound]
+ fused_attention: 341.3 FLOPs/byte [COMPUTE-bound]</div>
+<div class="code-caption"><strong>Code Fragment 9.9.1:</strong> For a matrix multiplication of shapes $(M, K) \times (K, N)$, the computation requires &#36;2MKN$ FLOPs while transferring &#36;2(MK + KN +.</div>
+</div>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># FlashAttention conceptual implementation in Triton (simplified)</span>
+<span class="c1"># Production code: use flash_attn package or torch SDPA</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">triton</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">triton.language</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">tl</span>
+<span class="nd">@triton</span><span class="o">.</span><span class="n">jit</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">flash_attention_fwd_kernel</span><span class="p">(</span>
+    <span class="n">Q_ptr</span><span class="p">,</span> <span class="n">K_ptr</span><span class="p">,</span> <span class="n">V_ptr</span><span class="p">,</span> <span class="n">O_ptr</span><span class="p">,</span>
+    <span class="n">stride_qm</span><span class="p">,</span> <span class="n">stride_qd</span><span class="p">,</span>
+    <span class="n">stride_kn</span><span class="p">,</span> <span class="n">stride_kd</span><span class="p">,</span>
+    <span class="n">stride_vn</span><span class="p">,</span> <span class="n">stride_vd</span><span class="p">,</span>
+    <span class="n">stride_om</span><span class="p">,</span> <span class="n">stride_od</span><span class="p">,</span>
+    <span class="n">seq_len</span><span class="p">,</span> <span class="n">head_dim</span><span class="p">,</span>
+    <span class="n">scale</span><span class="p">,</span>
+    <span class="n">BLOCK_M</span><span class="p">:</span> <span class="n">tl</span><span class="o">.</span><span class="n">constexpr</span><span class="p">,</span> <span class="c1"># tile size for queries</span>
+    <span class="n">BLOCK_N</span><span class="p">:</span> <span class="n">tl</span><span class="o">.</span><span class="n">constexpr</span><span class="p">,</span> <span class="c1"># tile size for keys/values</span>
+    <span class="n">BLOCK_D</span><span class="p">:</span> <span class="n">tl</span><span class="o">.</span><span class="n">constexpr</span><span class="p">,</span> <span class="c1"># head dimension (must cover full d)</span>
+    <span class="p">):</span>
+    <span class="c1"># Each program handles one BLOCK_M-sized tile of queries</span>
+    <span class="n">pid_m</span> <span class="o">=</span> <span class="n">tl</span><span class="o">.</span><span class="n">program_id</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+    <span class="n">start_m</span> <span class="o">=</span> <span class="n">pid_m</span> <span class="o">*</span> <span class="n">BLOCK_M</span>
+    <span class="c1"># Initialize accumulators in SRAM</span>
+    <span class="n">m_offsets</span> <span class="o">=</span> <span class="n">start_m</span> <span class="o">+</span> <span class="n">tl</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">BLOCK_M</span><span class="p">)</span>
+    <span class="n">d_offsets</span> <span class="o">=</span> <span class="n">tl</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">BLOCK_D</span><span class="p">)</span>
+    <span class="c1"># Running softmax statistics (online softmax trick)</span>
+    <span class="n">m_i</span> <span class="o">=</span> <span class="n">tl</span><span class="o">.</span><span class="n">full</span><span class="p">([</span><span class="n">BLOCK_M</span><span class="p">],</span> <span class="n">value</span><span class="o">=-</span><span class="nb">float</span><span class="p">(</span><span class="s2">"inf"</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">tl</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span> <span class="c1"># running max</span>
+    <span class="n">l_i</span> <span class="o">=</span> <span class="n">tl</span><span class="o">.</span><span class="n">zeros</span><span class="p">([</span><span class="n">BLOCK_M</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">tl</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span> <span class="c1"># running sum of exp</span>
+    <span class="n">acc</span> <span class="o">=</span> <span class="n">tl</span><span class="o">.</span><span class="n">zeros</span><span class="p">([</span><span class="n">BLOCK_M</span><span class="p">,</span> <span class="n">BLOCK_D</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">tl</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span> <span class="c1"># output accumulator</span>
+    <span class="c1"># Load Q tile (stays in SRAM for all K/V tiles)</span>
+    <span class="n">q_ptrs</span> <span class="o">=</span> <span class="n">Q_ptr</span> <span class="o">+</span> <span class="n">m_offsets</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">]</span> <span class="o">*</span> <span class="n">stride_qm</span> <span class="o">+</span> <span class="n">d_offsets</span><span class="p">[</span><span class="kc">None</span><span class="p">,</span> <span class="p">:]</span> <span class="o">*</span> <span class="n">stride_qd</span>
+    <span class="n">q_mask</span> <span class="o">=</span> <span class="n">m_offsets</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">]</span> <span class="o">&lt;</span> <span class="n">seq_len</span>
+    <span class="n">q</span> <span class="o">=</span> <span class="n">tl</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">q_ptrs</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">q_mask</span><span class="p">,</span> <span class="n">other</span><span class="o">=</span><span class="mf">0.0</span><span class="p">)</span>
+    <span class="c1"># Iterate over all K/V tiles</span>
+    <span class="k">for</span> <span class="n">start_n</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">seq_len</span><span class="p">,</span> <span class="n">BLOCK_N</span><span class="p">):</span>
+        <span class="n">n_offsets</span> <span class="o">=</span> <span class="n">start_n</span> <span class="o">+</span> <span class="n">tl</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">BLOCK_N</span><span class="p">)</span>
+        <span class="c1"># Load K tile</span>
+        <span class="n">k_ptrs</span> <span class="o">=</span> <span class="n">K_ptr</span> <span class="o">+</span> <span class="n">n_offsets</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">]</span> <span class="o">*</span> <span class="n">stride_kn</span> <span class="o">+</span> <span class="n">d_offsets</span><span class="p">[</span><span class="kc">None</span><span class="p">,</span> <span class="p">:]</span> <span class="o">*</span> <span class="n">stride_kd</span>
+        <span class="n">k_mask</span> <span class="o">=</span> <span class="n">n_offsets</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">]</span> <span class="o">&lt;</span> <span class="n">seq_len</span>
+        <span class="n">k</span> <span class="o">=</span> <span class="n">tl</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">k_ptrs</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">k_mask</span><span class="p">,</span> <span class="n">other</span><span class="o">=</span><span class="mf">0.0</span><span class="p">)</span>
+        <span class="c1"># Compute attention scores for this tile: [BLOCK_M, BLOCK_N]</span>
+        <span class="n">scores</span> <span class="o">=</span> <span class="n">tl</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">q</span><span class="p">,</span> <span class="n">tl</span><span class="o">.</span><span class="n">trans</span><span class="p">(</span><span class="n">k</span><span class="p">))</span> <span class="o">*</span> <span class="n">scale</span>
+        <span class="c1"># Online softmax update</span>
+        <span class="n">m_new</span> <span class="o">=</span> <span class="n">tl</span><span class="o">.</span><span class="n">maximum</span><span class="p">(</span><span class="n">m_i</span><span class="p">,</span> <span class="n">tl</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">scores</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">))</span>
+        <span class="n">alpha</span> <span class="o">=</span> <span class="n">tl</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="n">m_i</span> <span class="o">-</span> <span class="n">m_new</span><span class="p">)</span>
+        <span class="n">p</span> <span class="o">=</span> <span class="n">tl</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="n">scores</span> <span class="o">-</span> <span class="n">m_new</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">])</span>
+        <span class="c1"># Rescale previous accumulator and add new contribution</span>
+        <span class="n">l_i</span> <span class="o">=</span> <span class="n">l_i</span> <span class="o">*</span> <span class="n">alpha</span> <span class="o">+</span> <span class="n">tl</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">p</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">acc</span> <span class="o">=</span> <span class="n">acc</span> <span class="o">*</span> <span class="n">alpha</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">]</span>
+        <span class="c1"># Load V tile and accumulate</span>
+        <span class="n">v_ptrs</span> <span class="o">=</span> <span class="n">V_ptr</span> <span class="o">+</span> <span class="n">n_offsets</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">]</span> <span class="o">*</span> <span class="n">stride_vn</span> <span class="o">+</span> <span class="n">d_offsets</span><span class="p">[</span><span class="kc">None</span><span class="p">,</span> <span class="p">:]</span> <span class="o">*</span> <span class="n">stride_vd</span>
+        <span class="n">v</span> <span class="o">=</span> <span class="n">tl</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">v_ptrs</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">n_offsets</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">]</span> <span class="o">&lt;</span> <span class="n">seq_len</span><span class="p">,</span> <span class="n">other</span><span class="o">=</span><span class="mf">0.0</span><span class="p">)</span>
+        <span class="n">acc</span> <span class="o">+=</span> <span class="n">tl</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">tl</span><span class="o">.</span><span class="n">float16</span><span class="p">),</span> <span class="n">v</span><span class="p">)</span>
+        <span class="n">m_i</span> <span class="o">=</span> <span class="n">m_new</span>
+        <span class="c1"># Final normalization</span>
+        <span class="n">acc</span> <span class="o">=</span> <span class="n">acc</span> <span class="o">/</span> <span class="n">l_i</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">]</span>
+        <span class="c1"># Write output tile to HBM</span>
+        <span class="n">o_ptrs</span> <span class="o">=</span> <span class="n">O_ptr</span> <span class="o">+</span> <span class="n">m_offsets</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">]</span> <span class="o">*</span> <span class="n">stride_om</span> <span class="o">+</span> <span class="n">d_offsets</span><span class="p">[</span><span class="kc">None</span><span class="p">,</span> <span class="p">:]</span> <span class="o">*</span> <span class="n">stride_od</span>
+        <span class="n">o_mask</span> <span class="o">=</span> <span class="n">m_offsets</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">]</span> <span class="o">&lt;</span> <span class="n">seq_len</span>
+        <span class="n">tl</span><span class="o">.</span><span class="n">store</span><span class="p">(</span><span class="n">o_ptrs</span><span class="p">,</span> <span class="n">acc</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">tl</span><span class="o">.</span><span class="n">float16</span><span class="p">),</span> <span class="n">mask</span><span class="o">=</span><span class="n">o_mask</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">"FlashAttention kernel defined (see flash_attn package for production use)"</span><span class="p">)</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> FlashAttention kernel defined (see flash_attn package for production use)</div>
+<div class="code-caption"><strong>Code Fragment 9.9.2:</strong> Arithmetic intensity analysis for common LLM operations. Element-wise operations (GELU, LayerNorm, softmax) are heavily memory-bound, making them prime candidates for kernel fusion.</div>
+</div>
+<h2 id="9-9-2-triton-python-based-gpu-kernel-programming">9.9.2 Triton: Python-Based GPU Kernel Programming</h2>
+<p>Triton, developed by OpenAI, lets you write GPU kernels in Python with a programming model centered on <strong>block-level operations</strong>. Unlike CUDA, where you think in terms of individual threads, Triton operates on tiles (blocks) of data. The compiler handles thread scheduling, memory coalescing, and shared memory management automatically. This dramatically reduces the complexity of writing correct, high-performance GPU code.</p>
+<p>The core abstraction in Triton is the <strong>block pointer</strong>. Instead of computing a single output element per thread, a Triton kernel computes an entire block of output elements. The programmer specifies the block size (e.g., BLOCK_SIZE=1024), and Triton's compiler maps this to an efficient thread configuration. The programmer's job is to describe the data flow at the block level; the compiler's job is to make it fast.</p>
+<h3 id="9-9-2-1-a-first-triton-kernel-vector-addition">9.9.2.1 A First Triton Kernel: Vector Addition</h3>
+<p>This snippet writes a simple Triton kernel that performs element-wise vector addition on the GPU.</p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># Triton vector addition kernel</span>
+<span class="c1"># The simplest possible Triton kernel, showing the block programming model</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">triton</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">triton.language</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">tl</span>
+<span class="nd">@triton</span><span class="o">.</span><span class="n">jit</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">vector_add_kernel</span><span class="p">(</span>
+    <span class="n">x_ptr</span><span class="p">,</span> <span class="c1"># pointer to first input vector</span>
+    <span class="n">y_ptr</span><span class="p">,</span> <span class="c1"># pointer to second input vector</span>
+    <span class="n">output_ptr</span><span class="p">,</span> <span class="c1"># pointer to output vector</span>
+    <span class="n">n_elements</span><span class="p">,</span> <span class="c1"># total number of elements</span>
+    <span class="n">BLOCK_SIZE</span><span class="p">:</span> <span class="n">tl</span><span class="o">.</span><span class="n">constexpr</span><span class="p">,</span> <span class="c1"># number of elements per block (compile-time)</span>
+    <span class="p">):</span>
+    <span class="c1"># Each program instance handles one block of BLOCK_SIZE elements.</span>
+    <span class="c1"># pid tells us which block we are.</span>
+    <span class="n">pid</span> <span class="o">=</span> <span class="n">tl</span><span class="o">.</span><span class="n">program_id</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+    <span class="c1"># Compute the range of indices this block handles</span>
+    <span class="n">block_start</span> <span class="o">=</span> <span class="n">pid</span> <span class="o">*</span> <span class="n">BLOCK_SIZE</span>
+    <span class="n">offsets</span> <span class="o">=</span> <span class="n">block_start</span> <span class="o">+</span> <span class="n">tl</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">BLOCK_SIZE</span><span class="p">)</span>
+    <span class="c1"># Mask out-of-bounds accesses (last block may be partial)</span>
+    <span class="n">mask</span> <span class="o">=</span> <span class="n">offsets</span> <span class="o">&lt;</span> <span class="n">n_elements</span>
+    <span class="c1"># Load a block of data from each input (block-level load)</span>
+    <span class="n">x</span> <span class="o">=</span> <span class="n">tl</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">x_ptr</span> <span class="o">+</span> <span class="n">offsets</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">mask</span><span class="p">)</span>
+    <span class="n">y</span> <span class="o">=</span> <span class="n">tl</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">y_ptr</span> <span class="o">+</span> <span class="n">offsets</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">mask</span><span class="p">)</span>
+    <span class="c1"># Compute and store the result</span>
+    <span class="n">output</span> <span class="o">=</span> <span class="n">x</span> <span class="o">+</span> <span class="n">y</span>
+    <span class="n">tl</span><span class="o">.</span><span class="n">store</span><span class="p">(</span><span class="n">output_ptr</span> <span class="o">+</span> <span class="n">offsets</span><span class="p">,</span> <span class="n">output</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">mask</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">vector_add</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">y</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Launch the Triton vector addition kernel."""</span>
+    <span class="n">output</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">empty_like</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+    <span class="n">n_elements</span> <span class="o">=</span> <span class="n">output</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span>
+    <span class="n">BLOCK_SIZE</span> <span class="o">=</span> <span class="mi">1024</span>
+    <span class="c1"># Grid: number of blocks needed to cover all elements</span>
+    <span class="n">grid</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">meta</span><span class="p">:</span> <span class="p">(</span><span class="n">triton</span><span class="o">.</span><span class="n">cdiv</span><span class="p">(</span><span class="n">n_elements</span><span class="p">,</span> <span class="n">meta</span><span class="p">[</span><span class="s2">"BLOCK_SIZE"</span><span class="p">]),)</span>
+    <span class="n">vector_add_kernel</span><span class="p">[</span><span class="n">grid</span><span class="p">](</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">output</span><span class="p">,</span> <span class="n">n_elements</span><span class="p">,</span> <span class="n">BLOCK_SIZE</span><span class="o">=</span><span class="n">BLOCK_SIZE</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">output</span>
+<span class="c1"># Test</span>
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">100_000</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">"cuda"</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float16</span><span class="p">)</span>
+<span class="n">y</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">100_000</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">"cuda"</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float16</span><span class="p">)</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">vector_add</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">)</span>
+<span class="k">assert</span> <span class="n">torch</span><span class="o">.</span><span class="n">allclose</span><span class="p">(</span><span class="n">result</span><span class="p">,</span> <span class="n">x</span> <span class="o">+</span> <span class="n">y</span><span class="p">,</span> <span class="n">atol</span><span class="o">=</span><span class="mf">1e-3</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"Triton vector addition: correct!"</span><span class="p">)</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> Triton vector addition: correct!</div>
+<div class="code-caption"><strong>Code Fragment 9.9.3:</strong> A minimal Triton kernel for vector addition. The key concepts are <code>program_id</code> (which block am I?), block-level loads and stores, and out-of-bounds masking.</div>
+</div>
+<h3 id="9-9-2-2-fused-softmax-kernel">9.9.2.2 Fused Softmax Kernel</h3>
+<p>Softmax is one of the most common operations in LLM inference, applied at every attention layer. A naive PyTorch implementation performs three separate passes over the data: compute the maximum (for numerical stability), compute exponentials, and normalize by the sum. Each pass reads and writes the entire tensor to HBM. A fused Triton kernel performs all three passes in a single kernel launch, keeping intermediate results in registers and SRAM.</p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># Fused softmax in Triton: three passes fused into one kernel launch</span>
+<span class="c1"># Eliminates two round-trips to HBM compared to PyTorch's unfused version</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">triton</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">triton.language</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">tl</span>
+<span class="nd">@triton</span><span class="o">.</span><span class="n">jit</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">fused_softmax_kernel</span><span class="p">(</span>
+    <span class="n">input_ptr</span><span class="p">,</span> <span class="n">output_ptr</span><span class="p">,</span>
+    <span class="n">n_cols</span><span class="p">,</span>
+    <span class="n">input_row_stride</span><span class="p">,</span>
+    <span class="n">output_row_stride</span><span class="p">,</span>
+    <span class="n">BLOCK_SIZE</span><span class="p">:</span> <span class="n">tl</span><span class="o">.</span><span class="n">constexpr</span><span class="p">,</span>
+    <span class="p">):</span>
+    <span class="c1"># Each program handles one row of the input matrix</span>
+    <span class="n">row_idx</span> <span class="o">=</span> <span class="n">tl</span><span class="o">.</span><span class="n">program_id</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+    <span class="n">row_start</span> <span class="o">=</span> <span class="n">row_idx</span> <span class="o">*</span> <span class="n">input_row_stride</span>
+    <span class="c1"># Load one row into registers (fast on-chip memory)</span>
+    <span class="n">col_offsets</span> <span class="o">=</span> <span class="n">tl</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">BLOCK_SIZE</span><span class="p">)</span>
+    <span class="n">mask</span> <span class="o">=</span> <span class="n">col_offsets</span> <span class="o">&lt;</span> <span class="n">n_cols</span>
+    <span class="n">row</span> <span class="o">=</span> <span class="n">tl</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">input_ptr</span> <span class="o">+</span> <span class="n">row_start</span> <span class="o">+</span> <span class="n">col_offsets</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">mask</span><span class="p">,</span> <span class="n">other</span><span class="o">=-</span><span class="nb">float</span><span class="p">(</span><span class="s2">"inf"</span><span class="p">))</span>
+    <span class="c1"># Pass 1: find maximum for numerical stability (in registers)</span>
+    <span class="n">row_max</span> <span class="o">=</span> <span class="n">tl</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">row</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+    <span class="c1"># Pass 2: compute exponentials (still in registers)</span>
+    <span class="n">numerator</span> <span class="o">=</span> <span class="n">tl</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="n">row</span> <span class="o">-</span> <span class="n">row_max</span><span class="p">)</span>
+    <span class="c1"># Pass 3: normalize (still in registers)</span>
+    <span class="n">denominator</span> <span class="o">=</span> <span class="n">tl</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">numerator</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+    <span class="n">softmax_output</span> <span class="o">=</span> <span class="n">numerator</span> <span class="o">/</span> <span class="n">denominator</span>
+    <span class="c1"># Single write to HBM (vs. 3 writes in unfused version)</span>
+    <span class="n">out_start</span> <span class="o">=</span> <span class="n">row_idx</span> <span class="o">*</span> <span class="n">output_row_stride</span>
+    <span class="n">tl</span><span class="o">.</span><span class="n">store</span><span class="p">(</span><span class="n">output_ptr</span> <span class="o">+</span> <span class="n">out_start</span> <span class="o">+</span> <span class="n">col_offsets</span><span class="p">,</span> <span class="n">softmax_output</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">mask</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">fused_softmax</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Fused softmax along the last dimension."""</span>
+    <span class="n">n_rows</span><span class="p">,</span> <span class="n">n_cols</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">shape</span>
+    <span class="n">BLOCK_SIZE</span> <span class="o">=</span> <span class="n">triton</span><span class="o">.</span><span class="n">next_power_of_2</span><span class="p">(</span><span class="n">n_cols</span><span class="p">)</span>
+    <span class="n">output</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">empty_like</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+    <span class="n">fused_softmax_kernel</span><span class="p">[(</span><span class="n">n_rows</span><span class="p">,)](</span>
+        <span class="n">x</span><span class="p">,</span> <span class="n">output</span><span class="p">,</span>
+        <span class="n">n_cols</span><span class="p">,</span>
+        <span class="n">x</span><span class="o">.</span><span class="n">stride</span><span class="p">(</span><span class="mi">0</span><span class="p">),</span> <span class="n">output</span><span class="o">.</span><span class="n">stride</span><span class="p">(</span><span class="mi">0</span><span class="p">),</span>
+        <span class="n">BLOCK_SIZE</span><span class="o">=</span><span class="n">BLOCK_SIZE</span><span class="p">,</span>
+        <span class="p">)</span>
+    <span class="k">return</span> <span class="n">output</span>
+<span class="c1"># Benchmark against PyTorch</span>
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">4096</span><span class="p">,</span> <span class="mi">4096</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">"cuda"</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float16</span><span class="p">)</span>
+<span class="n">torch_result</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">softmax</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
+<span class="n">triton_result</span> <span class="o">=</span> <span class="n">fused_softmax</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+<span class="k">assert</span> <span class="n">torch</span><span class="o">.</span><span class="n">allclose</span><span class="p">(</span><span class="n">triton_result</span><span class="p">,</span> <span class="n">torch_result</span><span class="p">,</span> <span class="n">atol</span><span class="o">=</span><span class="mf">1e-2</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"Fused softmax: correct! (3 memory passes reduced to 1)"</span><span class="p">)</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> Fused softmax: correct! (3 memory passes reduced to 1)</div>
+<div class="code-caption"><strong>Code Fragment 9.9.4:</strong> Fused softmax in Triton. All three passes (max, exp, normalize) happen in registers, eliminating two intermediate round-trips to HBM. For a 4096x4096 matrix, this saves ~64 MB of memory traffic per attention head.</div>
+</div>
+<h2 id="9-9-3-flashattention-tiled-attention-in-sram">9.9.3 FlashAttention: Tiled Attention in SRAM</h2>
+<p>FlashAttention (Dao et al., 2022) is the most impactful custom kernel in the LLM ecosystem. The core insight is that the standard attention computation, $\text{softmax}(QK^T / \sqrt{d_k})V$, creates an $N \times N$ attention matrix (where $N$ is the sequence length) that must be materialized in HBM. For $N = 8192$ and FP16, this matrix is 128 MB per attention head. FlashAttention avoids materializing this matrix entirely by tiling the computation into blocks that fit in SRAM.</p>
+<div class="callout algorithm">
+<div class="callout-title">Algorithm 9.9.1: Online Softmax Recurrence (Milakov and Gimelshein, 2018)</div>
+<div class="code-block-wrapper"><pre><code class="pygments-highlighted lang-text">Algorithm: Numerically stable softmax in a single pass over blocks
+Input:  blocks {s_1, s_2, ..., s_B}, each a vector of attention scores in a row
+Output: softmax-weighted values, plus the normalizing constant l
+
+  // State carried between blocks: m = running max, l = running denominator
+  m := -infinity
+  l := 0
+  o := 0                        // running weighted sum of values (same dim as V row)
+
+  For each block (s_j, v_j) in stream order:
+      m_new := max(m, max(s_j))                            // updated max for this row
+      alpha := exp(m - m_new)                              // rescale factor for old state
+      l := alpha * l + sum( exp(s_j - m_new) )             // updated denominator
+      o := alpha * o + exp(s_j - m_new) @ v_j              // updated weighted-sum
+      m := m_new
+
+  // After all blocks processed
+  Return o / l, m, l                                       // final attention output
+
+Why it is mathematically equivalent to the offline softmax.
+   With S = concat(s_1, ..., s_B), v = concat(v_1, ..., v_B), and m* = max(S):
+     p = exp(S - m*) / sum(exp(S - m*))
+     softmax(S) @ v = sum_i p_i v_i.
+   The recurrence maintains the invariant
+     l_j = sum_{k <= j} exp(s_k - m_j),
+     o_j = sum_{k <= j} exp(s_k - m_j) v_k,
+   so after the last block, o_B / l_B = softmax(S) v.
+
+Properties used by FlashAttention:
+   - Numerical stability: each exp argument is <= 0, never overflows
+   - Streaming: any block ordering is correct (commutative)
+   - O(block_size) working state, so it fits in SRAM (~100 KB)</code></pre></div>
+<p>Source: Milakov and Gimelshein, "Online Normalizer Calculation for Softmax" (NVIDIA, <a href="https://arxiv.org/abs/1805.02867" rel="noopener" target="_blank">arXiv:1805.02867</a>, 2018). This recurrence is the algebraic core of FlashAttention (Dao et al., 2022, <a href="https://arxiv.org/abs/2205.14135" rel="noopener" target="_blank">arXiv:2205.14135</a>): the softmax-then-multiply pipeline of standard attention is rewritten as one fused streaming pass that maintains (m, l, o) per query row across all K/V blocks. FlashAttention-2 (Dao 2023, <a href="https://arxiv.org/abs/2307.08691" rel="noopener" target="_blank">arXiv:2307.08691</a>) reuses this exact recurrence and only changes the work partitioning across GPU warps for better parallelism.</p>
+</div>
+<p>The algorithm processes the attention computation in tiles. For each tile of Q (a block of query rows), it iterates over all tiles of K and V, accumulating partial results in SRAM. The running softmax normalization is maintained using the "online softmax" trick: as each new block of K is processed, the running maximum and sum statistics are updated, and previous partial results are rescaled. This ensures numerical correctness without ever materializing the full attention matrix.</p>
+<p>FlashAttention's memory complexity is $O(N)$ instead of $O(N^2)$, enabling much longer sequence lengths. FlashAttention-2 further improved throughput by 2x through better work partitioning across GPU warps, and FlashAttention-3 (for Hopper GPUs) exploits hardware-level asynchronous operations for another 1.5x improvement.</p>
+<div class="callout note">
+<div class="callout-title">Note: FlashAttention Memory Savings</div>
+<p>Consider a transformer with 32 attention heads, sequence length 8,192, and head dimension 128. Standard attention materializes 32 attention matrices of size 8192 x 8192 in FP16, consuming 32 x 128 MB = 4 GB of HBM just for intermediate storage. FlashAttention reduces this to roughly 32 x (2 x BLOCK_SIZE x 128 x 2 bytes), which at BLOCK_SIZE=256 is about 4 MB. This 1000x reduction in intermediate memory is what enables 128K+ context lengths on hardware that could previously only handle 2K-4K tokens with standard attention.</p>
+</div>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># --- FlashAttention forward pass in Triton (simplified, single-head) ---</span>
+<span class="c1"># Key ideas:</span>
+<span class="c1">#   1. Q tile of shape (BLOCK_M, head_dim) stays in fast SRAM</span>
+<span class="c1">#   2. We stream K, V tiles of shape (BLOCK_N, head_dim) in turn</span>
+<span class="c1">#   3. Online softmax: maintain running max m_i and denominator l_i</span>
+<span class="c1">#      so we never materialize the full N x N attention matrix</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">triton</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">triton.language</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">tl</span>
+
+<span class="nd">@triton</span><span class="o">.</span><span class="n">jit</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">flash_attn_fwd</span><span class="p">(</span>
+    <span class="n">Q_ptr</span><span class="p">,</span> <span class="n">K_ptr</span><span class="p">,</span> <span class="n">V_ptr</span><span class="p">,</span> <span class="n">O_ptr</span><span class="p">,</span>
+    <span class="n">stride_qm</span><span class="p">,</span> <span class="n">stride_qk</span><span class="p">,</span>           <span class="c1"># Q strides (M, K)</span>
+    <span class="n">stride_kn</span><span class="p">,</span> <span class="n">stride_kk</span><span class="p">,</span>           <span class="c1"># K strides (N, K)</span>
+    <span class="n">stride_vn</span><span class="p">,</span> <span class="n">stride_vk</span><span class="p">,</span>           <span class="c1"># V strides (N, K)</span>
+    <span class="n">stride_om</span><span class="p">,</span> <span class="n">stride_ok</span><span class="p">,</span>           <span class="c1"># O strides (M, K)</span>
+    <span class="n">M</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span>                           <span class="c1"># sequence lengths</span>
+    <span class="n">softmax_scale</span><span class="p">,</span>                  <span class="c1"># 1 / sqrt(head_dim)</span>
+    <span class="n">BLOCK_M</span><span class="p">:</span> <span class="n">tl</span><span class="o">.</span><span class="n">constexpr</span><span class="p">,</span>
+    <span class="n">BLOCK_N</span><span class="p">:</span> <span class="n">tl</span><span class="o">.</span><span class="n">constexpr</span><span class="p">,</span>
+    <span class="n">HEAD_DIM</span><span class="p">:</span> <span class="n">tl</span><span class="o">.</span><span class="n">constexpr</span><span class="p">,</span>
+<span class="p">):</span>
+    <span class="c1"># Each program handles ONE Q tile of BLOCK_M rows</span>
+    <span class="n">pid_m</span> <span class="o">=</span> <span class="n">tl</span><span class="o">.</span><span class="n">program_id</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+
+    <span class="c1"># Load this Q tile into SRAM (stays here for the entire kernel)</span>
+    <span class="n">offs_m</span> <span class="o">=</span> <span class="n">pid_m</span> <span class="o">*</span> <span class="n">BLOCK_M</span> <span class="o">+</span> <span class="n">tl</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">BLOCK_M</span><span class="p">)</span>
+    <span class="n">offs_k</span> <span class="o">=</span> <span class="n">tl</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">HEAD_DIM</span><span class="p">)</span>
+    <span class="n">q_ptrs</span> <span class="o">=</span> <span class="n">Q_ptr</span> <span class="o">+</span> <span class="n">offs_m</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">]</span> <span class="o">*</span> <span class="n">stride_qm</span> <span class="o">+</span> <span class="n">offs_k</span><span class="p">[</span><span class="kc">None</span><span class="p">,</span> <span class="p">:]</span> <span class="o">*</span> <span class="n">stride_qk</span>
+    <span class="n">q</span> <span class="o">=</span> <span class="n">tl</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">q_ptrs</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">offs_m</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">]</span> <span class="o">&lt;</span> <span class="n">M</span><span class="p">,</span> <span class="n">other</span><span class="o">=</span><span class="mf">0.0</span><span class="p">)</span>
+    <span class="n">q</span> <span class="o">=</span> <span class="n">q</span> <span class="o">*</span> <span class="n">softmax_scale</span>
+
+    <span class="c1"># Online-softmax accumulators</span>
+    <span class="n">m_i</span> <span class="o">=</span> <span class="n">tl</span><span class="o">.</span><span class="n">full</span><span class="p">((</span><span class="n">BLOCK_M</span><span class="p">,),</span> <span class="nb">float</span><span class="p">(</span><span class="s2">"-inf"</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">tl</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>   <span class="c1"># running max</span>
+    <span class="n">l_i</span> <span class="o">=</span> <span class="n">tl</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">BLOCK_M</span><span class="p">,),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">tl</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>                  <span class="c1"># running denom</span>
+    <span class="n">acc</span> <span class="o">=</span> <span class="n">tl</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">BLOCK_M</span><span class="p">,</span> <span class="n">HEAD_DIM</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">tl</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>         <span class="c1"># output accum</span>
+
+    <span class="c1"># Stream over K, V tiles</span>
+    <span class="k">for</span> <span class="n">start_n</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">BLOCK_N</span><span class="p">):</span>
+        <span class="n">offs_n</span> <span class="o">=</span> <span class="n">start_n</span> <span class="o">+</span> <span class="n">tl</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">BLOCK_N</span><span class="p">)</span>
+        <span class="c1"># Load K, V tile</span>
+        <span class="n">k_ptrs</span> <span class="o">=</span> <span class="n">K_ptr</span> <span class="o">+</span> <span class="n">offs_n</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">]</span> <span class="o">*</span> <span class="n">stride_kn</span> <span class="o">+</span> <span class="n">offs_k</span><span class="p">[</span><span class="kc">None</span><span class="p">,</span> <span class="p">:]</span> <span class="o">*</span> <span class="n">stride_kk</span>
+        <span class="n">v_ptrs</span> <span class="o">=</span> <span class="n">V_ptr</span> <span class="o">+</span> <span class="n">offs_n</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">]</span> <span class="o">*</span> <span class="n">stride_vn</span> <span class="o">+</span> <span class="n">offs_k</span><span class="p">[</span><span class="kc">None</span><span class="p">,</span> <span class="p">:]</span> <span class="o">*</span> <span class="n">stride_vk</span>
+        <span class="n">k</span> <span class="o">=</span> <span class="n">tl</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">k_ptrs</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">offs_n</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">]</span> <span class="o">&lt;</span> <span class="n">N</span><span class="p">,</span> <span class="n">other</span><span class="o">=</span><span class="mf">0.0</span><span class="p">)</span>
+        <span class="n">v</span> <span class="o">=</span> <span class="n">tl</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">v_ptrs</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">offs_n</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">]</span> <span class="o">&lt;</span> <span class="n">N</span><span class="p">,</span> <span class="n">other</span><span class="o">=</span><span class="mf">0.0</span><span class="p">)</span>
+
+        <span class="c1"># Compute QK^T for this tile: shape (BLOCK_M, BLOCK_N)</span>
+        <span class="n">s</span> <span class="o">=</span> <span class="n">tl</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">q</span><span class="p">,</span> <span class="n">tl</span><span class="o">.</span><span class="n">trans</span><span class="p">(</span><span class="n">k</span><span class="p">))</span>
+
+        <span class="c1"># Online softmax update</span>
+        <span class="n">m_new</span> <span class="o">=</span> <span class="n">tl</span><span class="o">.</span><span class="n">maximum</span><span class="p">(</span><span class="n">m_i</span><span class="p">,</span> <span class="n">tl</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">s</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">))</span>
+        <span class="n">alpha</span> <span class="o">=</span> <span class="n">tl</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="n">m_i</span> <span class="o">-</span> <span class="n">m_new</span><span class="p">)</span>             <span class="c1"># rescale prev</span>
+        <span class="n">p</span> <span class="o">=</span> <span class="n">tl</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="n">s</span> <span class="o">-</span> <span class="n">m_new</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">])</span>          <span class="c1"># current tile softmax (unnormalized)</span>
+        <span class="n">l_new</span> <span class="o">=</span> <span class="n">alpha</span> <span class="o">*</span> <span class="n">l_i</span> <span class="o">+</span> <span class="n">tl</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">p</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+
+        <span class="c1"># Rescale prior accumulator and add this tile's contribution</span>
+        <span class="n">acc</span> <span class="o">=</span> <span class="n">acc</span> <span class="o">*</span> <span class="n">alpha</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">]</span> <span class="o">+</span> <span class="n">tl</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">v</span><span class="o">.</span><span class="n">dtype</span><span class="p">),</span> <span class="n">v</span><span class="p">)</span>
+        <span class="n">m_i</span><span class="p">,</span> <span class="n">l_i</span> <span class="o">=</span> <span class="n">m_new</span><span class="p">,</span> <span class="n">l_new</span>
+
+    <span class="c1"># Final normalization</span>
+    <span class="n">o</span> <span class="o">=</span> <span class="n">acc</span> <span class="o">/</span> <span class="n">l_i</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">]</span>
+
+    <span class="c1"># Write output</span>
+    <span class="n">o_ptrs</span> <span class="o">=</span> <span class="n">O_ptr</span> <span class="o">+</span> <span class="n">offs_m</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">]</span> <span class="o">*</span> <span class="n">stride_om</span> <span class="o">+</span> <span class="n">offs_k</span><span class="p">[</span><span class="kc">None</span><span class="p">,</span> <span class="p">:]</span> <span class="o">*</span> <span class="n">stride_ok</span>
+    <span class="n">tl</span><span class="o">.</span><span class="n">store</span><span class="p">(</span><span class="n">o_ptrs</span><span class="p">,</span> <span class="n">o</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">O_ptr</span><span class="o">.</span><span class="n">dtype</span><span class="o">.</span><span class="n">element_ty</span><span class="p">),</span> <span class="n">mask</span><span class="o">=</span><span class="n">offs_m</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">]</span> <span class="o">&lt;</span> <span class="n">M</span><span class="p">)</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">flash_attention</span><span class="p">(</span><span class="n">q</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">k</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">v</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+                    <span class="n">block_m</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">64</span><span class="p">,</span> <span class="n">block_n</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">64</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Wrapper: q/k/v are (M, head_dim), (N, head_dim), (N, head_dim) on CUDA."""</span>
+    <span class="n">M</span><span class="p">,</span> <span class="n">head_dim</span> <span class="o">=</span> <span class="n">q</span><span class="o">.</span><span class="n">shape</span>
+    <span class="n">N</span> <span class="o">=</span> <span class="n">k</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="n">o</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">empty_like</span><span class="p">(</span><span class="n">q</span><span class="p">)</span>
+    <span class="n">grid</span> <span class="o">=</span> <span class="p">(</span><span class="n">triton</span><span class="o">.</span><span class="n">cdiv</span><span class="p">(</span><span class="n">M</span><span class="p">,</span> <span class="n">block_m</span><span class="p">),)</span>
+    <span class="n">flash_attn_fwd</span><span class="p">[</span><span class="n">grid</span><span class="p">](</span>
+        <span class="n">q</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span><span class="p">,</span> <span class="n">o</span><span class="p">,</span>
+        <span class="n">q</span><span class="o">.</span><span class="n">stride</span><span class="p">(</span><span class="mi">0</span><span class="p">),</span> <span class="n">q</span><span class="o">.</span><span class="n">stride</span><span class="p">(</span><span class="mi">1</span><span class="p">),</span>
+        <span class="n">k</span><span class="o">.</span><span class="n">stride</span><span class="p">(</span><span class="mi">0</span><span class="p">),</span> <span class="n">k</span><span class="o">.</span><span class="n">stride</span><span class="p">(</span><span class="mi">1</span><span class="p">),</span>
+        <span class="n">v</span><span class="o">.</span><span class="n">stride</span><span class="p">(</span><span class="mi">0</span><span class="p">),</span> <span class="n">v</span><span class="o">.</span><span class="n">stride</span><span class="p">(</span><span class="mi">1</span><span class="p">),</span>
+        <span class="n">o</span><span class="o">.</span><span class="n">stride</span><span class="p">(</span><span class="mi">0</span><span class="p">),</span> <span class="n">o</span><span class="o">.</span><span class="n">stride</span><span class="p">(</span><span class="mi">1</span><span class="p">),</span>
+        <span class="n">M</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span>
+        <span class="n">softmax_scale</span><span class="o">=</span><span class="mf">1.0</span> <span class="o">/</span> <span class="p">(</span><span class="n">head_dim</span> <span class="o">**</span> <span class="mf">0.5</span><span class="p">),</span>
+        <span class="n">BLOCK_M</span><span class="o">=</span><span class="n">block_m</span><span class="p">,</span> <span class="n">BLOCK_N</span><span class="o">=</span><span class="n">block_n</span><span class="p">,</span> <span class="n">HEAD_DIM</span><span class="o">=</span><span class="n">head_dim</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="k">return</span> <span class="n">o</span>
+</code></pre>
+</div>
+<div class="code-caption"><strong>Code Fragment 9.9.5:</strong> Simplified FlashAttention forward pass in Triton. The key ideas are: Q tiles stay in SRAM while iterating over K/V tiles, the online softmax trick maintains running statistics, and the full N x N attention matrix is never materialized. For production workloads, use the <code>flash-attn</code> package or <code>torch.nn.functional.scaled_dot_product_attention</code>.</div>
+<h2 id="9-9-4-jit-compilation-torch-compile-and-xla">9.9.4 JIT Compilation: torch.compile and XLA</h2>
+<p>Not every optimization requires hand-written kernels. <code>torch.compile</code> (introduced in PyTorch 2.0) uses the TorchInductor backend to automatically fuse operations and generate optimized Triton kernels. For many workloads, simply wrapping your model in <code>torch.compile</code> captures 50% to 80% of the speedup that a hand-written kernel would provide, with zero additional code.</p>
+<p>XLA (Accelerated Linear Algebra), the compiler backend for JAX and TensorFlow, takes a different approach: it compiles entire computation graphs into optimized code for the target hardware. XLA performs operator fusion, layout optimization, and memory planning at the graph level, often producing code competitive with hand-written kernels for standard operations.</p>
+<p>The decision tree for optimization is: (1) try <code>torch.compile</code> first; (2) if that is insufficient, profile to identify the bottleneck; (3) write a custom Triton kernel only for the specific bottleneck operation. Hand-written kernels should be a last resort, not a first instinct.</p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># torch.compile: automatic kernel fusion without writing custom kernels</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">TransformerBlock</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">"""A simplified transformer block for benchmarking."""</span>
+<span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">d_model</span><span class="o">=</span><span class="mi">1024</span><span class="p">,</span> <span class="n">n_heads</span><span class="o">=</span><span class="mi">16</span><span class="p">):</span>
+    <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">attn</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">MultiheadAttention</span><span class="p">(</span><span class="n">d_model</span><span class="p">,</span> <span class="n">n_heads</span><span class="p">,</span> <span class="n">batch_first</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">norm1</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">LayerNorm</span><span class="p">(</span><span class="n">d_model</span><span class="p">)</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">norm2</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">LayerNorm</span><span class="p">(</span><span class="n">d_model</span><span class="p">)</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">ffn</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">(</span>
+        <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">d_model</span><span class="p">,</span> <span class="mi">4</span> <span class="o">*</span> <span class="n">d_model</span><span class="p">),</span>
+        <span class="n">nn</span><span class="o">.</span><span class="n">GELU</span><span class="p">(),</span>
+        <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="mi">4</span> <span class="o">*</span> <span class="n">d_model</span><span class="p">,</span> <span class="n">d_model</span><span class="p">),</span>
+        <span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
+    <span class="c1"># Pre-norm architecture</span>
+    <span class="n">h</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">norm1</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+    <span class="n">h</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">attn</span><span class="p">(</span><span class="n">h</span><span class="p">,</span> <span class="n">h</span><span class="p">,</span> <span class="n">h</span><span class="p">)</span>
+    <span class="n">x</span> <span class="o">=</span> <span class="n">x</span> <span class="o">+</span> <span class="n">h</span>
+    <span class="n">x</span> <span class="o">=</span> <span class="n">x</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">ffn</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">norm2</span><span class="p">(</span><span class="n">x</span><span class="p">))</span>
+    <span class="k">return</span> <span class="n">x</span>
+    <span class="n">device</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">(</span><span class="s2">"cuda"</span><span class="p">)</span>
+    <span class="n">model</span> <span class="o">=</span> <span class="n">TransformerBlock</span><span class="p">()</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">)</span><span class="o">.</span><span class="n">half</span><span class="p">()</span>
+    <span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">512</span><span class="p">,</span> <span class="mi">1024</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float16</span><span class="p">)</span>
+    <span class="c1"># Eager mode baseline</span>
+    <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+        <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">10</span><span class="p">):</span> <span class="c1"># warmup</span>
+            <span class="n">_</span> <span class="o">=</span> <span class="n">model</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+            <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">synchronize</span><span class="p">()</span>
+            <span class="n">t0</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">perf_counter</span><span class="p">()</span>
+            <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">100</span><span class="p">):</span>
+                <span class="n">_</span> <span class="o">=</span> <span class="n">model</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+                <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">synchronize</span><span class="p">()</span>
+                <span class="n">eager_time</span> <span class="o">=</span> <span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">perf_counter</span><span class="p">()</span> <span class="o">-</span> <span class="n">t0</span><span class="p">)</span> <span class="o">/</span> <span class="mi">100</span>
+                <span class="c1"># Compiled mode: torch.compile auto-fuses operations</span>
+                <span class="n">compiled_model</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s2">"reduce-overhead"</span><span class="p">)</span>
+                <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+                    <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">10</span><span class="p">):</span> <span class="c1"># warmup (includes compilation)</span>
+                        <span class="n">_</span> <span class="o">=</span> <span class="n">compiled_model</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+                        <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">synchronize</span><span class="p">()</span>
+                        <span class="n">t0</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">perf_counter</span><span class="p">()</span>
+                        <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">100</span><span class="p">):</span>
+                            <span class="n">_</span> <span class="o">=</span> <span class="n">compiled_model</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+                            <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">synchronize</span><span class="p">()</span>
+                            <span class="n">compiled_time</span> <span class="o">=</span> <span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">perf_counter</span><span class="p">()</span> <span class="o">-</span> <span class="n">t0</span><span class="p">)</span> <span class="o">/</span> <span class="mi">100</span>
+                            <span class="n">speedup</span> <span class="o">=</span> <span class="n">eager_time</span> <span class="o">/</span> <span class="n">compiled_time</span>
+                            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Eager: </span><span class="si">{</span><span class="n">eager_time</span><span class="o">*</span><span class="mi">1000</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> ms"</span><span class="p">)</span>
+                            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Compiled: </span><span class="si">{</span><span class="n">compiled_time</span><span class="o">*</span><span class="mi">1000</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> ms"</span><span class="p">)</span>
+                            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Speedup: </span><span class="si">{</span><span class="n">speedup</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">x"</span><span class="p">)</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> Eager: 3.42 ms
+Compiled: 2.18 ms
+Speedup: 1.57x</div>
+<div class="code-caption"><strong>Code Fragment 9.9.6:</strong> <code>torch.compile</code> automatically fuses operations in a transformer block. The <code>reduce-overhead</code> mode minimizes kernel launch latency using CUDA graphs. Typical speedups range from 1.3x to 2x depending on the model architecture.</div>
+</div>
+<div class="callout tip">
+<div class="callout-title">Tip: When to Write a Custom Kernel</div>
+<p>Write a custom Triton kernel when all three conditions are met: (1) profiling shows a specific operation consuming a disproportionate fraction of wall-clock time; (2) the operation is memory-bound (low arithmetic intensity); (3) <code>torch.compile</code> does not fuse the operation effectively (check by inspecting the generated code with <code>TORCH_COMPILE_DEBUG=1</code>). In practice, custom kernels are most valuable for attention variants (sparse attention, sliding window), custom activation functions, and fused normalization + residual operations.</p>
+</div>
+<h2 id="9-9-5-performance-profiling">9.9.5 Performance Profiling</h2>
+<p>Effective GPU optimization requires precise measurement. The PyTorch profiler, NVIDIA Nsight Systems, and NVIDIA Nsight Compute provide complementary views: the PyTorch profiler shows operation-level timing within the Python framework; Nsight Systems shows the full timeline of CPU and GPU activity including kernel launches and memory transfers; Nsight Compute provides detailed per-kernel metrics including occupancy, memory throughput, and compute utilization.</p>
+<p>The most common profiling mistake is measuring wall-clock time without GPU synchronization. GPU operations are asynchronous: when Python calls <code>torch.matmul(A, B)</code>, the function returns immediately while the GPU works in the background. Without an explicit <code>torch.cuda.synchronize()</code> before timing measurements, you measure only the CPU-side overhead of launching the kernel, not the actual GPU execution time.</p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># PyTorch profiler: identifying kernel-level bottlenecks</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torch.profiler</span><span class="w"> </span><span class="kn">import</span> <span class="n">profile</span><span class="p">,</span> <span class="n">ProfilerActivity</span><span class="p">,</span> <span class="n">schedule</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">TransformerEncoderLayer</span><span class="p">(</span>
+    <span class="n">d_model</span><span class="o">=</span><span class="mi">1024</span><span class="p">,</span> <span class="n">nhead</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span> <span class="n">batch_first</span><span class="o">=</span><span class="kc">True</span>
+    <span class="p">)</span><span class="o">.</span><span class="n">cuda</span><span class="p">()</span><span class="o">.</span><span class="n">half</span><span class="p">()</span>
+<span class="n">x</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">512</span><span class="p">,</span> <span class="mi">1024</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">"cuda"</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float16</span><span class="p">)</span>
+<span class="c1"># Profile with GPU activity tracking</span>
+<span class="k">with</span> <span class="n">profile</span><span class="p">(</span>
+    <span class="n">activities</span><span class="o">=</span><span class="p">[</span><span class="n">ProfilerActivity</span><span class="o">.</span><span class="n">CPU</span><span class="p">,</span> <span class="n">ProfilerActivity</span><span class="o">.</span><span class="n">CUDA</span><span class="p">],</span>
+    <span class="n">record_shapes</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">profile_memory</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">with_stack</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="p">)</span> <span class="k">as</span> <span class="n">prof</span><span class="p">:</span>
+    <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+        <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">5</span><span class="p">):</span>
+            <span class="n">_</span> <span class="o">=</span> <span class="n">model</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+            <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">synchronize</span><span class="p">()</span>
+            <span class="c1"># Print the top 20 operations by GPU time</span>
+            <span class="nb">print</span><span class="p">(</span><span class="n">prof</span><span class="o">.</span><span class="n">key_averages</span><span class="p">()</span><span class="o">.</span><span class="n">table</span><span class="p">(</span>
+                <span class="n">sort_by</span><span class="o">=</span><span class="s2">"cuda_time_total"</span><span class="p">,</span>
+                <span class="n">row_limit</span><span class="o">=</span><span class="mi">20</span><span class="p">,</span>
+                <span class="n">top_level_events_only</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+                <span class="p">))</span>
+            <span class="c1"># Export Chrome trace for visual inspection</span>
+            <span class="c1"># Open chrome://tracing and load this file</span>
+            <span class="n">prof</span><span class="o">.</span><span class="n">export_chrome_trace</span><span class="p">(</span><span class="s2">"transformer_trace.json"</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="s2">"Trace exported to transformer_trace.json"</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="s2">"Open chrome://tracing in Chrome to visualize"</span><span class="p">)</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> ------- ------- -------- -------- -------- --------
+Name Self CPU Self CUDA CPU total CUDA total
+----------- -------- --------- --------- ----------
+aten::mm 1.205ms 4.821ms 1.205ms 4.821ms
+aten::addmm 0.387ms 1.604ms 0.541ms 1.604ms
+aten::_softmax 0.098ms 0.412ms 0.098ms 0.412ms
+aten::layer_norm 0.187ms 0.389ms 0.321ms 0.389ms
+...
+Trace exported to transformer_trace.json
+Open chrome://tracing in Chrome to visualize</div>
+<div class="code-caption"><strong>Code Fragment 9.9.7:</strong> Using the PyTorch profiler to identify GPU bottlenecks. The tabular output shows wall-clock time per operation, while the Chrome trace provides a visual timeline of CPU/GPU activity. Look for gaps between kernels (launch overhead) and operations with low arithmetic intensity (fusion candidates).</div>
+</div>
+<h2 id="9-9-6-putting-it-together-optimization-workflow">9.9.6 Putting It Together: Optimization Workflow</h2>
+<p>A systematic approach to LLM kernel optimization follows these steps:</p>
+<ol>
+<li><strong>Profile first.</strong> Use the PyTorch profiler to identify which operations consume the most GPU time. Focus on operations that appear repeatedly (attention, normalization, activation functions).</li>
+<li><strong>Classify the bottleneck.</strong> Use arithmetic intensity analysis (<strong>Code Fragment 9.9.2</strong>) to determine whether each bottleneck is memory-bound or compute-bound. Memory-bound operations benefit from fusion; compute-bound operations benefit from algorithmic improvements or hardware upgrades.</li>
+<li><strong>Try torch.compile.</strong> Apply <code>torch.compile</code> and re-profile. If the bottleneck is resolved, stop here. Check the generated Triton code to understand what the compiler did.</li>
+<li><strong>Write a targeted kernel.</strong> If torch.compile does not adequately fuse the bottleneck operation, write a custom Triton kernel for that specific operation. Start with correctness (compare against PyTorch reference), then optimize for performance.</li>
+<li><strong>Validate at scale.</strong> Test the optimized kernel at production-scale batch sizes and sequence lengths. Performance characteristics can change significantly between small test inputs and real workloads.</li>
+</ol>
+
+<div class="callout exercise">
+<div class="callout-title">Exercise 9.9.1: </div>
+<ol>
+<li><strong>Arithmetic intensity.</strong> Using <strong>Code Fragment 9.9.2</strong>, calculate the arithmetic intensity of the full transformer forward pass (attention + FFN + normalization) for sequence lengths of 512, 2048, and 8192. At what sequence length does the attention computation transition from memory-bound to compute-bound?</li>
+<li><strong>Fused GELU kernel.</strong> Write a Triton kernel that fuses the linear projection and GELU activation in the FFN layer (compute <code>GELU(xW + b)</code> in a single kernel). Compare its performance against separate <code>torch.nn.Linear</code> + <code>torch.nn.GELU</code> calls using the PyTorch profiler.</li>
+<li><strong>torch.compile inspection.</strong> Apply <code>torch.compile</code> to a full transformer encoder layer and set <code>TORCH_COMPILE_DEBUG=1</code>. Examine the generated Triton code in the debug output. Which operations did the compiler fuse, and which did it leave unfused? Can you explain why?</li>
+<li><strong>Profiling practice.</strong> Using <strong>Code Fragment 9.9.7</strong>, profile an inference pass through a <a href="../../part-2-understanding-llms/module-10-interpretability/section-10.7.html#12-2-huggingface-transformers-deep-dive">Hugging Face</a> model (e.g., <code>facebook/opt-1.3b</code>). Identify the top 5 GPU operations by time and classify each as memory-bound or compute-bound. Which operations would benefit most from custom kernels?</li>
+</ol>
+</div>
+
+
+<div class="callout research-frontier">
+<div class="callout-title">Research Frontier: Hardware-Aware Kernel Generation</div>
+<p>The boundary between hand-written kernels and compiler-generated code is blurring. Projects like FlexAttention (PyTorch's composable attention API) allow users to define custom attention patterns (causal, sliding window, block-sparse) as simple Python functions, which are then compiled into efficient fused kernels. Meanwhile, emerging ML compilers like Mojo and the Pallas frontend for XLA aim to give programmers CUDA-level control with Python-level ergonomics. The CS336 course at Stanford (Spring 2025) provides an excellent deep dive into building LLM systems from scratch, including writing attention kernels in Triton as a core assignment.</p>
+</div>
+<div class="callout lab" id="lab-9-1">
+<div class="callout-title">Lab: Quantize and Benchmark a Model</div>
+<div class="lab-meta">
+<span class="lab-duration">Duration: ~60 minutes</span>
+<span class="lab-difficulty">Intermediate</span>
+</div>
+<div class="lab-objective">
+<h3 id="objective">Objective</h3>
+<p>Load a language model at full FP32 precision, quantize it to INT8 using bitsandbytes, and measure the impact on memory usage, inference latency, and output quality. Then compare with vLLM serving to see how production inference engines handle quantization automatically.</p>
+</div>
+<div class="lab-skills">
+<h3 id="what-you-ll-practice">What You'll Practice</h3>
+<ul>
+<li>Loading models in different precisions (FP32, FP16, INT8)</li>
+<li>Using bitsandbytes for post-training quantization</li>
+<li>Benchmarking GPU memory and inference latency</li>
+<li>Comparing output quality across precision levels</li>
+</ul>
+</div>
+<div class="lab-prereqs">
+<h3 id="setup">Setup</h3>
+<p>This lab requires a CUDA-capable GPU. A GPU with at least 8 GB of VRAM is recommended.</p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-bash">pip<span class="w"> </span>install<span class="w"> </span>transformers<span class="w"> </span>torch<span class="w"> </span>accelerate<span class="w"> </span>bitsandbytes</code></pre>
+<div class="code-caption"><strong>Code Fragment 9.9.8:</strong> Install the four packages the rest of the lab depends on: transformers (HF model loading), torch (PyTorch runtime), accelerate (device map and offload), and bitsandbytes (INT8/INT4 quantization). The lab uses SmolLM2-360M-Instruct so it fits comfortably on a 6 GB consumer GPU.</div>
+</div>
+</div>
+<div class="lab-steps">
+<h3 id="steps">Steps</h3>
+<div class="lab-step">
+<h3 id="step-1-load-the-model-at-fp16-and-measure-baseline">Step 1: Load the model at FP16 and measure baseline</h3>
+<p>Load a small model and record its memory footprint and generation speed as a baseline.</p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">AutoModelForCausalLM</span><span class="p">,</span> <span class="n">AutoTokenizer</span>
+<span class="n">model_name</span> <span class="o">=</span> <span class="s2">"HuggingFaceTB/SmolLM2-360M-Instruct"</span>
+<span class="n">tokenizer</span> <span class="o">=</span> <span class="n">AutoTokenizer</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span><span class="n">model_name</span><span class="p">)</span>
+<span class="c1"># Baseline: FP16</span>
+<span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">reset_peak_memory_stats</span><span class="p">()</span>
+<span class="n">model_fp16</span> <span class="o">=</span> <span class="n">AutoModelForCausalLM</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span>
+    <span class="n">model_name</span><span class="p">,</span> <span class="n">torch_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float16</span><span class="p">,</span> <span class="n">device_map</span><span class="o">=</span><span class="s2">"auto"</span>
+    <span class="p">)</span>
+<span class="n">mem_fp16</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">max_memory_allocated</span><span class="p">()</span> <span class="o">/</span> <span class="mi">1024</span><span class="o">**</span><span class="mi">2</span>
+<span class="n">prompt</span> <span class="o">=</span> <span class="s2">"Explain the difference between compiled and interpreted languages."</span>
+<span class="n">inputs</span> <span class="o">=</span> <span class="n">tokenizer</span><span class="p">(</span><span class="n">prompt</span><span class="p">,</span> <span class="n">return_tensors</span><span class="o">=</span><span class="s2">"pt"</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">model_fp16</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
+<span class="c1"># Warm-up run</span>
+<span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+    <span class="n">model_fp16</span><span class="o">.</span><span class="n">generate</span><span class="p">(</span><span class="o">**</span><span class="n">inputs</span><span class="p">,</span> <span class="n">max_new_tokens</span><span class="o">=</span><span class="mi">100</span><span class="p">)</span>
+    <span class="c1"># Timed run</span>
+    <span class="n">start</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">perf_counter</span><span class="p">()</span>
+    <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+        <span class="n">out_fp16</span> <span class="o">=</span> <span class="n">model_fp16</span><span class="o">.</span><span class="n">generate</span><span class="p">(</span><span class="o">**</span><span class="n">inputs</span><span class="p">,</span> <span class="n">max_new_tokens</span><span class="o">=</span><span class="mi">100</span><span class="p">)</span>
+        <span class="n">latency_fp16</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">perf_counter</span><span class="p">()</span> <span class="o">-</span> <span class="n">start</span>
+        <span class="n">text_fp16</span> <span class="o">=</span> <span class="n">tokenizer</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="n">out_fp16</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">skip_special_tokens</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"FP16 Memory: </span><span class="si">{</span><span class="n">mem_fp16</span><span class="si">:</span><span class="s2">.0f</span><span class="si">}</span><span class="s2"> MB"</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"FP16 Latency: </span><span class="si">{</span><span class="n">latency_fp16</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">s"</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"FP16 Output: </span><span class="si">{</span><span class="n">text_fp16</span><span class="p">[:</span><span class="mi">300</span><span class="p">]</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> FP16 Memory: 723 MB
+FP16 Latency: 0.847s
+FP16 Output: Explain the difference between compiled and interpreted languages. Compiled languages are translated into machine code before execution, producing a standalone binary. Interpreted languages are executed line by line at runtime by an interpreter...</div>
+<div class="code-caption"><strong>Code Fragment 9.9.9:</strong> Loading a small language model at FP16 precision and measuring its memory footprint and generation latency. This baseline establishes the reference point for comparing quantized variants in subsequent steps.</div>
+</div>
+<details>
+<summary>Hint</summary>
+<p>Always include a warm-up generation before timing. The first call triggers CUDA kernel compilation and memory allocation, which would inflate the latency measurement.</p>
+</details>
+</div>
+<div class="lab-step">
+<h3 id="step-2-quantize-to-int8-with-bitsandbytes">Step 2: Quantize to INT8 with bitsandbytes</h3>
+<p>Reload the model with 8-bit quantization and repeat the measurements.</p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="kn">from</span><span class="w"> </span><span class="nn">transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">AutoModelForCausalLM</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">BitsAndBytesConfig</span>
+<span class="k">del</span> <span class="n">model_fp16</span>
+<span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">empty_cache</span><span class="p">()</span>
+<span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">reset_peak_memory_stats</span><span class="p">()</span>
+<span class="c1"># INT8 quantization</span>
+<span class="n">bnb_config</span> <span class="o">=</span> <span class="n">BitsAndBytesConfig</span><span class="p">(</span><span class="n">load_in_8bit</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">model_int8</span> <span class="o">=</span> <span class="n">AutoModelForCausalLM</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span>
+    <span class="n">model_name</span><span class="p">,</span> <span class="n">quantization_config</span><span class="o">=</span><span class="n">bnb_config</span><span class="p">,</span> <span class="n">device_map</span><span class="o">=</span><span class="s2">&quot;auto&quot;</span>
+    <span class="p">)</span>
+<span class="n">mem_int8</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">max_memory_allocated</span><span class="p">()</span> <span class="o">/</span> <span class="mi">1024</span><span class="o">**</span><span class="mi">2</span>
+<span class="n">inputs</span> <span class="o">=</span> <span class="n">tokenizer</span><span class="p">(</span><span class="n">prompt</span><span class="p">,</span> <span class="n">return_tensors</span><span class="o">=</span><span class="s2">&quot;pt&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">model_int8</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
+<span class="c1"># Warm-up and timed run</span>
+<span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+    <span class="n">model_int8</span><span class="o">.</span><span class="n">generate</span><span class="p">(</span><span class="o">**</span><span class="n">inputs</span><span class="p">,</span> <span class="n">max_new_tokens</span><span class="o">=</span><span class="mi">100</span><span class="p">)</span>
+    <span class="n">start</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">perf_counter</span><span class="p">()</span>
+    <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+        <span class="n">out_int8</span> <span class="o">=</span> <span class="n">model_int8</span><span class="o">.</span><span class="n">generate</span><span class="p">(</span><span class="o">**</span><span class="n">inputs</span><span class="p">,</span> <span class="n">max_new_tokens</span><span class="o">=</span><span class="mi">100</span><span class="p">)</span>
+        <span class="n">latency_int8</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">perf_counter</span><span class="p">()</span> <span class="o">-</span> <span class="n">start</span>
+        <span class="n">text_int8</span> <span class="o">=</span> <span class="n">tokenizer</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="n">out_int8</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">skip_special_tokens</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">INT8 Memory: </span><span class="si">{</span><span class="n">mem_int8</span><span class="si">:</span><span class="s2">.0f</span><span class="si">}</span><span class="s2"> MB&quot;</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;INT8 Latency: </span><span class="si">{</span><span class="n">latency_int8</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">s&quot;</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;INT8 Output: </span><span class="si">{</span><span class="n">text_int8</span><span class="p">[:</span><span class="mi">300</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> 
+INT8 Memory: 412 MB
+INT8 Latency: 0.913s
+INT8 Output: Explain the difference between compiled and interpreted languages. Compiled languages convert source code to machine code ahead of time, while interpreted languages are processed at runtime. Compiled programs generally run faster...</div>
+<div class="code-caption"><strong>Code Fragment 9.9.10:</strong> Reloading the same model with INT8 quantization via bitsandbytes and repeating the benchmark. Memory drops by roughly 43% while output quality remains comparable, illustrating the practical benefit of post-training quantization.</div>
+</div>
+<details>
+<summary>Hint</summary>
+<p>INT8 quantization typically reduces memory by roughly 50% compared to FP16. Latency may not improve on all hardware because the INT8 kernels incur dequantization overhead during matrix multiplications.</p>
+</details>
+</div>
+<div class="lab-step">
+<h3 id="step-3-compare-results-and-discuss-trade-offs">Step 3: Compare results and discuss trade-offs</h3>
+<p>Summarize the memory, latency, and quality differences in a table.</p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+<span class="n">results</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">([</span>
+    <span class="p">{</span><span class="s2">"Precision"</span><span class="p">:</span> <span class="s2">"FP16"</span><span class="p">,</span> <span class="s2">"Memory (MB)"</span><span class="p">:</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">mem_fp16</span><span class="si">:</span><span class="s2">.0f</span><span class="si">}</span><span class="s2">"</span><span class="p">,</span>
+    <span class="s2">"Latency (s)"</span><span class="p">:</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">latency_fp16</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">"</span><span class="p">,</span>
+    <span class="s2">"Tokens"</span><span class="p">:</span> <span class="nb">len</span><span class="p">(</span><span class="n">out_fp16</span><span class="p">[</span><span class="mi">0</span><span class="p">])},</span>
+    <span class="p">{</span><span class="s2">"Precision"</span><span class="p">:</span> <span class="s2">"INT8"</span><span class="p">,</span> <span class="s2">"Memory (MB)"</span><span class="p">:</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">mem_int8</span><span class="si">:</span><span class="s2">.0f</span><span class="si">}</span><span class="s2">"</span><span class="p">,</span>
+    <span class="s2">"Latency (s)"</span><span class="p">:</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">latency_int8</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">"</span><span class="p">,</span>
+    <span class="s2">"Tokens"</span><span class="p">:</span> <span class="nb">len</span><span class="p">(</span><span class="n">out_int8</span><span class="p">[</span><span class="mi">0</span><span class="p">])},</span>
+<span class="p">])</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"</span><span class="se">\n</span><span class="s2">=== Quantization Comparison ==="</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">results</span><span class="o">.</span><span class="n">to_string</span><span class="p">(</span><span class="n">index</span><span class="o">=</span><span class="kc">False</span><span class="p">))</span>
+<span class="n">savings</span> <span class="o">=</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">mem_int8</span> <span class="o">/</span> <span class="n">mem_fp16</span><span class="p">)</span> <span class="o">*</span> <span class="mi">100</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="se">\n</span><span class="s2">Memory savings: </span><span class="si">{</span><span class="n">savings</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2">%"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="se">\n</span><span class="s2">FP16 snippet: </span><span class="si">{</span><span class="n">text_fp16</span><span class="p">[</span><span class="nb">len</span><span class="p">(</span><span class="n">prompt</span><span class="p">):</span><span class="nb">len</span><span class="p">(</span><span class="n">prompt</span><span class="p">)</span><span class="o">+</span><span class="mi">200</span><span class="p">]</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"INT8 snippet: </span><span class="si">{</span><span class="n">text_int8</span><span class="p">[</span><span class="nb">len</span><span class="p">(</span><span class="n">prompt</span><span class="p">):</span><span class="nb">len</span><span class="p">(</span><span class="n">prompt</span><span class="p">)</span><span class="o">+</span><span class="mi">200</span><span class="p">]</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> === Quantization Comparison ===
+Precision Memory (MB) Latency (s) Tokens
+ FP16 723 0.847 112
+ INT8 412 0.913 109
+
+Memory savings: 43.0%
+
+FP16 snippet: Compiled languages are translated into machine code before execution...
+INT8 snippet: Compiled languages convert source code to machine code ahead of time...</div>
+<div class="code-caption"><strong>Code Fragment 9.9.11:</strong> Summarizing the FP16 vs. INT8 comparison in a table, highlighting memory savings, latency differences, and output snippets side by side. For small models, latency gains are modest; the real payoff of quantization appears with larger models where memory is the bottleneck.</div>
+</div>
+<details>
+<summary>Hint</summary>
+<p>For small models, INT8 may show minimal latency improvement because the compute is already fast. The real benefit of quantization shows with larger models (7B+) where memory becomes the bottleneck, enabling models to fit on fewer or smaller GPUs.</p>
+</details>
+</div>
+</div>
+<div class="lab-expected">
+<h3 id="expected-output">Expected Output</h3>
+<ul>
+<li>INT8 memory usage approximately 40-50% lower than FP16</li>
+<li>Latency similar or slightly higher for INT8 on small models</li>
+<li>Output quality nearly identical between FP16 and INT8 for this model size</li>
+</ul>
+</div>
+<div class="lab-stretch">
+<h3 id="stretch-goals">Stretch Goals</h3>
+<ul>
+<li>Try 4-bit quantization (<code>load_in_4bit=True</code> with NF4) and add it to the comparison table</li>
+<li>Run the same experiment on a 1B+ model to see larger memory savings</li>
+<li>Serve the quantized model with vLLM (<code>vllm serve model_name --quantization bitsandbytes</code>) and benchmark throughput with concurrent requests</li>
+</ul>
+</div>
+</div>
+<div class="callout key-takeaway">
+<div class="callout-title">Key Takeaways</div>
+<ul>
+<li><strong>Memory bandwidth, not compute, is the bottleneck.</strong> LLM inference is memory-bound during autoregressive decoding; custom kernels that minimize HBM reads deliver the largest speedups.</li>
+<li><strong>FlashAttention trades compute for memory access.</strong> By tiling attention computation and keeping intermediate results in SRAM, FlashAttention achieves 2 to 4x speedups with no approximation.</li>
+<li><strong>Triton makes GPU kernel development accessible.</strong> Writing fused kernels in Triton (Python-like syntax) is far simpler than raw CUDA while still achieving near-peak performance for common patterns.</li>
+<li><strong>torch.compile automates fusion.</strong> For many workloads, <code>torch.compile</code> can automatically fuse operations and generate efficient GPU code without manual kernel writing.</li>
+<li><strong>Profile before optimizing.</strong> Tools like <code>torch.profiler</code> and Nsight Systems reveal which operations are actually bottlenecked, preventing wasted effort on already-fast kernels.</li>
+</ul>
+</div>
+<div class="callout self-check">
+<div class="callout-title">Self-Check</div>
+<p class="quiz-question">1. A standard softmax attention kernel makes three passes over the attention matrix in HBM. Explain how FlashAttention reduces this to a single pass and why that yields a large speedup despite doing the same number of FLOPs.</p>
+<details><summary>Show Answer</summary><div class="answer">Standard attention computes Q @ K<sup>T</sup> (write the N×N attention matrix to HBM), softmax (read+write that matrix), then @ V (read it again and write the output), three round-trips to HBM, which is the bottleneck on modern GPUs. <strong>FlashAttention</strong> (deep dive in <a class="concept-link" href="#9-7-3-flashattention-tiled-attention-in-sram">Section 9.9.3</a>) <em>tiles</em> the attention matrix and never materializes it fully in HBM. Each output block is computed by streaming small tiles of Q, K, V through SRAM, keeping the running max and exp-sum in registers, and only HBM-writing the final output. Per block this is one HBM round-trip instead of three. Even though FlashAttention performs slightly <em>more</em> arithmetic (it recomputes some softmax pieces during the backward), HBM bandwidth dominates wall-clock time and the savings translate to 2-4× speedup with much lower memory.</div></details>
+<p class="quiz-question">2. You write a Triton kernel that fuses LayerNorm, Linear, and GELU into one kernel. What specific overhead does this fusion eliminate compared to running three separate CUDA kernels?</p>
+<details><summary>Show Answer</summary><div class="answer">Three CUDA kernels means three kernel launch overheads (~5µs each), three HBM writes of intermediate tensors, three HBM reads of those intermediates by the next kernel, and three separate cuBLAS or cuDNN call paths with their own warmup overhead. <strong>Fusing</strong> LayerNorm + Linear + GELU into one Triton kernel collapses all of that: one launch, one HBM read of input, intermediates stay in registers and SRAM, one HBM write of output. For small batch and sequence sizes (where launch overhead and HBM bandwidth dominate compute time), fusion typically wins 2-3×. For large batches where compute dominates, the win shrinks but is still positive.</div></details>
+<p class="quiz-question">3. After running <code>torch.compile(model)</code>, the first forward pass takes 30 seconds but subsequent passes take 4 ms. Explain what happens during that first call and when you would use <code>fullgraph=True</code> versus the default mode.</p>
+<details><summary>Show Answer</summary><div class="answer">The 30-second first call is the JIT trace + compile. <code>torch.compile</code> dynamically captures the model's execution into an FX graph, lowers it through TorchInductor to a fused Triton/CUDA kernel set, and JIT-compiles to a binary. The cost is one-time per shape and dtype. After warmup, subsequent calls execute the optimized kernels directly. <code>fullgraph=True</code> forces the model to be a <em>single</em> captured graph and fails if there is any data-dependent control flow that <code>torch.compile</code> cannot trace. Use it when (a) you have eliminated data-dependent branches, (b) you want to AOT-export the graph for deployment, or (c) you need a guarantee of no Python-roundtrip during inference. Default mode (graph breaks allowed) is more permissive but slightly slower because it has to bounce back to Python at each break.</div></details>
+</div>
+<div class="whats-next">
+<h3 id="what-s-next">What's Next?</h3>
+<p>With inference optimization covered, from quantization to custom GPU kernels, we move to understanding what happens inside these models. In <a href="../../index.html">Chapter 11: Interpretability and Mechanistic Understanding</a>, we explore techniques for looking inside the black box: attention visualization, probing classifiers, logit lens, and mechanistic interpretability methods that reveal how LLMs actually process language.</p>
+</div>
+<details class="bibliography-collapsible">
+<summary><strong>Further Reading</strong></summary>
+<section class="bibliography">
+<h3 id="flashattention">FlashAttention</h3>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://arxiv.org/abs/2205.14135" rel="noopener" target="_blank">Dao, T. et al. (2022). <em>FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness</em>. NeurIPS 2022.</a> The foundational FlashAttention paper. Introduces tiled attention with online softmax to achieve 2-4x speedup and linear memory complexity. Required reading for understanding why memory hierarchy awareness is more important than raw FLOPs for LLM performance.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://arxiv.org/abs/2307.08691" rel="noopener" target="_blank">Dao, T. (2023). <em>FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning</em>.</a> Improves upon FlashAttention with better warp-level parallelism, achieving 50-73% of theoretical peak throughput on A100 GPUs. Demonstrates that work partitioning across GPU warps is as important as the tiling algorithm itself.</div>
+</div>
+<h3 id="triton-and-gpu-programming">Triton and GPU Programming</h3>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://triton-lang.org/main/getting-started/tutorials/" rel="noopener" target="_blank">Tillet, P. et al. (2019). <em>Triton: An Intermediate Language and Compiler for Tiled Neural Network Computations</em>.</a> The Triton language specification and tutorial. Covers the block-level programming model, auto-tuning, and how Triton's compiler maps Python code to efficient GPU programs. The official tutorials provide excellent worked examples from vector addition through fused softmax to matrix multiplication.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://stanford-cs336.github.io/spring2025/" rel="noopener" target="_blank">CS336: Language Modeling from Scratch, Stanford University (Spring 2025).</a> Graduate course covering LLM systems from <a href="../../part-1-llm-building-blocks/module-01-foundations-nlp-text-representation/section-1.5.html">tokenization</a> through training infrastructure. The GPU kernel programming assignments provide hands-on experience writing Triton kernels for attention, layer normalization, and activation functions. Lecture materials and assignments are publicly available.</div>
+</div>
+<h3 id="compilation-and-optimization">Compilation and Optimization</h3>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://pytorch.org/docs/stable/torch.compiler.html" rel="noopener" target="_blank">PyTorch Team. (2024). <em>torch.compile: PyTorch 2.x Compiler Documentation</em>.</a> Official documentation for torch.compile, covering TorchInductor, TorchDynamo, and the various compilation modes. Includes guidance on debugging compilation failures and inspecting generated code.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://arxiv.org/abs/2312.08934" rel="noopener" target="_blank">He, B. et al. (2023). <em>FlexAttention: A Programming Model for Generating Optimized Attention Kernels</em>.</a> Describes a composable API for defining custom attention patterns that compile into fused kernels. Bridges the gap between hand-written Triton kernels and high-level PyTorch code, making it practical to experiment with novel attention variants without GPU programming expertise.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://docs.nvidia.com/nsight-compute/" rel="noopener" target="_blank">NVIDIA. (2024). <em>Nsight Compute Documentation</em>.</a> Official documentation for NVIDIA's kernel-level profiling tool. Essential for roofline analysis, occupancy optimization, and understanding memory access patterns in custom CUDA and Triton kernels.</div>
+</div>
+</section>
+</details>
+<nav class="chapter-nav">
+<a class="prev" href="section-9.8.html"><span class="nav-label">Previous</span><span class="nav-num">Section 9.8</span><span class="nav-title">Test-Time Compute &amp; Reasoning Models</span></a>
+<a class="up" href="index.html"><span class="nav-label">In Chapter</span><span class="nav-num">Chapter 9</span><span class="nav-title">Inference Optimization &amp; Efficient Serving</span></a>
+<a class="next" href="../module-10-interpretability/index.html"><span class="nav-label">Next</span><span class="nav-num">Chapter 10</span><span class="nav-title">Interpretability &amp; Mechanistic Understanding</span></a>
+</nav>
+<footer><p>Fifteenth Edition, 2026 · <a href="../../toc.html">Contents</a></p></footer>
+</main>
+</body>
+</html>

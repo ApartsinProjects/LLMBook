@@ -26,15 +26,15 @@ Reviewed approximately 25 section files in Parts 8 to 12. Added or improved 39 c
   - Added 3 new captions for the BLEU-N, ROUGE-N, and sequence-perplexity algorithm pseudocode blocks.
 
 ### Part 10 (LLM Security & Runtime Safety)
-- `part-10-llm-security-runtime-safety/module-47-adversarial-security-red-team/section-47.1a.html`
+- `part-10-llm-security-runtime-safety/module-47-adversarial-security-red-team/section-47.1.html`
   - Added 4 new captions (LLM Guard library shortcut, 3-layer injection detection algorithm, Presidio library shortcut).
   - Replaced 2 stub captions (`Implementation of sanitize_input`, `Implementation of redact`) with specific descriptions of the regex labels and the `[TYPE_REDACTED]` placeholder logic.
-- `part-10-llm-security-runtime-safety/module-47-adversarial-security-red-team/section-47.1b.html`
-  - Added 2 captions for the GCG and FGSM/PGD algorithm pseudocode blocks.
-  - Replaced 5 weak captions (47.1.3 through 47.1.8) with specific captions referencing LlamaGuard category codes, the four-layer safety stack, and the red-team test outcomes.
 - `part-10-llm-security-runtime-safety/module-47-adversarial-security-red-team/section-47.2.html`
+  - Added 2 captions for the GCG and FGSM/PGD algorithm pseudocode blocks.
+  - Replaced 5 weak captions (47.1.3 through 47.2.4) with specific captions referencing LlamaGuard category codes, the four-layer safety stack, and the red-team test outcomes.
+- `part-10-llm-security-runtime-safety/module-47-adversarial-security-red-team/section-47.3.html`
   - Added 1 caption for the automated red-teaming pipeline algorithm.
-  - Replaced 3 weak captions (47.2.1 PyRIT, 47.2.3 tool-use, 47.2.4 adversarial library) with captions that reference specific scorers, dataclasses, and example attacks.
+  - Replaced 3 weak captions (47.3.1 PyRIT, 47.3.3 tool-use, 47.3.4 adversarial library) with captions that reference specific scorers, dataclasses, and example attacks.
 - `part-10-llm-security-runtime-safety/module-49-agent-safety-autonomy/section-49.1.html`
   - Added 3 new captions for the COST-CONTROLLED-AGENT-LOOP and REACT-WITH-GUARDRAILS algorithm blocks plus the NeMo Guardrails library shortcut.
   - Replaced the generic `SecureAgentExecutor` caption with one that names the five defense layers.

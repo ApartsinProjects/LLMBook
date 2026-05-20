@@ -13,15 +13,15 @@ Scope: Parts 1-3, modules 1-16. Tasked with collapsing decorative academic hedgi
 
 All edits made to sections in parts 1-3 only (no part 4-9 touches, no index.html touches).
 
-1. `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.3.html`
+1. `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.4.html`
    - Cultural-bias intro: replaced "tend to encode Western..." with confident claim plus the r > 0.9 / r < 0.5 Anthropic number that quantifies it.
    - Religious/philosophical bias bullet: replaced "tend to resolve toward" with declarative claim, kept Durmus et al. citation.
    - Benchmark warning callout: tightened "may differ substantially from benchmark rankings" to "routinely differs from benchmark rankings, sometimes by 10+ points."
 
-2. `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.1b.html`
+2. `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.2.html`
    - Benchmark limitations warning: replaced "lead to potential overfitting" hedging with "overfitting follows" and added quantitative gap.
 
-3. `part-2-understanding-llms/module-09-inference-optimization/section-9.1a.html`
+3. `part-2-understanding-llms/module-09-inference-optimization/section-9.1.html`
    - Quantization intro: replaced "the entire model may fit on fewer (or smaller) GPUs, reducing hardware costs" with "lets the entire model fit on fewer (or smaller) GPUs, slashing hardware costs."
 
 4. `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.4.html`

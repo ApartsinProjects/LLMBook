@@ -27,7 +27,7 @@ Most modules in scope already do a respectable job of hedging. Almost every "com
 Was: PEFT methods solve full-FT memory cost while "achieving quality that rivals or matches full fine-tuning."
 Now: "achieving quality that often rivals full fine-tuning on tasks close to the pretraining distribution" with explicit reference to Biderman et al. (2024), which shows LoRA still trails full fine-tuning on programming and math benchmarks demanding substantial behavioral change. Reader is now warned to test on their own task before assuming parity.
 
-### 2. `part-4-training-adaptation/module-18-alignment-rlhf-dpo/section-18.4.html` (RLVR section)
+### 2. `part-4-training-adaptation/module-18-alignment-rlhf-dpo/section-18.6.html` (RLVR section)
 
 Was: "If you can write a function that grades the answer, you have a perfect reward signal... it is always exact."
 Now: Reward is "exact relative to the verifier"; brittle verifiers (regex matching, flaky tests, buggy proof checkers) reintroduce noise and are themselves hackable.
@@ -51,12 +51,12 @@ Now: Original DoRA paper (Liu et al., 2024) "reports gains of 1-3% over LoRA acr
 
 Two edits. The 18% to 79% GSM8K swing was previously attributed inconsistently (lines 55, 77, 84 had three different numbers). Standardized on Kojima et al. (2022)'s 17.7% to 78.7% for text-davinci-002, and added: "The gain depends on scale: Wei et al. (2022) report that CoT only emerges around ~60-100B parameters, and below that threshold it can hurt by letting smaller models talk themselves into worse answers." The second edit reframes the 18% to 57% PaLM number (which conflicted with the other two callouts on the same page) to match the canonical Kojima number with a note that PaLM 540B saw a similar (still-large) jump.
 
-### 7. `part-7-retrieval-information-extraction-with-llms/module-32-rag/section-32.1a.html` (RAG intro)
+### 7. `part-7-retrieval-information-extraction-with-llms/module-32-rag/section-32.1.html` (RAG intro)
 
 Was: "This simple idea yields enormous practical benefits: reduced hallucination, up-to-date information, domain-specific expertise, and full source attribution."
-Now: "The promise is appealing (reduced hallucination, up-to-date information, domain-specific expertise, and the option of source attribution), but the gains are not automatic: a misconfigured RAG pipeline can increase hallucination by injecting irrelevant or contradictory passages, and citations themselves can be fabricated (see Section 32.4)."
+Now: "The promise is appealing (reduced hallucination, up-to-date information, domain-specific expertise, and the option of source attribution), but the gains are not automatic: a misconfigured RAG pipeline can increase hallucination by injecting irrelevant or contradictory passages, and citations themselves can be fabricated (see Section 32.5)."
 
-### 8. `part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.1a.html` (hybrid search)
+### 8. `part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.1.html` (hybrid search)
 
 Was: "Hybrid search wins because dense and sparse retrievers fail in disjoint ways."
 Now: "Hybrid search typically wins because dense and sparse retrievers fail in disjoint ways; for a corpus and query distribution where one mode dominates (e.g., pure semantic paraphrase or pure code-symbol lookup), the better single retriever can still beat a poorly-tuned fusion." Also softened the "embeddings are mathematically guaranteed to handle worst" framing to a less absolute "exactly the failure mode where embeddings are at their weakest."
@@ -68,23 +68,23 @@ Now: "a usable proxy with task-dependent agreement: per-example Spearman correla
 
 ## Findings Reviewed and Left Alone (well-hedged already)
 
-- Section 18.5 (scalable oversight) explicitly says "none has fully solved the problem"; existing language is appropriately skeptical.
+- Section 18.7 (scalable oversight) explicitly says "none has fully solved the problem"; existing language is appropriately skeptical.
 - Section 16.3 fine-tuning has the "fine-tuning does not reliably teach new facts" callout already.
-- Section 32.1a already has "RAG Eliminates Hallucination" misconception callout.
+- Section 32.1 already has "RAG Eliminates Hallucination" misconception callout.
 - Section 46.1 has "Using a Stronger Model as Judge Eliminates Bias" misconception + "If Two Judges Agree" misconception.
 - Section 48.1 explicitly states guardrails are not alignment, not evaluation, not policy.
 - Section 50.3 has "Federated learning does not guarantee privacy by default" warning.
 - Section 54.2 watermarking gives a sober "what survives and what kills it" robustness table.
 - Section 12.2 already has a "CoT Always Improves Accuracy" misconception callout.
-- Section 32.4 has "Citation Does Not Guarantee Faithfulness" warning with the concrete 90-days-from-30-days example.
+- Section 32.5 has "Citation Does Not Guarantee Faithfulness" warning with the concrete 90-days-from-30-days example.
 - Section 17.1 LoRA chapter has "Higher Rank Does Not Always Mean Better Quality" and "LoRA Is Just Cheaper Full Fine-Tuning" misconception callouts.
 
 ## What Did Not Get Edited (and Why)
 
 - Section 8.6 quiz answer asserts "more search always helps" for formal-verifier RL. The framing is reasonable in context (verifiable rewards do remove reward hacking as a search-budget bottleneck), but the absolute "always" is technically over-strong. Skipped: section 8 is Part 2, out of scope for this round.
-- Section 18.1b has "Proven at largest scale (GPT-4, Claude)" and "Proven at large scale (DeepSeek-R1, 671B parameters)" in a table. "Proven at scale" is colloquial for "demonstrated empirically at scale," which is acceptable in a comparison table.
+- Section 18.2 has "Proven at largest scale (GPT-4, Claude)" and "Proven at large scale (DeepSeek-R1, 671B parameters)" in a table. "Proven at scale" is colloquial for "demonstrated empirically at scale," which is acceptable in a comparison table.
 - Section 17.1 line 217: "Almost any behavior achievable through fine-tuning can also be achieved through sophisticated prompting." The "almost any" is already a hedge, and the surrounding paragraph is explicit that this is an economics-vs-capability framing, not a literal claim that prompting always suffices.
-- Section 18.3 Constitutional AI already has the "Constitutional AI removes humans from alignment" misconception callout.
+- Section 18.5 Constitutional AI already has the "Constitutional AI removes humans from alignment" misconception callout.
 
 ## Overall Assessment
 

@@ -32,20 +32,20 @@ A first-pass rule: a reader looking at "Section 6.1" in their tab title should s
 
 ### C. Module-internal section heading IDs vs. heading text drift
 
-Every section file uses `id="X-Y-Z-slug"` IDs that follow the physical module-section numbering (e.g. `id="5-1-1-hardware-tiers"`) while the visible heading text follows the part-index chapter number (`<h2>6.1.1 Hardware tiers</h2>`). Examples confirmed in section-5.1.html, section-3.1.html, section-3.2.html, section-5.2.html, section-15.7.html, section-10.5.html. This makes deep anchors fragile: a link to `#5-1-1-...` works, a link to `#6-1-1-...` 404s. Recommend: pick one numbering and re-emit both IDs and visible heading numbers to match it.
+Every section file uses `id="X-Y-Z-slug"` IDs that follow the physical module-section numbering (e.g. `id="5-1-1-hardware-tiers"`) while the visible heading text follows the part-index chapter number (`<h2>6.1.1 Hardware tiers</h2>`). Examples confirmed in section-5.1.html, section-3.1.html, section-3.2.html, section-5.2.html, section-15.7.html, section-10.6.html. This makes deep anchors fragile: a link to `#5-1-1-...` works, a link to `#6-1-1-...` 404s. Recommend: pick one numbering and re-emit both IDs and visible heading numbers to match it.
 
 ### D. Figure / Code Fragment numbers drift
 
 Figure numbers in `<figcaption><strong>Figure X.Y.Z</strong>` use the new chapter number while the surrounding ID and section labels often use the old/module number. Examples:
 - section-2.1.html line 55: "Figure 3.1.1" caption but section is "Section 2.1" and breadcrumb is "Chapter 2".
-- section-3.3.html line 55: "Figure 4.3.1" caption, but section ID is "3.3", breadcrumb is "Chapter 3".
+- section-3.5.html line 55: "Figure 4.3.1" caption, but section ID is "3.3", breadcrumb is "Chapter 3".
 - section-4.1.html line 55: "Figure 5.1.1" caption, but section is "Section 4.1", breadcrumb is "Chapter 4".
 
 Same pattern across most figure captions in Parts 1 to 4. After picking one numbering scheme, regenerate figure/code-fragment captions to match.
 
 ### E. Tools-of-the-Trade super-chapter inflation
 
-Every "Tools of the Trade" chapter in Parts 1 to 4 (modules 05, 14, 19 in our scope, and module-10 sections 10.5 to 10.9 covertly housing Part 2's tools content) inflates its section count by listing anchor-deep sub-headings as if they were top-level sections in the part index:
+Every "Tools of the Trade" chapter in Parts 1 to 4 (modules 05, 14, 19 in our scope, and module-10 sections 10.6 to 10.9 covertly housing Part 2's tools content) inflates its section count by listing anchor-deep sub-headings as if they were top-level sections in the part index:
 
 - Part 1 index, Chapter 6: lists 18 sections, but 6.6 to 6.18 are anchor links into sections 6.1 / 6.2 (e.g. 6.6 HuggingFace Hub points to `section-5.2.html#6-2-huggingface-hub`).
 - Part 2 index, Chapter 12: lists 10 sections, but 12.6 to 12.10 are anchor links.
@@ -54,7 +54,7 @@ Every "Tools of the Trade" chapter in Parts 1 to 4 (modules 05, 14, 19 in our sc
 
 These are restructure artifacts from an older toolbox layout. Anchor sub-headings should be presented as sub-section bullets *underneath* their parent section card, not as siblings. Currently they make the part index look like the book has a 20-section super-chapter at the end of every part, which exaggerates the actual content count and visually buries the real sections.
 
-Also, the Tools-of-the-Trade content for Part 2 ("Chapter 12") physically lives inside `module-10-interpretability/section-10.5.html` through `section-10.9.html`. This makes searching, linking, and authoring confusing. Should move into a dedicated `module-XX-tools-of-the-trade-models-tokenizers/` directory parallel to other parts' tools modules.
+Also, the Tools-of-the-Trade content for Part 2 ("Chapter 12") physically lives inside `module-10-interpretability/section-10.6.html` through `section-10.11.html`. This makes searching, linking, and authoring confusing. Should move into a dedicated `module-XX-tools-of-the-trade-models-tokenizers/` directory parallel to other parts' tools modules.
 
 ### F. Cross-part jumps disguised as in-part sections
 
@@ -99,9 +99,9 @@ In `part-1-llm-building-blocks/index.html` the chapter cards are ordered Chapter
   - `index.html` line 59: "explored in full in Chapter 20: Alignment, RLHF & DPO". Alignment is now Chapter 20 in the *part-index numbering* (module-18), but it's labeled as Chapter 18 in the module's own header. Pick one and use everywhere.
   - `index.html` line 68: "(Chapter 20)" alignment reference, same issue.
   - `section-0.2.html` line 282: "Chapter 31: Multimodal Models" linked to `part-5-multimodal-llms/module-20-audio-music-generation/`. Module-20 is about audio/music, not Ch 31. Title and link both wrong.
-  - `section-0.4.html` line 47: "Section 20.1" in text, link goes to `module-18-alignment-rlhf-dpo/section-18.1.html`. The link is correct (alignment chapter); the text "20.1" matches the new part-index number for alignment but conflicts with the file's own "Section 18.1" h1. Same root cause as cross-cutting finding B.
-  - `section-0.4.html` lines 374, 379, 451: "Chapter 20" alignment references; one (line 451) correctly links to `module-18-alignment-rlhf-dpo/`. Same dual-numbering issue.
-- **Home fit / consolidation**: Section 0.4 (RL) is correctly placed here as a foundation for RLHF later. Good.
+  - `section-0.5.html` line 47: "Section 20.1" in text, link goes to `module-18-alignment-rlhf-dpo/section-18.1.html`. The link is correct (alignment chapter); the text "20.1" matches the new part-index number for alignment but conflicts with the file's own "Section 18.1" h1. Same root cause as cross-cutting finding B.
+  - `section-0.5.html` lines 374, 379, 451: "Chapter 20" alignment references; one (line 451) correctly links to `module-18-alignment-rlhf-dpo/`. Same dual-numbering issue.
+- **Home fit / consolidation**: Section 0.5 (RL) is correctly placed here as a foundation for RLHF later. Good.
 
 ### Chapter 1: Foundations of NLP & Text Representation (`module-01-foundations-nlp-text-representation/`)
 
@@ -172,16 +172,16 @@ In `part-1-llm-building-blocks/index.html` the chapter cards are ordered Chapter
   - `index.html` line 38: "Section 3.1" / "Section 3.2" references in the new numbering; consistent.
   - `index.html` line 45: "Chapter 03" prereq label; conflicts with new "Chapter 3 Sequence Models" being module-02.
   - `index.html` line 69: "Chapter 11: Interpretability". In new numbering, interpretability is Chapter 11 (module-10), so this is correct. But the reference text and target are both ambiguous given the dual-numbering elsewhere.
-  - `section-3.1.html` line 51 prereq: "Section 3.3" for self-attention, link to module-02 (sequence models). Section 2.3 of module-02 IS Section 3.3 in part-index. Consistent in *spirit*, confusing on the page.
-  - `section-3.1.html` line 59 big-picture: "Section 3.3" same.
-  - `section-3.2.html` line 38: "Section 3.3" reference to layer norm via module-02/section-2.3.html. Same.
+  - `section-3.1.html` line 51 prereq: "Section 3.5" for self-attention, link to module-02 (sequence models). Section 2.3 of module-02 IS Section 3.5 in part-index. Consistent in *spirit*, confusing on the page.
+  - `section-3.1.html` line 59 big-picture: "Section 3.5" same.
+  - `section-3.2.html` line 38: "Section 3.5" reference to layer norm via module-02/section-2.3.html. Same.
   - `section-3.2.html` line 48: "Chapter 18" reference to fine-tuning, link to `module-16-fine-tuning-fundamentals/section-16.1.html`. Module 16's own title says "Chapter 16". Dual-numbering.
-  - `section-3.3.html` line 51 prereq: "Section 3.3" referring to module-02/section-2.3.html (self-attention); same.
-  - `section-3.3.html` line 51: "Chapter 09" link to inference-optimization. Module 09 is inference, but new numbering calls it Chapter 10. Stale.
-  - `section-3.4.html` line 51: "Section 10.1" / `module-09-inference-optimization/section-9.1.html`. Same.
-  - `section-3.4.html` line 51: "Section 7.3" / `module-06-pretraining-scaling-laws/section-6.3.html`. New numbering for pretraining is 7.3.
-  - `section-3.5.html` line 49 / line 59 / line 211: "Section 14.2" in text linked to `module-12-prompt-engineering/section-12.2.html`. New numbering 14.2. Consistent.
-  - `section-3.5.html` line 211: "Section 8.3" reasoning models reference, link to `module-08-reasoning-test-time-compute/index.html`. The chapter now has its own home but section reference is loose.
+  - `section-3.5.html` line 51 prereq: "Section 3.5" referring to module-02/section-2.3.html (self-attention); same.
+  - `section-3.5.html` line 51: "Chapter 09" link to inference-optimization. Module 09 is inference, but new numbering calls it Chapter 10. Stale.
+  - `section-3.6.html` line 51: "Section 10.1" / `module-09-inference-optimization/section-9.1.html`. Same.
+  - `section-3.6.html` line 51: "Section 7.4" / `module-06-pretraining-scaling-laws/section-6.3.html`. New numbering for pretraining is 7.3.
+  - `section-3.7.html` line 49 / line 59 / line 211: "Section 14.2" in text linked to `module-12-prompt-engineering/section-12.2.html`. New numbering 14.2. Consistent.
+  - `section-3.7.html` line 211: "Section 8.3" reasoning models reference, link to `module-08-reasoning-test-time-compute/index.html`. The chapter now has its own home but section reference is loose.
 - **Home fit / consolidation**: 4.5 (Expressiveness Theory) is correctly marked Optional. Reader who skips it loses nothing for Part 2.
 
 ### Chapter 5: Decoding Strategies & Text Generation (`module-04-decoding-text-generation/`)
@@ -196,9 +196,9 @@ In `part-1-llm-building-blocks/index.html` the chapter cards are ordered Chapter
 - **Ordering**: KEEP. Deterministic -> stochastic -> advanced -> diffusion (paradigm-shift) is a clean arc.
 - **Stale refs**:
   - `section-4.1.html` line 47: "Section 13.2" / `module-11-llm-apis/section-11.2.html`. New numbering correct in text label.
-  - `section-4.2.html` line 93: "Chapter 13 ... Chapter 20" references to APIs and distillation. Distillation is now Section 19.5, not Chapter 20 (which is alignment in new numbering).
+  - `section-4.2.html` line 93: "Chapter 13 ... Chapter 20" references to APIs and distillation. Distillation is now Section 19.6, not Chapter 20 (which is alignment in new numbering).
   - `section-4.4.html` line 38: "Sections 5.1 and 5.2" referencing 4.1 / 4.2 in new chapter numbering; consistent.
-- **Home fit / consolidation**: Section 5.4 (Diffusion LMs) is appropriately marked as research-frontier.
+- **Home fit / consolidation**: Section 5.5 (Diffusion LMs) is appropriately marked as research-frontier.
 
 ### Chapter 6: Tools of the Trade: Foundations Stack (`module-05-tools-of-the-trade/`)
 
@@ -218,7 +218,7 @@ In `part-1-llm-building-blocks/index.html` the chapter cards are ordered Chapter
   - `index.html` line 76 prev nav: "Chapter 05 Decoding Strategies"; should be Chapter 5 (Decoding) but Part-1-index calls this current chapter (Tools) Chapter 6, so prev would be Chapter 5 (Decoding). Need to update so the prev label matches the part-index numbering.
   - `index.html` line 78 next nav: "Chapter 07 Pretraining"; should be Chapter 7 in part-index numbering. Inconsistent capitalization of "Chapter 07" vs "Chapter 7".
   - `section-5.1.html` line 30, 32, 39, 51: h2 IDs start with `5-1-`, visible heading numbers say `6.1.`. Sub-section drift (finding C).
-  - `section-5.1.html` line 55: "Section 12.1" in text, link goes to `module-10-interpretability/section-10.5.html`. New numbering correct in label, but target is the Tools-of-Trade content hidden inside the interp module (finding E continued).
+  - `section-5.1.html` line 55: "Section 12.1" in text, link goes to `module-10-interpretability/section-10.6.html`. New numbering correct in label, but target is the Tools-of-Trade content hidden inside the interp module (finding E continued).
   - `section-5.1.html` line 377, 443: "Chapter 50.2 (Vibe-Coding with LLMs)". Chapter 50 belongs to old numbering. Replace with the correct new-numbering location of vibe coding content (probably in Part 14 designing-llm-agent-products, but unverified).
   - `section-5.2.html` line 29 onward: h2 IDs `5-2-X`, visible "6.2.X".
   - `section-5.2.html` line 43: "Chapter 7" tokenizers reference, link to `module-01-foundations-nlp-text-representation/` (Chapter 1 in new numbering, *not* 7). Wrong target chapter number AND wrong target chapter for tokenizers (should be Chapter 2 / module-01 sections 1.5-1.7).
@@ -237,7 +237,7 @@ In `part-1-llm-building-blocks/index.html` the chapter cards are ordered Chapter
 - **Chapter card numbering**: Chapters 7 through 12 in the part index; module folders are 06 through 10 with module-10 holding sections for both Chapter 11 (10.1-10.4) AND Chapter 12 (10.5-10.9). This is the "tools chapter hidden inside the interpretability module" problem (finding E). Recommend splitting into a real `module-XX-tools-models-tokenizers/` directory.
 - **Chapter 8 has duplicate Section 8.3**: Lines 65 and 66 list two different "8.3" entries:
   - 8.3 Reasoning Models & Test-Time Compute, href to `module-08-reasoning-test-time-compute/index.html`
-  - 8.4 Multilingual & Cross-Cultural LLMs, href to `module-07/section-7.3.html`
+  - 8.4 Multilingual & Cross-Cultural LLMs, href to `module-07/section-7.4.html`
   
   Wait, line 66 is labeled "8.4" but the wider Chapter 8 card structure has the "8.3 Reasoning" card pointing to a *different chapter's index*. Fix: drop the cross-chapter "8.3 Reasoning Models" card from Chapter 8 (since reasoning has its own Chapter 9), or move multilingual content into module-08. The current state misleads the reader into thinking Chapter 8 has 4 sections.
 - **Chapter 12 inflation**: 10 sections, 5 of which are anchor links (12.6 to 12.10).
@@ -275,13 +275,13 @@ In `part-1-llm-building-blocks/index.html` the chapter cards are ordered Chapter
 - **Ordering**: Currently 7.1 (closed) -> 7.2 (open) -> 7.3 (a fake card linking to reasoning chapter) -> 7.3 (multilingual). Duplicate numbering. Drop the cross-chapter card; renumber multilingual as 7.3 cleanly.
 - **Stale refs**:
   - `index.html` line 38: "Chapter 7 told you how LLMs are trained" referring to module-06 (pretraining). In new part-index numbering, pretraining IS Chapter 7. But this module's own footer numbering says it is Chapter 7 too (in title) but Chapter 8 in part-index. Confusion.
-  - `index.html` lines 53-57 chapter overview text: "Section 7.1", "Section 7.2", "Section 7.3", "Section 7.3" (literally two 7.3s in the body text).
-  - `index.html` line 97: section-card href `../module-08-reasoning-test-time-compute/index.html` listed as Section 7.3, but module-08 is its own chapter. Drop this card.
+  - `index.html` lines 53-57 chapter overview text: "Section 7.1", "Section 7.3", "Section 7.4", "Section 7.4" (literally two 7.3s in the body text).
+  - `index.html` line 97: section-card href `../module-08-reasoning-test-time-compute/index.html` listed as Section 7.4, but module-08 is its own chapter. Drop this card.
   - `index.html` line 115 next: "Chapter 09 Reasoning Models". Inconsistent zero-padding.
   - `section-7.1.html` line 50, 91 contain content with "Chapter 1X" inline references (omitted lines, need spot fix).
-  - `section-7.2.html` line 475: "Chapter 15" hybrid ML reference matches new numbering.
-  - `section-7.3.html` lines 66, 334: "Chapter 18" fine-tuning reference matches new numbering.
-- **Home fit / consolidation**: Section 7.3 (multilingual) is small and could live as a sub-section of 7.2 (open-weight models, where most multilingual variants exist) if the chapter feels thin. But the topic is important enough to deserve its own section.
+  - `section-7.3.html` line 475: "Chapter 15" hybrid ML reference matches new numbering.
+  - `section-7.4.html` lines 66, 334: "Chapter 18" fine-tuning reference matches new numbering.
+- **Home fit / consolidation**: Section 7.4 (multilingual) is small and could live as a sub-section of 7.2 (open-weight models, where most multilingual variants exist) if the chapter feels thin. But the topic is important enough to deserve its own section.
 
 ### Chapter 8 (part-index: Chapter 9): Reasoning Models & Test-Time Compute (`module-08-reasoning-test-time-compute/`)
 
@@ -323,16 +323,16 @@ In `part-1-llm-building-blocks/index.html` the chapter cards are ordered Chapter
   - `index.html` line 88 prereq: "Chapter 08 Modern LLM Landscape" reference.
   - `index.html` line 122 What's Next: "Chapter 10 (this chapter)" wording recursion; reads "This concludes Chapter 11" but the file labels itself Chapter 9. Pick one.
   - `index.html` line 133 What's Next: "Chapter 11 Interpretability" matches the dual-numbering.
-  - `section-9.6.html` line 314: "Chapter 11: Inference Optimization" labels module-09 (this module) as Chapter 11, which conflicts with line 122 / part-index Chapter 10.
-  - `section-9.6.html` line 314: "Chapter 13: LLM APIs" reference matches new numbering.
-  - `section-9.6.html` line 327: "Chapter 20" alignment reference.
+  - `section-9.8.html` line 314: "Chapter 11: Inference Optimization" labels module-09 (this module) as Chapter 11, which conflicts with line 122 / part-index Chapter 10.
+  - `section-9.8.html` line 314: "Chapter 13: LLM APIs" reference matches new numbering.
+  - `section-9.8.html` line 327: "Chapter 20" alignment reference.
 - **Home fit / consolidation**: 9.6 (Test-Time Compute & Reasoning) duplicates concepts from Chapter 8 (Reasoning Models). Consider either trimming to a focused inference-side angle or moving the bulk of its content into Chapter 8.
 
 ### Chapter 10 (part-index: Chapter 11): Interpretability & Mechanistic Understanding (`module-10-interpretability/`)
 
 - **Title**: KEEP "Interpretability & Mechanistic Understanding".
 - **Description (big-picture)**: KEEP (line 68 reads well).
-- **Section descriptions** (placeholders; the 4 "real" sections; sections 10.5-10.9 are the buried Tools-of-the-Trade content):
+- **Section descriptions** (placeholders; the 4 "real" sections; sections 10.6-10.9 are the buried Tools-of-the-Trade content):
   - 10.1 Attention Analysis & Probing: "Visualizing attention patterns, induction heads, previous-token heads, and probing classifiers for what hidden states encode."
   - 10.2 Mechanistic Interpretability: "Circuits and features, logit lens, tuned lens, sparse autoencoders, and the program of reverse-engineering transformers."
   - 10.3 Practical Interpretability for Applications: "TransformerLens, nnsight, activation patching, ROME / MEMIT, and the toolbox for debugging real models."
@@ -343,15 +343,15 @@ In `part-1-llm-building-blocks/index.html` the chapter cards are ordered Chapter
   - `index.html` line 68 big-picture: "Chapters 17 and 32". Ch 17 (synthetic data) and Ch 32 (probably RAG / safety in old numbering). 32 is stale.
   - `index.html` line 86 prereq: "Chapter 07" linking to module-07 (modern landscape), but module-07 is "Chapter 8" in part-index. Dual-numbering.
   - `index.html` line 87 prereq: "Chapter 05 Embeddings and Representation Learning" but Chapter 5 in new numbering is Decoding Strategies. This is a stale chapter title from old numbering; embeddings are now in Chapter 1 (module-01 sections 1.3, 1.4).
-  - `index.html` line 121 next nav: "Chapter 12 Tools of the Trade" href to `../module-10-interpretability/index.html` (the same page). Broken link, should point to wherever Chapter 12 truly lives (currently sections 10.5-10.9 within this module). 
+  - `index.html` line 121 next nav: "Chapter 12 Tools of the Trade" href to `../module-10-interpretability/index.html` (the same page). Broken link, should point to wherever Chapter 12 truly lives (currently sections 10.6-10.9 within this module). 
   - `section-10.1.html` line 208: "Chapter 20 ... Chapter 34 ... Chapter 37". 34 and 37 are old-numbering safety/eval chapters. Update.
   - `section-10.4.html` line 1069: stale ref needing fix.
-  - `section-10.5.html` to `section-10.9.html`: these are the Tools-of-the-Trade content (Platforms, Libraries, Datasets, Models, External Reading). They live in module-10 but display "Chapter 12: Tools of the Trade: Models & Tokenizers" in breadcrumb and headers. Move into a real module-XX-tools-of-trade-models-tokenizers directory.
-  - `section-10.5.html` line 28: "Section 16.2's job in Part III" reference matches new numbering.
-  - `section-10.5.html` line 39: "Appendix L" reference for multi-GPU; verify Appendix L still exists in new structure.
-  - `section-10.5.html` line 46: Table caption "Table 12.1.1" but section heading id is `10-5-4-...`.
+  - `section-10.6.html` to `section-10.11.html`: these are the Tools-of-the-Trade content (Platforms, Libraries, Datasets, Models, External Reading). They live in module-10 but display "Chapter 12: Tools of the Trade: Models & Tokenizers" in breadcrumb and headers. Move into a real module-XX-tools-of-trade-models-tokenizers directory.
+  - `section-10.6.html` line 28: "Section 16.2's job in Part III" reference matches new numbering.
+  - `section-10.6.html` line 39: "Appendix L" reference for multi-GPU; verify Appendix L still exists in new structure.
+  - `section-10.6.html` line 46: Table caption "Table 12.1.1" but section heading id is `10-5-4-...`.
   - `section-10.6.html` line 858: stale ref needing fix.
-- **Home fit / consolidation**: Sections 10.5-10.9 (Tools content for Part 2) need to be relocated or the module renamed to reflect that it holds two chapters' worth of content (interpretability + tools). Currently this is the biggest structural artifact in Part 2.
+- **Home fit / consolidation**: Sections 10.6-10.9 (Tools content for Part 2) need to be relocated or the module renamed to reflect that it holds two chapters' worth of content (interpretability + tools). Currently this is the biggest structural artifact in Part 2.
 
 ---
 
@@ -473,7 +473,7 @@ In `part-1-llm-building-blocks/index.html` the chapter cards are ordered Chapter
   - `index.html` line 68: "Chapter 18 ... Chapter 20" matches.
   - `index.html` line 121 What's Next: "Chapter 18 Fine-Tuning Fundamentals" matches.
   - `index.html` line 124 prev: "Chapter 16 Tools of the Trade: LLM API Stack" matches.
-  - `section-15.7.html` line 45: heading id "15-7-1-...", visible heading "17.7.1 Why Augment?". Dual-numbering.
+  - `section-15.7.html` line 45: heading id "15-7-1-...", visible heading "17.8.1 Why Augment?". Dual-numbering.
   - `section-15.7.html` line 58: "Sections 13.1 through 13.3" with hrefs that go (a) to `section-15.1.html` (correct local link), and (b) to `module-42-evaluation-foundations/section-42.1.html` (way outside the chapter). Should both point inside the chapter.
 
 ### Chapter 16 (part-index: Chapter 18): Fine-Tuning Fundamentals (`module-16-fine-tuning-fundamentals/`)
@@ -515,7 +515,7 @@ In `part-1-llm-building-blocks/index.html` the chapter cards are ordered Chapter
   - `index.html` line 44 canonical reference callout: "Section 18.1" reference matches part-index.
   - `index.html` line 84-86 prereq labels: "Chapter 18 Fine-Tuning", "Chapter 10 Inference Optimization", "Chapter 04 Transformer" match.
   - `index.html` line 87 prereq: "Hugging Face softmax library" – appears to be auto-substitution corruption (likely "Hugging Face Transformers library" originally).
-  - `index.html` line 131 What's Next: "Chapter 20: Distillation and Model Merging" – wrong title. Chapter 20 in new numbering is Alignment (RLHF/DPO), not Distillation. Distillation is Section 19.5 within this very chapter. The What's Next text is stale from when distillation was its own chapter.
+  - `index.html` line 131 What's Next: "Chapter 20: Distillation and Model Merging" – wrong title. Chapter 20 in new numbering is Alignment (RLHF/DPO), not Distillation. Distillation is Section 19.6 within this very chapter. The What's Next text is stale from when distillation was its own chapter.
 - **Home fit / consolidation**: Scope creep. See proposed title change or split above.
 
 ### Chapter 18 (part-index: Chapter 20): Alignment: RLHF, DPO & Preference Tuning (`module-18-alignment-rlhf-dpo/`)
@@ -536,7 +536,7 @@ In `part-1-llm-building-blocks/index.html` the chapter cards are ordered Chapter
   - `index.html` line 83 prereq: "Chapter 18 Fine-tuning Foundations" matches.
   - `index.html` line 84 prereq: "Chapter 06 Pretraining & Scaling Laws (attention, decoder-only models)". The parenthetical is mostly correct but cribbed from a different chapter; pretraining isn't where you learn attention.
   - `index.html` line 85 prereq: "Chapter 07 Modern LLM Landscape (next-token prediction, loss functions)". Modern LLM Landscape doesn't teach next-token-prediction or loss functions. This prereq description is fabricated. Fix.
-  - `index.html` line 112-116 / 119-123: Section 18.5 listed twice (once in main sections-list, once in a duplicate section-grid below). Drop the duplicate.
+  - `index.html` line 112-116 / 119-123: Section 18.7 listed twice (once in main sections-list, once in a duplicate section-grid below). Drop the duplicate.
   - `index.html` line 127 What's Next: "Part V: Retrieval and Conversation with LLMs and Agents" linked to `part-7-retrieval-information-extraction-with-llms`. So Part 5 in the link text but Part 7 in the URL. Need to verify the part numbering; if the new structure renumbers parts, the link text should follow the new numbering.
   - `index.html` line 130 prev: "Chapter 19 PEFT" matches.
   - `index.html` line 132 next: "Chapter 21 Tools of the Trade" matches.
@@ -573,8 +573,8 @@ This list collects the discrete stale references called out above plus a few mor
 | `part-1-llm-building-blocks/module-00-ml-pytorch-foundations/index.html` | 59 | `explored in full in Chapter 20: Alignment` | Pick part-index (Ch 20) or module (Ch 18) and use consistently. |
 | `part-1-llm-building-blocks/module-00-ml-pytorch-foundations/index.html` | 68 | `(Chapter 20)` | Same. |
 | `part-1-llm-building-blocks/module-00-ml-pytorch-foundations/section-0.2.html` | 282 | `Chapter 31: Multimodal Models` linking to `module-20-audio-music-generation` | Module-20 is audio/music. Update Chapter label to new number or link to the correct multimodal chapter. |
-| `part-1-llm-building-blocks/module-00-ml-pytorch-foundations/section-0.4.html` | 47 | "Section 20.1" in text, href to `module-18-alignment-rlhf-dpo/section-18.1.html` | Pick numbering. |
-| `part-1-llm-building-blocks/module-00-ml-pytorch-foundations/section-0.4.html` | 374, 379, 451 | `Chapter 20` | Same. |
+| `part-1-llm-building-blocks/module-00-ml-pytorch-foundations/section-0.5.html` | 47 | "Section 20.1" in text, href to `module-18-alignment-rlhf-dpo/section-18.1.html` | Pick numbering. |
+| `part-1-llm-building-blocks/module-00-ml-pytorch-foundations/section-0.5.html` | 374, 379, 451 | `Chapter 20` | Same. |
 | `part-1-llm-building-blocks/module-01-foundations-nlp-text-representation/index.html` | 110 | `next` nav points to same module instead of `module-02-...` | Fix href. |
 | `part-1-llm-building-blocks/module-01-foundations-nlp-text-representation/section-1.2.html` | 419 | `Chapter 23` RAG ref | New numbering. |
 | `part-1-llm-building-blocks/module-01-foundations-nlp-text-representation/section-1.3.html` | 324-325 | `Chapter 22 ... Chapter 23` | New numbering. |
@@ -587,18 +587,18 @@ This list collects the discrete stale references called out above plus a few mor
 | `part-1-llm-building-blocks/module-02-sequence-models-attention/section-2.1.html` | 59 | "Chapter 02" linked to module-01 | Module-01 is Chapter 1 in new numbering. |
 | `part-1-llm-building-blocks/module-03-transformer-architecture/index.html` | 24 | breadcrumb "Chapter 3" | Should be Chapter 4 per part-index. |
 | `part-1-llm-building-blocks/module-03-transformer-architecture/index.html` | 69 | `(Chapter 11: Interpretability)` | Correct in new numbering; double-check no module-10 prefix conflict. |
-| `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.1.html` | 51 | "Section 3.3" linked to module-02/section-2.3 | OK in new numbering but file says Section 2.3. Pick. |
-| `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.1.html` | 59 | "Section 3.3" | Same. |
+| `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.1.html` | 51 | "Section 3.5" linked to module-02/section-2.3 | OK in new numbering but file says Section 2.3. Pick. |
+| `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.1.html` | 59 | "Section 3.5" | Same. |
 | `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.2.html` | 48 | "Chapter 18" fine-tuning ref | Matches new numbering. |
-| `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.3.html` | 51 | "Chapter 09 ... Section 10.1" | Mixed numbering; pick one. |
-| `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.4.html` | 51 | "Section 10.1" / "Section 7.3" | New numbering. |
-| `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.5.html` | 49, 59, 211 | "Section 14.2 ... Section 8.3" | Mixed. |
+| `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.5.html` | 51 | "Chapter 09 ... Section 10.1" | Mixed numbering; pick one. |
+| `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.6.html` | 51 | "Section 10.1" / "Section 7.4" | New numbering. |
+| `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.7.html` | 49, 59, 211 | "Section 14.2 ... Section 8.3" | Mixed. |
 | `part-1-llm-building-blocks/module-04-decoding-text-generation/section-4.1.html` | 47 | "Section 4.1" (self-ref via module-03/section-3.1.html, the Transformer section) | Confusing self-reference loop; should reference module-03 Section 4.1 explicitly. |
-| `part-1-llm-building-blocks/module-04-decoding-text-generation/section-4.2.html` | 93 | "Chapter 13 ... Chapter 20" with link to `module-17-peft/section-17.5.html` for distillation | Distillation is now Section 19.5, not Chapter 20. |
+| `part-1-llm-building-blocks/module-04-decoding-text-generation/section-4.2.html` | 93 | "Chapter 13 ... Chapter 20" with link to `module-17-peft/section-17.5.html` for distillation | Distillation is now Section 19.6, not Chapter 20. |
 | `part-1-llm-building-blocks/module-05-tools-of-the-trade/index.html` | 8 | title "Chapter 5" | Part-index calls this Chapter 6. |
 | `part-1-llm-building-blocks/module-05-tools-of-the-trade/index.html` | 73 | "Chapter 12 closes Part II" | OK, but Chapter 12 in part-2 is buried in module-10. |
 | `part-1-llm-building-blocks/module-05-tools-of-the-trade/section-5.1.html` | 30, 32, 39, 51 | h2 IDs `5-1-X`, visible `6.1.X` | Pick. |
-| `part-1-llm-building-blocks/module-05-tools-of-the-trade/section-5.1.html` | 55 | "Section 12.1" / `module-10-interpretability/section-10.5.html` | The target is correct for new numbering but is a buried-tools-content link. |
+| `part-1-llm-building-blocks/module-05-tools-of-the-trade/section-5.1.html` | 55 | "Section 12.1" / `module-10-interpretability/section-10.6.html` | The target is correct for new numbering but is a buried-tools-content link. |
 | `part-1-llm-building-blocks/module-05-tools-of-the-trade/section-5.1.html` | 377, 443 | "Chapter 50.2 (Vibe-Coding)" | Stale; Ch 50 doesn't exist. |
 | `part-1-llm-building-blocks/module-05-tools-of-the-trade/section-5.2.html` | 43 | "Chapter 7" tokenizers linked to module-01 (Chapter 1 in new numbering) | Wrong chapter number AND wrong target. |
 | `part-1-llm-building-blocks/module-05-tools-of-the-trade/section-5.2.html` | 547 | "Section 20.1" DPO | Stale. |
@@ -609,19 +609,19 @@ This list collects the discrete stale references called out above plus a few mor
 | `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.2.html` | 168 | "Chapter 14" prompt eng | OK in new numbering. |
 | `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.9.html` | 280 | "Chapter 15: Hybrid ML and LLM Systems" labeled as the *next* chapter | Wrong; next chapter is module-07 (Chapter 8 in part-index). |
 | `part-2-understanding-llms/module-07-modern-llm-landscape/index.html` | 38 | "Chapter 7" referring to pretraining | OK in part-index numbering (pretraining = Ch 7). |
-| `part-2-understanding-llms/module-07-modern-llm-landscape/index.html` | 53-57 | Body text has two "Section 7.3" mentions | Renumber one to 7.4. |
+| `part-2-understanding-llms/module-07-modern-llm-landscape/index.html` | 53-57 | Body text has two "Section 7.4" mentions | Renumber one to 7.4. |
 | `part-2-understanding-llms/module-07-modern-llm-landscape/index.html` | 97 | Section card 7.3 points to `module-08` (different chapter's index) | Drop or convert to "See also". |
 | `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.1.html` | 50, 91 | Stale ChXX refs (omitted lines) | Spot-fix. |
-| `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.2.html` | 475 | "Chapter 15" hybrid | OK. |
-| `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.3.html` | 66, 334 | "Chapter 18" fine-tuning | OK. |
+| `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.3.html` | 475 | "Chapter 15" hybrid | OK. |
+| `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.4.html` | 66, 334 | "Chapter 18" fine-tuning | OK. |
 | `part-2-understanding-llms/module-08-reasoning-test-time-compute/index.html` | 36 | "from Chapter 8" referring to self (self-recursion) | Should be Chapter 8 (Modern LLM Landscape, module-07), not self. |
 | `part-2-understanding-llms/module-08-reasoning-test-time-compute/index.html` | 51 | "Section 8.3" referring to module-07's old 8.3 (now removed) | Drop. |
 | `part-2-understanding-llms/module-08-reasoning-test-time-compute/section-8.1.html` | 63, 146 | "Chapter 20.1" RLHF | OK in new numbering. |
 | `part-2-understanding-llms/module-09-inference-optimization/index.html` | 30 | concept-link to `module-26-ai-agents` with title "Chapter 26" | Verify Ch 26 is still correct after renumbering. |
 | `part-2-understanding-llms/module-09-inference-optimization/index.html` | 42 | Anchor refs to `module-10-interpretability/section-10.6.html#12-2-...` for TGI / SGLang | Buried tools content. |
-| `part-2-understanding-llms/module-09-inference-optimization/section-9.5.html` | 230 | Stale ref (omitted line) | Spot-fix. |
-| `part-2-understanding-llms/module-09-inference-optimization/section-9.6.html` | 314 | "Chapter 11: Inference Optimization & Efficient Serving" referring to self via index.html. Chapter 11 in new numbering is Interpretability, not Inference. Wrong chapter title. |
-| `part-2-understanding-llms/module-09-inference-optimization/section-9.6.html` | 327 | "Chapter 20" alignment | OK. |
+| `part-2-understanding-llms/module-09-inference-optimization/section-9.7.html` | 230 | Stale ref (omitted line) | Spot-fix. |
+| `part-2-understanding-llms/module-09-inference-optimization/section-9.8.html` | 314 | "Chapter 11: Inference Optimization & Efficient Serving" referring to self via index.html. Chapter 11 in new numbering is Interpretability, not Inference. Wrong chapter title. |
+| `part-2-understanding-llms/module-09-inference-optimization/section-9.8.html` | 327 | "Chapter 20" alignment | OK. |
 | `part-2-understanding-llms/module-10-interpretability/index.html` | 33 | image src has double prefix `../../part-2-understanding-llms/module-10-interpretability/images/chapter-opener.png` | Unnecessary prefix; should be `images/chapter-opener.png`. |
 | `part-2-understanding-llms/module-10-interpretability/index.html` | 52 | "interpretability methods for softmax" | Corruption; should be "for LLMs" or "for transformers". |
 | `part-2-understanding-llms/module-10-interpretability/index.html` | 68 | "Chapters 17 and 32" | Old numbering. |
@@ -629,9 +629,9 @@ This list collects the discrete stale references called out above plus a few mor
 | `part-2-understanding-llms/module-10-interpretability/index.html` | 121 | next nav href = same page | Broken link. |
 | `part-2-understanding-llms/module-10-interpretability/section-10.1.html` | 208 | "Chapter 20 ... Chapter 34 ... Chapter 37" | Old numbering. |
 | `part-2-understanding-llms/module-10-interpretability/section-10.4.html` | 1069 | Stale ref (omitted line) | Spot-fix. |
-| `part-2-understanding-llms/module-10-interpretability/section-10.5.html` | 28 | "Section 16.2's job in Part III" | OK. |
-| `part-2-understanding-llms/module-10-interpretability/section-10.5.html` | 39 | "Appendix L" | Verify. |
-| `part-2-understanding-llms/module-10-interpretability/section-10.5.html` | 46 | "Table 12.1.1" but heading id `10-5-4-...` | Dual numbering. |
+| `part-2-understanding-llms/module-10-interpretability/section-10.6.html` | 28 | "Section 16.2's job in Part III" | OK. |
+| `part-2-understanding-llms/module-10-interpretability/section-10.6.html` | 39 | "Appendix L" | Verify. |
+| `part-2-understanding-llms/module-10-interpretability/section-10.6.html` | 46 | "Table 12.1.1" but heading id `10-5-4-...` | Dual numbering. |
 | `part-2-understanding-llms/module-10-interpretability/section-10.6.html` | 858 | Stale ref (omitted line) | Spot-fix. |
 | `part-3-working-with-llms/index.html` | 78 | Section 15.5 card jumps to Part 7 | See finding F. |
 | `part-3-working-with-llms/module-11-llm-apis/index.html` | 7-8 | title "Chapter 11" | Part-index Chapter 13. |
@@ -644,7 +644,7 @@ This list collects the discrete stale references called out above plus a few mor
 | `part-3-working-with-llms/module-14-tools-of-the-trade/index.html` | 22 | breadcrumb "Chapter 14" | Part-index 16. |
 | `part-4-training-adaptation/index.html` | 78, 110-125 | Section 15.5 + Chapter 21 inflation | See findings F and E. |
 | `part-4-training-adaptation/module-15-synthetic-data/index.html` | 54 | "Chapters 14 and 15" should be "Chapters 18 and 19" | New numbering. |
-| `part-4-training-adaptation/module-15-synthetic-data/section-15.7.html` | 45, 60 | id `15-7-1-...` vs visible "17.7.1" | Dual numbering. |
+| `part-4-training-adaptation/module-15-synthetic-data/section-15.7.html` | 45, 60 | id `15-7-1-...` vs visible "17.8.1" | Dual numbering. |
 | `part-4-training-adaptation/module-15-synthetic-data/section-15.7.html` | 58 | "Sections 13.1 through 13.3" hrefs split between local `section-15.1` and `module-42/section-42.1.html` | Both should point inside Ch 15. |
 | `part-4-training-adaptation/module-16-fine-tuning-fundamentals/index.html` | 24 | breadcrumb "Chapter 16" | Part-index 18. |
 | `part-4-training-adaptation/module-17-peft/index.html` | 24 | breadcrumb "Chapter 17" | Part-index 19. |
@@ -653,7 +653,7 @@ This list collects the discrete stale references called out above plus a few mor
 | `part-4-training-adaptation/module-18-alignment-rlhf-dpo/index.html` | 24 | breadcrumb "Chapter 18" | Part-index 20. |
 | `part-4-training-adaptation/module-18-alignment-rlhf-dpo/index.html` | 65 | "Chapter 37" safety | Old numbering. |
 | `part-4-training-adaptation/module-18-alignment-rlhf-dpo/index.html` | 84-85 | Prereq labels for Ch 06 / Ch 07 with descriptions cribbed from wrong chapters | Rewrite descriptions to match the actual chapter content. |
-| `part-4-training-adaptation/module-18-alignment-rlhf-dpo/index.html` | 112-123 | Section 18.5 listed twice | Drop duplicate. |
+| `part-4-training-adaptation/module-18-alignment-rlhf-dpo/index.html` | 112-123 | Section 18.7 listed twice | Drop duplicate. |
 | `part-4-training-adaptation/module-18-alignment-rlhf-dpo/index.html` | 127 | What's Next: "Part V" but link goes to Part 7 | Update part label. |
 | `part-4-training-adaptation/module-19-tools-of-the-trade/index.html` | 22 | breadcrumb "Chapter 19" | Part-index 21. |
 | `part-4-training-adaptation/module-19-tools-of-the-trade/index.html` | 73 | "Part V ... Chapter 25 closes Part V" | Verify part numbering. |
@@ -667,13 +667,13 @@ Ranked by impact:
 1. **Pick a single chapter-numbering scheme and apply it everywhere.** This is the single biggest source of confusion. Either the part-index numbering (0, 1, 2, ..., 21) or the module numbering (00, 01, ..., 19). Every breadcrumb, `<title>`, heading, prereq label, cross-reference, figure caption, code-fragment number, and `What's Next` paragraph needs to follow that scheme.
 2. **Replace the global "A comprehensive chapter..." section-desc placeholders.** Every section card on every chapter index. Per-section proposed text above.
 3. **Demote the Tools-of-the-Trade anchor sub-sections.** Part 1 Ch 6 (18 -> 5), Part 2 Ch 12 (10 -> 5), Part 3 Ch 16 (8 -> 5), Part 4 Ch 21 (20 -> 5). The anchor-only sub-sections should appear as sub-headings under their parent section card, not as siblings.
-4. **Relocate Part 2's Tools content out of `module-10-interpretability/`.** Create a real `module-XX-tools-models-tokenizers/` directory and move sections 10.5-10.9 in. Update all links.
+4. **Relocate Part 2's Tools content out of `module-10-interpretability/`.** Create a real `module-XX-tools-models-tokenizers/` directory and move sections 10.6-10.9 in. Update all links.
 5. **Fix the Chapter 8 duplicate-section-3 bug** in `part-2-understanding-llms/index.html`. Drop the "8.3 Reasoning Models" cross-chapter card; renumber Multilingual cleanly as 8.3.
 6. **Fix the Chapter 19 (PEFT) scope.** Either rename to reflect Distillation / Merging / Continual Learning, or split into two chapters.
 7. **Resolve the Chapter 2 (Tokenization) physical-file split.** Either give it its own `module-02-tokenization/` directory or accept the in-module-01 layout and update every reference accordingly.
 8. **Fix the Module 0 ordering in Part 1 index.** Move Chapter 0 to the top of the chapter cards.
 9. **Fix `section-6.9.html` line 280 What's Next** ("Chapter 15 Hybrid ML" should be "Chapter 8 Modern LLM Landscape" or whatever the actual next chapter is).
-10. **Fix `section-10.4.html` line 1069**, `section-10.6.html` line 858, `section-9.5.html` line 230, and other omitted-line stale refs found by grep but not displayed in this audit.
+10. **Fix `section-10.4.html` line 1069**, `section-10.6.html` line 858, `section-9.7.html` line 230, and other omitted-line stale refs found by grep but not displayed in this audit.
 
 ---
 

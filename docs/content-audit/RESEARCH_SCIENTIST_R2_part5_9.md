@@ -121,13 +121,13 @@ right citations.
 
 ## Sections audited and found correct (no edits)
 
-- Section 31.1a InfoNCE / MNRL code: scales similarity by 1/temperature, uses arange
+- Section 31.1 InfoNCE / MNRL code: scales similarity by 1/temperature, uses arange
   labels and cross_entropy. Standard and correct. Temperature default 0.05 is the
   sentence-transformers default (CLIP/SimCLR use 0.07).
-- Section 35.1a BM25 algorithm box: TF saturation, IDF formula, k1 and b defaults
+- Section 35.1 BM25 algorithm box: TF saturation, IDF formula, k1 and b defaults
   all correct. RRF algorithm correct, Cormack/Clarke/Buettcher 2009 attribution
   correct.
-- Section 35.1b HyDE attribution to Gao et al. 2022: correct.
+- Section 35.2 HyDE attribution to Gao et al. 2022: correct.
 - Section 46.1 Bradley-Terry formula: $P(i \succ j) = \sigma(r_i - r_j) = 1/(1+e^{-(r_i-r_j)})$
   is correct, and the connection to Elo / RLHF reward modeling / AlpacaEval LC is
   properly drawn.

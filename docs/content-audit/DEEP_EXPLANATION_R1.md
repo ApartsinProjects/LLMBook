@@ -27,9 +27,9 @@ Scanned ~25 sections across Parts 2 to 4 looking for mechanics-without-insight p
 
 **Why gap**: explained what happens but not why it matters. Added explanation tying transformer depth to the hierarchy of abstraction (early=syntax, middle=phrase, late=discourse), explaining that a layer-0 prompt's signal degrades as it propagates, while Prefix Tuning re-injects task context at the layer where the relevant structure is being assembled.
 
-### 3. Section 17.7 (Continual Learning) - Why Fisher-weighted EWC works
+### 3. Section 17.8 (Continual Learning) - Why Fisher-weighted EWC works
 
-**File**: `E:\Projects\BookBlogsHome\LLMBook\part-4-training-adaptation\module-17-peft\section-17.7.html`
+**File**: `E:\Projects\BookBlogsHome\LLMBook\part-4-training-adaptation\module-17-peft\section-17.8.html`
 
 **Before**: "EWC adds a regularization term that penalizes changes to parameters that were important for previous tasks. It estimates each parameter's importance using the Fisher Information Matrix."
 
@@ -59,9 +59,9 @@ Scanned ~25 sections across Parts 2 to 4 looking for mechanics-without-insight p
 
 **Why gap**: this seems backwards. The model packed many features into few neurons; now we project up to even more. Added explanation that the model only superposed because its forward pass had a width budget; the SAE has no such constraint and can give each feature its own direction. The L1 penalty makes activating two latents twice as costly as one with double magnitude, biasing the autoencoder toward sparse codes. Tied it to compressed sensing theory: under sparsity, L1 minimization recovers the true sparse signal. Without L1 you would get a rotated copy of the superposition.
 
-### 7. Section 18.5 (Scalable Oversight) - Why judging is easier than solving
+### 7. Section 18.7 (Scalable Oversight) - Why judging is easier than solving
 
-**File**: `E:\Projects\BookBlogsHome\LLMBook\part-4-training-adaptation\module-18-alignment-rlhf-dpo\section-18.5.html`
+**File**: `E:\Projects\BookBlogsHome\LLMBook\part-4-training-adaptation\module-18-alignment-rlhf-dpo\section-18.7.html`
 
 **Before**: "The Nash equilibrium of the debate game is for both debaters to argue truthfully, because any false claim can be exposed by the opponent."
 
@@ -129,11 +129,11 @@ For each of the 9 additions:
 ## Files Modified (10 sections, 11 additions)
 
 1. `part-4-training-adaptation/module-17-peft/section-17.4.html` (2 additions: Prompt Tuning scaling, Prefix Tuning depth)
-2. `part-4-training-adaptation/module-17-peft/section-17.7.html` (Fisher anchor in EWC)
+2. `part-4-training-adaptation/module-17-peft/section-17.8.html` (Fisher anchor in EWC)
 3. `part-4-training-adaptation/module-16-fine-tuning-fundamentals/section-16.5.html` (contrastive vs regression)
 4. `part-4-training-adaptation/module-15-synthetic-data/section-15.2.html` (Self-Instruct seed-driven diversity)
 5. `part-2-understanding-llms/module-10-interpretability/section-10.2.html` (SAE expansion plus L1 sparsity)
-6. `part-4-training-adaptation/module-18-alignment-rlhf-dpo/section-18.5.html` (judging vs solving complexity)
+6. `part-4-training-adaptation/module-18-alignment-rlhf-dpo/section-18.7.html` (judging vs solving complexity)
 7. `part-4-training-adaptation/module-16-fine-tuning-fundamentals/section-16.7.html` (RoPE interpolation vs extrapolation)
 8. `part-4-training-adaptation/module-15-synthetic-data/section-15.5.html` (Snorkel label model latent-class recovery)
 9. `part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.4.html` (MinHash + LSH dual compression)

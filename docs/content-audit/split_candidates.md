@@ -22,7 +22,7 @@ Strong P0 signal (both >1200 lines AND >10 h2) but no explicit merge marker. May
 | `module-19-tools-of-the-trade/section-19.2.html` | **2249** | 13 | Largest section in the book by 700+ lines. Likely a fine-tuning-tools omnibus that should split into 2-3 sections |
 | `module-37-conversational-ai/section-37.3.html` | 1431 | 12 | Conversational AI memory chapter — likely legitimately deep (sliding window + summary + vector + cross-session + MemGPT) but candidate for splitting memory-mechanisms from memory-products |
 | `module-03-transformer-architecture/section-3.1.html` | 1116 | 15 | Transformer fundamentals — many small subsections; could split into "residual stream + attention" and "MLP + normalization + heads" |
-| `module-03-transformer-architecture/section-3.3.html` | 1224 | 13 | Same chapter — also large; check overlap with 3.1 |
+| `module-03-transformer-architecture/section-3.5.html` | 1224 | 13 | Same chapter — also large; check overlap with 3.1 |
 
 ## Tier 3 — Borderline (8)
 

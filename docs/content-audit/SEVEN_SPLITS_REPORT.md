@@ -25,7 +25,7 @@ All 13 new files passed the `DUP_FIGURE_NUM` and `FIGURE_SEQUENCE` audit checks 
 - **Theme cut**: dataset/benchmark catalog + DVC (versioning) -> 19.3a; PySpark + Delta Lake + Feature Stores -> 19.3b.
 - **Path**: `part-4-training-adaptation/module-19-tools-of-the-trade/`
 - **Notes**:
-  - Task brief mentioned "W&B + MLflow + Modal + RunPod" but the actual file content is "Datasets & Benchmarks" (those tracker / compute tools live in sections 19.10, 19.11, 19.12, 19.14). Split was performed on the genuine themes inside the file.
+  - Task brief mentioned "W&B + MLflow + Modal + RunPod" but the actual file content is "Datasets & Benchmarks" (those tracker / compute tools live in sections 19.11, 19.11, 19.12, 19.14). Split was performed on the genuine themes inside the file.
   - Fixed broken self-references inside 19.3b (old `section-19.3.html#21-3-pyspark...` etc. anchors).
   - Sibling navs updated: 19.2 next -> 19.3a, 19.4 prev -> 19.3b.
 

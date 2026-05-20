@@ -21,29 +21,29 @@ procedural code blocks. None duplicate the existing fun-note in the same section
 
 ## Pass 1 (PRIORITY): Audit-flagged sections fixed
 
-### 1. `part-1-llm-building-blocks/module-01-foundations-nlp-text-representation/section-1.7a.html`
+### 1. `part-1-llm-building-blocks/module-01-foundations-nlp-text-representation/section-1.7.html`
 **Concept illuminated:** Chat templates as "secret handshakes" — different models expect different special-token formats; use `apply_chat_template()` or face hallucinated conversations.
 **Inserted:** After Key Insight callout, before first h2 "Special Tokens".
 **Text:** "Chat templates are the secret handshakes of the LLM world. Llama-3 expects `<|begin_of_text|><|start_header_id|>`, ChatML wants `<|im_start|>`, and Mistral demands `[INST]`. Show up to a Llama party using ChatML and the model will politely treat your role markers as ordinary text, then hallucinate the rest of the conversation as if it overheard a stranger at the next table. The fix is one line: `tokenizer.apply_chat_template()`. Use it, or spend an afternoon wondering why your model has started referring to itself in the third person."
 
-### 2. `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.5b.html`
+### 2. `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.6.html`
 **Concept illuminated:** Quality filtering yields more model improvement than collecting more data; cleaning logs is the same emotional arc as cleaning a hoarder's attic.
 **Inserted:** After continuation-intro paragraph, before figure.
 **Text:** "Dataset cleaning has the same emotional arc as cleaning out a hoarder's attic. You start hopeful ('100,000 examples!'), then horrified (40% are duplicates from retry loops), then philosophical ('does anyone really need 200 variations of i forgot my password?'). You finish with 35,000 examples and a strong opinion about exponential backoff. The team that runs DPO on the unfiltered 100K hits a wall; the team that ships 35K curated pairs gets a better model in half the GPU-hours. Quality beats volume so consistently that it should be a tattoo, not a tip."
 
-### 3. `part-4-training-adaptation/module-18-alignment-rlhf-dpo/section-18.1b.html`
+### 3. `part-4-training-adaptation/module-18-alignment-rlhf-dpo/section-18.2.html`
 **Concept illuminated:** RLHF vs DPO vs GRPO as three teaching styles for the same skill — cooking class, Buzzfeed quiz, reality TV cook-off.
-**Inserted:** After continuation-intro, before "18.1.4 GRPO".
+**Inserted:** After continuation-intro, before "18.2.1 GRPO".
 **Text:** "If RLHF is a cooking class taught by Gordon Ramsay (a reward model shouts at each dish, the chef recalibrates, repeat), then DPO is a Buzzfeed quiz: 'Which of these two responses is better? Pick one. We'll just adjust the recipe directly.' GRPO is the reality-TV cook-off: generate eight versions of the same dish at once, average their reward, and reward whichever one beat the family average. All three teach the same skill (be helpful, not weird), but DPO skips the reward-model middleman entirely, which is why half the open-source community switched to it overnight in 2024. The other half kept PPO because they had already paid for the kitchen."
 
-### 4. `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.2b.html`
+### 4. `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.4.html`
 **Concept illuminated:** Product Quantization is the JPEG of vector search — 380x compression with ~5pp recall cost.
-**Inserted:** After continuation-intro, before "31.2.4 Product Quantization".
+**Inserted:** After continuation-intro, before "31.4.1 Product Quantization".
 **Text:** "Product Quantization is the JPEG of vector search. A 768-dim float32 embedding is 3 KB; with PQ-8 you compress it to 8 bytes, a 380x squeeze, and the search still works. The trick is the same one your eyes pull on JPEG: humans don't notice the difference because the things we care about (the shape of the image, the meaning of the embedding) live in a low-dimensional subspace, and PQ keeps that subspace mostly intact. A billion-vector index that would have needed 3 TB of RAM fits in 8 GB, runs on one machine, and answers in 5 milliseconds. The cost is about 5 to 10 points of recall, which most production systems happily pay."
 
-### 5. `part-8-conversational-ai-with-llms/module-40-voice-realtime-multimodal/section-40.6b.html`
+### 5. `part-8-conversational-ai-with-llms/module-40-voice-realtime-multimodal/section-40.7.html`
 **Concept illuminated:** Native speech-to-speech vs cascaded pipeline (the old way is a game of telephone losing personality at every hop).
-**Inserted:** After continuation-intro, before "40.6.5 Vision in Conversations".
+**Inserted:** After continuation-intro, before "40.7.1 Vision in Conversations".
 **Text:** "The old voice stack was the ultimate game of telephone: microphone to STT to text-LLM to TTS to speaker, with each box losing a little personality on the way. By the time your sarcasm reached the model, it had been flattened into a sentence in 11-point Helvetica; by the time the response came back, it was being read by a polite robot who had never heard of inflection. Native speech-to-speech models (GPT-4o Realtime, Moshi) skip all the intermediate boxes and learn directly that your sigh means 'explain it again, but simpler'. The latency drops from 1500 ms to under 300 ms, which is the difference between 'Hello, my name is Claude' and 'hey what's up'."
 
 ### 6. `part-14-designing-llm-agent-products/module-70-shipping-products/section-70.3b.html`
@@ -55,33 +55,33 @@ procedural code blocks. None duplicate the existing fun-note in the same section
 
 ## Pass 2 (HUNT): Additional sections with new fun-notes
 
-### 7. `part-1-llm-building-blocks/module-02-sequence-models-attention/section-2.3a.html`
+### 7. `part-1-llm-building-blocks/module-02-sequence-models-attention/section-2.3.html`
 **Concept illuminated:** `sqrt(d_k)` scaling is the most consequential typographical decision in deep learning — without it, Transformers do not train.
 **Inserted:** After Code Fragment 2.3.3, before "2.3.3 Self-Attention vs. Cross-Attention".
 **Tone:** Mental Model.
 
-### 8. `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.3.html`
+### 8. `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.5.html`
 **Concept illuminated:** Attention-head specialization is spontaneous division of labor — no loss term programs it; gradient descent is opportunistic.
-**Inserted:** End of 3.3.4, before "3.3.5 Pre-Norm vs. Post-Norm".
+**Inserted:** End of 3.5.4, before "3.5.5 Pre-Norm vs. Post-Norm".
 
 ### 9. `part-1-llm-building-blocks/module-04-decoding-text-generation/section-4.2.html`
 **Concept illuminated:** Top-k vs top-p vs min-p as three answers to the same long-tail anxiety; the Reddit-comment-consuming sampling debate.
 **Inserted:** End of 4.2.5 Min-p, before "4.2.6 Typical Sampling".
 
-### 10. `part-1-llm-building-blocks/module-00-ml-pytorch-foundations/section-0.3a.html`
+### 10. `part-1-llm-building-blocks/module-00-ml-pytorch-foundations/section-0.3.html`
 **Concept illuminated:** The four-line training loop (zero_grad, forward, backward, step) is the wash-rinse-repeat of deep learning; getting the order wrong silently corrupts everything.
 **Inserted:** After model.train()/eval() warning, before "0.3.6 Saving and Loading Models".
 
-### 11. `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.1a.html`
+### 11. `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.1.html`
 **Concept illuminated:** Concentration of measure — in 768-dim space, random vectors cluster around 0 cosine; "use 0.7 threshold" is bad advice without your embedding model's calibration.
-**Inserted:** After Figure 31.1.3 magnets illustration, before "31.1.1 From Words to Sentences".
+**Inserted:** After Figure 31.2.1 magnets illustration, before "31.1.1 From Words to Sentences".
 **Tone:** Mental Model.
 
-### 12. `part-7-retrieval-information-extraction-with-llms/module-32-rag/section-32.1a.html`
+### 12. `part-7-retrieval-information-extraction-with-llms/module-32-rag/section-32.1.html`
 **Concept illuminated:** The Goldilocks chunk-size problem — short chunks for facts, long chunks for narratives; one size never fits all queries.
 **Inserted:** After Figure 32.1.2 ingestion pipeline, before "32.1.3 Naive RAG".
 
-### 13. `part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.1a.html`
+### 13. `part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.1.html`
 **Concept illuminated:** Bi-encoders are speed-dating; cross-encoders are the second-date dinner.
 **Inserted:** After hybrid-retrieval key insight, before "35.1.3 Re-Ranking with Cross-Encoders".
 **Tone:** Mental Model.
@@ -103,7 +103,7 @@ procedural code blocks. None duplicate the existing fun-note in the same section
 **Concept illuminated:** Voice cloning means a 5-second clip is now a biometric breach; banks are quietly moving from voice auth to behavioral signals.
 **Inserted:** After Code Fragment 20.2.1, before "20.2.4 Voice Conversion vs. TTS Cloning".
 
-### 18. `part-4-training-adaptation/module-18-alignment-rlhf-dpo/section-18.1a.html`
+### 18. `part-4-training-adaptation/module-18-alignment-rlhf-dpo/section-18.1.html`
 **Concept illuminated:** PPO is the world's most expensive book club — four model copies in the room; 4x memory budget vs. the final model.
 **Inserted:** End of 18.1.3.1 Four Models, before "18.1.3.2 The Clipping Mechanism".
 **Tone:** Mental Model.

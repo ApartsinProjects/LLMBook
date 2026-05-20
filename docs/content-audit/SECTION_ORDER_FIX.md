@@ -9,7 +9,7 @@ Fixed **30 P1 SECTION_ORDER issues** flagged by the audit. After the fix:
 # -> 0 issues
 ```
 
-The full P1 sweep (`--priority P1`) also reports **0 P1 issues**; the only remaining flag is a single pre-existing P2 in `section-47.1a.html` (`SECTION_PAGE_LAYOUT`) that is unrelated to this work.
+The full P1 sweep (`--priority P1`) also reports **0 P1 issues**; the only remaining flag is a single pre-existing P2 in `section-47.1.html` (`SECTION_PAGE_LAYOUT`) that is unrelated to this work.
 
 ## Root cause
 
@@ -38,7 +38,7 @@ The broken files all had the same five-symptom defect:
 4. The `<div class="callout big-picture">` callout existed but was **empty** (only a `callout-title` div, no body) and was being used as a wrapper around the bibliography `<details class="bibliography-collapsible">`.
 5. Prerequisites therefore ended up before the (empty) big-picture, violating the canonical order.
 
-For `section-47.1b.html` the same defect was present *plus* two extras:
+For `section-47.2.html` the same defect was present *plus* two extras:
 - An `<aside class="section-internal-toc">` was nested *inside* the epigraph blockquote and absorbed the intro prose.
 - The whats-next `<div>` was closed with `</aside>` (typo), which left the heading and the orphan big-picture wrapper landing between whats-next and bibliography.
 
@@ -52,7 +52,7 @@ A single script (`agents/book-skills/scripts/audit/fix_section_order.py`) perfor
 4. Rebuilds the start of the section with: correctly-terminated epigraph (quote + cite + `</blockquote>`) -> filled big-picture callout -> prerequisites.
 5. Removes the orphan `<cite>...</blockquote>` and unwraps the bibliography so it stands alone as `<details class="bibliography-collapsible">`.
 
-`section-47.1b.html` was patched with two manual `Edit` calls because of its extra `<aside>` and `</aside>`-instead-of-`</div>` defects.
+`section-47.2.html` was patched with two manual `Edit` calls because of its extra `<aside>` and `</aside>`-instead-of-`</div>` defects.
 
 ## Per-section notes
 
@@ -60,8 +60,8 @@ All fixes follow option (A) from the original brief: **the big-picture callout a
 
 | Section | Intro-prose length (chars) | Orphan style |
 |---------|---------------------------:|--------------|
-| section-1.7a.html | 679 | agent-avatar + cite |
-| section-47.1b.html | manual edit | aside + cite |
+| section-1.7.html | 679 | agent-avatar + cite |
+| section-47.2.html | manual edit | aside + cite |
 | section-48.1.html | 555 | cite only |
 | section-48.2.html | 664 | cite only |
 | section-48.3.html | 711 | cite only |
@@ -89,7 +89,7 @@ All fixes follow option (A) from the original brief: **the big-picture callout a
 | section-24.13.html | 898 | agent-avatar + cite |
 | section-34.5.html | 398 | agent-avatar + cite |
 
-## section-47.1b.html (special case)
+## section-47.2.html (special case)
 
 Three audit issues required three coordinated fixes:
 
@@ -116,7 +116,7 @@ $ /c/Python314/python agents/book-skills/scripts/audit/run.py --root . --priorit
 ... 0 issues
 
 $ /c/Python314/python agents/book-skills/scripts/audit/run.py --root . --priority P1
-... 0 issues (the lone P2 SECTION_PAGE_LAYOUT in section-47.1a.html pre-dates this change)
+... 0 issues (the lone P2 SECTION_PAGE_LAYOUT in section-47.1.html pre-dates this change)
 
 $ /c/Python314/python agents/book-skills/scripts/audit/run.py --root . --priority P0
 ... 0 issues

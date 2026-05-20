@@ -46,14 +46,14 @@ Findings flag (a) stale 2024 statements, (b) missing recent papers, (c) missing 
 - **Location:** `part-1-llm-building-blocks/module-05-tools-of-the-trade/section-5.1.html` and adjacent sections.
 - **Current claim:** Setup chapter covers PyTorch install, CUDA, venv, conda, uv; uv is correctly flagged as 10-100x faster than pip.
 - **2026 reality:** PyTorch 2.5+ ships FlexAttention (early 2025); torch.compile is now the default speedup for many production deploys; the foundations chapter does not mention either. JAX is mentioned as the "second-most-common research alternative", which is accurate, but the FlexAttention/torch.compile gap is more practically important.
-- **Suggested fix:** Add a short callout in section 5.1 or section 3.4 noting torch.compile and FlexAttention as the default PyTorch 2.5+ acceleration story.
+- **Suggested fix:** Add a short callout in section 5.1 or section 3.6 noting torch.compile and FlexAttention as the default PyTorch 2.5+ acceleration story.
 
 ### Finding P1-5: Cosmopedia / FineWeb / DCLM not mentioned in the foundations stack
 - **Severity:** 2
-- **Location:** `part-1-llm-building-blocks/module-05-tools-of-the-trade/section-5.3.html` or section-5.4 (canonical teaching datasets).
+- **Location:** `part-1-llm-building-blocks/module-05-tools-of-the-trade/section-5.4.html` or section-5.4 (canonical teaching datasets).
 - **Current claim:** Datasets used are MNIST, CIFAR-10, SQuAD, GLUE.
 - **2026 reality:** Those teaching datasets are fine for the foundations chapter (and shouldn't be replaced), but the chapter could add a one-line forward reference: "When we get to pretraining in Part II, the modern open corpora you will see are FineWeb-Edu (HuggingFace, 2024), DCLM (Apple, 2024), and Dolma (AI2, 2024)."
-- **Suggested fix:** Add a "Looking Ahead" pointer in section 5.4 (datasets) so readers do not think MNIST/SQuAD is what real LLMs train on.
+- **Suggested fix:** Add a "Looking Ahead" pointer in section 5.5 (datasets) so readers do not think MNIST/SQuAD is what real LLMs train on.
 
 ### Finding P1-6: Tokenizer landscape figure may pre-date Llama 3 tokenizer expansion
 - **Severity:** 1
@@ -68,28 +68,28 @@ Findings flag (a) stale 2024 statements, (b) missing recent papers, (c) missing 
 
 ### Finding P2-1: "As of 2025, three companies define the frontier" framing
 - **Severity:** 3
-- **Location:** `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.1a.html`, line 58.
+- **Location:** `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.1.html`, line 58.
 - **Current claim:** "As of 2025, three companies consistently define the frontier: OpenAI, Anthropic, and Google DeepMind."
 - **2026 reality:** xAI (Grok 3, Grok 4) entered the frontier conversation in 2025. DeepSeek (V3, R1) and Qwen (Qwen 3) are now generally counted as frontier-class on at least some benchmarks. "Three companies" is a 2024 snapshot.
 - **Suggested fix:** Reframe as "As of 2026 the frontier is contested: OpenAI, Anthropic, and Google DeepMind remain at the top across most benchmarks, with xAI, DeepSeek, and Qwen pushing into frontier territory on specific axes (coding, reasoning, multilingual)."
 
 ### Finding P2-2: GPT-4o latency / pricing claims are stale snapshots
 - **Severity:** 2
-- **Location:** `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.1a.html`, lines 74-76.
+- **Location:** `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.1.html`, lines 74-76.
 - **Current claim:** "Average response times of 320ms for audio... Significantly lower per-token costs than GPT-4 Turbo".
 - **2026 reality:** GPT-4o's audio latency was a 2024 launch figure; the Realtime API targets sub-250ms now. Pricing has dropped further; current GPT-4o is roughly $2.50/$10 per M input/output, but GPT-4o-mini at $0.15/$0.60 is the cost reference point most teams actually use.
 - **Suggested fix:** Replace absolute latency numbers with relative phrasing ("under 350ms typical, dropping with each Realtime API update"); express pricing as ratios; add GPT-4o-mini as the practical default.
 
 ### Finding P2-3: "Claude 3.5 Sonnet, released in mid-2024" + Claude 4 family
 - **Severity:** 2
-- **Location:** `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.1a.html`, lines 106-130.
+- **Location:** `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.1.html`, lines 106-130.
 - **Current claim:** Claude 4 family (Opus/Sonnet/Haiku) introduced; 200K context; Claude 3.5 Sonnet treated as the recent benchmark.
 - **2026 reality:** Claude is now in the Claude 4 generation (Opus 4, Sonnet 4, Haiku 4) as of Anthropic's 2025 launches; there is also Claude 4.5 (Sonnet 4.5, Haiku 4.5, Opus 4.5) and the 1M-context Sonnet 4.5 variant. The book introduces Claude 4 but does not mention 4.5 or the 1M context window.
 - **Suggested fix:** Add one paragraph on Claude 4.5 (released 2025) and the 1M-context variant; note that "Claude 3.5 Sonnet" is now two generations old as a daily-driver.
 
 ### Finding P2-4: "vLLM went from a research project... PagedAttention paper published in 2023, by 2024 was serving models at Fortune 500"
 - **Severity:** 2
-- **Location:** `part-2-understanding-llms/module-09-inference-optimization/section-9.4a.html`, line 96.
+- **Location:** `part-2-understanding-llms/module-09-inference-optimization/section-9.5.html`, line 96.
 - **Current claim:** Treats vLLM/PagedAttention as a 2023-2024 development arc.
 - **2026 reality:** vLLM has shipped 0.6.x and 0.7.x releases with prefix caching, chunked prefill, and disaggregated serving (prefill/decode separation). The 2023-2024 framing reads as historical-only; the production reality in 2026 includes disaggregated serving as a first-class feature.
 - **Suggested fix:** Add a sentence: "By 2026 vLLM ships chunked prefill, prefix caching, and disaggregated prefill/decode by default; SGLang and TensorRT-LLM provide comparable feature sets."
@@ -110,7 +110,7 @@ Findings flag (a) stale 2024 statements, (b) missing recent papers, (c) missing 
 
 ### Finding P2-7: Missing native multimodality reasoning (MoE-VLM)
 - **Severity:** 2
-- **Location:** `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.2.html`.
+- **Location:** `part-2-understanding-llms/module-07-modern-llm-landscape/section-7.3.html`.
 - **Current claim:** DeepSeek V3 covered with MoE innovations; Mixtral covered.
 - **2026 reality:** Llama 4 Scout/Maverick (April 2025) are natively multimodal MoE; the book mentions Llama 4 Scout/Maverick numbers but should note this is the first widely-available open-weight native-multimodal MoE.
 - **Suggested fix:** Sharpen line 91 to say "Both models are natively multimodal MoE, the first open-weight family in this class; they process text and images via a unified MoE architecture."
@@ -167,14 +167,14 @@ Findings flag (a) stale 2024 statements, (b) missing recent papers, (c) missing 
 
 ### Finding P4-2: Alignment chapter lists DPO and Constitutional AI but newer 2024-2025 methods may be light
 - **Severity:** 2
-- **Location:** `part-4-training-adaptation/module-18-alignment-rlhf-dpo/section-18.2a.html`.
+- **Location:** `part-4-training-adaptation/module-18-alignment-rlhf-dpo/section-18.3.html`.
 - **Current claim:** DPO derivation covered as the "Modern Preference Optimization" headline.
 - **2026 reality:** GRPO (Group Relative Policy Optimization, DeepSeekMath 2024, then DeepSeek R1 2025) is now the dominant preference-tuning method for reasoning models. SimPO, ORPO, KTO, RLOO are all common production choices. Verify these are covered.
 - **Suggested fix:** If not already covered, add a "Preference Optimization Zoo" subsection comparing DPO, ORPO, KTO, SimPO, RLOO, and GRPO with a brief recommendation table.
 
 ### Finding P4-3: RLVR section name is current but RLAIF spectrum should mention process reward models (PRMs)
 - **Severity:** 2
-- **Location:** `part-4-training-adaptation/module-18-alignment-rlhf-dpo/section-18.4.html` (RLVR).
+- **Location:** `part-4-training-adaptation/module-18-alignment-rlhf-dpo/section-18.6.html` (RLVR).
 - **Current claim:** RLVR (Reinforcement Learning with Verifiable Rewards) section exists.
 - **2026 reality:** PRMs (Process Reward Models) have largely been displaced or supplemented by ORM (Outcome Reward Models) + RLVR; the Lightman et al. (2023) "Let's Verify Step by Step" PRM800K work is foundational, and the failure of pure PRM training is now a well-documented finding (DeepSeek R1 paper).
 - **Suggested fix:** Add a paragraph on the PRM-vs-ORM tradeoff; cite DeepSeek R1 (DeepSeek-AI, 2025, arXiv:2501.12948) for the modern empirical take.
@@ -223,7 +223,7 @@ Findings flag (a) stale 2024 statements, (b) missing recent papers, (c) missing 
 - **Location:** `part-5-multimodal-llms/module-21-document-understanding-ocr/`.
 - **Current claim:** Document OCR / understanding chapter exists.
 - **2026 reality:** ColPali (Faysse et al., June 2024, arXiv:2407.01449) replaced classical OCR+chunking pipelines for many document-RAG use cases; ColQwen2 (2024) is the most-used variant; DocOwl-2 (Alibaba, 2024) is the open VLM for document QA. This is a frontier topic explicitly called out in the agent role card.
-- **Suggested fix:** Add a section or subsection on vision-based document retrieval (ColPali family); cross-reference to section 31.5 if covered there.
+- **Suggested fix:** Add a section or subsection on vision-based document retrieval (ColPali family); cross-reference to section 31.8 if covered there.
 
 ### Finding P5-5: VLA models chapter (24) needs Pi0 / OpenVLA / RT-2 lineage
 - **Severity:** 3
@@ -269,7 +269,7 @@ Findings flag (a) stale 2024 statements, (b) missing recent papers, (c) missing 
 - **Location:** `part-6-agentic-ai/module-26-ai-agents/section-26.6.html` (Memory Architecture for Agents).
 - **Current claim:** Memory architecture chapter exists.
 - **2026 reality:** Letta (formerly MemGPT) shipped a cloud platform in 2024-2025; Mem0 (mem0ai/mem0) has become the most-starred open-source memory library; Zep (now ZepCloud) provides graph-backed memory. The "Memory as a Service" category did not exist when MemGPT was first published.
-- **Suggested fix:** Verify Mem0 and Zep are mentioned alongside Letta; the book mentions MemGPT/Letta in section 37.5a, so cross-reference may suffice.
+- **Suggested fix:** Verify Mem0 and Zep are mentioned alongside Letta; the book mentions MemGPT/Letta in section 37.5, so cross-reference may suffice.
 
 ### Finding P6-6: Microsoft Agent Framework / Semantic Kernel merger
 - **Severity:** 2
@@ -284,35 +284,35 @@ Findings flag (a) stale 2024 statements, (b) missing recent papers, (c) missing 
 
 ### Finding P7-1: Embedding model lineup missing 2025 releases
 - **Severity:** 2
-- **Location:** `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.1a.html`, line 178.
+- **Location:** `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.1.html`, line 178.
 - **Current claim:** "BGE-M3, E5-Mistral, Nomic, GTE, mxbai, and the original SBERT family".
 - **2026 reality:** Missing: Voyage 3 (Voyage AI, 2024), Cohere embed-english-v4 (May 2025), Stella embedding (early 2024, very efficient), nomic-embed-text-v2 (2025), Qwen3-Embedding (2025), gemini-embedding-001 (Google, 2025), and NV-Embed-v2 (NVIDIA, 2024).
 - **Suggested fix:** Refresh the embedding lineup in section 31.1; emphasize Voyage 3 (proprietary leader on retrieval benchmarks) and Cohere v4 / Qwen3-Embedding / gemini-embedding-001 as 2025 reference points.
 
 ### Finding P7-2: Vector DB ranking treats Pinecone / Chroma as the default first stop
 - **Severity:** 2
-- **Location:** `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.3.html`, line 132.
+- **Location:** `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.5.html`, line 132.
 - **Current claim:** "If you are building a prototype or proof of concept, start with Chroma (in-process, zero infrastructure) or Pinecone serverless (managed, free tier)."
 - **2026 reality:** Reasonable, but pgvector + Supabase has become the dominant "first stop" for production Postgres-based RAG (pgvectorscale, pgvector 0.7+, Supabase Vector). Turbopuffer (built on object storage, 2024) is the emerging cost-efficient option. LanceDB has gained on developer experience.
 - **Suggested fix:** Add a paragraph noting pgvector + Supabase as the SQL-native default, and Turbopuffer as the storage-tiered budget option.
 
 ### Finding P7-3: ColPali / vision-based document retrieval coverage
 - **Severity:** 3
-- **Location:** `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.5.html` (Vision-Based Document Retrieval).
+- **Location:** `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.8.html` (Vision-Based Document Retrieval).
 - **Current claim:** Section exists with this title.
 - **2026 reality:** Section title is correct. Verify it cites ColPali (Faysse et al., June 2024, arXiv:2407.01449), ColQwen2, ColPali-Mini, BGE-Visualized. This is a Frontier Topic per the agent role card.
 - **Suggested fix:** Confirm ColPali family is covered with arxiv reference; otherwise add a subsection.
 
 ### Finding P7-4: GraphRAG coverage is current; missing LightRAG / nano-graphrag
 - **Severity:** 2
-- **Location:** `part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.3.html` (GraphRAG: Community-Summarization Retrieval).
+- **Location:** `part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.4.html` (GraphRAG: Community-Summarization Retrieval).
 - **Current claim:** GraphRAG chapter exists.
 - **2026 reality:** Microsoft GraphRAG (released Feb 2024, paper arXiv:2404.16130) is correctly the anchor. The 2024-2025 evolution: LightRAG (HKU, Oct 2024, arXiv:2410.05779), nano-graphrag (open-source minimalist clone), HybridRAG, MultiHop-RAG, KAG (Knowledge Augmented Generation). The book likely covers GraphRAG but probably not LightRAG / nano-graphrag.
-- **Suggested fix:** Add a paragraph in section 35.3 covering LightRAG and the lightweight GraphRAG clones.
+- **Suggested fix:** Add a paragraph in section 35.4 covering LightRAG and the lightweight GraphRAG clones.
 
 ### Finding P7-5: Reranker coverage (Cohere Rerank v3, BGE-reranker, ms-marco)
 - **Severity:** 2
-- **Location:** `part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.1a.html` (Advanced RAG Techniques).
+- **Location:** `part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.1.html` (Advanced RAG Techniques).
 - **Current claim:** Need to verify reranker coverage.
 - **2026 reality:** Cohere Rerank 3.5 (2024), BGE-reranker-v2-m3, mxbai-rerank-large, Voyage rerank-2 are the 2024-2025 production rerankers. LLM-as-reranker (RankGPT, RankZephyr) and listwise rerankers (RankLLM) are also relevant.
 - **Suggested fix:** Verify rerankers are covered; if needed, refresh the lineup.
@@ -337,7 +337,7 @@ Findings flag (a) stale 2024 statements, (b) missing recent papers, (c) missing 
 
 ### Finding P8-3: Memory / persistence: Mem0 not mentioned as core option
 - **Severity:** 2
-- **Location:** `part-8-conversational-ai-with-llms/module-37-conversational-ai/section-37.5a.html`.
+- **Location:** `part-8-conversational-ai-with-llms/module-37-conversational-ai/section-37.5.html`.
 - **Current claim:** MemGPT / Letta covered; Library Shortcut callout for `letta`.
 - **2026 reality:** Mem0 (mem0ai/mem0) has 30K+ stars and is the dominant open-source memory library by GitHub adoption; Zep / ZepCloud is the production-graph memory option. The book mentions MemGPT/Letta but may underweight Mem0.
 - **Suggested fix:** Add a one-paragraph comparison of MemGPT/Letta vs Mem0 vs Zep so the reader can choose.
@@ -651,13 +651,13 @@ The book is impressively current for a 16-part work, especially on MCP coverage,
 
 Round 1 was a comprehensive suggest-mode pass at the part level. Round 2 was a deep-scan of section-*.html files specifically in Parts 6 (Agentic AI), 7 (Retrieval/RAG), 8 (Conversational AI), and 9 (Evaluation/Observability). I scanned ~50 sections looking for the patterns in the dispatch brief: 2025 reasoning-model wave, modern eval frameworks, modern VLMs, multi-agent framework maturity, updated context lengths, and stale pricing.
 
-**Overall finding:** Parts 6-9 are remarkably fresh. The June-2024 to early-2026 timeframe is densely covered: MCP (Section 27.2), A2A (Section 27.3), LangGraph / AutoGen v0.4 / CrewAI / Semantic Kernel (Sections 30.2a, 41.2), Claude Computer Use / Operator / Project Mariner (Section 30.1, 30.4), SigLIP 2 / ColPali / NV-Embed-v2 / BGE-M3 / Stella / Linq-Embed (Sections 33.1, 36.4), DeepSeek-R1 / extended thinking / o1/o3 (Section 26.3), tau-bench / tau²-bench / GAIA / WebArena / OSWorld (Sections 26.4, 43.3), SWE-bench Verified / LiveCodeBench / MMMU / MM-Vet (Sections 43.4, 43.5), OpenLLMetry / Braintrust / Latitude / Laminar / LangSmith / Langfuse (Sections 44.3, 44.7), Letta / MemGPT (Section 37.5a), and the Anthropic Connectors / Plugins distinction (Section 27.2).
+**Overall finding:** Parts 6-9 are remarkably fresh. The June-2024 to early-2026 timeframe is densely covered: MCP (Section 27.2), A2A (Section 27.3), LangGraph / AutoGen v0.4 / CrewAI / Semantic Kernel (Sections 30.2, 41.2), Claude Computer Use / Operator / Project Mariner (Section 30.1, 30.4), SigLIP 2 / ColPali / NV-Embed-v2 / BGE-M3 / Stella / Linq-Embed (Sections 33.1, 36.4), DeepSeek-R1 / extended thinking / o1/o3 (Section 26.3), tau-bench / tau²-bench / GAIA / WebArena / OSWorld (Sections 26.4, 43.3), SWE-bench Verified / LiveCodeBench / MMMU / MM-Vet (Sections 43.4, 43.5), OpenLLMetry / Braintrust / Latitude / Laminar / LangSmith / Langfuse (Sections 44.3, 44.7), Letta / MemGPT (Section 37.5), and the Anthropic Connectors / Plugins distinction (Section 27.2).
 
 Only three real staleness items surfaced. The book had already absorbed almost everything the Round 1 audit flagged for Parts 6-9.
 
 ### Edits made
 
-1. **`part-7-retrieval-information-extraction-with-llms/module-32-rag/section-32.1a.html`** (Section 32.1.4 Context Window Management): updated "128K tokens for GPT-4o, 200K for Claude" to also list GPT-4.1 (1M), Gemini 1.5/2.5 (1M-2M), and Llama 4 Scout (10M). The old line implied 128K-200K was the modern range, which was true in mid-2024 but no longer true as of 2025-26 when context windows ran from 128K to 10M.
+1. **`part-7-retrieval-information-extraction-with-llms/module-32-rag/section-32.1.html`** (Section 32.1.4 Context Window Management): updated "128K tokens for GPT-4o, 200K for Claude" to also list GPT-4.1 (1M), Gemini 1.5/2.5 (1M-2M), and Llama 4 Scout (10M). The old line implied 128K-200K was the modern range, which was true in mid-2024 but no longer true as of 2025-26 when context windows ran from 128K to 10M.
 
 2. **`part-9-llm-evaluation-observability/module-42-evaluation-foundations/section-42.1.html`** (Section 42.1.5 LLM Benchmarks comparison table): added rows for GPQA-Diamond (PhD-level science, Rein et al. 2024), Humanity's Last Exam (CAIS, January 2025), ARC-AGI-2 (Chollet et al., March 2025), and FrontierMath (Epoch AI, November 2024). Also annotated the SWE-Bench row with the SWE-bench Verified subset (OpenAI, August 2024). The pre-edit table cut off at GSM8K/SWE-Bench and missed the 2024-25 frontier-benchmark wave that supersedes them.
 

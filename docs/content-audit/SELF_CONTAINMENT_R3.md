@@ -11,7 +11,7 @@ For each section, I read the top 1000 words and asked: if I arrived from a Googl
 
 | # | Section | File path | Verdict |
 |---|---------|-----------|---------|
-| 1 | 47.1b Data Poisoning, Extraction & Jailbreaking | part-10-llm-security-runtime-safety/module-47-adversarial-security-red-team/section-47.1b.html | standalone (check) |
+| 1 | 47.1b Data Poisoning, Extraction & Jailbreaking | part-10-llm-security-runtime-safety/module-47-adversarial-security-red-team/section-47.2.html | standalone (check) |
 | 2 | 48.5 Multimodal Guardrails | part-10-llm-security-runtime-safety/module-48-guardrails-runtime-safety/section-48.5.html | standalone (check) |
 | 3 | 50.3 Federated Learning for Privacy-Preserving Training | part-10-llm-security-runtime-safety/module-50-privacy-data-protection/section-50.3.html | standalone (check) |
 | 4 | 53.1 Global Regulatory Landscape | part-11-llm-ethics-trust-governance/module-53-regulation-compliance/section-53.1.html | standalone (check) |

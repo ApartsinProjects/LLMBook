@@ -24,8 +24,8 @@ The remaining problem set is **systemic and large**: nearly every prose cross-re
 
 3. **Body-text "Chapter NN" citations are wrong nearly everywhere**. The full set of mappings I observed still unfixed:
    - "Chapter 22" used for Embeddings/VDB content (current Ch 31) - appears in `index.html` looking-back, sections 32.1, 31.1, 33.1, 33.2, etc.
-   - "Chapter 23" used for RAG content (current Ch 32) - sections 31.5, 32.4, 33.2, 34.5, 34.2, 35.5, 37.1, 37.3, etc.
-   - "Chapter 24" used for Conversational AI (current Ch 37) - sections 32.4, 35.5, 37.x index, 37.3, etc.; also the "Looking Back" callout of Ch 26 references "Chapters 22 through 24" for "general agent principles", which is doubly wrong (current Ch 22 is now VLMs).
+   - "Chapter 23" used for RAG content (current Ch 32) - sections 31.8, 32.4, 33.2, 34.5, 34.2, 35.5, 37.1, 37.3, etc.
+   - "Chapter 24" used for Conversational AI (current Ch 37) - sections 32.5, 35.5, 37.x index, 37.3, etc.; also the "Looking Back" callout of Ch 26 references "Chapters 22 through 24" for "general agent principles", which is doubly wrong (current Ch 22 is now VLMs).
    - "Chapter 25" used for "Tools of the Trade: Retrieval & Conversation Stack" (no such chapter exists; tools are split into Ch 30, 36, 41).
    - "Chapter 33" used for Video Generation (now Ch 20 sec 20.6-20.10) - sections 20.5, 20.10, 23.2, 21 index.
    - "Chapter 37" used for Unified Multimodal / Omni Models (now Ch 22 sec 22.6-22.9) - sections 22.9, 33.2, 33.4.
@@ -45,16 +45,16 @@ The remaining problem set is **systemic and large**: nearly every prose cross-re
 4. **Body-text "Section X.Y" citations stale in proportion**. Spot-check sample:
    - "Section 13.1" / "Section 14.1" / "Section 16.7" / "Section 18.7" used for old Part 3 / Part 4 sections (now 11.1, 12.1, etc.) - sections 25.1, 37.1, 37.3.
    - "Section 22.1" / "22.2" / "22.3" / "22.4" used for embeddings/VDB sections (now 31.1-31.5) - sections 32.1 (multiple), 33.1 (x3), 34.2, 34.5, 35.1, 35.2, 37.3, 32.3.
-   - "Section 23.1" / "23.2" / "23.3" / "23.4" used for RAG sections (now 32.1, 32.2, 35.1, etc.) - sections 31.4, 33.2, 34.2, 34.5, 35.2, 32.3, 32.2 (prereqs), 32.2 figure caption "Figure 23.4.1".
+   - "Section 23.1" / "23.2" / "23.3" / "23.4" used for RAG sections (now 32.1, 32.2, 35.1, etc.) - sections 31.6, 33.2, 34.2, 34.5, 35.2, 32.3, 32.2 (prereqs), 32.2 figure caption "Figure 23.4.1".
    - "Section 24.1" / "24.3.1" used for conv AI sections - 33.3, 37.3 (visible H2 "24.3.1").
    - "Section 31.1" used in 33.1 (should be "Section 22.1" or "Section 22.6"... actually this is bizarre - 33.1 refers to "Section 31.1" for "vision-language patterns" but Section 31.1 is "Embedding Models" in current numbering).
-   - "Section 32.5"/"32.6"/"32.7"/"32.8"/"32.9" - these DO NOT EXIST after the RAG split. Used in section 32.1 (link to "32.9" for citation), 32.2 ("see Section 32.5" comment in code), 32.2 (next-section link to "Section 32.5"), 32.3 (next-section "Section 32.6" linking to 35.5), 35.2 (cross-ref to "Section 32.7" linking to 35.3), 35.3 (cross-ref "Section 32.8" linking to 35.4 / "Section 32.4" linking to 32.2), 35.4 (cross-ref "Section 32.9" linking to 32.4), 34.5 (cross-ref "Section 23.3").
+   - "Section 32.5"/"32.6"/"32.7"/"32.8"/"32.9" - these DO NOT EXIST after the RAG split. Used in section 32.1 (link to "32.9" for citation), 32.2 ("see Section 32.5" comment in code), 32.2 (next-section link to "Section 32.5"), 32.3 (next-section "Section 32.6" linking to 35.5), 35.2 (cross-ref to "Section 32.7" linking to 35.3), 35.3 (cross-ref "Section 32.8" linking to 35.4 / "Section 32.5" linking to 32.2), 35.4 (cross-ref "Section 32.9" linking to 32.4), 34.5 (cross-ref "Section 23.3").
    - "Section 33.5" - referenced in 20.7, 20.8 (x2), 20.9 for "long-form / cinematic video"; current Ch 20 has section 20.10 covering this, not 33.5.
-   - "Section 34.1" / "34.2" - used in 32.3 and 35.4 for "RAG & Agent Evaluation"; in current numbering eval lives in Part 9 Ch 42.
+   - "Section 34.1" / "34.2" - used in 32.4 and 35.4 for "RAG & Agent Evaluation"; in current numbering eval lives in Part 9 Ch 42.
    - "Section 37.2" / "Section 37.4" - referenced for "fusion" topics that are now Ch 22 sec 22.6/22.7/22.8 (used in 33.1).
    - "Section 38.1" / "38.2" - referenced for streaming sections that are now Ch 40 sec 40.2/40.3 (used in 22.6, 22.9, 33.4).
    - "Section 40.1" / "40.2" / "40.1-40.6" - used for SayCan / Code-as-Policies / LLM-powered robotics (now Ch 24 sec 24.7+); appears in 24.1 (x2), 24.13.
-   - "Section 42.1" / "42.2" - used for embeddings/eval in 32.3, 33.x.
+   - "Section 42.1" / "42.2" - used for embeddings/eval in 32.4, 33.x.
 
 5. **Figure captions still use OLD chapter numbers across many sections**. Cycle 1 fixed only Ch 20.6-20.10 / Ch 22.6-22.9 / Ch 24.7-24.13. Still stale:
    - Ch 21 (Document Understanding) sections 21.1-21.4: 11 captions of form "Figure 34.X.Y" (Ch 21 was previously Ch 34). Image src files also point to `images/figure-34-1-1.svg` etc., so the file references are also stale at the asset level.
@@ -89,7 +89,7 @@ The remaining problem set is **systemic and large**: nearly every prose cross-re
     - Agentic RAG: 27.5 ("Agentic RAG: Retrieval-Augmented Agents") and 32.2 ("Deep Research & Agentic RAG") both cover Corrective RAG / Adaptive-RAG / Self-RAG. 27.5 explicitly says it "builds on the agentic RAG foundations from Section 23.4" (i.e., 32.2).
     - Memory: 26.6 ("Memory Architecture for Agents: Taxonomy, Storage, and Policies") with five-layer taxonomy vs 37.3 ("Memory & Context Management") with sliding window/summarization/MemGPT. Considerable overlap in MemGPT/Letta discussion.
     - Sim-to-real: 24.6 ("VLA Limitations" - has dedicated H2 "The Sim-to-Real Gap" with quantitative tables) and 24.13 ("Sim-to-Real Gap" - full section). 24.13 even references the Sim-to-Real Gap section by saying it bridges "Sections 40.1-40.6 and the actual deployment" (stale numbers).
-    - GraphRAG: 35.2 ("RAG with Knowledge Graphs") has an explicit "Related coverage" callout saying "This topic is also discussed in Section 35.3 ('Section 32.7: GraphRAG (full treatment)')" - so the duplication is acknowledged in-text but not resolved.
+    - GraphRAG: 35.2 ("RAG with Knowledge Graphs") has an explicit "Related coverage" callout saying "This topic is also discussed in Section 35.4 ('Section 32.7: GraphRAG (full treatment)')" - so the duplication is acknowledged in-text but not resolved.
     - Code-gen agents: 29.1 ("Code Generation Agents") opens with "29.1.1 The Rise of Code Agents", 29.4 ("Code/Work Workflows and Agentic Coding Systems") opens with "29.4.1 The Rise of Agentic Coding" and covers Claude Code, Cursor, Devin in depth. Heavy overlap.
     - Tools overlap: Ch 36 (retrieval tools, currently stubs) vs Ch 41 (conv-AI tools, now well-developed). Ch 41.2 includes LangChain/LangGraph/LlamaIndex as conversation orchestration; if Ch 36 ever gets filled in, the LangChain coverage in particular will be split awkwardly between the two.
 
@@ -164,19 +164,19 @@ The remaining problem set is **systemic and large**: nearly every prose cross-re
 - Ch 31 prereq: "Chapter 13: LLM APIs" - stale.
 - Ch 31 index figure caption: "Figure 22.0.1" (chapter opener).
 - All 5 sections: 29 stale "Figure 22.X.Y" captions, 5 stale H2 IDs `id="31-X-Y-..."` but visible text "22.1.X" (cycle 1 likely fixed the id-side but not the displayed h2 text).
-- Section 31.5 closing What's Next: "In the next chapter, Chapter 23: RAG..." (stale).
+- Section 31.8 closing What's Next: "In the next chapter, Chapter 23: RAG..." (stale).
 
 ### Ch 32 (RAG Fundamentals)
 - Ch 32 index nav: prev "Ch 22 Embeddings VDB" (-> 31), next "Ch 24 Building Conversational AI" (-> 37). Numbers stale.
 - Ch 32 index: figure caption "Figure 23.0.1", body "Building on the embedding and vector database foundations from Chapter 22", prereq "Chapter 22... Chapter 13... Chapter 14".
 - Ch 32 index What's Next: "In the next chapter, Chapter 24: Conversational AI".
 - Sections 32.1-32.4 all have "Chapter 22" / "Chapter 23" / "Section 22.X" / "Section 23.X" cross-refs.
-- Section 32.1 body: bizarre stale ref - "(citation hallucination, covered in Section 32.9)" but the link target is section-32.4.html. So the displayed "Section 32.9" is also stale, AND there's no 32.9 (the chapter only goes to 32.4).
-- Section 32.2 (Agentic RAG): all H2/H3 visible numbers start "23.4.1", "23.4.2" etc. Figure "Figure 23.4.1". Prereqs reference "Section 14.1" / "Section 26.1" / "Section 32.2" (self).
-- Section 32.2: contains code comment "# Text-to-SQL pipeline (covered in Section 32.5)" - 32.5 doesn't exist (text-to-SQL is now 32.3).
-- Section 32.2 What's Next: "In the next section, Section 32.5: Structured Data & Text-to-SQL" - link goes to 32.3.html. Number stale.
-- Section 32.3 What's Next: "In the next section, Section 32.6: RAG Frameworks & Orchestration" - link goes to module-35-advanced-rag/section-35.5.html (cross-chapter), but text says "Section 32.6". So the user reads "Section 32.6 in this chapter" but is moved to Section 35.5 in the next chapter.
-- Section 32.4 closing: "In Chapter 24: Building Conversational AI Systems, we apply the retrieval and generation techniques..." (stale).
+- Section 32.1 body: bizarre stale ref - "(citation hallucination, covered in Section 32.9)" but the link target is section-32.5.html. So the displayed "Section 32.9" is also stale, AND there's no 32.9 (the chapter only goes to 32.4).
+- Section 32.3 (Agentic RAG): all H2/H3 visible numbers start "23.4.1", "23.4.2" etc. Figure "Figure 23.4.1". Prereqs reference "Section 14.1" / "Section 26.1" / "Section 32.3" (self).
+- Section 32.3: contains code comment "# Text-to-SQL pipeline (covered in Section 32.5)" - 32.5 doesn't exist (text-to-SQL is now 32.3).
+- Section 32.3 What's Next: "In the next section, Section 32.5: Structured Data & Text-to-SQL" - link goes to 32.3.html. Number stale.
+- Section 32.4 What's Next: "In the next section, Section 32.6: RAG Frameworks & Orchestration" - link goes to module-35-advanced-rag/section-35.5.html (cross-chapter), but text says "Section 32.6". So the user reads "Section 32.6 in this chapter" but is moved to Section 35.5 in the next chapter.
+- Section 32.5 closing: "In Chapter 24: Building Conversational AI Systems, we apply the retrieval and generation techniques..." (stale).
 
 ### Ch 33 (Cross-Modal Reasoning and Multimodal RAG)
 - Ch 33 index nav: prev "Ch 41 Embodied AI, World Models & Multimodal Reasoning" linking to part-5 module-24 (catastrophic cross-part wrong link), next "Ch 43 Tools of the Trade: Multimodal Stack" linking to part-5 module-25.
@@ -195,9 +195,9 @@ The remaining problem set is **systemic and large**: nearly every prose cross-re
 ### Ch 35 (Advanced RAG)
 - Section 35.1: visible H2/H3 text uses "23.2.1", "23.2.2", etc. (old Ch 23 sec 2 numbering). IDs correctly use 35-1-X.
 - Section 35.1 body: prereqs reference "Section 22.1" / "Section 22.4" (stale -> 31.X).
-- Section 35.2: "Related coverage" callout points to "Section 32.7: GraphRAG (full treatment)" but link goes to 35.3. "Section 22.2" / "Section 22.4" / "Section 32.2" body refs.
-- Section 35.3 body: cross-ref "Section 32.8: RAG Ingestion Pipelines and Connectors" linking to 35.4 (so prose number stale); "Section 32.4: Deep Research & Agentic RAG" linking to 32.2 (the visible number is stale for this rename - 32.2 is current).
-- Section 35.4 body: "Section 32.9: Source Attribution and Citation in RAG" linking to 32.4; "Section 34.1: RAG & Agent Evaluation" linking to part-9 42.1.
+- Section 35.3: "Related coverage" callout points to "Section 32.7: GraphRAG (full treatment)" but link goes to 35.3. "Section 22.2" / "Section 22.4" / "Section 32.3" body refs.
+- Section 35.4 body: cross-ref "Section 32.8: RAG Ingestion Pipelines and Connectors" linking to 35.4 (so prose number stale); "Section 32.5: Deep Research & Agentic RAG" linking to 32.2 (the visible number is stale for this rename - 32.2 is current).
+- Section 35.5 body: "Section 32.9: Source Attribution and Citation in RAG" linking to 32.4; "Section 34.1: RAG & Agent Evaluation" linking to part-9 42.1.
 - Section 35.5: cross-ref to "Chapter 13" (hybrid ML/LLM, stale).
 - Section 35.5 What's Next: "Chapter 24: Building Conversational AI Systems".
 
@@ -278,7 +278,7 @@ These can be tackled by a scripted sweep rather than per-section manual edits, s
     - Agentic RAG: keep one canonical home (probably 27.5 in Part 6, since "agentic" is the framing), and trim 32.2 to a brief "see Section 27.5 for the agent loop" callout while keeping the deep-research / corpus synthesis angle.
     - Memory: keep 26.6 (agent memory taxonomy) as the deep treatment, trim 37.3 to a "conversation memory specializations" callout that references 26.6.
     - Sim-to-real: 24.6 already says "this is one of three structural limitations"; 24.13 is the deep section. Trim 24.6's sim-to-real subsection to a paragraph forward-pointing to 24.13.
-    - GraphRAG: 35.2 already explicitly says "see 35.3 for full treatment"; either fold 35.2 into 35.1 (as a sub-pattern of advanced RAG) or rewrite 35.2 as motivation-only and let 35.3 do the work.
+    - GraphRAG: 35.2 already explicitly says "see 35.4 for full treatment"; either fold 35.2 into 35.1 (as a sub-pattern of advanced RAG) or rewrite 35.2 as motivation-only and let 35.3 do the work.
     - Code-gen agents: 29.1 and 29.4 are both substantial. Possibly retain 29.1 as the introductory "code agents as a category" + Self-Debugging Loop + Cursor-vs-Devin overview, and recast 29.4 as a "production agentic-coding workflow patterns" deep dive (it already covers Claude Code / IDE agents / fully autonomous in distinct H2s). Or merge into one larger section.
     - Tools overlap Ch 36 vs Ch 41: this is conditioned on whether Ch 36 ever gets authored (action 8 above).
 

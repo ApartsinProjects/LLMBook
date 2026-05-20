@@ -21,7 +21,7 @@ Before proposing new demos, I scanned target sections for existing `class="callo
 | 12.1 ICL / few-shot | Diagram only | No side-by-side zero-shot vs few-shot on same input |
 | 12.2 Chain-of-thought | Code 12.2.1 shows a CoT output | No no-CoT vs CoT comparison on same problem |
 | 18.1a RLHF (3-stage) | No | Pipeline diagrams only |
-| 18.2a DPO loss | Code 18.2.1 walks through one pair | Already excellent; do NOT duplicate |
+| 18.2a DPO loss | Code 18.3.1 walks through one pair | Already excellent; do NOT duplicate |
 | 31.1a Bi-encoders / cosine | No | Diagram says "cos = 0.87" but no derivation |
 | 31.2a HNSW / ANN | No | Mostly architecture; no graph-walk trace |
 | 32.1a RAG end-to-end | No | Conceptual; no toy corpus walk-through |
@@ -117,7 +117,7 @@ Why impactful: Shows truncation is data-dependent, not a fixed k. Resolves the "
 ---
 
 ### Demo 4: Scaled Dot-Product Attention with Named Tokens
-File: `part-1-llm-building-blocks/module-02-sequence-models-attention/section-2.3a.html`
+File: `part-1-llm-building-blocks/module-02-sequence-models-attention/section-2.3.html`
 Anchor: inside section 2.3.2, after the formula on line 110 and before "Let us break this formula apart" (line 113).
 Concept: attention is a similarity weighting over values; trace it on a 3-token sequence so the reader sees one row of softmax weights match its intuition.
 
@@ -143,8 +143,8 @@ Why impactful: Demystifies the QK^T/sqrt(d_k) formula by attaching it to a sente
 ---
 
 ### Demo 5: Causal Mask Effect on Attention Weights
-File: `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.1b.html`
-Anchor: inside section 3.1.10 ("The Causal Mask"), after the description of the upper-triangular mask.
+File: `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.2.html`
+Anchor: inside section 3.2.2 ("The Causal Mask"), after the description of the upper-triangular mask.
 Concept: the mask zeros out future tokens BEFORE softmax. Show the same 3-token sequence with and without masking.
 
 ```html
@@ -227,7 +227,7 @@ Why impactful: A single visible "scratchpad output" sells CoT better than the en
 ---
 
 ### Demo 8: RLHF Reward Model + KL Penalty in Numbers
-File: `part-4-training-adaptation/module-18-alignment-rlhf-dpo/section-18.1a.html`
+File: `part-4-training-adaptation/module-18-alignment-rlhf-dpo/section-18.1.html`
 Anchor: inside subsection 18.1.3 (PPO Mechanics for LLM Alignment), at the start.
 Concept: trace one preference pair through reward model, KL penalty, and PPO update on a single response.
 
@@ -257,7 +257,7 @@ Why impactful: PPO is typically presented as an opaque RL algorithm; this demo g
 ---
 
 ### Demo 9: Cosine Similarity on Three Queries
-File: `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.1a.html`
+File: `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.1.html`
 Anchor: inside subsection introducing cosine similarity (right after the bi-encoder diagram on line 131).
 Concept: same document index, three queries, show why "semantic" search beats keyword overlap.
 
@@ -286,8 +286,8 @@ Why impactful: A real Q3-style "gotcha" example is more instructive than five pa
 ---
 
 ### Demo 10: HNSW Graph Walk
-File: `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.2a.html`
-Anchor: inside subsection 31.2.2 (HNSW), after the architecture description.
+File: `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.3.html`
+Anchor: inside subsection 31.3.2 (HNSW), after the architecture description.
 Concept: trace 4 hops through a tiny HNSW graph to show why log(n) candidates beat brute force.
 
 ```html
@@ -314,7 +314,7 @@ Why impactful: Makes "logarithmic search" mechanically clear instead of "magic g
 ---
 
 ### Demo 11: End-to-End RAG on a 3-Document Corpus
-File: `part-7-retrieval-information-extraction-with-llms/module-32-rag/section-32.1a.html`
+File: `part-7-retrieval-information-extraction-with-llms/module-32-rag/section-32.1.html`
 Anchor: inside subsection 32.1.2 ("The Naive RAG Pipeline") if one exists, otherwise right after section 32.1.1.
 Concept: trace ONE question through chunking, embedding, retrieval, prompt-stuffing, and generation.
 
@@ -349,8 +349,8 @@ Why impactful: The reader can see exactly what RAG is doing differently from a p
 ---
 
 ### Demo 12: Agentic RAG: Decompose, Search, Refine, Synthesize
-File: `part-7-retrieval-information-extraction-with-llms/module-32-rag/section-32.2.html`
-Anchor: inside subsection 32.2.1 (From Single-Shot to Iterative Retrieval), as a callout before the loop diagram.
+File: `part-7-retrieval-information-extraction-with-llms/module-32-rag/section-32.3.html`
+Anchor: inside subsection 32.3.1 (From Single-Shot to Iterative Retrieval), as a callout before the loop diagram.
 Concept: show the iteration count and what each loop does, not just the loop conceptually.
 
 ```html
@@ -459,7 +459,7 @@ Total: 14 demo simulations across 11 sections, covering attention (2), decoding 
 - [x] At least one demo per major concept group (attention, decoding, prompting, alignment, retrieval, judging)
 - [x] Each demo has a "What it shows" line and a "Why impactful" justification
 - [x] No demo requires GPU, paid API, or proprietary data
-- [x] No duplicates: skipped DPO (already has Code 18.2.1 walkthrough), skipped G-Eval (already has numeric-example callout at 46.2:142)
+- [x] No duplicates: skipped DPO (already has Code 18.3.1 walkthrough), skipped G-Eval (already has numeric-example callout at 46.2:142)
 - [x] All numbers verified by manual computation
 - [x] Idempotency: re-running this audit on the same chapters should NOT propose these demos again because section files will contain `class="callout demo"` blocks (the implementer should treat existing demo callouts as "already done").
 

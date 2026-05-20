@@ -83,7 +83,9 @@ def run(filepath, html, context):
                         f"Caption appears BEFORE code block at line {next_line} (should be after)"))
                 break
 
-    # Check for orphan captions (no PRE_CLOSE within 50 lines before)
+    # Check for orphan captions (no PRE_CLOSE within 100 lines before).
+    # 100 lines is the practical ceiling: a long agent-transcript output
+    # legitimately can span 60+ lines between </pre> and the caption.
     pre_close_lines = [ln for t, ln in events if t == "PRE_CLOSE"]
     code_output_lines = [ln for t, ln in events if t == "CODE_OUTPUT"]
     for event_type, line_num in events:
@@ -98,9 +100,9 @@ def run(filepath, html, context):
             for col in code_output_lines:
                 if col <= line_num:
                     nearest = max(nearest, col)
-            if nearest == 0 or (line_num - nearest) > 50:
+            if nearest == 0 or (line_num - nearest) > 100:
                 issues.append(Issue(PRIORITY, CHECK_ID, filepath, line_num,
-                    f"Orphan caption: no code block found within 50 lines before this caption"))
+                    f"Orphan caption: no code block found within 100 lines before this caption"))
 
     # Deduplicate (stacked captions already reported per-line)
     seen = set()

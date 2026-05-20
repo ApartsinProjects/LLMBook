@@ -6,29 +6,29 @@ Wave of giant-section splits to drive every targeted section under ~800 lines an
 
 | Original section | Original L | Original h2 | New A | A lines | New B | B lines | Break h2 |
 |---|---:|---:|---|---:|---|---:|---|
-| `part-1-llm-building-blocks/module-00-ml-pytorch-foundations/section-0.3.html` | 1241 | 11 | `section-0.3a.html` | 563 | `section-0.3b.html` | 803 | 0.3.7 Debugging (line 495) |
-| `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.1.html` | 1205 | 14 | `section-3.1a.html` | 749 | `section-3.1b.html` | 583 | 3.1.9 Weight Initialization (line 692) |
-| `part-4-training-adaptation/module-17-peft/section-17.5.html` | 1165 | 10 | `section-17.5a.html` | 676 | `section-17.5b.html` | 620 | 17.5.6 Licensing (line 608) |
-| `part-7-retrieval-information-extraction-with-llms/module-32-rag/section-32.1.html` | 1181 | 11 | `section-32.1a.html` | 637 | `section-32.1b.html` | 661 | 32.1.6 Indexing Strategies (line 571) |
-| `part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.5.html` | 1126 | 11 | `section-35.5a.html` | 763 | `section-35.5b.html` | 480 | 35.5.8 Production Considerations (line 697) |
-| `part-4-training-adaptation/module-19-tools-of-the-trade/section-19.3b.html` | 1210 | 3 | SKIPPED | n/a | SKIPPED | n/a | only 3 h2; cannot split cleanly along h2 boundaries |
+| `part-1-llm-building-blocks/module-00-ml-pytorch-foundations/section-0.3.html` | 1241 | 11 | `section-0.3.html` | 563 | `section-0.4.html` | 803 | 0.4.1 Debugging (line 495) |
+| `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.1.html` | 1205 | 14 | `section-3.1.html` | 749 | `section-3.2.html` | 583 | 3.2.1 Weight Initialization (line 692) |
+| `part-4-training-adaptation/module-17-peft/section-17.5.html` | 1165 | 10 | `section-17.5.html` | 676 | `section-17.6.html` | 620 | 17.6.1 Licensing (line 608) |
+| `part-7-retrieval-information-extraction-with-llms/module-32-rag/section-32.1.html` | 1181 | 11 | `section-32.1.html` | 637 | `section-32.2.html` | 661 | 32.2.1 Indexing Strategies (line 571) |
+| `part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.5.html` | 1126 | 11 | `section-35.6.html` | 763 | `section-35.7.html` | 480 | 35.7.1 Production Considerations (line 697) |
+| `part-4-training-adaptation/module-19-tools-of-the-trade/section-19.4.html` | 1210 | 3 | SKIPPED | n/a | SKIPPED | n/a | only 3 h2; cannot split cleanly along h2 boundaries |
 
 Total: 5 sections split, 1 skipped per task instructions ("if it has fewer than 5 h2, SKIP it and report").
 
-`section-0.3b.html` is at 803 lines (3 over the 800 guideline). The natural break before 0.3.7 Debugging keeps the basic-PyTorch foundation cleanly in A and the debugging+lab+modern-features block in B; pushing the break later would have either bisected a tight conceptual unit or left A oversized.
+`section-0.4.html` is at 803 lines (3 over the 800 guideline). The natural break before 0.4.1 Debugging keeps the basic-PyTorch foundation cleanly in A and the debugging+lab+modern-features block in B; pushing the break later would have either bisected a tight conceptual unit or left A oversized.
 
 ## Conceptual rationale for break points
 
 - **0.3a** (0.3.1 - 0.3.6): tensors, autograd, nn.Module, data loading, the basic training loop, saving/loading. Ends on a self-contained PyTorch foundation.
-- **0.3b** (0.3.7 - 0.3.10 + Exercises): debugging tools, common mistakes, FashionMNIST lab, modern PyTorch (torch.compile, AMP, FSDP). Production-oriented continuation.
+- **0.3b** (0.4.1 - 0.4.3 + Exercises): debugging tools, common mistakes, FashionMNIST lab, modern PyTorch (torch.compile, AMP, FSDP). Production-oriented continuation.
 - **3.1a** (3.1.1 - 3.1.8): paper history, info-theory framing, high-level architecture, input representation, attention, FFN, residuals, LayerNorm. The structural anatomy of a transformer block (the source even has a marker comment at this point saying "If you need a break, this is a natural stopping point").
-- **3.1b** (3.1.9 - 3.1.13 + Exercises): weight init, causal mask, complete forward pass, residual stream information flow, parameter counting. Assembles the parts into a working decoder.
+- **3.1b** (3.2.1 - 3.2.5 + Exercises): weight init, causal mask, complete forward pass, residual stream information flow, parameter counting. Assembles the parts into a working decoder.
 - **17.5a** (17.5.1 - 17.5.5): teacher-student framework, white-box vs. black-box distillation, case studies, small-but-capable models, practical pipeline.
-- **17.5b** (17.5.6 - 17.5.8 + Exercises + What Comes Next): licensing constraints, speculative distillation, chain-of-thought distillation.
+- **17.5b** (17.6.1 - 17.6.3 + Exercises + What Comes Next): licensing constraints, speculative distillation, chain-of-thought distillation.
 - **32.1a** (32.1.0 - 32.1.5): knowledge-storage spectrum, why-RAG, ingestion, retrieve-and-generate pattern, context window management, RAG vs. fine-tuning.
-- **32.1b** (32.1.6 - 32.1.8 + Exercises + What Comes Next): indexing strategies for large corpora, evaluation and failure modes, RAG vs. long-context.
-- **35.5a** (35.5.1 - 35.5.6): why-a-framework, deep dives into LangChain, LlamaIndex, Haystack, side-by-side comparison, framework-vs-from-scratch decision.
-- **35.5b** (35.5.8 - 35.5.10 + Exercises + What Comes Next): production hardening, compound AI systems and DSPy, retrieval-layer security.
+- **32.1b** (32.2.1 - 32.2.3 + Exercises + What Comes Next): indexing strategies for large corpora, evaluation and failure modes, RAG vs. long-context.
+- **35.5a** (35.6.1 - 35.6.6): why-a-framework, deep dives into LangChain, LlamaIndex, Haystack, side-by-side comparison, framework-vs-from-scratch decision.
+- **35.5b** (35.7.1 - 35.7.3 + Exercises + What Comes Next): production hardening, compound AI systems and DSPy, retrieval-layer security.
 
 ## Cross-reference rewrite results
 
@@ -53,22 +53,22 @@ Targeted prev/next nav block rewrites (preserving nav-num and nav-title): **9 se
 - The 2 P0 GIANT_SECTION items (0.3, 3.1) are resolved.
 - The 3 P1 GIANT_SECTION items targeted here (17.5, 32.1, 35.5) are resolved.
 - 1 GIANT_SECTION P1 remains for 19.3b (intentionally skipped: only 3 h2).
-- 1 new P1 emerged: `[DECISION_FRAMEWORK_EARLY] section-35.5b.html:90` (a Real-World Scenario callout sits at 19% of the smaller B file; it is content inherited unchanged from the original 35.5 and would require a content rearrangement to push later in the file, out of scope for a mechanical split).
+- 1 new P1 emerged: `[DECISION_FRAMEWORK_EARLY] section-35.7.html:90` (a Real-World Scenario callout sits at 19% of the smaller B file; it is content inherited unchanged from the original 35.5 and would require a content rearrangement to push later in the file, out of scope for a mechanical split).
 - Pre-existing P2 issues inherited by the new files (CALLOUT_INTERNAL, CONSECUTIVE_HEADINGS, MISSING_OUTPUT) carried over from original section text; not regressions caused by the split.
 
 ## Files produced
 
 ```
-part-1-llm-building-blocks/module-00-ml-pytorch-foundations/section-0.3a.html
-part-1-llm-building-blocks/module-00-ml-pytorch-foundations/section-0.3b.html
-part-1-llm-building-blocks/module-03-transformer-architecture/section-3.1a.html
-part-1-llm-building-blocks/module-03-transformer-architecture/section-3.1b.html
-part-4-training-adaptation/module-17-peft/section-17.5a.html
-part-4-training-adaptation/module-17-peft/section-17.5b.html
-part-7-retrieval-information-extraction-with-llms/module-32-rag/section-32.1a.html
-part-7-retrieval-information-extraction-with-llms/module-32-rag/section-32.1b.html
-part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.5a.html
-part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.5b.html
+part-1-llm-building-blocks/module-00-ml-pytorch-foundations/section-0.3.html
+part-1-llm-building-blocks/module-00-ml-pytorch-foundations/section-0.4.html
+part-1-llm-building-blocks/module-03-transformer-architecture/section-3.1.html
+part-1-llm-building-blocks/module-03-transformer-architecture/section-3.2.html
+part-4-training-adaptation/module-17-peft/section-17.5.html
+part-4-training-adaptation/module-17-peft/section-17.6.html
+part-7-retrieval-information-extraction-with-llms/module-32-rag/section-32.1.html
+part-7-retrieval-information-extraction-with-llms/module-32-rag/section-32.2.html
+part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.6.html
+part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.7.html
 ```
 
 ## Files deleted
@@ -84,7 +84,7 @@ part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section
 ## Skipped
 
 ```
-part-4-training-adaptation/module-19-tools-of-the-trade/section-19.3b.html
+part-4-training-adaptation/module-19-tools-of-the-trade/section-19.4.html
 ```
 1210 lines but only 3 h2 (PySpark, Delta Lake, Feature Stores). A clean h2-boundary split is not possible; would need a finer-grained restructuring (introducing intermediate h2 headings) that is out of scope for this wave.
 

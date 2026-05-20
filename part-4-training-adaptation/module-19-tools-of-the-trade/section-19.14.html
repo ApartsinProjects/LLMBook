@@ -13,8 +13,8 @@ gtag('config', 'G-PWPHBQL2VL');
 </script>
 
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<meta content="Section 19.14: Ray Train, Ray Serve, and Ray Data. The Ray stack for distributed LLM training, scalable preprocessing pipelines, and production model serving." name="description"/>
-<title>Section 19.14: Ray Train, Ray Serve, and Ray Data</title>
+<meta content="Section 19.14: Distributed Training Deep Dive. Distributed-training strategies in depth: DDP, FSDP2, DeepSpeed ZeRO, tensor parallel, pipeline parallel, and 3D parallelism." name="description"/>
+<title>Section 19.14: Distributed Training Deep Dive</title>
 <link href="../../styles/book.css" rel="stylesheet"/>
 <link href="../../styles/pygments.css" rel="stylesheet"/>
 <script defer="" src="../../scripts/book.js"></script>
@@ -32,333 +32,157 @@ gtag('config', 'G-PWPHBQL2VL');
 <div class="header-search"><div id="search"></div></div>
 
 <div class="page-breadcrumb" data-pagefind-meta="chapter"><a href="../index.html">Part IV: LLM Training and Adaptation</a><span class="bc-sep">›</span><a href="index.html">Chapter 19: Tools of the Trade: Training &amp; Adaptation Stack</a></div>
-<h1>Ray Train, Ray Serve, and Ray Data</h1><div class="page-current">Section 19.14</div>
+<h1>Distributed Training Deep Dive</h1><div class="page-current">Section 19.14</div>
 
 </header>
 <main class="content" id="main-content"><span class="pagefind-meta-injected" data-pagefind-meta="part:Part IV: LLM Training and Adaptation" hidden=""></span><span class="pagefind-meta-injected" data-pagefind-meta="chapter:Chapter 19: Tools of the Trade: Training &amp; Adaptation Stack" hidden=""></span>
-<h2 id="19-2-ray-train-serve-data">Ray Train, Ray Serve, and Ray Data</h2>
+<h2 id="19-2-distributed-training-deep-dive">Distributed Training Deep Dive</h2>
 <div class="callout big-picture">
-<div class="callout-title">Big Picture</div>
-<p>Ray is a distributed computing framework that scales Python workloads from a laptop to a multi-node GPU cluster with minimal code changes. Its ML-specific libraries, Ray Train, Ray Serve, and Ray Data, cover the full lifecycle from data loading through distributed training to production inference. Unlike Spark, which excels at data-parallel transformations, Ray provides the flexibility to distribute arbitrary Python functions, making it the preferred framework for distributed LLM training and serving (complementing the inference engines covered in <a href="../../part-2-understanding-llms/module-10-interpretability/section-10.6a.html#12-2-vllm-deep-dive">Section 10.6 (vLLM Deep Dive)</a>).</p>
+<div class="callout-title">Big Picture: What this section is</div>
+<p>The practitioner reference for choosing and launching a parallelism strategy. Conceptual treatment of why scale matters is in <a href="../../part-2-understanding-llms/module-06-pretraining-scaling-laws/index.html">Chapter 6 (Pretraining and Scaling Laws)</a>; this section is the engineering counterpart: which <code>torchrun</code>, <code>accelerate</code>, or <code>deepspeed</code> command to run, what changes in the script, and what the memory math says about whether your job will fit.</p>
+<p>The five strategies here (<strong>DDP</strong> Distributed Data Parallel, <strong>FSDP</strong> Fully Sharded Data Parallel, <strong>ZeRO</strong>-1/2/3 the Zero Redundancy Optimizer from DeepSpeed, plus pipeline and tensor parallelism) compose into the 3D parallelism used to pretrain frontier models. We walk the ladder from the simplest case (model fits on one GPU, scale by adding ranks) up to the hardest (a 70B+ model sliced along layers and tensor dimensions across hundreds of GPUs). At each rung we cover the memory math, the launcher command, and the failure modes you actually hit. Cross-references to <a href="../../part-4-training-adaptation/module-19-tools-of-the-trade/section-19.11.html#19-2-weights-and-biases-deep-dive">Section 19.11 (Libraries &amp; Frameworks)</a> for run logging and <a href="../../part-2-understanding-llms/module-10-interpretability/section-10.7.html#12-2-vllm-deep-dive">Section 10.7 (Libraries &amp; Frameworks)</a> for what happens after training are flagged inline.</p>
 </div>
-<h3 id="o-5-1-ray-core-distributed-python-primitives">O.5.1 Ray Core: Distributed Python Primitives</h3>
-<p>
-        Ray's foundation is a set of simple primitives that turn ordinary Python functions and classes into
-        distributed objects. The <code>@ray.remote</code> decorator converts a function into a
-        <strong>task</strong> that runs asynchronously on any node in the cluster, and converts a class
-        into an <strong>actor</strong> that maintains state across calls. Ray handles scheduling,
-        serialization, and fault recovery transparently.
-    </p>
-<div class="code-block-wrapper">
-<pre><code class="pygments-highlighted lang-bash"><span class="c1"># Install Ray with ML dependencies</span>
-pip<span class="w"> </span>install<span class="w"> </span><span class="s2">"ray[default,train,serve,data]"</span>
-
-<span class="c1"># Start a local Ray cluster (for development)</span>
-ray<span class="w"> </span>start<span class="w"> </span>--head<span class="w"> </span>--num-gpus<span class="w"> </span><span class="m">2</span>
-
-<span class="c1"># Or connect to an existing cluster</span>
-<span class="c1"># ray start --address='192.168.1.100:6379'</span></code></pre>
-<div class="code-caption"><strong>Code Fragment m.4.1:</strong> Ray's foundation is a set of simple primitives that turn ordinary Python functions and classes into distributed objects.</div>
+<div class="prerequisites">
+<h3 id="prerequisites">Prerequisites</h3>
+<p>This section assumes basic familiarity with single-GPU PyTorch training (forward pass, backward pass, optimizer step) from <a href="../../part-1-llm-building-blocks/module-00-ml-pytorch-foundations/section-0.3.html">Section 0.3</a>, the Adam optimizer (which stores two running statistics per parameter), mixed-precision training (bf16 = brain-float-16), and the transformer block structure from <a href="../../part-1-llm-building-blocks/module-03-transformer-architecture/index.html">Chapter 3</a>. <em>NCCL</em> (NVIDIA Collective Communications Library) is the GPU-to-GPU communication backend that the strategies below rely on for fast all-reduce and all-gather operations.</p>
 </div>
-<div class="code-block-wrapper">
-<pre><code class="pygments-highlighted lang-python"><span class="kn">import</span><span class="w"> </span><span class="nn">ray</span>
-
-<span class="c1"># Initialize Ray (connects to local cluster or starts one)</span>
-<span class="n">ray</span><span class="o">.</span><span class="n">init</span><span class="p">()</span>
-
-<span class="c1"># A remote function runs as a distributed task</span>
-<span class="nd">@ray</span><span class="o">.</span><span class="n">remote</span><span class="p">(</span><span class="n">num_gpus</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">compute_embeddings</span><span class="p">(</span><span class="n">texts</span><span class="p">,</span> <span class="n">model_name</span><span class="o">=</span><span class="s2">"sentence-transformers/all-MiniLM-L6-v2"</span><span class="p">):</span>
-    <span class="kn">from</span><span class="w"> </span><span class="nn">sentence_transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">SentenceTransformer</span>
-    <span class="n">model</span> <span class="o">=</span> <span class="n">SentenceTransformer</span><span class="p">(</span><span class="n">model_name</span><span class="p">)</span>
-    <span class="k">return</span> <span class="n">model</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="n">texts</span><span class="p">,</span> <span class="n">show_progress_bar</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
-
-<span class="c1"># Launch 4 parallel tasks across available GPUs</span>
-<span class="n">text_batches</span> <span class="o">=</span> <span class="p">[</span><span class="n">texts</span><span class="p">[</span><span class="n">i</span><span class="p">::</span><span class="mi">4</span><span class="p">]</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">4</span><span class="p">)]</span>
-<span class="n">futures</span> <span class="o">=</span> <span class="p">[</span><span class="n">compute_embeddings</span><span class="o">.</span><span class="n">remote</span><span class="p">(</span><span class="n">batch</span><span class="p">)</span> <span class="k">for</span> <span class="n">batch</span> <span class="ow">in</span> <span class="n">text_batches</span><span class="p">]</span>
-
-<span class="c1"># Collect results (blocks until all tasks complete)</span>
-<span class="n">all_embeddings</span> <span class="o">=</span> <span class="n">ray</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">futures</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Computed embeddings for </span><span class="si">{</span><span class="nb">sum</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="w"> </span><span class="k">for</span><span class="w"> </span><span class="n">e</span><span class="w"> </span><span class="ow">in</span><span class="w"> </span><span class="n">all_embeddings</span><span class="p">)</span><span class="si">}</span><span class="s2"> texts"</span><span class="p">)</span></code></pre>
-<div class="code-output"><span class="output-label"><strong>Output:</strong></span> Megatron-LM configuration:
-  Tensor parallel: 2
-  Pipeline parallel: 2
-  Data parallel: 1
-  Total GPUs: 4
-  Model: GPT-2 (1.5B parameters)</div>
-<div class="code-caption"><strong>Code Fragment m.4.2:</strong> Initialize Ray (connects to local cluster or starts one).</div>
-</div>
+<h3 id="n-1-1-the-memory-math-why-you-need-parallelism-at-all">N.1.1 The Memory Math: Why You Need Parallelism at All</h3>
+<p>Before choosing a strategy you need to know whether your job fits. For an LLM in mixed precision (bf16 weights, fp32 optimizer state), Adam needs roughly <strong>20 bytes per parameter</strong>: 2 for the bf16 weight, 4 for the fp32 master, 4 for the gradient, 8 for the two Adam moments. A 7B model therefore needs ~140 GB of static optimizer-state memory before any activation; an 80 GB H100 cannot hold it without sharding. Activations are the second variable: a 7B Llama at seqlen 4096, batch 4 per GPU adds ~30-40 GB on top. Activation checkpointing (recompute on backward) trades ~30% extra FLOPs for a 4-8x activation-memory reduction and is on by default in modern scripts.</p>
 <div class="callout key-insight">
 <div class="callout-title">Key Insight</div>
-<p>Ray's programming model is "distributed Python," not "distributed SQL" or "distributed MapReduce." Any Python function can become a distributed task, and any Python class can become a stateful actor. This generality is why Ray has become the standard framework for distributed LLM training: training loops are complex Python programs with GPU state, optimizer state, and gradient communication that do not fit neatly into Spark's functional paradigm.</p>
+<p>The right question is not "do I have enough GPUs" but "what is my static memory floor and what is my activation budget". DDP replicates the static memory on every GPU; FSDP and ZeRO-3 shard it. If your model's static state exceeds one GPU's VRAM, DDP is not an option no matter how many GPUs you have.</p>
 </div>
-<h3 id="o-5-2-ray-train-distributed-model-training">O.5.2 Ray Train: Distributed Model Training</h3>
-<p>
-        Ray Train provides a unified API for distributed training across multiple backends: PyTorch
-        DDP, DeepSpeed, <a class="concept-link" href="../../part-2-understanding-llms/module-10-interpretability/section-10.6a.html#12-2-huggingface-transformers-deep-dive" title="HuggingFace: Transformers, Datasets, and Hub">Hugging Face</a> Accelerate, and TensorFlow. The key abstraction is the
-        <code>TorchTrainer</code>, which wraps your training function and handles process spawning, GPU
-        assignment, distributed data loading, and checkpoint management. You write a standard single-GPU
-        training loop, and Ray Train scales it to multiple GPUs or nodes.
-    </p>
+<h3 id="n-1-2-distributed-data-parallel-ddp-the-simplest-case">N.1.2 Distributed Data Parallel (DDP): The Simplest Case</h3>
+<p>DDP is the default when the model fits on a single GPU and you want to scale throughput by processing more data per step. Each rank holds a full replica, processes a different mini-batch, and synchronizes gradients via an all-reduce after the backward pass. The PyTorch implementation in <code>torch.distributed</code> uses NCCL on NVIDIA hardware and is the baseline against which every other strategy is measured. The script reads its rank from environment variables and wraps the model in <code>DistributedDataParallel</code>:</p>
 <div class="code-block-wrapper">
-<pre><code class="pygments-highlighted lang-python"><span class="kn">import</span><span class="w"> </span><span class="nn">ray.train</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">ray.train.torch</span><span class="w"> </span><span class="kn">import</span> <span class="n">TorchTrainer</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">ray.train</span><span class="w"> </span><span class="kn">import</span> <span class="n">ScalingConfig</span><span class="p">,</span> <span class="n">RunConfig</span><span class="p">,</span> <span class="n">CheckpointConfig</span>
+<pre><code class="pygments-highlighted lang-python"><span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch.distributed</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">dist</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torch.nn.parallel</span><span class="w"> </span><span class="kn">import</span> <span class="n">DistributedDataParallel</span> <span class="k">as</span> <span class="n">DDP</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">AutoModelForCausalLM</span><span class="p">,</span> <span class="n">AutoTokenizer</span>
 
-<span class="k">def</span><span class="w"> </span><span class="nf">train_fn</span><span class="p">(</span><span class="n">config</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">"""Standard PyTorch training function, run on each worker."""</span>
-    <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
-    <span class="kn">from</span><span class="w"> </span><span class="nn">transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">AutoModelForCausalLM</span><span class="p">,</span> <span class="n">AutoTokenizer</span>
-    <span class="kn">from</span><span class="w"> </span><span class="nn">torch.utils.data</span><span class="w"> </span><span class="kn">import</span> <span class="n">DataLoader</span>
-
-    <span class="c1"># Ray Train automatically sets the correct local rank and device</span>
-    <span class="n">model</span> <span class="o">=</span> <span class="n">AutoModelForCausalLM</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span><span class="n">config</span><span class="p">[</span><span class="s2">"model_name"</span><span class="p">])</span>
-    <span class="n">model</span> <span class="o">=</span> <span class="n">ray</span><span class="o">.</span><span class="n">train</span><span class="o">.</span><span class="n">torch</span><span class="o">.</span><span class="n">prepare_model</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>  <span class="c1"># Wraps in DDP</span>
-
-    <span class="n">tokenizer</span> <span class="o">=</span> <span class="n">AutoTokenizer</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span><span class="n">config</span><span class="p">[</span><span class="s2">"model_name"</span><span class="p">])</span>
-
-    <span class="c1"># Load data through Ray Data (see O.5.4)</span>
-    <span class="n">train_ds</span> <span class="o">=</span> <span class="n">ray</span><span class="o">.</span><span class="n">train</span><span class="o">.</span><span class="n">get_dataset_shard</span><span class="p">(</span><span class="s2">"train"</span><span class="p">)</span>
-    <span class="n">train_loader</span> <span class="o">=</span> <span class="n">train_ds</span><span class="o">.</span><span class="n">iter_torch_batches</span><span class="p">(</span><span class="n">batch_size</span><span class="o">=</span><span class="n">config</span><span class="p">[</span><span class="s2">"batch_size"</span><span class="p">])</span>
-
-    <span class="n">optimizer</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">optim</span><span class="o">.</span><span class="n">AdamW</span><span class="p">(</span><span class="n">model</span><span class="o">.</span><span class="n">parameters</span><span class="p">(),</span> <span class="n">lr</span><span class="o">=</span><span class="n">config</span><span class="p">[</span><span class="s2">"lr"</span><span class="p">])</span>
-
-    <span class="k">for</span> <span class="n">epoch</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">config</span><span class="p">[</span><span class="s2">"epochs"</span><span class="p">]):</span>
-        <span class="n">total_loss</span> <span class="o">=</span> <span class="mi">0</span>
-        <span class="k">for</span> <span class="n">batch</span> <span class="ow">in</span> <span class="n">train_loader</span><span class="p">:</span>
-            <span class="n">input_ids</span> <span class="o">=</span> <span class="n">batch</span><span class="p">[</span><span class="s2">"input_ids"</span><span class="p">]</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">ray</span><span class="o">.</span><span class="n">train</span><span class="o">.</span><span class="n">torch</span><span class="o">.</span><span class="n">get_device</span><span class="p">())</span>
-            <span class="n">labels</span> <span class="o">=</span> <span class="n">batch</span><span class="p">[</span><span class="s2">"labels"</span><span class="p">]</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">ray</span><span class="o">.</span><span class="n">train</span><span class="o">.</span><span class="n">torch</span><span class="o">.</span><span class="n">get_device</span><span class="p">())</span>
-
-            <span class="n">outputs</span> <span class="o">=</span> <span class="n">model</span><span class="p">(</span><span class="n">input_ids</span><span class="o">=</span><span class="n">input_ids</span><span class="p">,</span> <span class="n">labels</span><span class="o">=</span><span class="n">labels</span><span class="p">)</span>
-            <span class="n">loss</span> <span class="o">=</span> <span class="n">outputs</span><span class="o">.</span><span class="n">loss</span>
-            <span class="n">loss</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
-            <span class="n">optimizer</span><span class="o">.</span><span class="n">step</span><span class="p">()</span>
-            <span class="n">optimizer</span><span class="o">.</span><span class="n">zero_grad</span><span class="p">()</span>
-            <span class="n">total_loss</span> <span class="o">+=</span> <span class="n">loss</span><span class="o">.</span><span class="n">item</span><span class="p">()</span>
-
-        <span class="c1"># Report metrics to Ray Train</span>
-        <span class="n">ray</span><span class="o">.</span><span class="n">train</span><span class="o">.</span><span class="n">report</span><span class="p">({</span><span class="s2">"epoch"</span><span class="p">:</span> <span class="n">epoch</span><span class="p">,</span> <span class="s2">"loss"</span><span class="p">:</span> <span class="n">total_loss</span><span class="p">})</span>
-
-<span class="c1"># Configure distributed training</span>
-<span class="n">trainer</span> <span class="o">=</span> <span class="n">TorchTrainer</span><span class="p">(</span>
-    <span class="n">train_loop_per_worker</span><span class="o">=</span><span class="n">train_fn</span><span class="p">,</span>
-    <span class="n">train_loop_config</span><span class="o">=</span><span class="p">{</span>
-        <span class="s2">"model_name"</span><span class="p">:</span> <span class="s2">"meta-llama/Llama-3.1-8B"</span><span class="p">,</span>
-        <span class="s2">"batch_size"</span><span class="p">:</span> <span class="mi">4</span><span class="p">,</span>
-        <span class="s2">"lr"</span><span class="p">:</span> <span class="mf">2e-5</span><span class="p">,</span>
-        <span class="s2">"epochs"</span><span class="p">:</span> <span class="mi">3</span><span class="p">,</span>
-    <span class="p">},</span>
-    <span class="n">scaling_config</span><span class="o">=</span><span class="n">ScalingConfig</span><span class="p">(</span>
-        <span class="n">num_workers</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>           <span class="c1"># 4 GPU workers</span>
-        <span class="n">use_gpu</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-        <span class="n">resources_per_worker</span><span class="o">=</span><span class="p">{</span><span class="s2">"GPU"</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span> <span class="s2">"CPU"</span><span class="p">:</span> <span class="mi">8</span><span class="p">},</span>
-    <span class="p">),</span>
-    <span class="n">run_config</span><span class="o">=</span><span class="n">RunConfig</span><span class="p">(</span>
-        <span class="n">name</span><span class="o">=</span><span class="s2">"llama-sft-distributed"</span><span class="p">,</span>
-        <span class="n">checkpoint_config</span><span class="o">=</span><span class="n">CheckpointConfig</span><span class="p">(</span><span class="n">num_to_keep</span><span class="o">=</span><span class="mi">2</span><span class="p">),</span>
-    <span class="p">),</span>
-    <span class="n">datasets</span><span class="o">=</span><span class="p">{</span><span class="s2">"train"</span><span class="p">:</span> <span class="n">ray_dataset</span><span class="p">},</span>  <span class="c1"># Ray Data dataset</span>
-<span class="p">)</span>
-
-<span class="n">result</span> <span class="o">=</span> <span class="n">trainer</span><span class="o">.</span><span class="n">fit</span><span class="p">()</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Final loss: </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">metrics</span><span class="p">[</span><span class="s1">'loss'</span><span class="p">]</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span></code></pre>
-<div class="code-output"><span class="output-label"><strong>Output:</strong></span> Pipeline parallel training:
-  Microbatch size: 4
-  Num microbatches: 8
-  Pipeline stages: 4
-  Bubble overhead: 12%
-  Throughput: 2,100 tokens/sec</div>
-<div class="code-caption"><strong>Code Fragment L.5.2:</strong> Import ray.train</div>
-</div>
-<h3 id="o-5-3-integrating-deepspeed-with-ray-train">O.5.3 Integrating DeepSpeed with Ray Train</h3>
-<p>
-        For large models that do not fit on a single GPU, Ray Train integrates with DeepSpeed's ZeRO
-        optimizer stages. ZeRO (Zero Redundancy Optimizer) partitions optimizer states, gradients, and
-        model parameters across workers, dramatically reducing per-GPU memory requirements. Ray Train
-        handles the DeepSpeed configuration and process coordination, so you only need to provide a
-        DeepSpeed config file.
-    </p>
-<div class="code-block-wrapper">
-<pre><code class="pygments-highlighted lang-python"><span class="kn">from</span><span class="w"> </span><span class="nn">ray.train.torch</span><span class="w"> </span><span class="kn">import</span> <span class="n">TorchTrainer</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">ray.train</span><span class="w"> </span><span class="kn">import</span> <span class="n">ScalingConfig</span>
-
-<span class="c1"># DeepSpeed ZeRO Stage 3 configuration</span>
-<span class="n">deepspeed_config</span> <span class="o">=</span> <span class="p">{</span>
-    <span class="s2">"train_batch_size"</span><span class="p">:</span> <span class="s2">"auto"</span><span class="p">,</span>
-    <span class="s2">"train_micro_batch_size_per_gpu"</span><span class="p">:</span> <span class="mi">2</span><span class="p">,</span>
-    <span class="s2">"gradient_accumulation_steps"</span><span class="p">:</span> <span class="s2">"auto"</span><span class="p">,</span>
-    <span class="s2">"zero_optimization"</span><span class="p">:</span> <span class="p">{</span>
-        <span class="s2">"stage"</span><span class="p">:</span> <span class="mi">3</span><span class="p">,</span>
-        <span class="s2">"offload_optimizer"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"device"</span><span class="p">:</span> <span class="s2">"cpu"</span><span class="p">,</span> <span class="s2">"pin_memory"</span><span class="p">:</span> <span class="kc">True</span><span class="p">},</span>
-        <span class="s2">"offload_param"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"device"</span><span class="p">:</span> <span class="s2">"cpu"</span><span class="p">,</span> <span class="s2">"pin_memory"</span><span class="p">:</span> <span class="kc">True</span><span class="p">},</span>
-        <span class="s2">"overlap_comm"</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
-        <span class="s2">"contiguous_gradients"</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
-    <span class="p">},</span>
-    <span class="s2">"bf16"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"enabled"</span><span class="p">:</span> <span class="kc">True</span><span class="p">},</span>
-    <span class="s2">"gradient_clipping"</span><span class="p">:</span> <span class="mf">1.0</span><span class="p">,</span>
-<span class="p">}</span>
-
-<span class="k">def</span><span class="w"> </span><span class="nf">train_fn_deepspeed</span><span class="p">(</span><span class="n">config</span><span class="p">):</span>
-    <span class="kn">import</span><span class="w"> </span><span class="nn">deepspeed</span>
-    <span class="kn">from</span><span class="w"> </span><span class="nn">transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">AutoModelForCausalLM</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">():</span>
+    <span class="n">dist</span><span class="o">.</span><span class="n">init_process_group</span><span class="p">(</span><span class="n">backend</span><span class="o">=</span><span class="s2">&quot;nccl&quot;</span><span class="p">)</span>
+    <span class="n">local_rank</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">&quot;LOCAL_RANK&quot;</span><span class="p">])</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">set_device</span><span class="p">(</span><span class="n">local_rank</span><span class="p">)</span>
 
     <span class="n">model</span> <span class="o">=</span> <span class="n">AutoModelForCausalLM</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span>
-        <span class="n">config</span><span class="p">[</span><span class="s2">"model_name"</span><span class="p">],</span> <span class="n">torch_dtype</span><span class="o">=</span><span class="s2">"auto"</span>
-    <span class="p">)</span>
-    <span class="c1"># Ray Train + DeepSpeed: model is wrapped automatically</span>
-    <span class="n">model</span> <span class="o">=</span> <span class="n">ray</span><span class="o">.</span><span class="n">train</span><span class="o">.</span><span class="n">torch</span><span class="o">.</span><span class="n">prepare_model</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
+        <span class="s2">&quot;meta-llama/Llama-3.2-1B&quot;</span><span class="p">,</span> <span class="n">torch_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span>
+    <span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">local_rank</span><span class="p">)</span>
+    <span class="n">model</span> <span class="o">=</span> <span class="n">DDP</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">device_ids</span><span class="o">=</span><span class="p">[</span><span class="n">local_rank</span><span class="p">])</span>
 
-    <span class="c1"># ... training loop identical to O.5.2 ...</span>
+    <span class="n">optimizer</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">optim</span><span class="o">.</span><span class="n">AdamW</span><span class="p">(</span><span class="n">model</span><span class="o">.</span><span class="n">parameters</span><span class="p">(),</span> <span class="n">lr</span><span class="o">=</span><span class="mf">2e-5</span><span class="p">)</span>
+    <span class="c1"># ... training loop with DistributedSampler ...</span>
+    <span class="n">dist</span><span class="o">.</span><span class="n">destroy_process_group</span><span class="p">()</span>
 
-<span class="n">trainer</span> <span class="o">=</span> <span class="n">TorchTrainer</span><span class="p">(</span>
-    <span class="n">train_loop_per_worker</span><span class="o">=</span><span class="n">train_fn_deepspeed</span><span class="p">,</span>
-    <span class="n">train_loop_config</span><span class="o">=</span><span class="p">{</span><span class="s2">"model_name"</span><span class="p">:</span> <span class="s2">"meta-llama/Llama-3.1-70B"</span><span class="p">},</span>
-    <span class="n">scaling_config</span><span class="o">=</span><span class="n">ScalingConfig</span><span class="p">(</span><span class="n">num_workers</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">use_gpu</span><span class="o">=</span><span class="kc">True</span><span class="p">),</span>
-    <span class="n">torch_config</span><span class="o">=</span><span class="n">ray</span><span class="o">.</span><span class="n">train</span><span class="o">.</span><span class="n">torch</span><span class="o">.</span><span class="n">TorchConfig</span><span class="p">(</span>
-        <span class="n">backend</span><span class="o">=</span><span class="s2">"nccl"</span><span class="p">,</span>
-    <span class="p">),</span>
-    <span class="c1"># Pass DeepSpeed config directly</span>
-<span class="p">)</span></code></pre><div class="code-caption"><strong>Code Fragment L.5.3:</strong> DeepSpeed ZeRO Stage 3 configuration</div>
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="n">main</span><span class="p">()</span></code></pre>
+<div class="code-caption"><strong>Code Fragment m.1.1:</strong> DDP is the default when the model fits on a single GPU and you want to scale throughput by processing more data.</div>
 </div>
-<div class="callout tip">
-<div class="callout-title">Tip</div>
-<p>When training 70B+ parameter models, start with DeepSpeed ZeRO Stage 3 with CPU offloading. If training is too slow due to CPU offload overhead, remove parameter offloading first (keep only optimizer offloading). If you have enough GPU memory across your cluster, try ZeRO Stage 2, which avoids the communication overhead of parameter partitioning. See the DeepSpeed documentation for detailed memory estimation formulas.</p>
-</div>
-<h3 id="o-5-4-ray-data-streaming-data-pipelines">O.5.4 Ray Data: Streaming Data Pipelines</h3>
-<p>
-        Ray Data provides a distributed data processing library designed for ML workloads. Unlike Spark,
-        which materializes intermediate results, Ray Data uses <strong>streaming execution</strong> that
-        pipelines data loading, preprocessing, and training. This is critical for LLM training where
-        datasets may be hundreds of gigabytes: you cannot afford to load the entire dataset into memory
-        before training begins.
-    </p>
+<p>Launch with <code>torchrun --nproc-per-node=8 train.py</code> on a single node, or <code>torchrun --nnodes=4 --nproc-per-node=8 --rdzv-backend=c10d --rdzv-endpoint=$MASTER:29500 train.py</code> for multi-node. The <a href="https://pytorch.org/docs/stable/elastic/run.html" target="_blank" rel="noopener">torchrun docs</a> describe elastic restart semantics; <a href="https://docs.aws.amazon.com/sagemaker/latest/dg/distributed-training-pytorch.html" target="_blank" rel="noopener">SageMaker</a> and <a href="https://learn.microsoft.com/en-us/azure/machine-learning/how-to-train-distributed-gpu" target="_blank" rel="noopener">Azure ML</a> wrap this with rendezvous services so you do not maintain the cluster yourself.</p>
+<h3 id="n-1-3-fully-sharded-data-parallel-fsdp">N.1.3 Fully Sharded Data Parallel (FSDP)</h3>
+<p>When the model no longer fits on one GPU, the cheapest upgrade is FSDP (FSDP2, the rewritten API, stable in <a href="https://pytorch.org/blog/pytorch-2-4/" target="_blank" rel="noopener">PyTorch 2.4 (2024)</a>). FSDP shards weights, gradients, and optimizer states across ranks; each rank gathers parameters for the current layer, computes, then frees them. Two strategies: <strong>FULL_SHARD</strong> (lowest memory) and <strong>HYBRID_SHARD</strong> (full shard within a node, replicate across nodes), the default for bandwidth-limited fabrics:</p>
 <div class="code-block-wrapper">
-<pre><code class="pygments-highlighted lang-python"><span class="kn">import</span><span class="w"> </span><span class="nn">ray.data</span>
+<pre><code class="pygments-highlighted lang-python"><span class="kn">from</span><span class="w"> </span><span class="nn">torch.distributed.fsdp</span><span class="w"> </span><span class="kn">import</span> <span class="n">FullyShardedDataParallel</span> <span class="k">as</span> <span class="n">FSDP</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torch.distributed.fsdp</span><span class="w"> </span><span class="kn">import</span> <span class="n">ShardingStrategy</span><span class="p">,</span> <span class="n">MixedPrecision</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torch.distributed.fsdp.wrap</span><span class="w"> </span><span class="kn">import</span> <span class="n">transformer_auto_wrap_policy</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">transformers.models.llama.modeling_llama</span><span class="w"> </span><span class="kn">import</span> <span class="n">LlamaDecoderLayer</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">functools</span><span class="o">,</span><span class="w"> </span><span class="nn">torch</span>
 
-<span class="c1"># Read a large dataset in streaming fashion</span>
-<span class="n">ds</span> <span class="o">=</span> <span class="n">ray</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">read_parquet</span><span class="p">(</span><span class="s2">"s3://bucket/delta/instruction_pairs/"</span><span class="p">)</span>
-
-<span class="c1"># Apply preprocessing as a streaming transformation</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">tokenize_batch</span><span class="p">(</span><span class="n">batch</span><span class="p">,</span> <span class="n">tokenizer_name</span><span class="o">=</span><span class="s2">"meta-llama/Llama-3.1-8B"</span><span class="p">):</span>
-    <span class="kn">from</span><span class="w"> </span><span class="nn">transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">AutoTokenizer</span>
-    <span class="n">tokenizer</span> <span class="o">=</span> <span class="n">AutoTokenizer</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span><span class="n">tokenizer_name</span><span class="p">)</span>
-
-    <span class="n">encodings</span> <span class="o">=</span> <span class="n">tokenizer</span><span class="p">(</span>
-        <span class="n">batch</span><span class="p">[</span><span class="s2">"instruction"</span><span class="p">]</span><span class="o">.</span><span class="n">tolist</span><span class="p">(),</span>
-        <span class="n">padding</span><span class="o">=</span><span class="s2">"max_length"</span><span class="p">,</span>
-        <span class="n">truncation</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-        <span class="n">max_length</span><span class="o">=</span><span class="mi">512</span><span class="p">,</span>
-        <span class="n">return_tensors</span><span class="o">=</span><span class="s2">"np"</span><span class="p">,</span>
-    <span class="p">)</span>
-    <span class="n">batch</span><span class="p">[</span><span class="s2">"input_ids"</span><span class="p">]</span> <span class="o">=</span> <span class="n">encodings</span><span class="p">[</span><span class="s2">"input_ids"</span><span class="p">]</span>
-    <span class="n">batch</span><span class="p">[</span><span class="s2">"attention_mask"</span><span class="p">]</span> <span class="o">=</span> <span class="n">encodings</span><span class="p">[</span><span class="s2">"attention_mask"</span><span class="p">]</span>
-    <span class="k">return</span> <span class="n">batch</span>
-
-<span class="c1"># Map runs in parallel across the cluster</span>
-<span class="n">tokenized_ds</span> <span class="o">=</span> <span class="n">ds</span><span class="o">.</span><span class="n">map_batches</span><span class="p">(</span>
-    <span class="n">tokenize_batch</span><span class="p">,</span>
-    <span class="n">batch_format</span><span class="o">=</span><span class="s2">"pandas"</span><span class="p">,</span>
-    <span class="n">batch_size</span><span class="o">=</span><span class="mi">256</span><span class="p">,</span>
-    <span class="n">num_cpus</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>  <span class="c1"># CPU resources per map task</span>
+<span class="n">mp</span> <span class="o">=</span> <span class="n">MixedPrecision</span><span class="p">(</span>
+    <span class="n">param_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">,</span>
+    <span class="n">reduce_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">,</span>
+    <span class="n">buffer_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">wrap_policy</span> <span class="o">=</span> <span class="n">functools</span><span class="o">.</span><span class="n">partial</span><span class="p">(</span>
+    <span class="n">transformer_auto_wrap_policy</span><span class="p">,</span>
+    <span class="n">transformer_layer_cls</span><span class="o">=</span><span class="p">{</span><span class="n">LlamaDecoderLayer</span><span class="p">},</span>
 <span class="p">)</span>
 
-<span class="c1"># Stream directly into training (no materialization)</span>
-<span class="k">for</span> <span class="n">batch</span> <span class="ow">in</span> <span class="n">tokenized_ds</span><span class="o">.</span><span class="n">iter_torch_batches</span><span class="p">(</span><span class="n">batch_size</span><span class="o">=</span><span class="mi">8</span><span class="p">):</span>
-    <span class="nb">print</span><span class="p">(</span><span class="n">batch</span><span class="p">[</span><span class="s2">"input_ids"</span><span class="p">]</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
-    <span class="k">break</span>  <span class="c1"># Just demonstrating the interface</span></code></pre>
-<div class="code-output"><span class="output-label"><strong>Output:</strong></span> Tensor parallel inference:
-  Input shape: [1, 128] (batch, seq_len)
-  Output shape: [1, 128, 50257] (batch, seq_len, vocab)
-  Split across 2 GPUs
-  Latency: 0.18s (vs 0.31s on single GPU)</div>
-<div class="code-caption"><strong>Code Fragment L.5.4:</strong> Read a large dataset in streaming fashion</div>
+<span class="n">model</span> <span class="o">=</span> <span class="n">FSDP</span><span class="p">(</span>
+    <span class="n">model</span><span class="p">,</span>
+    <span class="n">sharding_strategy</span><span class="o">=</span><span class="n">ShardingStrategy</span><span class="o">.</span><span class="n">HYBRID_SHARD</span><span class="p">,</span>  <span class="c1"># FULL_SHARD for single node</span>
+    <span class="n">auto_wrap_policy</span><span class="o">=</span><span class="n">wrap_policy</span><span class="p">,</span>
+    <span class="n">mixed_precision</span><span class="o">=</span><span class="n">mp</span><span class="p">,</span>
+    <span class="n">device_id</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">current_device</span><span class="p">(),</span>
+    <span class="n">use_orig_params</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<span class="p">)</span></code></pre>
+<div class="code-caption"><strong>Code Fragment m.1.2:</strong> When the model no longer fits on one GPU, the cheapest upgrade is FSDP (FSDP2, the rewritten API.</div>
 </div>
-<h3 id="o-5-5-ray-serve-production-model-serving">O.5.5 Ray Serve: Production Model Serving</h3>
-<p>
-        Ray Serve is a scalable model serving framework that handles request batching, model multiplexing,
-        and multi-model composition. Unlike dedicated inference engines such as vLLM or <a class="concept-link" href="../../part-2-understanding-llms/module-10-interpretability/section-10.6a.html#12-2-vllm-deep-dive" title="Section Q.2: Text Generation Inference (TGI)">TGI</a> (covered in
-        <a href="../../part-2-understanding-llms/module-10-interpretability/section-10.6a.html#12-2-vllm-deep-dive">Section 10.6 (vLLM Deep Dive)</a>), Ray Serve is a general-purpose
-        serving framework that can compose arbitrary Python logic with model inference. This makes it
-        ideal for multi-step pipelines where a request must pass through a retriever, a <a class="concept-link" href="../../part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.1a.html" title="Section 35.1: Advanced RAG Techniques">reranker</a>, and a
-        generator.
-    </p>
-<div class="code-block-wrapper">
-<pre><code class="pygments-highlighted lang-python"><span class="kn">from</span><span class="w"> </span><span class="nn">ray</span><span class="w"> </span><span class="kn">import</span> <span class="n">serve</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">ray.serve.handle</span><span class="w"> </span><span class="kn">import</span> <span class="n">DeploymentHandle</span>
+<p>The <code>auto_wrap_policy</code> matters more than people realise: wrap at the transformer-block level for clean compute-communication overlap. Wrap too coarsely (whole model) and you defeat sharding; wrap too finely (every <code>nn.Linear</code>) and you flood NCCL with tiny collectives. The <a href="https://huggingface.co/docs/accelerate/usage_guides/fsdp" target="_blank" rel="noopener">Hugging Face Accelerate FSDP guide (updated 2025)</a> documents the wrap policies for the major model families.</p>
+<h3 id="n-1-4-deepspeed-zero-three-stages-and-two-offloads">N.1.4 DeepSpeed ZeRO: Three Stages and Two Offloads</h3>
+<p>ZeRO (Zero Redundancy Optimizer) from Microsoft predates FSDP and remains the standard when you need <strong>offload to CPU or NVMe</strong>. ZeRO-1 shards optimizer states; ZeRO-2 also shards gradients; ZeRO-3 also shards parameters (equivalent to FSDP FULL_SHARD). ZeRO-Infinity spills optimizer states and parameters to NVMe, letting a single node train a 100B+ model at the cost of slower steps. The <a href="https://www.deepspeed.ai/2024/03/06/deepspeed-ulysses.html" target="_blank" rel="noopener">DeepSpeed Ulysses</a> work (March 2024) added sequence parallelism for long-context training, enabling million-token-context fine-tuning on commodity clusters. <a href="https://github.com/microsoft/DeepSpeed" target="_blank" rel="noopener">DeepSpeed</a> remains the project of choice when you need to mix ZeRO with pipeline parallelism in the same run.</p>
+<h3 id="n-1-5-pipeline-and-tensor-parallelism-when-sharding-is-not-enough">N.1.5 Pipeline and Tensor Parallelism: When Sharding is Not Enough</h3>
+<p>Beyond roughly 30B parameters, sharding alone runs out of room. <strong>Pipeline parallelism</strong> cuts the model into stages along its depth and streams micro-batches through them; the GPipe scheme and its 1F1B refinement are built into PyTorch as <a href="https://pytorch.org/docs/stable/distributed.pipelining.html" target="_blank" rel="noopener"><code>torch.distributed.pipelining</code></a> (stable in PyTorch 2.5, late 2024). <strong>Tensor parallelism</strong> splits individual matrices across GPUs so one GeMM is computed by several ranks in parallel; the Megatron-LM patterns (NVIDIA's 2024 Megatron-Core release exposes the kernels as a library) split QKV and MLP projections across the tensor-parallel group. Tensor parallelism is communication-heavy and stays inside a node where NVLink is fast; pipeline parallelism is communication-light and spans nodes.</p>
+<p>Frontier training composes all three axes into <strong>3D parallelism</strong> (DP across replica groups, PP across nodes, TP within a node), used by NVIDIA, Meta (Llama-3 added a 4D context-parallel variant), and DeepSeek. <a href="https://github.com/NVIDIA/Megatron-LM" target="_blank" rel="noopener">Megatron-LM</a> and <a href="https://github.com/NVIDIA/NeMo" target="_blank" rel="noopener">NeMo</a> are the production stacks; Hugging Face's <a href="https://github.com/huggingface/nanotron" target="_blank" rel="noopener">nanotron</a> (2024) is the readable reference implementation.</p>
+<h3 id="n-1-6-decision-table-which-strategy-fits">N.1.6 Decision Table: Which Strategy Fits</h3>
+<p>The table maps training scenarios to a recommended strategy. The <em>fits-on-one-GPU</em> column assumes 80 GB H100; halve for A100-40GB, quarter for a 24 GB consumer card.</p>
+<table>
+<caption><strong>Table m.1.1:</strong> <em>The table maps training scenarios to a recommended strategy.</em></caption>
 
-<span class="nd">@serve</span><span class="o">.</span><span class="n">deployment</span><span class="p">(</span>
-    <span class="n">num_replicas</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
-    <span class="n">ray_actor_options</span><span class="o">=</span><span class="p">{</span><span class="s2">"num_gpus"</span><span class="p">:</span> <span class="mi">1</span><span class="p">},</span>
-<span class="p">)</span>
-<span class="k">class</span><span class="w"> </span><span class="nc">LLMDeployment</span><span class="p">:</span>
-    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">model_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
-        <span class="kn">from</span><span class="w"> </span><span class="nn">vllm</span><span class="w"> </span><span class="kn">import</span> <span class="n">LLM</span><span class="p">,</span> <span class="n">SamplingParams</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">llm</span> <span class="o">=</span> <span class="n">LLM</span><span class="p">(</span><span class="n">model</span><span class="o">=</span><span class="n">model_name</span><span class="p">,</span> <span class="n">gpu_memory_utilization</span><span class="o">=</span><span class="mf">0.85</span><span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">default_params</span> <span class="o">=</span> <span class="n">SamplingParams</span><span class="p">(</span>
-            <span class="n">temperature</span><span class="o">=</span><span class="mf">0.7</span><span class="p">,</span> <span class="n">max_tokens</span><span class="o">=</span><span class="mi">512</span>
-        <span class="p">)</span>
-
-    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">generate</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">prompt</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-        <span class="n">outputs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">llm</span><span class="o">.</span><span class="n">generate</span><span class="p">([</span><span class="n">prompt</span><span class="p">],</span> <span class="bp">self</span><span class="o">.</span><span class="n">default_params</span><span class="p">)</span>
-        <span class="k">return</span> <span class="n">outputs</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">outputs</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">text</span>
-
-<span class="nd">@serve</span><span class="o">.</span><span class="n">deployment</span><span class="p">(</span><span class="n">num_replicas</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
-<span class="k">class</span><span class="w"> </span><span class="nc">RAGPipeline</span><span class="p">:</span>
-    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">llm_handle</span><span class="p">:</span> <span class="n">DeploymentHandle</span><span class="p">):</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">llm</span> <span class="o">=</span> <span class="n">llm_handle</span>
-        <span class="c1"># Initialize retriever, reranker, etc.</span>
-
-    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="fm">__call__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">):</span>
-        <span class="n">query</span> <span class="o">=</span> <span class="n">request</span><span class="o">.</span><span class="n">query_params</span><span class="p">[</span><span class="s2">"q"</span><span class="p">]</span>
-        <span class="c1"># Step 1: Retrieve relevant documents (simplified)</span>
-        <span class="n">context</span> <span class="o">=</span> <span class="s2">"Retrieved context would go here..."</span>
-        <span class="c1"># Step 2: Generate response using the LLM</span>
-        <span class="n">prompt</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"Context: </span><span class="si">{</span><span class="n">context</span><span class="si">}</span><span class="se">\n\n</span><span class="s2">Question: </span><span class="si">{</span><span class="n">query</span><span class="si">}</span><span class="se">\n\n</span><span class="s2">Answer:"</span>
-        <span class="n">response</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">llm</span><span class="o">.</span><span class="n">generate</span><span class="o">.</span><span class="n">remote</span><span class="p">(</span><span class="n">prompt</span><span class="p">)</span>
-        <span class="k">return</span> <span class="p">{</span><span class="s2">"answer"</span><span class="p">:</span> <span class="n">response</span><span class="p">}</span>
-
-<span class="c1"># Bind deployments and start serving</span>
-<span class="n">llm</span> <span class="o">=</span> <span class="n">LLMDeployment</span><span class="o">.</span><span class="n">bind</span><span class="p">(</span><span class="n">model_name</span><span class="o">=</span><span class="s2">"meta-llama/Llama-3.1-8B-Instruct"</span><span class="p">)</span>
-<span class="n">app</span> <span class="o">=</span> <span class="n">RAGPipeline</span><span class="o">.</span><span class="n">bind</span><span class="p">(</span><span class="n">llm_handle</span><span class="o">=</span><span class="n">llm</span><span class="p">)</span>
-<span class="n">serve</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">app</span><span class="p">,</span> <span class="n">host</span><span class="o">=</span><span class="s2">"0.0.0.0"</span><span class="p">,</span> <span class="n">port</span><span class="o">=</span><span class="mi">8000</span><span class="p">)</span></code></pre><div class="code-caption"><strong>Code Fragment L.5.5:</strong> Import from ray</div>
-</div>
+<thead><tr><th scope="col">Scenario</th><th scope="col">Fits on one GPU?</th><th scope="col">Recommended Strategy</th><th scope="col">Launcher</th><th scope="col">Typical Throughput Cost vs DDP</th></tr></thead>
+<tbody>
+<tr><td>Fine-tuning &lt;= 7B with LoRA on 8x H100</td><td>Yes (LoRA trainables)</td><td>DDP</td><td><code>torchrun</code></td><td>Baseline (1.0x)</td></tr>
+<tr><td>Full fine-tune 7B-13B on 8x H100</td><td>No (Adam state 140 GB)</td><td>FSDP FULL_SHARD or ZeRO-2</td><td><code>torchrun</code> / <code>accelerate</code></td><td>1.1x to 1.3x</td></tr>
+<tr><td>Full fine-tune 30B-70B on 32 GPUs</td><td>No</td><td>FSDP HYBRID_SHARD or ZeRO-3</td><td><code>accelerate</code> / <code>deepspeed</code></td><td>1.3x to 1.6x</td></tr>
+<tr><td>Pretrain 70B on 64-128 GPUs</td><td>No</td><td>ZeRO-3 + TP=8 or FSDP + TP</td><td><code>deepspeed</code> / Megatron</td><td>1.5x to 2.0x</td></tr>
+<tr><td>Pretrain 175B+ frontier model</td><td>No</td><td>3D parallelism (DP + PP + TP)</td><td>Megatron-LM / NeMo</td><td>2.0x to 3.0x</td></tr>
+<tr><td>Single-node fine-tune, model exceeds VRAM</td><td>No</td><td>ZeRO-3 + CPU/NVMe offload</td><td><code>deepspeed</code></td><td>3.0x to 10x (slow but feasible)</td></tr>
+</tbody>
+</table>
 <div class="callout warning">
-<div class="callout-title">Warning</div>
-<p>Ray Serve and vLLM solve different problems. vLLM optimizes single-model inference throughput with <a class="concept-link" href="../../part-2-understanding-llms/module-09-inference-optimization/section-9.4a.html" title="Section 9.4: Serving Infrastructure">PagedAttention</a> and continuous batching. Ray Serve orchestrates multi-step pipelines and manages deployment lifecycle. For best results, use Ray Serve as the orchestration layer with vLLM as the inference backend, combining the strengths of both frameworks.</p>
+<div class="callout-title">Warning: Throughput vs Feasibility</div>
+<p>Every step down the table trades throughput for feasibility. The throughput-cost column assumes a well-tuned, modern fabric (H100 with NVLink, InfiniBand between nodes). On Ethernet or under-provisioned NVMe, ZeRO-3 with offload can be 20x slower than DDP, not 3x. Profile a single step before committing to a multi-day run; the <a href="https://pytorch.org/docs/stable/profiler.html" target="_blank" rel="noopener">PyTorch profiler</a> with NCCL traces shows where the time is going.</p>
 </div>
-<h3 id="summary">Summary</h3>
-<p>
-        Ray provides a comprehensive distributed computing stack for LLM workflows. Ray Train scales
-        training from one GPU to hundreds with a simple wrapper around your existing training loop, with
-        native support for DeepSpeed and FSDP. Ray Data streams large datasets through preprocessing
-        pipelines without materializing intermediate results. Ray Serve deploys models and multi-step
-        pipelines behind production REST endpoints with autoscaling and request batching. Together, these
-        libraries form a unified platform that carries an LLM from data preparation through training to
-        serving. In the next section, we examine feature stores, which formalize the management of
-        computed features that feed into both training and inference pipelines.
-    </p>
+<h3 id="n-1-7-production-realities-and-2024-2026-tooling">N.1.7 Production Realities and 2024-2026 Tooling</h3>
+<p>Two trends matter today. <strong>FSDP has eaten most of DeepSpeed's mind-share</strong> for jobs that fit without offload; PyTorch 2.4's FSDP2 closed the configurability gap and the Hugging Face stack defaults to FSDP. DeepSpeed remains essential for NVMe offload, MoE expert parallelism, or composition with pipeline parallelism. Composable launchers (<a href="https://huggingface.co/docs/accelerate/index" target="_blank" rel="noopener">Accelerate</a>, <a href="https://lightning.ai/docs/pytorch/stable/api/lightning.pytorch.strategies.FSDPStrategy.html" target="_blank" rel="noopener">PyTorch Lightning</a>) let you switch between DDP, FSDP, and DeepSpeed via config flags. On hardware, the 2025 <a href="https://www.nvidia.com/en-us/data-center/gb200-nvl72/" target="_blank" rel="noopener">GB200 NVL72</a> treats 72 GPUs as one coherent memory pool, collapsing the tensor-vs-pipeline distinction for sub-500B models. Track <a href="https://github.com/mosaicml/llm-foundry" target="_blank" rel="noopener">MosaicML LLM Foundry</a> and Databricks' training stack as living references.</p>
+<div class="callout cross-ref">
+<div class="callout-title">See Also</div>
+<ul>
+<li><a href="../../part-2-understanding-llms/module-06-pretraining-scaling-laws/index.html">Chapter 6 (Pretraining and Scaling Laws)</a> for why model size and compute are coupled.</li>
+<li><a href="../../part-4-training-adaptation/module-19-tools-of-the-trade/section-19.11.html#19-2-weights-and-biases-deep-dive">Section 19.11 (Libraries &amp; Frameworks)</a> for logging multi-rank runs to W&amp;B / MLflow without per-rank duplication.</li>
+<li><a href="../../part-2-understanding-llms/module-10-interpretability/section-10.7.html#12-2-vllm-deep-dive">Section 10.7 (Libraries &amp; Frameworks)</a> for what happens to the checkpoint after training: vLLM, TGI, and tensor-parallel serving.</li>
+<li><a href="section-19.15.html#19-2-ray-train-serve-data">Section 19.15 (Libraries &amp; Frameworks)</a> for a higher-level orchestration layer that wraps the strategies in this section.</li>
+</ul>
+</div>
+<div class="callout key-takeaway">
+<div class="callout-title">Key Takeaways</div>
+<ul>
+<li>Start from the memory math: 20 bytes per parameter for Adam in bf16, plus activations. If the static state fits on one GPU, use DDP; if not, you must shard.</li>
+<li>FSDP (HYBRID_SHARD for multi-node, FULL_SHARD for single node) is the modern default for fine-tuning up to ~70B; it ships with PyTorch and is supported by Accelerate and Lightning.</li>
+<li>DeepSpeed ZeRO-3 remains the right tool when you need CPU/NVMe offload, MoE expert parallelism, or to compose with pipeline parallelism in a single run.</li>
+<li>Beyond 30B-70B, add pipeline parallelism (PyTorch <code>distributed.pipelining</code> or Megatron); beyond that, add tensor parallelism within each node. Frontier models combine all three into 3D parallelism.</li>
+<li>Always profile one step before a multi-day run. Fabric topology and NVMe speed change the throughput numbers more than the choice of library.</li>
+</ul>
+</div>
 <div class="whats-next">
 <h3 id="what-s-next">What's Next?</h3>
-<p>In the next section, <a href="section-19.2.html">Section 19.2: Libraries &amp; Frameworks</a>, we build on the material covered here.</p>
+<p>In the next section, <a href="section-19.15.html">Section 19.15: Ray Train, Ray Serve, and Ray Data</a>, we build on the material covered here.</p>
 </div>
 
 
 <details class="bibliography-collapsible">
 <summary><strong>Further Reading</strong></summary>
 <section class="bibliography">
-<h3 id="ray">Ray Stack</h3>
+<h3 id="distributed">Distributed Training</h3>
 <div class="bib-entry-card">
-<div class="bib-ref">Moritz, P., Nishihara, R., Wang, S., et al. (2018). "Ray: A Distributed Framework for Emerging AI Applications." <em>OSDI 2018</em>. <a href="https://arxiv.org/abs/1712.05889" rel="noopener" target="_blank">arXiv:1712.05889</a>. <span class="bib-note">The Ray paper.</span></div>
+<div class="bib-ref">Rajbhandari, S., Rasley, J., Ruwase, O., &amp; He, Y. (2020). "ZeRO: Memory Optimizations Toward Training Trillion Parameter Models." <em>SC 2020</em>. <a href="https://arxiv.org/abs/1910.02054" rel="noopener" target="_blank">arXiv:1910.02054</a>. <span class="bib-note">The original ZeRO paper that underlies DeepSpeed and FSDP.</span></div>
 </div>
 <div class="bib-entry-card">
-<div class="bib-ref">Anyscale (2024). "Ray Documentation." <a href="https://docs.ray.io/en/latest/" rel="noopener" target="_blank">docs.ray.io/en/latest</a>. <span class="bib-note">Authoritative reference for Ray Train, Ray Serve, and Ray Data.</span></div>
+<div class="bib-ref">Zhao, Y., et al. (2023). "PyTorch FSDP." <em>VLDB 2023</em>. <a href="https://arxiv.org/abs/2304.11277" rel="noopener" target="_blank">arXiv:2304.11277</a>. <span class="bib-note">The FSDP paper.</span></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Shoeybi, M., et al. (2019). "Megatron-LM." <a href="https://arxiv.org/abs/1909.08053" rel="noopener" target="_blank">arXiv:1909.08053</a>. <span class="bib-note">Reference for tensor parallelism.</span></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Huang, Y., Cheng, Y., Bapna, A., et al. (2019). "GPipe: Efficient Training of Giant Neural Networks using Pipeline Parallelism." <em>NeurIPS 2019</em>. <a href="https://arxiv.org/abs/1811.06965" rel="noopener" target="_blank">arXiv:1811.06965</a>. <span class="bib-note">Reference for pipeline parallelism.</span></div>
 </div>
 </section>
 </details>
 <nav class="chapter-nav">
-<a class="prev" href="section-19.13.html"><span class="nav-label">Previous</span><span class="nav-num">Section 19.13</span><span class="nav-title">Distributed Training Deep Dive</span></a>
+<a class="prev" href="section-19.13.html"><span class="nav-label">Previous</span><span class="nav-num">Section 19.13</span><span class="nav-title">Experiment Comparison and Hyperparameter Optimization</span></a>
 <a class="up" href="index.html"><span class="nav-label">In Chapter</span><span class="nav-num">Chapter 19</span><span class="nav-title">Tools of the Trade: Training &amp; Adaptation Stack</span></a>
-<a class="next" href="../../part-5-multimodal-llms/module-20-audio-music-generation/section-20.1.html"><span class="nav-label">Next</span><span class="nav-num">Section 20.1</span><span class="nav-title">Text-to-Speech: VITS, Bark, and F5-TTS</span></a>
+<a class="next" href="section-19.15.html"><span class="nav-label">Next</span><span class="nav-num">Section 19.15</span><span class="nav-title">Ray Train, Ray Serve, and Ray Data</span></a>
 </nav>
 <footer><p>Fifteenth Edition, 2026 · <a href="../../toc.html">Contents</a></p></footer>
 </main>

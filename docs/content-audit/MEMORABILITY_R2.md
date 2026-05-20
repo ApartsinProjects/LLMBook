@@ -20,13 +20,13 @@ For each target section's `<div class="callout big-picture">` intro, I added a `
 2. **section-2.2.html (The Attention Mechanism)**
    "Attention is a soft database query. Every token asks every other 'how relevant are you to me right now?', the softmax turns answers into weights, and the weighted sum is the reply. No compression bottleneck, no fixed-size summary, just dynamic lookup."
 
-3. **section-2.3a.html (QKV, Scaled Dot-Product)**
+3. **section-2.3.html (QKV, Scaled Dot-Product)**
    "Q, K, V split one role into three: the query asks 'what am I looking for?', the key answers 'what do I contain?', the value says 'what should I pass forward?' Multi-head attention runs this lookup eight times in parallel and concatenates, so each head can specialize in one type of relationship (syntax, coreference, position) without interfering with the others."
 
-4. **section-3.1a.html (Transformer Anatomy)**
+4. **section-3.1.html (Transformer Anatomy)**
    "A Transformer block is just two ideas glued together: attention mixes information across positions, the FFN mixes information within each position, and residual connections plus LayerNorm keep gradients flowing through hundreds of stacked blocks. Everything else is bookkeeping."
 
-5. **section-3.3.html (Transformer Variants)**
+5. **section-3.5.html (Transformer Variants)**
    "Three families, one mental shortcut: BERT (encoder) reads, GPT (decoder) writes, T5 (encoder-decoder) reads-then-writes. Positional encoding is how attention learns word order, since the math itself is permutation-invariant. Without it, 'dog bites man' and 'man bites dog' look identical to the model."
 
 6. **section-4.1.html (Deterministic Decoding)**
@@ -92,9 +92,9 @@ For each target section's `<div class="callout big-picture">` intro, I added a `
 - section-1.6.html (Subword): "Lego Bricks of Language" + Shannon coding insight
 - section-2.1.html (RNN): "The frustration is the pedagogy" + telegraph operator analogy
 - section-3.2a/b.html: Hands-on lab sections, do not need additional one-liners
-- section-3.4.html: "GPU memory as a city" insight already memorable
-- section-3.5.html: Optional theoretical section
-- section-3.6.html: Optional, already has Pareto-frontier diagram
+- section-3.6.html: "GPU memory as a city" insight already memorable
+- section-3.7.html: Optional theoretical section
+- section-3.8.html: Optional, already has Pareto-frontier diagram
 - section-4.3/4.4: Specialized topics with strong epigraphs
 - section-6.5.html: "Your optimizer is bigger than your model"
 - section-6.9.html: Lab section

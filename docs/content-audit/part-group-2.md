@@ -128,7 +128,7 @@ Specific findings assuming the chapter stays merged for now:
 - **Section 24.13 vs 24.6 overlap.** Both sections cover the sim-to-real gap (24.6 is one paragraph as a "VLA limitation"; 24.13 is a full section on sim-to-real with a closing-the-gap playbook). When the chapter is split into two, this duplication is fine (one belongs to VLA, one to robotics). When kept merged, the 24.6 paragraph should be trimmed to a pointer to 24.13.
 - **Ordering**: Within VLAs, 24.1 (equation) → 24.2 (OpenVLA) → 24.3 (pi-0) → 24.4 (RT-2-X data scaling) → 24.5 (comparison) → 24.6 (limitations) is fine. Within robotics, 24.7 (SayCan) → 24.8 (Code-as-Policies) → 24.9 (VoxPoser) → 24.10 (multi-robot) → 24.11 (ROS 2) → 24.12 (comparison) → 24.13 (sim-to-real) is chronologically and conceptually sound.
 - **Stale refs:**
-  - `section-24.1.html:37` Big-picture: "next-token factorization from Section 7.2" → that section number is now in Part 2 module-06 (likely Section 6.2). Verify in toc.
+  - `section-24.1.html:37` Big-picture: "next-token factorization from Section 7.3" → that section number is now in Part 2 module-06 (likely Section 6.2). Verify in toc.
   - `section-24.7.html through 24.13` all have breadcrumbs and pagefind-meta saying "Chapter 40: LLM-Powered Robotics".
   - `section-24.10.html:31` Big-picture: "single-robot, single-LLM-planner stack from Sections 40.1-40.3" → these are now 24.7-24.9.
   - `section-24.12.html:31` Big-picture: "Sections 40.1-40.5" → these are now 24.7-24.11.
@@ -200,7 +200,7 @@ Specific findings assuming the chapter stays merged for now:
 - **Stale refs:**
   - `index.html:58` Big-picture: "These capabilities are prerequisites for the specialized and multi-agent systems in Chapters 24 and 25." → wrong chapter numbers; should be Chapters 28 and 29.
   - `index.html:75` Prereq label "Chapter 23: Retrieval-Augmented Generation" → should be Chapter 32 (in the restructured numbering).
-- **Home fit / consolidation**: Section 27.5 (Agentic RAG: Retrieval-Augmented Agents) is conceptually very close to Section 32.2 (Deep Research & Agentic RAG) in Part 7. **Worth deciding whether to keep both, merge them into one home, or differentiate them more sharply** (e.g., 27.5 = "agents as retrieval consumers, the tool-use pattern" and 32.2 = "iterative deep-research orchestration"). At present they overlap substantially.
+- **Home fit / consolidation**: Section 27.5 (Agentic RAG: Retrieval-Augmented Agents) is conceptually very close to Section 32.3 (Deep Research & Agentic RAG) in Part 7. **Worth deciding whether to keep both, merge them into one home, or differentiate them more sharply** (e.g., 27.5 = "agents as retrieval consumers, the tool-use pattern" and 32.2 = "iterative deep-research orchestration"). At present they overlap substantially.
 
 ### Chapter 28: Multi-Agent Systems
 
@@ -278,7 +278,7 @@ Specific findings assuming the chapter stays merged for now:
   - `index.html:71` Big-picture: "RAG systems in Chapter 23 and the conversational AI systems in Chapter 24" → Chapters 32 and 37.
   - `index.html:126` What's-Next: "Chapter 23: Retrieval-Augmented Generation" → Chapter 32.
   - `index.html:129-131` Chapter-nav prev "Chapter 21 Tools of the Trade: Training" and next "Chapter 23 RAG" — both stale chapter numbers (now 19 and 32 respectively).
-  - `section-31.1.html:37` "embedding fine-tuning techniques from Section 18.5" → renumber; old Part 4 numbering preserved.
+  - `section-31.1.html:37` "embedding fine-tuning techniques from Section 18.7" → renumber; old Part 4 numbering preserved.
   - `section-31.1.html:40` "Section 1.3" and "Section 18.1" — many old-numbering links throughout.
   - `section-31.1.html:44` Figure caption "Figure 22.1.1" → renumber 31.1.1.
 
@@ -291,10 +291,10 @@ Specific findings assuming the chapter stays merged for now:
   - 32.2: "Deep research and agentic RAG: query decomposition, iterative retrieval, and multi-source synthesis."
   - 32.3: "Structured data and Text-to-SQL: querying relational databases by natural language."
   - 32.4: "Source attribution and citation: designing RAG systems that show their work."
-- **Section title mismatch (32.2):** The title is "Deep Research & Agentic RAG" but a `concept-link` from inside `section-32.2.html` (and from elsewhere) refers to "section 32.2 Advanced RAG Techniques" — "Advanced RAG Techniques" is actually now Section 35.1. The concept-link title is stale.
+- **Section title mismatch (32.2):** The title is "Deep Research & Agentic RAG" but a `concept-link` from inside `section-32.3.html` (and from elsewhere) refers to "section 32.3 Advanced RAG Techniques" — "Advanced RAG Techniques" is actually now Section 35.1. The concept-link title is stale.
 - **Ordering**: PROPOSE moving 32.2 (Deep Research & Agentic RAG) to last, after 32.4. The progression 32.1 (architecture) → 32.3 (text-to-SQL: another retrieval source) → 32.4 (citation: a property of every RAG system) → 32.2 (agentic: the most sophisticated pattern) is more pedagogically clean. Alternatively, move 32.2 to Chapter 35 (Advanced RAG) since "agentic RAG" is more "advanced RAG" than "fundamental RAG."
 - **Home fit / consolidation**:
-  - Section 32.2 (Deep Research & Agentic RAG) overlaps with Section 27.5 (Agentic RAG: Retrieval-Augmented Agents) in Part 6. Pick one canonical home.
+  - Section 32.3 (Deep Research & Agentic RAG) overlaps with Section 27.5 (Agentic RAG: Retrieval-Augmented Agents) in Part 6. Pick one canonical home.
   - Sections 32.1 (RAG fundamentals) and 35.1 (Advanced RAG Techniques) are split: fundamentals stayed in Chapter 32, advanced was promoted to Chapter 35. That's intentional and good.
 - **Stale refs:**
   - `index.html:24, 27` Breadcrumb says "Part V: Retrieval and Conversation with LLMs and Agents".
@@ -310,7 +310,7 @@ Specific findings assuming the chapter stays merged for now:
   - `section-32.1.html:44` Heading text "23.1.0 The Knowledge Storage Spectrum" — old numbering visible.
   - `section-32.1.html:47` Reference: "Section 34.1: LLM Evaluation Fundamentals" — verify Chapter 34 in new layout; Chapter 34 is now Structured Information Extraction & NER, not LLM Evaluation Fundamentals. LLM Evaluation Fundamentals is Section 42.1 in Part 9.
   - `section-32.1.html:42` "see Appendix J (LangChain)" — verify Appendix J exists in current layout.
-  - `section-32.2.html:38` Big-picture: "Building on the advanced retrieval techniques from Section 32.2..." — **self-reference; should be Section 35.1**.
+  - `section-32.3.html:38` Big-picture: "Building on the advanced retrieval techniques from Section 32.2..." — **self-reference; should be Section 35.1**.
 
 ### Chapter 33: Cross-Modal Reasoning and Multimodal RAG
 
@@ -355,10 +355,10 @@ Specific findings assuming the chapter stays merged for now:
   - 35.5: "RAG frameworks and orchestration: LangChain, LlamaIndex, Haystack, DSPy."
 - **Ordering**: KEEP. PROPOSE possibly moving 35.4 (ingestion) up: in a real-world build, ingestion comes before retrieval-time advanced techniques, so 35.4 → 35.1 → 35.2 → 35.3 → 35.5 might read more naturally. But the current order (advanced techniques → KG → graphRAG → ingestion → frameworks) treats it as "build out from the simplest cases", which is also defensible.
 - **Home fit / consolidation**:
-  - **Sections 35.2 (RAG with Knowledge Graphs) and 35.3 (GraphRAG) overlap.** 35.2's content note explicitly says "This topic is also discussed in Section 32.7: GraphRAG (full treatment)." Section 32.7 doesn't exist anymore (it's 35.3). Either merge 35.2 and 35.3 into a single section, or sharpen the distinction: 35.2 = "KGs as a separate retrieval substrate (build/query)" vs 35.3 = "GraphRAG's specific community-summarization technique." Current text reads like one section that got cut in half.
+  - **Sections 35.3 (RAG with Knowledge Graphs) and 35.3 (GraphRAG) overlap.** 35.2's content note explicitly says "This topic is also discussed in Section 32.7: GraphRAG (full treatment)." Section 32.7 doesn't exist anymore (it's 35.3). Either merge 35.2 and 35.3 into a single section, or sharpen the distinction: 35.2 = "KGs as a separate retrieval substrate (build/query)" vs 35.3 = "GraphRAG's specific community-summarization technique." Current text reads like one section that got cut in half.
 - **Stale refs:**
   - All section breadcrumbs say "Part V: Retrieval and Conversation".
-  - `section-35.2.html:38` Note: "This topic is also discussed in Section 32.7: GraphRAG (full treatment)" → should be **Section 35.3**.
+  - `section-35.3.html:38` Note: "This topic is also discussed in Section 32.7: GraphRAG (full treatment)" → should be **Section 35.4**.
 
 ### Chapter 36: Retrieval Tools of the Trade
 
@@ -455,10 +455,10 @@ Specific findings assuming a rewrite:
 
 Here are the most consequential cross-part consolidation moves the audit suggests:
 
-1. **Agentic RAG: pick one canonical home.** Section 27.5 (Agentic RAG: Retrieval-Augmented Agents) in Part 6 vs Section 32.2 (Deep Research & Agentic RAG) in Part 7 cover very similar ground. Either merge into one section, or sharpen the differentiation.
+1. **Agentic RAG: pick one canonical home.** Section 27.5 (Agentic RAG: Retrieval-Augmented Agents) in Part 6 vs Section 32.3 (Deep Research & Agentic RAG) in Part 7 cover very similar ground. Either merge into one section, or sharpen the differentiation.
 2. **Memory architecture: pick one canonical home.** Section 26.6 (Memory Architecture for Agents) in Part 6 vs Section 37.3 (Memory and Context Management) in Part 8 overlap on layered-memory design and storage policies.
 3. **Sim-to-real treatment: deduplicate.** Section 24.6 (VLA Limitations, includes sim-to-real paragraph) vs Section 24.13 (Sim-to-Real Gap, full section) in Chapter 24. Once the chapter is properly split into VLA-models + LLM-Robotics, this is fine; while merged, the 24.6 paragraph should be a pointer to 24.13.
-4. **Knowledge graphs vs GraphRAG: pick a clear split.** Section 35.2 (RAG with Knowledge Graphs) and Section 35.3 (GraphRAG: Knowledge Graph-Augmented Retrieval) are awkwardly split right now; the prose in 35.2 even points to 35.3 as "full treatment". Merge or differentiate.
+4. **Knowledge graphs vs GraphRAG: pick a clear split.** Section 35.3 (RAG with Knowledge Graphs) and Section 35.4 (GraphRAG: Knowledge Graph-Augmented Retrieval) are awkwardly split right now; the prose in 35.3 even points to 35.3 as "full treatment". Merge or differentiate.
 5. **Code-generation agents: pick a clear split.** Section 29.1 (Code Generation Agents) and Section 29.4 (Code/Work Workflows and Agentic Coding Systems) overlap substantially. Merge into one, or differentiate as architecture-focused vs landscape-focused.
 6. **Chapter 41 vs Chapter 36 tools overlap.** As described above, Chapter 41's section bodies are duplicating retrieval content covered in Chapter 36. Rewrite or remove.
 

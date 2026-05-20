@@ -19,11 +19,11 @@ Scope: spot-check of ~40 figures across the book, focused on R2 illustrator outp
 - AFTER: caption now reads "thousands of unit tests at the base, hundreds of integration tests, dozens of scenario tests, and only a handful (5 to 20) of chaos drills at the peak."
 - File: `part-6-agentic-ai/module-28-multi-agent-systems/section-28.4.html`
 
-### 2. Section 35.5b - Figure 35.5.1 aria-label (Compound AI pipeline)
+### 2. Section 35.7 - Figure 35.6.1 aria-label (Compound AI pipeline)
 - BEFORE: aria-label said "Compound AI pipeline with six stages: query rewriter, retriever, reranker, generator, verifier, and router".
 - ISSUE: the SVG shows five swappable stages (query rewriter, retriever, reranker, generator, verifier) feeding into an Output box, with the router branching beneath the main flow as a separate routing element, not a sixth stage in sequence.
 - AFTER: aria-label now reads "Compound AI pipeline with five swappable stages (query rewriter, retriever, reranker, generator, verifier) feeding an output, with a router branching beneath the main flow".
-- File: `part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.5b.html`
+- File: `part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.7.html`
 
 ### 3. Section 46.2 - Figure 46.2.1 (G-Eval argmax annotation)
 - BEFORE: SVG annotation said "discards p(4) = 0.40".
@@ -31,17 +31,17 @@ Scope: spot-check of ~40 figures across the book, focused on R2 illustrator outp
 - AFTER: annotation now reads "discards p(4) = 0.32", consistent with the formula and the bar heights.
 - File: `part-9-llm-evaluation-observability/module-46-llm-as-judge-automated-evaluation/section-46.2.html`
 
-### 4. Section 30.3 - Figure 30.3.1 aria-label (Agent benchmark families)
+### 4. Section 30.4 - Figure 30.4.1 aria-label (Agent benchmark families)
 - BEFORE: aria-label said "Five-cell grid of agent benchmark families".
 - ISSUE: the SVG actually shows six cells (Software engineering, Browser/web, Tool-use mechanics, Customer service, General assistants, Computer use); the caption and prose both say "six families".
 - AFTER: aria-label now reads "Six-cell grid of agent benchmark families: software engineering, browser/web, tool-use mechanics, customer service, general assistants, and computer use".
-- File: `part-6-agentic-ai/module-30-tools-of-the-trade/section-30.3.html`
+- File: `part-6-agentic-ai/module-30-tools-of-the-trade/section-30.4.html`
 
-### 5. Section 30.4 - Figure 30.4.1 aria-label (What agents need from a model)
+### 5. Section 30.5 - Figure 30.5.1 aria-label (What agents need from a model)
 - BEFORE: aria-label said "Radar-style comparison of four model qualities important for agents: tool-call accuracy, long-trace coherence, reasoning, and multimodal grounding".
 - ISSUE: the SVG is not a radar chart, it is three rectangular panels. The first panel covers tool-call reliability plus reasoning depth, the second covers long-trace coherence plus context window plus code specialty, and the third lists how agent workloads differ from chat. No multimodal-grounding axis appears anywhere in the SVG.
 - AFTER: aria-label now reads "Three-panel summary of what agents need from a model: tool-call reliability (with reasoning depth), long-trace coherence (with context window and code specialty), and how agent workloads differ from chat".
-- File: `part-6-agentic-ai/module-30-tools-of-the-trade/section-30.4.html`
+- File: `part-6-agentic-ai/module-30-tools-of-the-trade/section-30.5.html`
 
 ### 6. Section 67.3 - Figure 67.3.1 aria-label (Legal compliance rules)
 - BEFORE: aria-label and title element said "Five legal-LLM compliance rules and how three jurisdictions diverge".
@@ -62,7 +62,7 @@ The following R2 figures were spot-checked and caption/SVG/prose triangulation p
 - Figure 26.2.1 (Planning spectrum): three planning strategies (ReAct, Plan-and-Execute, Tree Search) match caption; compute-cost labels per panel are consistent.
 - Figure 26.4.1 (Pareto frontier): 4 frontier points (52%, 68%, 84%, 93%) and 2 dominated orange points; the (62%, $0.75) point is correctly dominated by Premium (84%, $0.55).
 - Figure 27.6.1 (Tool-economy control loop): meta-planner, tool router, registry, budget tracker, result cache, executor with search/compute/paid-API sub-tools, synthesizer; matches caption.
-- Figure 32.4.1 (Citation pipeline): three-panel pipeline with retrieved sources, generation with inline cites, NLI/quote-match verifier catching 90-day citation hallucination; numbers in panel match caption (NLI=0.94, NLI=0.91).
+- Figure 32.5.1 (Citation pipeline): three-panel pipeline with retrieved sources, generation with inline cites, NLI/quote-match verifier catching 90-day citation hallucination; numbers in panel match caption (NLI=0.94, NLI=0.91).
 - Figure 36.1.1 (Vector platform 2x2 quadrant): all four quadrants correctly populated with the named engines per the prose deep-dives.
 - Figure 36.3.1 (Retrieval benchmark pyramid): four tiers (Classical IR, BEIR cross-domain, MTEB embedding leaderboards, end-to-end RAG); caption matches.
 - Figure 36.4.1 (Three retrieval architectures): bi-encoder, cross-encoder, ColBERT late-interaction; caption matches.

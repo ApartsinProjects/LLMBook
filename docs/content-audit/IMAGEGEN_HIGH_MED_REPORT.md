@@ -72,9 +72,9 @@ All HIGH sections had `figure_count == 0` to begin with, so each placeholder tak
 
 ## Sample Prompts (one per chapter style)
 
-### Part I, Section 3.6 (Beyond Attention, SSMs, MoE, Modern Variants)
+### Part I, Section 3.8 (Beyond Attention, SSMs, MoE, Modern Variants)
 
-Clean, modern flat-design diagram, Kurzgesagt-meets-XKCD palette. 16:9 ratio, 1200x675. Three labeled panels illustrating "Beyond Attention: SSMs, MoE, and Modern Variants": (1) starting state or core question, (2) key mechanism or transformation, (3) outcome or trade-off. Context: Section 3.3 covered variations on attention itself: positional schemes, sparse and linear attention, and the choice of normalization. Soft gradient background, white callout cards, thin rounded strokes, muted teal-orange-violet accents. No watermarks, no photos, no faces.
+Clean, modern flat-design diagram, Kurzgesagt-meets-XKCD palette. 16:9 ratio, 1200x675. Three labeled panels illustrating "Beyond Attention: SSMs, MoE, and Modern Variants": (1) starting state or core question, (2) key mechanism or transformation, (3) outcome or trade-off. Context: Section 3.5 covered variations on attention itself: positional schemes, sparse and linear attention, and the choice of normalization. Soft gradient background, white callout cards, thin rounded strokes, muted teal-orange-violet accents. No watermarks, no photos, no faces.
 
 ### Part VI, Section 27.6 (Efficient Multi-Tool Orchestration)
 
@@ -94,7 +94,7 @@ Clean, modern flat-design diagram, Kurzgesagt-meets-XKCD palette. 16:9 ratio, 12
 
 ## Sample MED Fun-Notes
 
-### Section 3.3 (Transformer Variants and Efficiency): "Encoders, Decoders, and the Tool Shed"
+### Section 3.5 (Transformer Variants and Efficiency): "Encoders, Decoders, and the Tool Shed"
 
 A workshop has three tools that look almost identical at first: a saw cuts in one direction, a plane shaves a flat surface, and a router does both with attachments. Encoder-only models are the saws (read once, classify), decoder-only models are the planes (generate forward), and encoder-decoder models are the routers (read then generate). Pick the wrong one and you can still get the job done; pick the right one and the work becomes effortless.
 

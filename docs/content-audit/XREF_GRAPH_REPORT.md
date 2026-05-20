@@ -75,19 +75,19 @@ These are typically canonical homes for foundational topics.
 | S42.1 | 90 | part-9-llm-evaluation-observability/module-42-evaluation-foundations/section-42.1.html |
 | S11.1 | 76 | part-3-working-with-llms/module-11-llm-apis/section-11.1.html |
 | S12.1 | 75 | part-3-working-with-llms/module-12-prompt-engineering/section-12.1.html |
-| S32.1a | 65 | part-7-retrieval-information-extraction-with-llms/module-32-rag/section-32.1a.html |
-| S10.6a | 61 | part-2-understanding-llms/module-10-interpretability/section-10.6a.html |
-| S7.2 | 56 | part-2-understanding-llms/module-07-modern-llm-landscape/section-7.2.html |
+| S32.1a | 65 | part-7-retrieval-information-extraction-with-llms/module-32-rag/section-32.1.html |
+| S10.6a | 61 | part-2-understanding-llms/module-10-interpretability/section-10.7.html |
+| S7.2 | 56 | part-2-understanding-llms/module-07-modern-llm-landscape/section-7.3.html |
 | S42.2 | 55 | part-9-llm-evaluation-observability/module-42-evaluation-foundations/section-42.2.html |
-| S31.1a | 50 | part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.1a.html |
+| S31.1a | 50 | part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.1.html |
 | S7.1 | 46 | part-2-understanding-llms/module-07-modern-llm-landscape/section-7.1.html |
 | S4.2 | 44 | part-1-llm-building-blocks/module-04-decoding-text-generation/section-4.2.html |
 | S0.2 | 40 | part-1-llm-building-blocks/module-00-ml-pytorch-foundations/section-0.2.html |
-| S3.1a | 40 | part-1-llm-building-blocks/module-03-transformer-architecture/section-3.1a.html |
+| S3.1a | 40 | part-1-llm-building-blocks/module-03-transformer-architecture/section-3.1.html |
 | S9.1 | 39 | part-2-understanding-llms/module-09-inference-optimization/section-9.1.html |
 | S26.1 | 38 | part-6-agentic-ai/module-26-ai-agents/section-26.1.html |
 | S62.1 | 36 | part-13-llmops-lifecycle/module-62-production-engineering-core/section-62.1.html |
-| S47.1a | 35 | part-10-llm-security-runtime-safety/module-47-adversarial-security-red-team/section-47.1a.html |
+| S47.1a | 35 | part-10-llm-security-runtime-safety/module-47-adversarial-security-red-team/section-47.1.html |
 | S26.2 | 34 | part-6-agentic-ai/module-26-ai-agents/section-26.2.html |
 | S10.1 | 34 | part-2-understanding-llms/module-10-interpretability/section-10.1.html |
 | S17.1 | 32 | part-4-training-adaptation/module-17-peft/section-17.1.html |
@@ -100,7 +100,7 @@ index-style sections that knit topics together.
 | Section | Outbound | Path |
 |---|---:|---|
 | S80.2 | 32 | part-15-llm-agentic-ai-research-frontiers/module-75-frontier-architectures/section-75.2.html |
-| S9.6 | 31 | part-2-understanding-llms/module-09-inference-optimization/section-9.6.html |
+| S9.6 | 31 | part-2-understanding-llms/module-09-inference-optimization/section-9.8.html |
 | S11.1 | 29 | part-3-working-with-llms/module-11-llm-apis/section-11.1.html |
 | S13.4 | 29 | part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.4.html |
 | S10.3 | 29 | part-2-understanding-llms/module-10-interpretability/section-10.3.html |

@@ -252,12 +252,12 @@ Layout key:
 102. ANALOGY at the top. Add: "Picking an agentic coding tool is like picking a co-worker: some are quiet and helpful (Aider), some are loud and confident (Devin), some live in your IDE rent-free (Cursor)."
 103. COMIC near the 2026 vendor landscape table. Concept: a cartoon office floor with desks labelled "Cursor", "Claude Code", "Devin", "Aider", "Copilot Workspace", each with a different working style (one is just a terminal, one a fancy IDE, one is fully remote). Imagegen prompt: `"A cartoon open-plan office. Five desks each labelled with a different agentic coding tool. Each desk has a different character/setup: Cursor (a designer in an IDE), Claude Code (a person at a plain terminal with a tidy notebook), Devin (a phone with a tiny robot inside, 'cloud autonomous'), Aider (a focused engineer with sticky notes), Copilot Workspace (a GitHub-octocat-style staged worker). Warm illustration."`
 
-### Section 35.2: RAG with Knowledge Graphs
+### Section 35.3: RAG with Knowledge Graphs
 
 104. The existing `knowledge-graph-islands.png` is well-suited. Suggest one additional comic near the Cypher subsection: a Cypher query as a treasure-hunt map. Imagegen prompt: `"An old treasure-hunt map with nodes labelled like Wikipedia stubs ('Einstein', 'Ulm', 'Germany'), and a dotted line traversing them. A pirate-themed cartoon traveler labelled 'MATCH (e:Person)-[:bornIn]->(c:City)' follows the dots. Warm, gentle, hand-drawn."`
-105. ANALOGY at the start of 35.2.1 Knowledge Graph Fundamentals. Add: "A vector store is the library where books that mention Einstein live nearby. A knowledge graph is the library where Einstein himself walks among the books, with arrows pointing to his friends."
+105. ANALOGY at the start of 35.3.1 Knowledge Graph Fundamentals. Add: "A vector store is the library where books that mention Einstein live nearby. A knowledge graph is the library where Einstein himself walks among the books, with arrows pointing to his friends."
 
-### Section 35.3: GraphRAG
+### Section 35.4: GraphRAG
 
 106. The detective board image `graphrag-detective-board.png` (referenced from 35.2) is already in style. Suggest a complementary "community detection" comic for 35.3. Concept: an LLM "mayor" walking through a small graph town, declaring "this neighborhood is the AI safety community". Imagegen prompt: `"A small cartoon town drawn as a graph. A character labelled 'Leiden Algorithm' draws colored bubbles around clusters of houses; another character labelled 'LLM' walks behind labeling each bubble: 'AI Safety neighborhood', 'Robotics district', 'Eval-research street'. Warm watercolor."`
 

@@ -28,8 +28,8 @@ Pre-fix counts were: bad_anchor_text 364, stale_section_labels 23 (under the bro
 The link points to the right content, but the visible label cites a section
 number that no longer matches the target (most commonly because the original
 section was split into "a" and "b" sub-files: e.g. 9.1 was split into 9.1a and
-9.1b, so "Section 9.1" in old prose now lands at section-9.1a.html and the
-label should read "Section 9.1a").
+9.1b, so "Section 9.1" in old prose now lands at section-9.1.html and the
+label should read "Section 9.1").
 
 ### Remaining patterns (top)
 
@@ -64,14 +64,14 @@ batch text-edit pass in a future wave.
 |---:|---|
 | 12 | `part-8-conversational-ai-with-llms/module-37-conversational-ai/section-37.3.html` |
 | 9 | `part-13-llmops-lifecycle/module-66-reliability-slos-registry/section-66.2.html` |
-| 7 | `part-2-understanding-llms/module-09-inference-optimization/section-9.2.html` |
+| 7 | `part-2-understanding-llms/module-09-inference-optimization/section-9.3.html` |
 | 6 | `part-11-llm-ethics-trust-governance/module-55-environmental-sustainability/section-55.1.html` |
 | 6 | `part-3-working-with-llms/module-11-llm-apis/section-11.1.html` |
 | 6 | `part-9-llm-evaluation-observability/module-45-tools-of-the-trade/section-45.1.html` |
 | 5 | `part-15-llm-agentic-ai-research-frontiers/module-75-frontier-architectures/section-75.3.html` |
-| 5 | `part-2-understanding-llms/module-09-inference-optimization/section-9.5.html` |
-| 5 | `part-2-understanding-llms/module-09-inference-optimization/section-9.6.html` |
-| 5 | `part-4-training-adaptation/module-19-tools-of-the-trade/section-19.13.html` |
+| 5 | `part-2-understanding-llms/module-09-inference-optimization/section-9.7.html` |
+| 5 | `part-2-understanding-llms/module-09-inference-optimization/section-9.8.html` |
+| 5 | `part-4-training-adaptation/module-19-tools-of-the-trade/section-19.14.html` |
 
 ## 2. Stale section labels (all fixed this wave)
 
@@ -80,13 +80,13 @@ Cases where the link text cited a section number from a different chapter than t
 Fixes applied this wave:
 
 1. `part-14-designing-llm-agent-products/module-71-tools-of-the-trade/section-71.1.html`: "Section 44.1 (Model Registry and Lifecycle)" -> "Section 66.2 (Model Registry and Lifecycle)"
-2. `part-14-applications-of-llms-across-industries/module-70-education-llms/section-70.4.html`: "Section 31.1" -> "Section 32.1a"
-3. `part-14-applications-of-llms-across-industries/module-72-government-llms/section-72.4.html`: "Section 31.1" -> "Section 32.1a"
-4. `part-14-applications-of-llms-across-industries/module-73-manufacturing-llms/section-73.4.html`: "Section 31.1" -> "Section 32.1a"
+2. `part-14-applications-of-llms-across-industries/module-70-education-llms/section-70.4.html`: "Section 31.1" -> "Section 32.1"
+3. `part-14-applications-of-llms-across-industries/module-72-government-llms/section-72.4.html`: "Section 31.1" -> "Section 32.1"
+4. `part-14-applications-of-llms-across-industries/module-73-manufacturing-llms/section-73.4.html`: "Section 31.1" -> "Section 32.1"
 5. `part-4-training-adaptation/module-17-peft/section-17.3.html`: "Section 44.1: Online Evaluation and Observability" -> "Section 66.2: Online Evaluation and Observability"
-6. `part-7-retrieval-information-extraction-with-llms/module-33-cross-modal-reasoning-rag/section-33.2.html`: "Section 31.1" -> "Section 32.1a"
-7. `part-7-retrieval-information-extraction-with-llms/module-36-retrieval-tools/section-36.1.html`: "Section 31.1" -> "Section 32.1a"
-8. `part-7-retrieval-information-extraction-with-llms/module-36-retrieval-tools/section-36.2.html`: "Section 31.1" -> "Section 32.1a"
+6. `part-7-retrieval-information-extraction-with-llms/module-33-cross-modal-reasoning-rag/section-33.2.html`: "Section 31.1" -> "Section 32.1"
+7. `part-7-retrieval-information-extraction-with-llms/module-36-retrieval-tools/section-36.1.html`: "Section 31.1" -> "Section 32.1"
+8. `part-7-retrieval-information-extraction-with-llms/module-36-retrieval-tools/section-36.2.html`: "Section 31.1" -> "Section 32.1"
 9. `part-9-llm-evaluation-observability/module-45-tools-of-the-trade/section-45.2.html`: "Section 45.2" -> "Section 44.3"
 
 ## 3. Unlinked references in prose (reported, not fixed)
@@ -107,7 +107,7 @@ Top files for unlinked section refs:
 | 8 | `part-7-retrieval-information-extraction-with-llms/module-36-retrieval-tools/section-36.5.html` |
 | 7 | `part-10-llm-security-runtime-safety/module-48-guardrails-runtime-safety/section-48.4.html` |
 | 7 | `part-11-llm-ethics-trust-governance/module-54-watermarking-provenance/section-54.1.html` |
-| 7 | `part-2-understanding-llms/module-09-inference-optimization/section-9.4b.html` |
+| 7 | `part-2-understanding-llms/module-09-inference-optimization/section-9.6.html` |
 
 Top files for unlinked chapter refs:
 
@@ -129,7 +129,7 @@ Anchors with `class="concept-link"` whose link text (a concept name) does not ap
 |---|---|---|
 | `part-1-llm-building-blocks/module-04-decoding-text-generation/section-4.4.html` | `perplexity` | `Classical ML Evaluation Metrics` |
 | `part-1-llm-building-blocks/module-05-tools-of-the-trade/section-5.1.html` | `GGUF` | `Interpretability Tools & Transformers Deep Dive` |
-| `part-1-llm-building-blocks/module-05-tools-of-the-trade/section-5.2b.html` | `Hugging Face` | `Interpretability Tools & Transformers Deep Dive` |
+| `part-1-llm-building-blocks/module-05-tools-of-the-trade/section-5.3.html` | `Hugging Face` | `Interpretability Tools & Transformers Deep Dive` |
 | `part-13-llmops-lifecycle/module-65-containers-kubernetes/section-65.4.html` | `Text Generation Inference` | `Platforms` |
 | `part-13-llmops-lifecycle/module-65-containers-kubernetes/section-65.4.html` | `continuous batching` | `Serving Stack & vLLM Deep Dive` |
 | `part-13-llmops-lifecycle/module-66-reliability-slos-registry/section-66.1.html` | `hallucination` | `Why LLMs Hallucinate and How to Catch Them` |
@@ -152,36 +152,36 @@ All in `part-1-llm-building-blocks/`:
 
 | # | File | Before | After |
 |---:|---|---|---|
-| 1 | `module-00-ml-pytorch-foundations/section-0.1.html` | `PyTorch training loops in Section 0.3` | `PyTorch training loops in Section 0.3a` |
-| 2 | `module-00-ml-pytorch-foundations/section-0.1.html` | `Section 0.3` | `Section 0.3a` |
-| 3 | `module-00-ml-pytorch-foundations/section-0.2.html` | `Transformer architectures (Section 3.2)` | `Transformer architectures (Section 3.2a)` |
-| 4 | `module-00-ml-pytorch-foundations/section-0.2.html` | `Section 0.3` | `Section 0.3a` |
-| 5 | `module-00-ml-pytorch-foundations/section-0.2.html` | `Section 0.3: PyTorch Tutorial` | `Section 0.3a: PyTorch Tutorial` |
-| 6 | `module-00-ml-pytorch-foundations/section-0.4.html` | `Section 18.2` | `Section 18.2a` |
-| 7 | `module-01-foundations-nlp-text-representation/section-1.1.html` | `self-attention (covered in Section 2.3)` | `self-attention (covered in Section 2.3a)` |
-| 8 | `module-01-foundations-nlp-text-representation/section-1.3.html` | `Section 31.1` | `Section 31.1a` |
-| 9 | `module-01-foundations-nlp-text-representation/section-1.4.html` | `Section 3.1` | `Section 3.1a` |
-| 10 | `module-02-sequence-models-attention/section-2.1.html` | `Section 3.1` | `Section 3.1a` |
-| 11 | `module-02-sequence-models-attention/section-2.1.html` | `Section 2.3` | `Section 2.3a` |
-| 12 | `module-02-sequence-models-attention/section-2.2.html` | `PyTorch (Section 0.3)` | `PyTorch (Section 0.3a)` |
-| 13 | `module-02-sequence-models-attention/section-2.2.html` | `Section 2.3` | `Section 2.3a` |
-| 14 | `module-02-sequence-models-attention/section-2.2.html` | `Section 2.3: Scaled Dot-Product & Multi-Head Attention` | `Section 2.3a: Scaled Dot-Product & Multi-Head Attention` |
-| 15 | `module-02-sequence-models-attention/section-2.3a.html` | `Section 3.1` | `Section 3.1a` |
-| 16 | `module-02-sequence-models-attention/section-2.3a.html` | `Section 3.2` | `Section 3.2a` |
-| 17 | `module-02-sequence-models-attention/section-2.3b.html` | `Section 3.1: How a Transformer Computes One Token` | `Section 3.1a: How a Transformer Computes One Token` |
-| 18 | `module-02-sequence-models-attention/section-2.3b.html` | `Section 3.2` | `Section 3.2a` |
-| 19 | `module-03-transformer-architecture/index.html` | `Section 3.1: Transformer Architecture Deep Dive` | `Section 3.1a: Transformer Architecture Deep Dive` |
-| 20 | `module-03-transformer-architecture/section-3.1a.html` | `Section 2.3` | `Section 2.3a` |
-| 21 | `module-03-transformer-architecture/section-3.1b.html` | `Section 2.3` | `Section 2.3a` |
-| 22 | `module-03-transformer-architecture/section-3.1b.html` | `Section 3.2: Encoder, Decoder, and Encoder-Decoder Architectures` | `Section 3.2a: Encoder, Decoder, and Encoder-Decoder Architectures` |
-| 23 | `module-03-transformer-architecture/section-3.2a.html` | `Section 0.3` | `Section 0.3a` |
-| 24 | `module-03-transformer-architecture/section-3.2a.html` | `Section 2.3` | `Section 2.3a` |
-| 25 | `module-03-transformer-architecture/section-3.2a.html` | `Section 3.1` | `Section 3.1a` |
-| 26 | `module-03-transformer-architecture/section-3.2b.html` | `Section 3.1` | `Section 3.1a` |
-| 27 | `module-03-transformer-architecture/section-3.3.html` | `Section 7.1` | `Section 7.1a` |
-| 28 | `module-03-transformer-architecture/section-3.3.html` | `Section 2.3` | `Section 2.3a` |
-| 29 | `module-03-transformer-architecture/section-3.3.html` | `Section 3.1` | `Section 3.1a` |
-| 30 | `module-03-transformer-architecture/section-3.3.html` | `Section 3.2` | `Section 3.2a` |
+| 1 | `module-00-ml-pytorch-foundations/section-0.1.html` | `PyTorch training loops in Section 0.3` | `PyTorch training loops in Section 0.3` |
+| 2 | `module-00-ml-pytorch-foundations/section-0.1.html` | `Section 0.3` | `Section 0.3` |
+| 3 | `module-00-ml-pytorch-foundations/section-0.2.html` | `Transformer architectures (Section 3.2)` | `Transformer architectures (Section 3.3)` |
+| 4 | `module-00-ml-pytorch-foundations/section-0.2.html` | `Section 0.3` | `Section 0.3` |
+| 5 | `module-00-ml-pytorch-foundations/section-0.2.html` | `Section 0.3: PyTorch Tutorial` | `Section 0.3: PyTorch Tutorial` |
+| 6 | `module-00-ml-pytorch-foundations/section-0.5.html` | `Section 18.2` | `Section 18.3` |
+| 7 | `module-01-foundations-nlp-text-representation/section-1.1.html` | `self-attention (covered in Section 2.3)` | `self-attention (covered in Section 2.3)` |
+| 8 | `module-01-foundations-nlp-text-representation/section-1.3.html` | `Section 31.1` | `Section 31.1` |
+| 9 | `module-01-foundations-nlp-text-representation/section-1.4.html` | `Section 3.1` | `Section 3.1` |
+| 10 | `module-02-sequence-models-attention/section-2.1.html` | `Section 3.1` | `Section 3.1` |
+| 11 | `module-02-sequence-models-attention/section-2.1.html` | `Section 2.3` | `Section 2.3` |
+| 12 | `module-02-sequence-models-attention/section-2.2.html` | `PyTorch (Section 0.3)` | `PyTorch (Section 0.3)` |
+| 13 | `module-02-sequence-models-attention/section-2.2.html` | `Section 2.3` | `Section 2.3` |
+| 14 | `module-02-sequence-models-attention/section-2.2.html` | `Section 2.3: Scaled Dot-Product & Multi-Head Attention` | `Section 2.3: Scaled Dot-Product & Multi-Head Attention` |
+| 15 | `module-02-sequence-models-attention/section-2.3.html` | `Section 3.1` | `Section 3.1` |
+| 16 | `module-02-sequence-models-attention/section-2.3.html` | `Section 3.2` | `Section 3.3` |
+| 17 | `module-02-sequence-models-attention/section-2.4.html` | `Section 3.1: How a Transformer Computes One Token` | `Section 3.1: How a Transformer Computes One Token` |
+| 18 | `module-02-sequence-models-attention/section-2.4.html` | `Section 3.2` | `Section 3.3` |
+| 19 | `module-03-transformer-architecture/index.html` | `Section 3.1: Transformer Architecture Deep Dive` | `Section 3.1: Transformer Architecture Deep Dive` |
+| 20 | `module-03-transformer-architecture/section-3.1.html` | `Section 2.3` | `Section 2.3` |
+| 21 | `module-03-transformer-architecture/section-3.2.html` | `Section 2.3` | `Section 2.3` |
+| 22 | `module-03-transformer-architecture/section-3.2.html` | `Section 3.2: Encoder, Decoder, and Encoder-Decoder Architectures` | `Section 3.3: Encoder, Decoder, and Encoder-Decoder Architectures` |
+| 23 | `module-03-transformer-architecture/section-3.3.html` | `Section 0.3` | `Section 0.3` |
+| 24 | `module-03-transformer-architecture/section-3.3.html` | `Section 2.3` | `Section 2.3` |
+| 25 | `module-03-transformer-architecture/section-3.3.html` | `Section 3.1` | `Section 3.1` |
+| 26 | `module-03-transformer-architecture/section-3.4.html` | `Section 3.1` | `Section 3.1` |
+| 27 | `module-03-transformer-architecture/section-3.5.html` | `Section 7.1` | `Section 7.1` |
+| 28 | `module-03-transformer-architecture/section-3.5.html` | `Section 2.3` | `Section 2.3` |
+| 29 | `module-03-transformer-architecture/section-3.5.html` | `Section 3.1` | `Section 3.1` |
+| 30 | `module-03-transformer-architecture/section-3.5.html` | `Section 3.2` | `Section 3.3` |
 
 All 30 fixes were exact text-label rewrites; no hrefs changed, so target paths remain identical. Pass verification (post-fix): zero broken xrefs introduced.
 

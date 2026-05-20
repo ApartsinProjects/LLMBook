@@ -99,12 +99,12 @@ Source: 34.4, 34.6, 34.10, 35.4 (online-eval pieces)
 1. **37.1** LLM Tracing Concepts & Distributed Spans *(from old 34.6.1)*
 2. **37.2** Observability Platforms: Langfuse, LangSmith, Phoenix, Helicone *(from old 34.6.2–34.6.4 + scouted 2026 landscape updates: Datadog LLM Obs, Honeycomb, Laminar)*
 3. **37.3** OpenTelemetry for LLM Applications *(from old 34.10, minus the misplaced MLflow lab)*
-4. **37.4** Online Evaluation & Feedback Loops *(from old 35.4.3 + new content)*
-5. **37.5** A/B Testing & Online Experimentation *(from old 35.4.2)*
+4. **37.4** Online Evaluation & Feedback Loops *(from old 35.5.3 + new content)*
+5. **37.5** A/B Testing & Online Experimentation *(from old 35.5.2)*
 6. **37.6** Drift Detection: Five Flavors & Their Responses *(from old 34.4, consolidated with Part 10's existing 49.2)*
 7. **37.7** Eval-as-Product: Braintrust, Latitude, eval-first workflows *(NEW; from scout — closes the gap)*
 
-**Rationale**: Online evaluation is *evaluation*, not production engineering. By grouping tracing + drift + online experiments here, we keep Part 8 cohesive and stop the duplication with Part 10 Ch 49. The current section 48.4 in Part 10 still references "35.4.1" — a legacy artifact confirming previous reshuffling left fingerprints — this restructure resolves that.
+**Rationale**: Online evaluation is *evaluation*, not production engineering. By grouping tracing + drift + online experiments here, we keep Part 8 cohesive and stop the duplication with Part 10 Ch 49. The current section 48.4 in Part 10 still references "35.5.1" — a legacy artifact confirming previous reshuffling left fingerprints — this restructure resolves that.
 
 ### Chapter 38 — Tools of the Trade: Evaluation Stack (renumbered from 36)
 
@@ -157,7 +157,7 @@ The reason a pure renumber-and-drop-in does not work: Part 10's existing module-
 
 ### What happens to the *existing* P10 Ch 49 (Post-Launch Monitoring)
 
-The existing module-49-post-launch-monitoring is small (3 sections, all of which overlap with the proposed P8 Ch 37 "Online Evaluation & Production Monitoring"). **Recommendation**: dissolve it. Its 3 sections (49.1 Post-Launch Monitoring, 49.2 Drift Detection, 49.3 Model-Rotation Strategy) all move to **P8 Ch 37** since they are *evaluation* of production traffic. This also resolves the long-standing duplication: section 48.4 ("Post-Launch Monitoring & Iteration") still has 35.4.1 anchors visible, and the standalone 49.x sections cover the same ground.
+The existing module-49-post-launch-monitoring is small (3 sections, all of which overlap with the proposed P8 Ch 37 "Online Evaluation & Production Monitoring"). **Recommendation**: dissolve it. Its 3 sections (49.1 Post-Launch Monitoring, 49.2 Drift Detection, 49.3 Model-Rotation Strategy) all move to **P8 Ch 37** since they are *evaluation* of production traffic. This also resolves the long-standing duplication: section 48.4 ("Post-Launch Monitoring & Iteration") still has 35.5.1 anchors visible, and the standalone 49.x sections cover the same ground.
 
 The freed "49" slot is reused for the new Production Engineering chapter.
 
@@ -244,7 +244,7 @@ part-10-idea-to-product/
 
 ### Section file renames
 
-For each renumbered chapter, every `section-XX.Y.html` becomes `section-NN.Y.html`. Anchors of form `#34.5.2` become `#34.5.2` (numbering of *foundations* stays anchored at 34) but for split sections (e.g., old 34.3 -> new 35.1) anchors become `#35.1.1`. A redirect map JSON should be generated for legacy URLs.
+For each renumbered chapter, every `section-XX.Y.html` becomes `section-NN.Y.html`. Anchors of form `#34.5.2` become `#34.5.2` (numbering of *foundations* stays anchored at 34) but for split sections (e.g., old 34.3 -> new 35.1) anchors become `#35.2.1`. A redirect map JSON should be generated for legacy URLs.
 
 ---
 
@@ -281,8 +281,8 @@ scripts/restructure_part8/
 │         - Extract subtree by heading range
 │         - Write extracted subtree into target file using the section template
 │      • For 34.3 -> {35.1, 35.2, 35.4, 35.5}: split by 34.3.1..34.3.6 anchors
-│      • For 35.3 -> {49.1, 38.x guardrails, 50.x memory}: split by 35.3.1..35.3.4
-│      • For 35.4 -> {49.2, 37.4, 37.5}: split by 35.4.1..35.4.4
+│      • For 35.3 -> {49.1, 38.x guardrails, 50.x memory}: split by 35.4.1..35.3.4
+│      • For 35.4 -> {49.2, 37.4, 37.5}: split by 35.5.1..35.4.4
 │
 ├── 40_rewrite_section_anchors.py
 │      • For each section, walk every h2/h3/h4 with id attr

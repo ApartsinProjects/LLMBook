@@ -27,7 +27,7 @@ code blocks. None duplicate an existing fun-note in the same section.
 
 ## R2 Inserts
 
-### 1. `part-10-llm-security-runtime-safety/module-47-adversarial-security-red-team/section-47.1a.html`
+### 1. `part-10-llm-security-runtime-safety/module-47-adversarial-security-red-team/section-47.1.html`
 **Concept illuminated:** Prompt injection as the SQL injection of the LLM era,
 with the humbling difference that SQL had parameterized queries within a
 generation and LLMs still rely on defense in depth + crossed fingers.

@@ -139,7 +139,7 @@ This is the second-biggest visible inconsistency. Sentence-case is fine if used 
 | `module-27-tool-use-protocols/section-27.5.html` line 40-43 | OK | Has prerequisites. | None. |
 | `module-29-specialized-agents/section-29.1.html` line 40-43 | OK | Has prerequisites. | None. |
 | `module-29-specialized-agents/section-29.4.html` line 40-43 | OK | Has prerequisites. | None. |
-| `module-35-advanced-rag/section-35.2.html` line 40-43 | OK | Has prerequisites. | None. |
+| `module-35-advanced-rag/section-35.3.html` line 40-43 | OK | Has prerequisites. | None. |
 | `module-37-conversational-ai/section-37.3.html` line 39-42 | OK | Has prerequisites. | None. |
 | `module-24-vla-models/section-24.6.html` | P2 | Verify; appears not to have prerequisites block. | Add if missing. |
 | `module-24-vla-models/section-24.13.html` | P2 | Verify; appears not to have prerequisites block. | Add if missing. |
@@ -346,14 +346,14 @@ Same patterns.
 |---|---|---|---|
 | 42 | P2 | Prerequisites paragraph contains `<a class="prereq-link" href="...">` - "prereq-link" class is used; consistent with Wave 17i pattern. Verify it is documented. | Document. |
 
-### Section 35.2 (`section-35.2.html`)
+### Section 35.3 (`section-35.3.html`)
 | Line | Severity | Anomaly | Expected canonical form |
 |---|---|---|---|
 | 44, 45 | P2 | `<img alt="Islands connected by bridges..." src="images/knowledge-graph-islands.png"/>` - missing width/height. | Add. |
 | 50 | P2 | `<img alt="A small knowledge graph illustrating the entity-relationship structure." aria-describedby="fig-19-3-2-knowledge-graph-example-desc" src="images/fig-19.3.2-knowledge-graph-example.png"/>` - filename uses "19.3.2" but section is 35.2. Stale figure-numbering from a previous location. Also missing width/height. | Rename / dims. |
 | 73 | P0 | Markup error: `</div>` followed by figure orphan: `</p> </div>` then `<figure>` then `</figure>` then `<text>` indicating `shows how a knowledge graph encodes entities and relationships.` floating outside any structural container. The figure caption fragment is orphaned. Likely a half-completed sentence broken by figure insertion. | Repair the paragraph/figure structure. |
 
-### Section 35.3 (`section-35.3.html`)
+### Section 35.4 (`section-35.4.html`)
 | Line | Severity | Anomaly | Expected canonical form |
 |---|---|---|---|
 | 11-19 | OK | Uses KaTeX (justifiable for the math in this section). | None. |

@@ -19,7 +19,7 @@ researcher would notice; apply surgical fixes.
 
 ### F1. Module 3 positional encoding: stripped `d_model` symbol
 
-Section 3.1a, sinusoidal PE formula used `d` instead of `d_model`.
+Section 3.1, sinusoidal PE formula used `d` instead of `d_model`.
 The Vaswani et al. (2017) paper consistently writes `d_model` in the
 denominator. The code variable in the same section was already
 `d_model`, so the math/code labeling diverged.
@@ -103,12 +103,12 @@ No fix needed.
 
 ### F9. Module 18.2a DPO derivation: verified correct
 
-The DPO derivation in section 18.2a:
+The DPO derivation in section 18.3:
 - Optimal-policy closed form `π*(y|x) = (1/Z(x)) π_ref(y|x) exp(r(x,y)/β)`: correct.
 - Implicit reward inversion `r(x,y) = β log(π/π_ref) + β log Z(x)`: correct.
 - Bradley-Terry preference model gives `log σ(β(log ratio_w - log ratio_l))`: correct sign on β.
 - Z(x) cancellation explicitly shown in the Algorithm callout: complete.
-- Algorithm 18.2.1 gradient formula `grad L_DPO = -β · σ(h_l - h_w) · (∇ log π(y_w) - ∇ log π(y_l))`: matches Rafailov et al. (2023) Eq. 7.
+- Algorithm 18.3.1 gradient formula `grad L_DPO = -β · σ(h_l - h_w) · (∇ log π(y_w) - ∇ log π(y_l))`: matches Rafailov et al. (2023) Eq. 7.
 
 No fix needed. The derivation is one of the cleanest in the book.
 

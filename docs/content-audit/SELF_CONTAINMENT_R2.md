@@ -11,7 +11,7 @@ For each section, I checked whether a reader landing from a Google search could 
 
 | # | Section | File path | Verdict |
 |---|---------|-----------|---------|
-| 1 | 47.1a Prompt Injection & Jailbreaking | part-10-llm-security-runtime-safety/module-47-adversarial-security-red-team/section-47.1a.html | standalone (check) |
+| 1 | 47.1a Prompt Injection & Jailbreaking | part-10-llm-security-runtime-safety/module-47-adversarial-security-red-team/section-47.1.html | standalone (check) |
 | 2 | 51.3 Datasets & Benchmarks | part-10-llm-security-runtime-safety/module-51-tools-of-the-trade/section-51.3.html | standalone (check) |
 | 3 | 54.9 Audit Trails and Logging for Compliance | part-11-llm-ethics-trust-governance/module-54b-transparency-and-disclosure/section-54.9.html | standalone (check) |
 | 4 | 59.4 Pipeline Parallelism and Hybrid Strategies | part-12-llm-systems-at-scale/module-59-distributed-training-systems/section-59.4.html | fix applied: expanded DP, TP, PP acronyms inline in Big Picture so first-time readers know what the three parallelism axes are |
@@ -22,7 +22,7 @@ For each section, I checked whether a reader landing from a Google search could 
 | 9 | 79.1 Platforms | part-14-applications-of-llms-across-industries/module-74-tools-of-the-trade/section-74.1.html | fix applied: added opening paragraph defining what "vertical-AI platforms" means and what the catalog covers, since the section title is only "Platforms" |
 | 10 | 83.2 Libraries & Frameworks | part-15-llm-agentic-ai-research-frontiers/module-78-tools-of-the-trade/section-78.2.html | standalone (check) |
 | 11 | 17.2 Advanced PEFT Methods | part-4-training-adaptation/module-17-peft/section-17.2.html | standalone (check) |
-| 12 | 19.14 Ray Train, Ray Serve, and Ray Data | part-4-training-adaptation/module-19-tools-of-the-trade/section-19.14.html | standalone (check) |
+| 12 | 19.14 Ray Train, Ray Serve, and Ray Data | part-4-training-adaptation/module-19-tools-of-the-trade/section-19.15.html | standalone (check) |
 | 13 | 20.9 Video Editing and Remixing | part-5-multimodal-llms/module-20-audio-music-generation/section-20.9.html | standalone (check) |
 | 14 | 24.1 VLA Architecture in One Equation | part-5-multimodal-llms/module-24-vla-models/section-24.1.html | standalone (check) |
 | 15 | 26.2 Planning & Agentic Reasoning | part-6-agentic-ai/module-26-ai-agents/section-26.2.html | standalone (check) |

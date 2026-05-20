@@ -13,7 +13,7 @@ code-fragment additions, and (B) prose that imitates a callout (bold "Key Insigh
 were `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.1.html`
 (28 callouts in one section, mix of big-picture, key-insight, fun-note, practical-example,
 library-shortcut, exercise, research-frontier, self-check, warning, note) and
-`part-6-agentic-ai/module-30-tools-of-the-trade/section-30.4.html`. The 23 valid
+`part-6-agentic-ai/module-30-tools-of-the-trade/section-30.5.html`. The 23 valid
 callout types are listed at the end of this document.
 
 **Callout-type usage observed in the seven new chapters (counts across all 35 sections):**
@@ -359,8 +359,8 @@ Minor opportunities only:
   emulate.
 - **section-29.1.html** (14 callouts): exemplary.
 - **section-29.4.html** (9 callouts): mature.
-- **section-35.2.html** (19 callouts): exemplary; this section sets the bar.
-- **section-35.3.html** (12 callouts): mature.
+- **section-35.3.html** (19 callouts): exemplary; this section sets the bar.
+- **section-35.4.html** (12 callouts): mature.
 - **section-37.3.html** (no count above): not flagged.
 
 ---
@@ -425,7 +425,7 @@ note, self-check, research-frontier, numeric-example, algorithm, production-patt
    `pathway`, `key-takeaway`, `cross-ref`, `postmortem`, `whats-next`. The book's
    tools-of-the-trade chapters (30, 36, 41, 45, 56, 61) should all end with a
    `whats-next` callout (and ideally open with a `looking-back` callout); only
-   Ch 30's reference section 30.4 does this consistently. Adding `whats-next`
+   Ch 30's reference section 30.5 does this consistently. Adding `whats-next`
    callouts to the closing sections of Ch 36, 41, 46, 56, 59, 61 is the
    highest-leverage cross-cutting fix.
 

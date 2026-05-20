@@ -37,16 +37,16 @@ inside the What's Next callout.
 Files touched (orphan-fix script merged the orphan paragraph into the
 preceding "What's Next" callout, then deleted the stray `</div>`):
 
-- part-1-llm-building-blocks/module-01-foundations-nlp-text-representation/section-1.7a.html
-- part-1-llm-building-blocks/module-01-foundations-nlp-text-representation/section-1.7b.html (manual fix)
+- part-1-llm-building-blocks/module-01-foundations-nlp-text-representation/section-1.7.html
+- part-1-llm-building-blocks/module-01-foundations-nlp-text-representation/section-1.8.html (manual fix)
 - part-4-training-adaptation/module-16-fine-tuning-fundamentals/section-16.2.html (heavy corruption, manual fix)
 - part-5-multimodal-llms/module-24-vla-models/section-24.1.html through section-24.13.html (12 files)
 - part-7-retrieval-information-extraction-with-llms/module-34-structured-information-extraction-ner/section-34.5.html
 - part-7-retrieval-information-extraction-with-llms/module-36-retrieval-tools/section-36.5.html
 - part-8-conversational-ai-with-llms/module-41-conv-ai-tools/section-41.5.html
 - part-9-llm-evaluation-observability/module-46-llm-as-judge-automated-evaluation/section-46.5.html (manual fix)
-- part-10-llm-security-runtime-safety/module-47-adversarial-security-red-team/section-47.1a.html (heavy corruption, manual fix: epigraph close moved, aside close moved, big-picture orphan removed)
-- part-10-llm-security-runtime-safety/module-47-adversarial-security-red-team/section-47.1b.html
+- part-10-llm-security-runtime-safety/module-47-adversarial-security-red-team/section-47.1.html (heavy corruption, manual fix: epigraph close moved, aside close moved, big-picture orphan removed)
+- part-10-llm-security-runtime-safety/module-47-adversarial-security-red-team/section-47.2.html
 - part-10-llm-security-runtime-safety/module-48-guardrails-runtime-safety/section-48.1.html through section-48.5.html (5 files)
 - part-11-llm-ethics-trust-governance/module-54-watermarking-provenance/section-54.1.html through section-54.5.html (5 files; 54.5 manual fix to remove stale "Chapter 57" reference; 54.7 manual fix)
 - part-11-llm-ethics-trust-governance/module-54b-transparency-and-disclosure/section-54.6.html, 54.7.html, 54.8.html, 54.9.html, 54.10.html (5 files; 54.7 fixed manually to remove stale "Section 57.3" reference)

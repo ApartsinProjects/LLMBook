@@ -13,8 +13,8 @@ gtag('config', 'G-PWPHBQL2VL');
 </script>
 
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<meta content="Section 9.5: Model Pruning &amp; Sparsity. Pruning sits alongside quantization (Section 9.1) and speculative decoding (Section 9.3) as one of the three main levers for making LLM inference faster and cheaper." name="description"/>
-<title>Section 9.5: Model Pruning &amp; Sparsity</title>
+<meta content="Section 9.5: Serving Stack &amp; vLLM Deep Dive. The LLM serving stack and a deep dive into vLLM, the most widely deployed open-source LLM serving framework." name="description"/>
+<title>Section 9.5: Serving Stack &amp; vLLM Deep Dive</title>
 <link href="../../styles/book.css" rel="stylesheet"/>
 <link href="../../styles/pygments.css" rel="stylesheet"/>
 <link href="../../vendor/prism/prism-theme.css" rel="stylesheet"/>
@@ -36,407 +36,282 @@ gtag('config', 'G-PWPHBQL2VL');
 </div>
 
 <div class="page-breadcrumb" data-pagefind-meta="chapter"><a href="../index.html">Part II: Understanding LLMs</a><span class="bc-sep">›</span><a href="index.html">Chapter 9: Inference Optimization &amp; Efficient Serving</a></div>
-<h1>Model Pruning &amp; Sparsity</h1><div class="page-current">Section 9.5</div>
+<h1>Serving Stack & vLLM Deep Dive</h1><div class="page-current">Section 9.5</div>
 
 </header>
 <main class="content" id="main-content"><span class="pagefind-meta-injected" data-pagefind-meta="part:Part II: Understanding LLMs" hidden=""></span><span class="pagefind-meta-injected" data-pagefind-meta="chapter:Chapter 9: Inference Optimization &amp; Efficient Serving" hidden=""></span>
 <blockquote class="epigraph">
-<p>"A sculptor does not add marble to create a statue. She removes everything that is not the statue."</p>
-<span class="agent-avatar-inline" style="background-color: #1abc9c;"><img alt="Quant" height="28" src="../../front-matter/images/agents/quant.png" width="28"/></span><cite>Quant, <span class="agent-desc">Elegantly Subtractive AI Agent</span></cite>
+<p>Serving an LLM in production is 10% machine learning and 90% convincing the infrastructure that thousands of users can share one very expensive GPU without anyone noticing the wait.</p>
+<span class="agent-avatar-inline" style="background-color: #1abc9c;"><img alt="Quant" height="28" src="../../front-matter/images/agents/quant.png" width="28"/></span><cite>Quant, <span class="agent-desc">Queue Wrangling AI Agent</span></cite>
 </blockquote>
 <div class="callout big-picture">
 <div class="callout-title">Big Picture</div>
-<p>Pruning sits alongside <a href="section-9.1a.html">quantization (Section 9.1)</a> and <a href="section-9.3.html">speculative decoding (Section 9.3)</a> as one of the three main levers for making LLM inference faster and cheaper. While quantization reduces the precision of each weight and speculative decoding reduces the number of serial forward passes, pruning reduces the total number of weights the model carries. These three techniques are largely orthogonal and can be combined. Understanding pruning completes your toolkit for inference optimization before moving on to <a href="../../part-3-working-with-llms/module-11-llm-apis/section-11.1.html">practical API usage in Section 11.1</a>.</p>
+<p>From model weights to production endpoint. A trained model is just a collection of tensors on disk. Turning it into a responsive, scalable API requires specialized serving infrastructure that handles continuous batching, KV cache management, request scheduling, model parallelism, and hardware-specific kernel optimization. For production deployment patterns and safety considerations, see <a href="../../part-10-llm-security-runtime-safety/module-47-adversarial-security-red-team/index.html">Chapter 47</a>. Building on the quantization (<a href="section-9.1.html">Section 9.1</a>), KV cache (<a href="section-9.3.html">Section 9.3</a>), and speculative decoding (Section 9.4) techniques covered earlier in this chapter, this section surveys the major serving frameworks available today, explains their architectural differences, and provides practical guidance for choosing the right tool for your deployment scenario. We conclude with a benchmarking methodology so you can make data-driven decisions for your own workloads.</p>
 </div>
 <div class="prerequisites">
 <h3 id="prerequisites">Prerequisites</h3>
-<p>This section builds on the quantization techniques covered in <a href="section-9.1a.html">Section 9.1: Model Quantization</a> and the KV cache optimizations from <a href="section-9.2.html">Section 9.2: KV cache and Memory Optimization</a>. Familiarity with transformer weight matrices from <a href="../../part-1-llm-building-blocks/module-03-transformer-architecture/section-3.2a.html">Section 3.2</a> will help you understand where pruning is applied.</p>
-</div>
-<div class="callout key-insight">
-<div class="callout-title">Key Insight</div>
-<p>Think of a large language model as an overpacked suitcase. You crammed everything in for the trip (<a href="../module-07-modern-llm-landscape/section-7.1a.html" class="cross-ref">Section 7.1a</a>), but you do not actually need most of it for any particular destination (task). Pruning is the art of removing the items you will never use. <strong>Unstructured pruning</strong> (mechanism in <a class="concept-link" href="#9-5-2-unstructured-pruning">Section 9.5.2</a>) removes individual socks and cables (individual weights), making the suitcase lighter but not physically smaller since you still need the same compartments. <strong>Structured pruning</strong> (mechanism in <a class="concept-link" href="#9-5-3-structured-pruning">Section 9.5.3</a>) removes entire compartments (rows, columns, <a href="../../part-2-understanding-llms/module-10-interpretability/section-10.1.html">attention heads</a>), making the suitcase both lighter and smaller. The 2:4 sparsity pattern supported by NVIDIA hardware is like a packing rule: for every four item slots, exactly two must be empty, which the suitcase manufacturer (the GPU) has optimized around.</p>
-</div>
-<h2 id="9-5-1-why-pruning-matters-for-llms">9.5.1 Why Pruning Matters for LLMs</h2>
-<p>Modern LLMs contain billions of parameters, yet research consistently shows that a large fraction of these weights contribute minimally to model output. The Lottery Ticket Hypothesis (Frankle &amp; Carlin, 2019) demonstrated that dense networks contain sparse subnetworks that, when trained in isolation, match the full model's performance. For LLMs, this insight translates into a practical opportunity: we can remove 50% to 90% of weights with surprisingly little degradation in quality, yielding faster inference and lower memory consumption.</p>
-<p>Pruning complements quantization, the technique covered in <a href="section-9.1a.html">Section 9.1</a>. While quantization reduces the number of <em>bits per weight</em>, pruning reduces the number of <em>weights altogether</em>. The two techniques are orthogonal and composable: you can prune a model and then quantize the remaining weights, achieving compression ratios that neither technique could reach alone.</p>
-<p><strong>Why most weights do not matter.</strong> Consider a 70B parameter model trained on trillions of tokens. During training, the model must handle every possible topic, language, and reasoning pattern in its training data. But at inference time, any given query activates only a small subset of the model's knowledge. The remaining weights are effectively dead code for that query. This is why Mixture-of-Experts architectures (discussed in <a href="../module-07-modern-llm-landscape/section-7.2.html">Section 7.2</a>) are so effective: they formalize this observation by routing each token to only a fraction of the model's parameters. Pruning achieves a similar effect after training, by permanently removing the weights that contribute least across a representative set of inputs. The connection to <a href="../../part-4-training-adaptation/module-17-peft/section-17.1.html">LoRA</a> adapters (Section 19.1) is also worth noting: both pruning and LoRA exploit the fact that the effective dimensionality of the model's computation is much lower than the number of parameters suggests.</p>
-<h3 id="9-5-1-1-pruning-vs-quantization-vs-distillation">9.5.1.1 Pruning vs. Quantization vs. Distillation</h3>
-<div class="comparison-table">
-<div class="comparison-table-title"><strong>Table 9.5.1</strong>: <em>Pruning vs. Quantization vs. Distillation (as of 2026).</em></div>
-<table class="complex-table">
-<thead>
-<tr><th scope="col">Technique</th><th scope="col">What It Reduces</th><th scope="col">Typical Compression</th><th scope="col">Quality Impact</th><th scope="col">Hardware Requirements</th></tr>
-</thead>
-<tr><td><strong>Quantization</strong></td><td>Bits per weight</td><td>2x to 4x</td><td>Low (at 4-bit)</td><td>General GPU support</td></tr>
-<tr><td><strong>Unstructured Pruning</strong></td><td>Number of weights</td><td>2x to 10x</td><td>Low to moderate</td><td>Sparse matrix libraries</td></tr>
-<tr><td><strong>Structured Pruning</strong></td><td>Entire rows/columns/heads</td><td>1.5x to 4x</td><td>Moderate</td><td>No special hardware needed</td></tr>
-<tr><td><strong>2:4 Sparsity</strong></td><td>Half the weights (pattern)</td><td>2x</td><td>Low</td><td>NVIDIA Ampere+ GPUs</td></tr>
-<tr><td><strong>Distillation</strong></td><td>Model architecture size</td><td>2x to 20x</td><td>Variable</td><td>No special hardware needed</td></tr>
-</table>
-</div>
-<h2 id="9-5-2-unstructured-pruning">9.5.2 Unstructured Pruning</h2>
-<p>Unstructured pruning sets individual weight values to zero without any constraint on their position within the weight matrix. This is the simplest and most flexible form of pruning: any weight in any position can be removed. The resulting weight matrix has the same shape as the original but contains many zeros (a sparse matrix). The challenge is that standard GPU hardware cannot efficiently skip over scattered zeros, so unstructured pruning often requires specialized sparse matrix libraries to translate sparsity into actual speedups.</p>
-<div class="callout warning">
-<div class="callout-title">Warning: Common Misconception</div>
-<p>"I pruned 50% of the weights, so inference should be 2x faster" is the most common disappointment with unstructured pruning. On a stock GPU running dense matrix multiplication, a weight of value 0 still costs the same FLOP as a weight of value 0.5; the hardware does not branch on the value. You get real wall-clock speedup only when the sparsity pattern matches a hardware feature (2:4 on Ampere+) or you switch to a sparse-aware kernel (DeepSparse on CPU, cuSPARSE on GPU). Memory savings, on the other hand, are real and immediate, which is why pruning is often paired with quantization for deployment.</p>
-</div>
-<h3 id="9-5-2-1-magnitude-pruning">9.5.2.1 Magnitude Pruning</h3>
-<p>The oldest and most intuitive pruning criterion is weight magnitude: remove the weights closest to zero. The logic is straightforward. A weight near zero multiplied by any activation produces a near-zero output, so removing it should have minimal effect. Magnitude pruning typically proceeds iteratively: prune a small percentage of weights, <a href="../../part-4-training-adaptation/module-16-fine-tuning-fundamentals/section-16.1.html">fine-tune</a> the model briefly to recover quality, then prune again. </p>
-<div class="code-block-wrapper">
-<pre><code class="pygments-highlighted lang-python"><span class="c1"># Unstructured magnitude pruning: zero out the smallest 30% of weights</span>
-<span class="c1"># in each Linear layer using PyTorch's built-in prune module.</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn.utils.prune</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">prune</span>
-<span class="c1"># Load a pretrained model (using a small example for illustration)</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">AutoModelForCausalLM</span>
-<span class="n">model</span> <span class="o">=</span> <span class="n">AutoModelForCausalLM</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span><span class="s2">"facebook/opt-350m"</span><span class="p">)</span>
-<span class="c1"># Apply magnitude pruning to all linear layers</span>
-<span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">module</span> <span class="ow">in</span> <span class="n">model</span><span class="o">.</span><span class="n">named_modules</span><span class="p">():</span>
-    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">):</span>
-        <span class="c1"># Remove 50% of weights with smallest magnitude</span>
-        <span class="n">prune</span><span class="o">.</span><span class="n">l1_unstructured</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="s2">"weight"</span><span class="p">,</span> <span class="n">amount</span><span class="o">=</span><span class="mf">0.5</span><span class="p">)</span>
-        <span class="c1"># Check sparsity of a specific layer</span>
-        <span class="n">layer</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">decoder</span><span class="o">.</span><span class="n">layers</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">self_attn</span><span class="o">.</span><span class="n">q_proj</span>
-        <span class="n">total</span> <span class="o">=</span> <span class="n">layer</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">nelement</span><span class="p">()</span>
-        <span class="n">zeros</span> <span class="o">=</span> <span class="p">(</span><span class="n">layer</span><span class="o">.</span><span class="n">weight</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="o">.</span><span class="n">item</span><span class="p">()</span>
-        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Sparsity: </span><span class="si">{</span><span class="n">zeros</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">total</span><span class="si">:</span><span class="s2">.1%</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
-        <span class="c1"># Sparsity: 50.0%</span>
-        <span class="c1"># Make pruning permanent (remove the reparameterization)</span>
-        <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">module</span> <span class="ow">in</span> <span class="n">model</span><span class="o">.</span><span class="n">named_modules</span><span class="p">():</span>
-            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">):</span>
-                <span class="n">prune</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="s2">"weight"</span><span class="p">)</span></code></pre>
-<div class="code-output"><span class="output-label"><strong>Output:</strong></span> Sparsity: 50.0%</div>
-<div class="code-caption"><strong>Code Fragment 9.5.1:</strong> Magnitude pruning: zeroing out the smallest weights in a trained model layer.</div>
-</div>
-<h3 id="9-5-2-2-sparsegpt-one-shot-pruning-for-large-models">9.5.2.2 SparseGPT: One-Shot Pruning for Large Models</h3>
-<p>Iterative magnitude pruning requires multiple rounds of pruning and <a href="../../part-4-training-adaptation/module-16-fine-tuning-fundamentals/index.html">fine-tuning</a>, which is prohibitively expensive for models with billions of parameters. SparseGPT (Frantar &amp; Alistarh, 2023) solves this with a one-shot approach: it prunes the model in a single pass without any fine-tuning. The key idea is to compensate for each pruned weight by adjusting the remaining weights in the same row. SparseGPT frames this as a layer-wise sparse regression problem, solving for the optimal remaining weights given the pruning mask.</p>
-<p>The algorithm processes each layer independently. For a weight matrix W and a calibration set of inputs X, SparseGPT minimizes the reconstruction error ||WX - W'X||, where W' is the pruned and adjusted weight matrix. Using an efficient solver based on the Hessian inverse (computed from the calibration data), SparseGPT can prune a 175-billion-parameter model in under 4 hours on a single GPU. At 50% unstructured sparsity, SparseGPT applied to LLaMA-65B increases <a href="../../part-9-llm-evaluation-observability/module-42-evaluation-foundations/section-42.12.html">perplexity</a> by less than 0.5 points, a negligible degradation for most applications.</p>
-<h3 id="9-5-2-3-wanda-pruning-without-weight-updates">9.5.2.3 Wanda: Pruning Without Weight Updates</h3>
-<p>Wanda (Sun et al., 2024) takes an even simpler approach than SparseGPT. Instead of adjusting remaining weights after pruning, Wanda uses a pruning criterion that considers both the weight magnitude and the norm of the corresponding input activations. The importance score for weight w_ij is simply |w_ij| * ||x_j||, where ||x_j|| is the L2 norm of the j-th input feature computed over a small calibration set. Weights with low importance scores are pruned.</p>
-<p>The intuition is elegant: a large weight connected to an input feature that is always near zero is less important than a small weight connected to a highly active feature. By incorporating activation statistics, Wanda captures the actual contribution of each weight during inference rather than relying on magnitude alone. Despite its simplicity (no weight updates, no iterative optimization), Wanda matches or approaches SparseGPT quality at 50% sparsity while running orders of magnitude faster. </p>
-<div class="code-block-wrapper">
-<pre><code class="pygments-highlighted lang-python"><span class="c1"># Activation-aware pruning: register a forward hook to measure per-neuron</span>
-<span class="c1"># activation magnitude, then prune channels with the lowest average activation.</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">AutoModelForCausalLM</span><span class="p">,</span> <span class="n">AutoTokenizer</span>
-<span class="n">model_name</span> <span class="o">=</span> <span class="s2">"facebook/opt-1.3b"</span>
-<span class="n">model</span> <span class="o">=</span> <span class="n">AutoModelForCausalLM</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span><span class="n">model_name</span><span class="p">,</span> <span class="n">torch_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float16</span><span class="p">)</span>
-<span class="n">tokenizer</span> <span class="o">=</span> <span class="n">AutoTokenizer</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span><span class="n">model_name</span><span class="p">)</span>
-<span class="c1"># Collect activation norms from calibration data</span>
-<span class="n">calibration_texts</span> <span class="o">=</span> <span class="p">[</span>
-    <span class="s2">"The quick brown fox jumps over the lazy dog."</span><span class="p">,</span>
-    <span class="s2">"Machine learning models require careful optimization."</span><span class="p">,</span>
-    <span class="c1"># ... more calibration examples (typically 128 samples)</span>
-    <span class="p">]</span>
-<span class="n">activation_norms</span> <span class="o">=</span> <span class="p">{}</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">hook_fn</span><span class="p">(</span><span class="n">name</span><span class="p">):</span>
-    <span class="k">def</span><span class="w"> </span><span class="nf">hook</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="nb">input</span><span class="p">,</span> <span class="n">output</span><span class="p">):</span>
-        <span class="c1"># input[0] shape: (batch, seq_len, hidden_dim)</span>
-        <span class="n">x</span> <span class="o">=</span> <span class="nb">input</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">detach</span><span class="p">()</span><span class="o">.</span><span class="n">float</span><span class="p">()</span>
-        <span class="n">norm</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">norm</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">))</span> <span class="c1"># norm across batch and sequence</span>
-        <span class="k">if</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">activation_norms</span><span class="p">:</span>
-            <span class="n">activation_norms</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">+=</span> <span class="n">norm</span>
-        <span class="k">else</span><span class="p">:</span>
-            <span class="n">activation_norms</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">norm</span>
-            <span class="k">return</span> <span class="n">hook</span>
-            <span class="c1"># Register hooks on all linear layers</span>
-            <span class="n">hooks</span> <span class="o">=</span> <span class="p">[]</span>
-            <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">module</span> <span class="ow">in</span> <span class="n">model</span><span class="o">.</span><span class="n">named_modules</span><span class="p">():</span>
-                <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">):</span>
-                    <span class="n">hooks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">module</span><span class="o">.</span><span class="n">register_forward_hook</span><span class="p">(</span><span class="n">hook_fn</span><span class="p">(</span><span class="n">name</span><span class="p">)))</span>
-                    <span class="c1"># Run calibration data through the model</span>
-                    <span class="k">for</span> <span class="n">text</span> <span class="ow">in</span> <span class="n">calibration_texts</span><span class="p">:</span>
-                        <span class="n">inputs</span> <span class="o">=</span> <span class="n">tokenizer</span><span class="p">(</span><span class="n">text</span><span class="p">,</span> <span class="n">return_tensors</span><span class="o">=</span><span class="s2">"pt"</span><span class="p">)</span>
-                        <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
-                            <span class="n">model</span><span class="p">(</span><span class="o">**</span><span class="n">inputs</span><span class="p">)</span>
-                            <span class="c1"># Remove hooks</span>
-                            <span class="k">for</span> <span class="n">h</span> <span class="ow">in</span> <span class="n">hooks</span><span class="p">:</span>
-                                <span class="n">h</span><span class="o">.</span><span class="n">remove</span><span class="p">()</span>
-                                <span class="c1"># Compute Wanda importance scores and prune</span>
-                                <span class="n">sparsity</span> <span class="o">=</span> <span class="mf">0.5</span>
-                                <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">module</span> <span class="ow">in</span> <span class="n">model</span><span class="o">.</span><span class="n">named_modules</span><span class="p">():</span>
-                                    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">)</span> <span class="ow">and</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">activation_norms</span><span class="p">:</span>
-                                        <span class="n">W</span> <span class="o">=</span> <span class="n">module</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">float</span><span class="p">()</span>
-                                        <span class="c1"># Importance = |weight| * activation_norm</span>
-                                        <span class="n">importance</span> <span class="o">=</span> <span class="n">W</span><span class="o">.</span><span class="n">abs</span><span class="p">()</span> <span class="o">*</span> <span class="n">activation_norms</span><span class="p">[</span><span class="n">name</span><span class="p">]</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
-                                        <span class="c1"># Find threshold for desired sparsity</span>
-                                        <span class="n">threshold</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">kthvalue</span><span class="p">(</span>
-                                            <span class="n">importance</span><span class="o">.</span><span class="n">flatten</span><span class="p">(),</span>
-                                            <span class="nb">int</span><span class="p">(</span><span class="n">sparsity</span> <span class="o">*</span> <span class="n">importance</span><span class="o">.</span><span class="n">numel</span><span class="p">())</span>
-                                            <span class="p">)</span><span class="o">.</span><span class="n">values</span>
-                                        <span class="c1"># Create and apply pruning mask</span>
-                                        <span class="n">mask</span> <span class="o">=</span> <span class="n">importance</span> <span class="o">&gt;</span> <span class="n">threshold</span>
-                                        <span class="n">module</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">data</span> <span class="o">*=</span> <span class="n">mask</span><span class="o">.</span><span class="n">half</span><span class="p">()</span>
-                                        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">: pruned </span><span class="si">{</span><span class="p">(</span><span class="o">~</span><span class="n">mask</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="o">.</span><span class="n">item</span><span class="p">()</span><span class="si">}</span><span class="s2"> / </span><span class="si">{</span><span class="n">mask</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span><span class="si">}</span><span class="s2"> weights"</span><span class="p">)</span></code></pre>
-<div class="code-output"><span class="output-label"><strong>Output:</strong></span> model.decoder.layers.0.self_attn.q_proj: pruned 393216 / 786432 weights
-model.decoder.layers.0.self_attn.k_proj: pruned 393216 / 786432 weights
-model.decoder.layers.0.self_attn.v_proj: pruned 393216 / 786432 weights
-model.decoder.layers.0.self_attn.out_proj: pruned 393216 / 786432 weights
-...</div>
-<div class="code-caption"><strong>Code Fragment 9.5.2:</strong> Wanda-style importance scoring using weight magnitude and activation norms.</div>
-</div>
-<h2 id="9-5-3-structured-pruning">9.5.3 Structured Pruning</h2>
-<p>Structured pruning removes entire structural units from the model: rows or columns of weight matrices, entire attention heads, or even full transformer layers. Unlike unstructured pruning, structured pruning produces a genuinely smaller model that runs faster on standard hardware without any special sparse matrix support. The trade-off is that structured pruning is coarser-grained, so it typically achieves less compression at a given quality level compared to unstructured approaches.</p>
-<h3 id="9-5-3-1-what-can-be-pruned">9.5.3.1 What Can Be Pruned</h3>
-<ul>
-<li><strong>Attention heads:</strong> Research by Michel et al. (2019) showed that many attention heads can be removed after training with minimal quality loss. In some models, over 40% of heads are redundant.</li>
-<li><strong>Feed-forward neurons:</strong> Entire rows of the intermediate softmax can be removed. Since the FFN is typically the largest component of each transformer block (4x the hidden dimension), this offers significant compression.</li>
-<li><strong>Transformer layers:</strong> For very deep models, removing entire layers (sometimes called layer pruning or depth pruning) can reduce both memory and latency substantially. Models like LLaMA-2-70B can lose several layers with minimal degradation on many benchmarks.</li>
-<li><strong>Embedding dimensions:</strong> Reducing the hidden dimension uniformly across the model, sometimes called width pruning, produces a model that is architecturally identical to a smaller variant.</li>
-</ul>
-<h3 id="9-5-3-2-structured-pruning-with-importance-scores">9.5.3.2 Structured Pruning with Importance Scores</h3>
-<p>The key question in structured pruning is how to score the importance of each structural unit. Common approaches include:</p>
-<ul>
-<li><strong>Taylor expansion:</strong> Approximate the change in loss from removing a unit using a first-order Taylor expansion. The importance score for a unit with parameters θ is |θ · ∇θL|, which can be computed from a single backward pass over calibration data.</li>
-<li><strong>Activation norm:</strong> Score each neuron or head by the average magnitude of its output activations. Units that consistently produce near-zero outputs are candidates for removal.</li>
-<li><strong><a href="../../part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.1a.html">Cosine similarity</a>:</strong> Identify and merge redundant heads by measuring the cosine similarity between their output representations. Highly similar heads are likely redundant.</li>
-</ul>
-<div class="callout note">
-<div class="callout-title">Note: Structured vs. Unstructured</div>
-<p>Choose <strong>unstructured pruning</strong> when you have access to sparse matrix acceleration (NVIDIA Ampere+ GPUs with 2:4 sparsity, or DeepSparse engine for CPU inference) and want maximum compression with minimal quality loss. Choose <strong>structured pruning</strong> when you need a smaller model that runs on standard hardware without special library support, or when your deployment target (mobile, edge, CPU) does not support sparse kernels. In practice, many teams use structured pruning to get a smaller model and then apply quantization on top.</p>
-</div>
-<h2 id="9-5-4-nvidia-2-4-structured-sparsity">9.5.4 NVIDIA 2:4 Structured Sparsity</h2>
-<p>NVIDIA's Ampere architecture (A100 and newer GPUs) introduced hardware support for a specific sparsity pattern called 2:4 structured sparsity. The rule is simple: in every group of 4 consecutive weights, exactly 2 must be zero. This 50% sparsity pattern is restrictive compared to arbitrary unstructured pruning, but it has a crucial advantage: the GPU's Sparse Tensor Cores can process 2:4 sparse matrices at nearly 2x the throughput of dense matrices with no software overhead.</p>
-<h3 id="9-5-4-1-how-2-4-sparsity-works-at-the-hardware-level">9.5.4.1 How 2:4 Sparsity Works at the Hardware Level</h3>
-<p>The GPU stores a 2:4 sparse matrix using two components: a compressed data array containing only the non-zero values (half the original size) and a small metadata array encoding which 2 of the 4 positions in each group are non-zero (2 bits per group). During matrix multiplication, the Sparse Tensor Core uses the metadata to select the correct input activations to multiply with the compressed weights, skipping the zero positions entirely. This selection happens in hardware, adding no software overhead and requiring no changes to the surrounding computation.</p>
-<div class="diagram-container">
-<img alt="<strong>Figure 9.5.1</strong>: The 2:4 structured sparsity pattern. Every group of 4 weights r..." src="images/fig-9.5.1-the-2-4-structured-sparsity-pattern-every-group-of-4-weight.png"/ width="1500" height="877"/>
-<div class="diagram-caption"><strong>Figure 9.5.1</strong>: The 2:4 structured sparsity pattern. Every group of 4 weights retains exactly 2 non-zero values. The compressed representation stores only the non-zero values plus lightweight index metadata.</div>
-</div>
-<h3 id="9-5-4-2-applying-2-4-sparsity-in-practice">9.5.4.2 Applying 2:4 Sparsity in Practice</h3>
-<p>NVIDIA's ASP (Automatic Sparsity) library makes it straightforward to apply 2:4 sparsity during fine-tuning. The typical workflow is: (1) start from a dense pretrained model, (2) compute importance scores (magnitude or Wanda-style), (3) apply the 2:4 pruning mask, and (4) fine-tune for a few hundred steps to recover quality. The fine-tuning step is important because the 2:4 constraint forces pruning decisions at a coarser granularity than optimal unstructured pruning, so the model benefits from adapting to the specific sparsity pattern. </p>
-<div class="code-block-wrapper">
-<pre><code class="pygments-highlighted lang-python"><span class="c1"># NVIDIA ASP (Automatic Sparsity): apply 2:4 structured sparsity to all</span>
-<span class="c1"># Linear layers, enabling hardware-accelerated sparse matrix multiplication.</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">AutoModelForCausalLM</span>
-<span class="c1"># NVIDIA's Automatic Sparsity library</span>
-<span class="c1"># pip install nvidia-pyindex asp</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">apex.contrib.sparsity</span><span class="w"> </span><span class="kn">import</span> <span class="n">ASP</span>
-<span class="n">model</span> <span class="o">=</span> <span class="n">AutoModelForCausalLM</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span>
-    <span class="s2">"meta-llama/Llama-2-7b-hf"</span><span class="p">,</span>
-    <span class="n">torch_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float16</span><span class="p">,</span>
-    <span class="n">device_map</span><span class="o">=</span><span class="s2">"auto"</span>
-    <span class="p">)</span>
-<span class="n">optimizer</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">optim</span><span class="o">.</span><span class="n">AdamW</span><span class="p">(</span><span class="n">model</span><span class="o">.</span><span class="n">parameters</span><span class="p">(),</span> <span class="n">lr</span><span class="o">=</span><span class="mf">1e-5</span><span class="p">)</span>
-<span class="c1"># Initialize ASP: analyzes model layers for 2:4 compatibility</span>
-<span class="n">ASP</span><span class="o">.</span><span class="n">init_model_for_pruning</span><span class="p">(</span>
-    <span class="n">model</span><span class="p">,</span>
-    <span class="n">mask_calculator</span><span class="o">=</span><span class="s2">"m4n2_1d"</span><span class="p">,</span> <span class="c1"># 2:4 pattern (2 non-zero per 4)</span>
-    <span class="n">verbosity</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="c1"># show which layers are pruned</span>
-    <span class="n">whitelist</span><span class="o">=</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">],</span> <span class="c1"># only prune linear layers</span>
-    <span class="n">allow_recompute_mask</span><span class="o">=</span><span class="kc">False</span> <span class="c1"># lock mask after initial computation</span>
-    <span class="p">)</span>
-<span class="c1"># Initialize optimizer with ASP awareness</span>
-<span class="n">ASP</span><span class="o">.</span><span class="n">init_optimizer_for_pruning</span><span class="p">(</span><span class="n">optimizer</span><span class="p">)</span>
-<span class="c1"># Compute and apply the 2:4 pruning mask (one-shot)</span>
-<span class="n">ASP</span><span class="o">.</span><span class="n">compute_sparse_masks</span><span class="p">()</span>
-<span class="c1"># Fine-tune for a few hundred steps to recover quality</span>
-<span class="c1"># The mask is applied automatically during forward/backward passes</span>
-<span class="k">for</span> <span class="n">step</span><span class="p">,</span> <span class="n">batch</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">calibration_dataloader</span><span class="p">):</span>
-    <span class="n">outputs</span> <span class="o">=</span> <span class="n">model</span><span class="p">(</span><span class="o">**</span><span class="n">batch</span><span class="p">)</span>
-    <span class="n">loss</span> <span class="o">=</span> <span class="n">outputs</span><span class="o">.</span><span class="n">loss</span>
-    <span class="n">loss</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
-    <span class="n">optimizer</span><span class="o">.</span><span class="n">step</span><span class="p">()</span>
-    <span class="n">optimizer</span><span class="o">.</span><span class="n">zero_grad</span><span class="p">()</span>
-    <span class="k">if</span> <span class="n">step</span> <span class="o">&gt;=</span> <span class="mi">500</span><span class="p">:</span>
-        <span class="k">break</span>
-        <span class="nb">print</span><span class="p">(</span><span class="s2">"2:4 sparse model ready for Sparse Tensor Core inference"</span><span class="p">)</span></code></pre>
-<div class="code-output"><span class="output-label"><strong>Output:</strong></span> 2:4 sparse model ready for Sparse Tensor Core inference</div>
-<div class="code-caption"><strong>Code Fragment 9.5.3:</strong> Applying 2:4 structured sparsity using NVIDIA ASP for Sparse Tensor Core acceleration.</div>
-</div>
-<div class="callout warning">
-<div class="callout-title">Warning: Hardware Compatibility</div>
-<p>2:4 structured sparsity acceleration is only available on NVIDIA Ampere (A100), Ada Lovelace (L40, RTX 4090), and Hopper (H100) GPUs. On older GPUs, the sparse matrix is still valid but will not run faster than a dense matrix since the hardware lacks Sparse Tensor Cores. Always verify your deployment target supports this feature before investing in 2:4 sparsity pipelines.</p>
-</div>
-<h2 id="9-5-5-pruning-quantization-the-compression-stack">9.5.5 Pruning + Quantization: The Compression Stack</h2>
-<p>Pruning and quantization target different axes of model compression and combine naturally. A practical compression pipeline might look like this: (1) apply SparseGPT or Wanda at 50% sparsity, (2) quantize the remaining weights to 4-bit using GPTQ or AWQ, and (3) deploy with a runtime that supports both sparse and quantized operations. The combined compression can reach 8x to 16x reduction in memory footprint. This makes otherwise impractical models viable for the <a href="../../part-3-working-with-llms/module-13-hybrid-ml-llm/index.html">hybrid ML/LLM architectures</a> discussed in <a href="../../part-3-working-with-llms/module-13-hybrid-ml-llm/index.html">Chapter 13</a>, where a compressed LLM runs alongside specialized smaller models.</p>
-<h3 id="9-5-5-1-combining-sparsegpt-with-gptq">9.5.5.1 Combining SparseGPT with GPTQ</h3>
-<p>The SparseGPT and GPTQ algorithms share the same mathematical framework (layer-wise optimal weight adjustment using the Hessian inverse), so they can be combined into a single pass. The joint algorithm first determines the pruning mask using the Wanda or magnitude criterion, then jointly optimizes the quantization grid and the remaining weight values to minimize reconstruction error. <a href="../../part-4-training-adaptation/module-17-peft/section-17.5a.html">Knowledge distillation</a> provides yet another compression axis that can be layered on top of pruning and quantization. This joint optimization produces better results than applying pruning and quantization sequentially because the quantization step can compensate for pruning errors and vice versa.</p>
-<div class="comparison-table">
-<div class="comparison-table-title"><strong>Table 9.5.2:</strong> <em>Configuration Comparison (as of 2026).</em></div>
-<table class="complex-table">
-<thead>
-<tr><th scope="col">Configuration</th><th scope="col">Memory (7B Model)</th><th scope="col">Perplexity (WikiText-2)</th><th scope="col">Tokens/sec (A100)</th></tr>
-</thead>
-<tr><td>Dense FP16</td><td>14 GB</td><td>5.68</td><td>~80</td></tr>
-<tr><td>50% Sparse FP16</td><td>~7 GB</td><td>5.72</td><td>~130</td></tr>
-<tr><td>Dense INT4 (GPTQ)</td><td>~3.5 GB</td><td>5.85</td><td>~160</td></tr>
-<tr><td>50% Sparse + INT4</td><td>~1.8 GB</td><td>6.10</td><td>~220</td></tr>
-<tr><td>2:4 Sparse + INT8</td><td>~3.5 GB</td><td>5.78</td><td>~190</td></tr>
-</table>
-</div>
-<div class="callout note">
-<div class="callout-title">Note: Diminishing Returns</div>
-<p>There is a point beyond which additional compression degrades quality too much to be useful. For most 7B-class models, the sweet spot is 50% unstructured sparsity combined with 4-bit quantization, or 2:4 structured sparsity combined with 8-bit quantization. Pushing beyond these levels (for example, 75% sparsity with 3-bit quantization) typically causes noticeable degradation on reasoning and multi-step tasks, even when perplexity numbers appear acceptable.</p>
-</div>
-<h2 id="9-5-6-when-to-prune-vs-quantize">9.5.6 When to Prune vs. Quantize</h2>
-<p>Choosing between pruning and quantization (or using both) depends on your deployment constraints, hardware capabilities, and quality requirements. Here is a practical decision framework:</p>
-<ul>
-<li><strong>Memory-constrained, standard GPU:</strong> Start with quantization (4-bit GPTQ or AWQ). This gives the best compression-to-quality ratio on hardware without sparse kernel support.</li>
-<li><strong>Latency-constrained, NVIDIA Ampere+:</strong> Apply 2:4 structured sparsity for a nearly free 2x throughput gain, then add INT8 quantization. This maximizes throughput while maintaining quality.</li>
-<li><strong>CPU or edge deployment:</strong> Use structured pruning to create a genuinely smaller model (fewer attention heads, narrower FFN layers), then quantize to INT8. The Neural Magic DeepSparse engine can also accelerate unstructured sparsity on CPUs.</li>
-<li><strong>Maximum compression needed:</strong> Apply SparseGPT at 50% sparsity followed by GPTQ 4-bit quantization. This stacks both techniques for 8x+ compression.</li>
-<li><strong>Quality is paramount:</strong> Use 2:4 structured sparsity alone (the most conservative pruning option) or skip pruning entirely and rely solely on quantization at higher bit-widths (8-bit or 6-bit).</li>
-</ul>
-<div class="callout practical-example">
-<div class="callout-title">Practical Example</div>
-<p>Consider a startup deploying a 7B-parameter model for customer support on a single NVIDIA A100 GPU. The dense FP16 model requires 14 GB and serves about 80 tokens per second. By applying Wanda at 50% sparsity (30 minutes of compute on calibration data) followed by GPTQ 4-bit quantization, the model shrinks to approximately 1.8 GB, allowing the team to serve four model replicas on the same GPU. Throughput jumps to roughly 220 tokens per second per replica. The perplexity increase (from 5.68 to 6.10 on WikiText-2) is imperceptible in customer-facing responses. This combination of pruning and quantization turned a single-instance deployment into a high-availability service without purchasing additional hardware.</p>
-</div>
-<div class="callout fun-note">
-<div class="callout-title">Fun Fact</div>
-<p>The human brain operates with extreme sparsity: at any given moment, only about 1% to 5% of neurons are actively firing. The brain achieves its remarkable efficiency not by using all of its neurons all the time, but by activating the right sparse subset for each task. <a href="../module-07-modern-llm-landscape/section-7.2.html">Mixture-of-experts</a> architectures (covered in <a href="../module-07-modern-llm-landscape/section-7.2.html">Section 7.2</a>) take inspiration from this principle, though explicit weight pruning is a more direct form of sparsity.</p>
-</div>
-<div class="callout key-takeaway">
-<div class="callout-title">Key Takeaways</div>
-<ol>
-<li><strong>Unstructured pruning</strong> (SparseGPT, Wanda) can remove 50%+ of weights with minimal quality loss, but requires sparse matrix support for actual speedups.</li>
-<li><strong>Structured pruning</strong> removes entire attention heads, FFN neurons, or layers, producing genuinely smaller models that accelerate on any hardware.</li>
-<li><strong>2:4 structured sparsity</strong> on NVIDIA Ampere+ GPUs provides a near-free 2x throughput improvement with a fixed 50% sparsity pattern enforced in hardware.</li>
-<li><strong>Pruning and quantization are complementary:</strong> combine 50% sparsity with 4-bit quantization for up to 8x total compression.</li>
-<li><strong>Wanda</strong> offers the best simplicity-to-quality tradeoff for one-shot pruning, requiring no weight updates and matching SparseGPT on many benchmarks.</li>
-<li><strong>Choose based on hardware:</strong> 2:4 sparsity for NVIDIA GPUs, structured pruning for CPU/edge, unstructured + quantization for maximum compression.</li>
-</ol>
-</div>
-<div class="callout research-frontier">
-<div class="callout-title">Research Frontier</div>
-<p>The intersection of pruning and training is an active research area. <em>Pruning-aware pretraining</em> integrates sparsity constraints during the pretraining phase itself, potentially producing models that are sparse from birth rather than pruned after the fact. The PowerInfer framework demonstrates that activation sparsity (dynamically skipping neurons with near-zero activations at runtime) can achieve 10x speedups on consumer GPUs by offloading inactive neurons to CPU memory. Meanwhile, research on <em>N:M sparsity beyond 2:4</em> explores patterns like 4:8 or 1:4 that offer different compression-quality tradeoffs, with hardware support expected in future GPU architectures.</p>
-</div>
-<div class="callout self-check">
-<div class="callout-title">Self-Check</div>
-<div class="quiz-question">1. What is the key difference between unstructured pruning and structured pruning in terms of hardware acceleration?</div>
-<details>
-<summary>Show Answer</summary><div class="answer">
-<p>Unstructured pruning removes individual weights scattered throughout the model, creating a sparse weight matrix that requires specialized sparse matrix libraries (such as DeepSparse) to realize speedups, since the GPU still needs to process the same shaped tensors. Structured pruning removes entire rows, columns, attention heads, or layers, producing a genuinely smaller dense model that runs faster on any standard hardware without special sparse-math support.</p>
-</div></details>
-<div class="quiz-question">2. Explain NVIDIA's 2:4 structured sparsity pattern. Why does it achieve near-free speedups on Ampere GPUs?</div>
-<details>
-<summary>Show Answer</summary><div class="answer">
-<p>The 2:4 sparsity pattern requires that exactly 2 out of every 4 contiguous weights are zero. NVIDIA's Sparse Tensor Cores on Ampere (and later) architectures are designed to exploit this fixed pattern at the hardware level: they skip the zero multiplications and compress the indices, achieving roughly 2x throughput on matrix multiplications with minimal quality degradation. Because the sparsity pattern is regular and hardware-aware, the GPU can schedule operations efficiently without the overhead of general sparse indexing.</p>
-</div></details>
-<div class="quiz-question">3. You have a 70B parameter model and want to deploy it on a single consumer GPU with 24 GB of VRAM. Describe a pruning and quantization strategy you could combine to make this feasible, and estimate the resulting model size.</div>
-<details>
-<summary>Show Answer</summary><div class="answer">
-<p>At FP16, a 70B model requires roughly 140 GB of memory. A combined strategy could proceed in two steps. First, apply 50% unstructured pruning using Wanda or SparseGPT, halving the effective parameter count to 35B (approximately 70 GB at FP16). Second, apply 4-bit quantization (GPTQ or AWQ) to the pruned model, reducing each remaining weight from 16 bits to 4 bits, which yields roughly 17.5 GB. This fits within 24 GB with room for the <a href="../module-09-inference-optimization/section-9.2.html">KV cache</a> and operating overhead. The total compression ratio is approximately 8x. In practice, the quality impact is modest: 50% sparsity with Wanda typically adds less than 1 perplexity point, and 4-bit quantization adds another small increment.</p>
-</div></details>
-<div class="quiz-question">4. The Lottery Ticket Hypothesis states that dense networks contain sparse subnetworks capable of matching full performance. How does this theoretical result motivate practical LLM pruning?</div>
-<details>
-<summary>Show Answer</summary><div class="answer">
-<p>The Lottery Ticket Hypothesis (Frankle and Carlin, 2019) provides theoretical justification for pruning by demonstrating that within any large, randomly initialized dense network, there exist sparse subnetworks ("winning tickets") that, when trained in isolation, achieve comparable accuracy to the full model. For LLMs, this suggests that the billions of parameters in a pre-trained model contain substantial redundancy: many weights contribute little to the final output. Practical pruning methods like SparseGPT and Wanda exploit this insight by identifying and removing low-importance weights after pretraining, achieving 50% to 90% sparsity with surprisingly small quality losses.</p>
-</div></details>
-</div>
-<h2 id="exercises">Exercises</h2>
-<div class="callout exercise">
-<div class="callout-title">Exercise 9.5.1: Serving framework comparison <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
-<p>Compare vLLM, TGI (Text Generation Inference), and TensorRT-LLM as LLM serving frameworks. For each, identify one key strength and one limitation.</p>
-<details>
-<summary>Answer Sketch</summary>
-<p>vLLM: strength is PagedAttention for memory-efficient serving and high throughput. Limitation: focused on NVIDIA GPUs, limited custom model support. TGI (<a href="../../part-2-understanding-llms/module-10-interpretability/section-10.6a.html#12-2-huggingface-transformers-deep-dive">Hugging Face</a>): strength is tight integration with the Hugging Face ecosystem and easy model loading. Limitation: lower raw throughput than vLLM for high-concurrency scenarios. TensorRT-LLM (NVIDIA): strength is the highest single-GPU performance through aggressive kernel optimization. Limitation: model conversion is complex and not all architectures are supported. For most deployments: vLLM for highest throughput, TGI for easiest setup, TensorRT-LLM for maximum single-request performance.</p>
-</details>
-</div>
-<div class="callout exercise">
-<div class="callout-title">Exercise 9.5.2: Load balancing for LLM serving <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
-<p>Why is standard round-robin load balancing suboptimal for LLM serving? What request properties should an LLM-aware load balancer consider?</p>
-<details>
-<summary>Answer Sketch</summary>
-<p>Round-robin assigns requests evenly regardless of their computational cost. LLM requests vary enormously: a 10-token response takes 50x less compute than a 500-token response, and a request with a 10K token prompt has a much heavier prefill than one with 100 tokens. LLM-aware load balancing should consider: (1) estimated output length (based on prompt type or request metadata). (2) Current KV cache utilization per GPU (avoid overloading memory-constrained GPUs). (3) Prompt length (long prefills should go to less-loaded GPUs). (4) Request priority (low-latency interactive vs. high-latency batch). Some systems use a 'least tokens outstanding' policy rather than least requests.</p>
-</details>
-</div>
-<div class="callout exercise">
-<div class="callout-title">Exercise 9.5.3: Batching strategies analysis <span class="exercise-type analysis" title="Analysis">Analysis</span></div>
-<p>Compare three batching strategies for LLM serving: (1) static batching (fixed batch size, wait for batch to fill), (2) dynamic batching (add requests up to a timeout), and (3) continuous batching (add/remove requests at every step). Quantify the throughput difference.</p>
-<details>
-<summary>Answer Sketch</summary>
-<p>Static: simple but wasteful. If batch size is 8 and 5 requests arrive, either wait (adding latency) or waste 3 slots. Short and long requests in the same batch mean short ones wait for the longest. Dynamic: improves over static by using a timeout to form batches of variable size. Reduces waiting but still has the 'short waits for long' problem. Continuous: optimal utilization because finished requests are immediately replaced. A slot never sits idle while the queue is non-empty. Throughput comparison (approximate): if average request length varies 5x, continuous batching achieves ~2 to 3x higher throughput than static batching because GPU utilization stays near 100% instead of fluctuating between 20% and 100%.</p>
-</details>
-</div>
-<div class="callout exercise">
-<div class="callout-title">Exercise 9.5.4: Auto-scaling LLM services <span class="exercise-type coding" title="Coding">Coding</span></div>
-<p>Design an auto-scaling policy for an LLM serving cluster. Define: the metrics to monitor (beyond just CPU/GPU utilization), the scaling triggers, and cool-down periods. Implement the decision logic in Python.</p>
-<details>
-<summary>Answer Sketch</summary>
-<p>Metrics: (1) Time-to-first-token (TTFT) p95: measures queue wait + prefill. (2) Token throughput per GPU. (3) KV cache utilization (fraction of available memory used). (4) Request queue depth. Scale-up trigger: TTFT p95 &gt; 2s OR queue depth &gt; 50 requests for &gt; 30 seconds. Scale-down trigger: all GPUs below 30% utilization for &gt; 10 minutes. Cool-down: 5 minutes between scale events to avoid oscillation. Implementation: poll metrics every 30 seconds, compute rolling averages, apply hysteresis. LLM-specific consideration: new instances take 2 to 5 minutes to load model weights, so scale up proactively based on traffic trends.</p>
-</details>
-</div>
-<div class="callout exercise">
-<div class="callout-title">Exercise 9.5.5: Cost optimization strategies <span class="exercise-type discussion" title="Discussion">Discussion</span></div>
-<p>An organization spends &#36;500K/month on LLM inference. Describe five concrete strategies to reduce costs by 50% or more without significantly degrading user experience.</p>
-<details>
-<summary>Answer Sketch</summary>
-<p>1. Prompt caching: if 60% of requests share a common system prompt, caching saves 60% of prefill compute. Estimated savings: 15 to 20%. 2. Model routing: route simple queries to a 7B model (&#36;0.001/query) instead of the 70B model (&#36;0.01/query). If 70% of queries are simple, savings: 50 to 60%. 3. Quantization: INT4 quantization reduces serving hardware by ~3x. Savings: ~60% on GPU costs. 4. Response length optimization: tune max_tokens and stop sequences to avoid unnecessarily long responses. Savings: 10 to 30%. 5. Semantic caching: cache common query-response pairs. If 20% of queries are near-duplicates, savings: ~15%. Combined, these strategies can often reduce costs by 70%+ while maintaining quality for most users.</p>
-</details>
-</div>
-<div class="whats-next">
-<h2 id="what-comes-next">What Comes Next</h2>
-<p>In the next section, <a href="section-9.6.html">Section 9.6: Test-Time Compute and Reasoning Models</a>, we explore how <a href="../module-08-reasoning-test-time-compute/section-8.3.html">reasoning models</a> deliberately spend more compute at inference time to achieve better results on challenging tasks.</p>
+<p>This section ties together all previous <a href="index.html">Chapter 9: Inference Optimization &amp; Efficient Serving</a> concepts: quantization (<a class="prereq-link" href="../../part-2-understanding-llms/module-09-inference-optimization/section-9.1.html">Section 9.1</a>), <a href="../module-09-inference-optimization/section-9.3.html">KV cache</a> management (<a class="prereq-link" href="../../part-2-understanding-llms/module-09-inference-optimization/section-9.3.html">Section 9.3</a>), and speculative decoding (<a class="prereq-link" href="../../part-2-understanding-llms/module-09-inference-optimization/section-9.4.html">Section 9.4</a>). Serving frameworks combine these techniques. Understanding of continuous batching requires familiarity with autoregressive generation from <a href="../../part-1-llm-building-blocks/module-04-decoding-text-generation/section-4.1.html">Section 4.1</a>.</p>
 </div>
 <div class="callout cross-ref">
 <div class="callout-title">See Also</div>
-<p>For the quantization and serving foundations these benchmarks depend on, see <a href="section-9.1a.html">Section 9.1</a>. For how architectural differences across model families change the latency curve, see <a href="../module-07-modern-llm-landscape/section-7.2.html">Section 7.2</a>. For hybrid pipelines that combine LLM inference with classical ML, see <a href="../../part-3-working-with-llms/module-13-hybrid-ml-llm/index.html">Chapter 13</a>.</p>
+<p>For a hands-on tutorial deploying models with vLLM, TGI, and SGLang, see <a href="../../part-2-understanding-llms/module-10-interpretability/section-10.7.html#12-2-vllm-deep-dive">Appendix K: Inference Serving</a>.</p>
+</div>
+<h2 id="9-5-1-the-serving-stack">9.5.1 The Serving Stack</h2>
+<div class="callout key-insight">
+<div class="callout-title">Key Insight: Why: PagedAttention is virtual memory for the KV cache</div>
+<p>PagedAttention works because the KV cache has the same access pattern as virtual memory: many concurrent requests of unknown final length, each growing one page at a time, all needing to share a fixed physical pool. Kwon et al. (2023) explicitly modeled this on the OS paging algorithms from the 1960s. The 2-4x throughput gain comes from eliminating two waste sources: internal fragmentation (preallocating worst-case KV lengths per request) and external fragmentation (free slots stranded between active requests). Stating that PagedAttention is "virtual memory for the KV cache" (not just an LLM-specific trick) lets readers transfer all their OS-paging intuitions (copy-on-write, swapping, page-sharing for prefix caching) directly.</p>
+</div>
+<figure class="illustration">
+<img alt="A restaurant kitchen metaphor for the LLM serving stack with load balancers as hosts, inference engines as chefs, and APIs as waiters" src="images/serving-stack-restaurant.png" width="1200" height="896"/>
+<figcaption><strong>Figure 9.5.1</strong>: The serving stack is a restaurant kitchen: the load balancer seats guests, the inference engine cooks, and the API layer serves the dishes.</figcaption>
+</figure>
+<p>An LLM serving system sits between the raw model weights and the HTTP API that clients consume. It manages several critical responsibilities that are absent from a naive <code>model.generate()</code> call:</p>
+<ul>
+<li><strong>Request scheduling:</strong> Ordering incoming requests, managing priority queues, and enforcing rate limits.</li>
+<li><strong>Continuous batching:</strong> Dynamically adding and removing sequences from the active batch at each iteration (as covered in <a href="section-9.3.html">Section 9.3</a>).</li>
+<li><strong>KV cache management:</strong> Allocating, sharing, and evicting KV cache blocks using PagedAttention or similar techniques.</li>
+<li><strong>Model parallelism:</strong> Distributing model weights across multiple GPUs using tensor parallelism (splitting layers) or pipeline parallelism (splitting stages).</li>
+<li><strong>Kernel optimization:</strong> Using hardware-specific fused kernels (<a href="../../part-1-llm-building-blocks/module-03-transformer-architecture/section-3.6.html">FlashAttention</a>, custom GEMM) to maximize throughput.</li>
+<li><strong>API layer:</strong> Exposing an OpenAI-compatible HTTP endpoint with streaming support (the client-side perspective is covered in <a href="../../part-3-working-with-llms/module-11-llm-apis/section-11.1.html">Section 11.1</a>).</li>
+</ul>
+<div class="callout practical-example">
+<div class="callout-title">Real-World Scenario: <a href="../../part-9-llm-evaluation-observability/module-42-evaluation-foundations/section-42.2.html">Benchmarking</a> Serving Frameworks for a Multi-Model Gateway</div>
+<p><strong>Who:</strong> A DevOps engineer at an AI platform company building a unified API gateway that routes requests to different models based on task type.</p>
+<p><strong>Situation:</strong> The gateway needed to serve three models simultaneously (Llama-3.1 8B for chat, Llama-3.1 70B for complex reasoning, and a code-specialized 13B model), sharing a pool of 16 A100 GPUs.</p>
+<p><strong>Problem:</strong> Using Hugging Face's text-generation-inference (TGI) for all models resulted in suboptimal GPU utilization (average 35%) and high P99 latency (8.2 seconds) during peak traffic, because each model instance reserved GPUs exclusively.</p>
+<p><strong>Dilemma:</strong> vLLM offered better throughput via PagedAttention but lacked built-in multi-model support at the time. SGLang promised even higher throughput with RadixAttention but was newer and less battle-tested. TensorRT-LLM offered maximum single-model performance but required NVIDIA-specific compilation.</p>
+<p><strong>Decision:</strong> They deployed vLLM with separate instances per model, fronted by a custom routing proxy that directed requests based on task type and managed GPU allocation dynamically.</p>
+<p><strong>How:</strong> The team ran a structured benchmark: 1,000 requests per model with mixed prompt lengths (128 to 4,096 tokens) and output lengths (64 to 2,048 tokens), measuring throughput (tokens/second), time-to-first-token (TTFT), and P99 latency across vLLM, TGI, and SGLang.</p>
+<p><strong>Result:</strong> vLLM achieved 2.1x higher throughput than TGI for the 70B model and 1.4x for the 8B model. P99 latency dropped from 8.2 to 3.1 seconds. GPU utilization rose to 62%. SGLang matched vLLM on throughput and showed 15% better prefix cache hit rates for the chat model.</p>
+<p><strong>Lesson:</strong> <strong>Always benchmark serving frameworks on your actual workload distribution (prompt lengths, output lengths, concurrency), not just on synthetic benchmarks. The best framework depends on your specific traffic patterns.</strong></p>
+</div>
+<!-- Serving Stack Diagram -->
+<div class="diagram-container">
+<img alt="The layers of an LLM serving stack, from HTTP clients down to G..." src="images/fig-9.5.2-the-layers-of-an-llm-serving-stack-from-http-clients-down-t.png" width="1400" height="754"/>
+<div class="diagram-caption"><strong>Figure 9.5.2</strong>: The layers of an LLM serving stack, from HTTP clients down to GPU hardware. Each framework implements these layers with different design choices.</div>
+</div>
+<h2 id="9-5-2-vllm">9.5.2 vLLM</h2>
+<div class="callout fun-note">
+<div class="callout-title">Fun Fact</div>
+<p>vLLM went from a UC Berkeley research project to the default serving framework for the <a href="../module-07-modern-llm-landscape/section-7.1.html">open-source LLM</a> community in under a year. Its PagedAttention paper was published in 2023, and by 2024 it was serving models at companies ranging from startups to Fortune 500 firms. In the LLM world, adoption timelines are measured in months, not years.</p>
+</div>
+<p>vLLM (Kwon et al., 2023) is the most widely adopted open-source LLM serving framework. Its core innovation is PagedAttention (covered in <a href="section-9.3.html">Section 9.3</a>), which enables near-zero-waste KV cache <a href="../../part-8-conversational-ai-with-llms/module-37-conversational-ai/section-37.3.html">memory management</a>. Beyond PagedAttention, vLLM provides continuous batching, tensor parallelism, prefix caching, speculative decoding support, and an OpenAI-compatible API server. By 2026 vLLM ships chunked prefill, prefix caching, and disaggregated prefill/decode (separating the compute-bound prefill phase from the memory-bound decode phase onto different GPUs) by default; SGLang and TensorRT-LLM provide comparable feature sets.</p>
+<h3 id="key-features">Key features:</h3>
+<ul>
+<li><strong>PagedAttention:</strong> Block-based KV cache allocation with copy-on-write for shared prefixes.</li>
+<li><strong>Continuous batching:</strong> Iteration-level scheduling that adds new requests as soon as GPU slots become available.</li>
+<li><strong>Quantization support:</strong> GPTQ, AWQ, FP8, and GGUF formats.</li>
+<li><strong>Tensor parallelism:</strong> Splits model layers across GPUs for large models.</li>
+<li><strong>OpenAI-compatible API:</strong> Drop-in replacement for OpenAI endpoints with <code>/v1/completions</code> and <code>/v1/chat/completions</code>.</li>
+</ul>
+<div class="callout library-shortcut">
+<div class="callout-title">Library Shortcut: vLLM PagedAttention + tensor parallel</div>
+<p>Spinning up vLLM is a one-line CLI launch or four lines of Python. Pass <code>tensor_parallel_size</code> to shard across multiple GPUs, and <code>enable_prefix_caching=True</code> to share KV blocks across requests with overlapping prompts. The OpenAI-compatible server makes vLLM a drop-in replacement for OpenAI clients during local development.</p>
+<details class="code-collapsible"><summary>Show code</summary><div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="n">pip</span> <span class="n">install</span> <span class="n">vllm</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">vllm</span><span class="w"> </span><span class="kn">import</span> <span class="n">LLM</span><span class="p">,</span> <span class="n">SamplingParams</span>
+<span class="n">llm</span> <span class="o">=</span> <span class="n">LLM</span><span class="p">(</span><span class="n">model</span><span class="o">=</span><span class="s2">&quot;meta-llama/Llama-3.1-70B-Instruct&quot;</span><span class="p">,</span>
+          <span class="n">tensor_parallel_size</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">enable_prefix_caching</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+          <span class="n">gpu_memory_utilization</span><span class="o">=</span><span class="mf">0.9</span><span class="p">)</span>
+<span class="n">out</span> <span class="o">=</span> <span class="n">llm</span><span class="o">.</span><span class="n">generate</span><span class="p">([</span><span class="s2">&quot;Write a haiku about GPUs.&quot;</span><span class="p">],</span> <span class="n">SamplingParams</span><span class="p">(</span><span class="n">max_tokens</span><span class="o">=</span><span class="mi">64</span><span class="p">))</span></code></pre>
+<div class="code-caption"><strong>Code Fragment 9.5.1a:</strong> Four lines of vLLM serve a 70B model across four GPUs with PagedAttention and prefix caching on.</div>
+</div></details>
+</div>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># Example 1: Launch vLLM server and benchmark throughput</span>
+<span class="c1"># Terminal: Start the vLLM server</span>
+<span class="c1"># $ python -m vllm.entrypoints.openai.api_server \</span>
+<span class="c1"># --model meta-llama/Llama-3.1-8B-Instruct \</span>
+<span class="c1"># --dtype float16 \</span>
+<span class="c1"># --max-model-len 8192 \</span>
+<span class="c1"># --gpu-memory-utilization 0.90 \</span>
+<span class="c1"># --enable-prefix-caching \</span>
+<span class="c1"># --port 8000</span>
+<span class="c1"># Python: Benchmark with concurrent requests</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">aiohttp</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">send_request</span><span class="p">(</span><span class="n">session</span><span class="p">,</span> <span class="n">url</span><span class="p">,</span> <span class="n">prompt</span><span class="p">,</span> <span class="n">max_tokens</span><span class="o">=</span><span class="mi">128</span><span class="p">):</span>
+    <span class="n">payload</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s2">"model"</span><span class="p">:</span> <span class="s2">"meta-llama/Llama-3.1-8B-Instruct"</span><span class="p">,</span>
+        <span class="s2">"messages"</span><span class="p">:</span> <span class="p">[{</span><span class="s2">"role"</span><span class="p">:</span> <span class="s2">"user"</span><span class="p">,</span> <span class="s2">"content"</span><span class="p">:</span> <span class="n">prompt</span><span class="p">}],</span>
+        <span class="s2">"max_tokens"</span><span class="p">:</span> <span class="n">max_tokens</span><span class="p">,</span>
+        <span class="s2">"temperature"</span><span class="p">:</span> <span class="mf">0.7</span><span class="p">,</span>
+        <span class="p">}</span>
+    <span class="n">t0</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">perf_counter</span><span class="p">()</span>
+    <span class="k">async</span> <span class="k">with</span> <span class="n">session</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="n">url</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="n">payload</span><span class="p">)</span> <span class="k">as</span> <span class="n">resp</span><span class="p">:</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">resp</span><span class="o">.</span><span class="n">json</span><span class="p">()</span>
+        <span class="n">elapsed</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">perf_counter</span><span class="p">()</span> <span class="o">-</span> <span class="n">t0</span>
+        <span class="n">n_tokens</span> <span class="o">=</span> <span class="n">result</span><span class="p">[</span><span class="s2">"usage"</span><span class="p">][</span><span class="s2">"completion_tokens"</span><span class="p">]</span>
+        <span class="k">return</span> <span class="n">n_tokens</span><span class="p">,</span> <span class="n">elapsed</span>
+        <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">benchmark</span><span class="p">(</span><span class="n">concurrency</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span> <span class="n">total_requests</span><span class="o">=</span><span class="mi">64</span><span class="p">):</span>
+            <span class="n">url</span> <span class="o">=</span> <span class="s2">"http://localhost:8000/v1/chat/completions"</span>
+            <span class="n">prompts</span> <span class="o">=</span> <span class="p">[</span>
+                <span class="s2">"Explain quantum entanglement simply."</span><span class="p">,</span>
+                <span class="s2">"Write a Python function to merge two sorted lists."</span><span class="p">,</span>
+                <span class="s2">"What causes the northern lights?"</span><span class="p">,</span>
+                <span class="s2">"Describe the water cycle in four steps."</span><span class="p">,</span>
+                <span class="p">]</span>
+            <span class="n">connector</span> <span class="o">=</span> <span class="n">aiohttp</span><span class="o">.</span><span class="n">TCPConnector</span><span class="p">(</span><span class="n">limit</span><span class="o">=</span><span class="n">concurrency</span><span class="p">)</span>
+            <span class="k">async</span> <span class="k">with</span> <span class="n">aiohttp</span><span class="o">.</span><span class="n">ClientSession</span><span class="p">(</span><span class="n">connector</span><span class="o">=</span><span class="n">connector</span><span class="p">)</span> <span class="k">as</span> <span class="n">session</span><span class="p">:</span>
+                <span class="n">tasks</span> <span class="o">=</span> <span class="p">[</span>
+                    <span class="n">send_request</span><span class="p">(</span><span class="n">session</span><span class="p">,</span> <span class="n">url</span><span class="p">,</span> <span class="n">prompts</span><span class="p">[</span><span class="n">i</span> <span class="o">%</span> <span class="nb">len</span><span class="p">(</span><span class="n">prompts</span><span class="p">)])</span>
+                    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">total_requests</span><span class="p">)</span>
+                    <span class="p">]</span>
+                <span class="n">t_start</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">perf_counter</span><span class="p">()</span>
+                <span class="n">results</span> <span class="o">=</span> <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">gather</span><span class="p">(</span><span class="o">*</span><span class="n">tasks</span><span class="p">)</span>
+                <span class="n">t_total</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">perf_counter</span><span class="p">()</span> <span class="o">-</span> <span class="n">t_start</span>
+                <span class="n">total_tokens</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="n">r</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">results</span><span class="p">)</span>
+                <span class="n">latencies</span> <span class="o">=</span> <span class="p">[</span><span class="n">r</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">results</span><span class="p">]</span>
+                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Concurrency: </span><span class="si">{</span><span class="n">concurrency</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Total requests: </span><span class="si">{</span><span class="n">total_requests</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Total time: </span><span class="si">{</span><span class="n">t_total</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">s"</span><span class="p">)</span>
+                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Total tokens: </span><span class="si">{</span><span class="n">total_tokens</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Throughput: </span><span class="si">{</span><span class="n">total_tokens</span><span class="o">/</span><span class="n">t_total</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2"> tok/s"</span><span class="p">)</span>
+                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Avg latency: </span><span class="si">{</span><span class="nb">sum</span><span class="p">(</span><span class="n">latencies</span><span class="p">)</span><span class="o">/</span><span class="nb">len</span><span class="p">(</span><span class="n">latencies</span><span class="p">)</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">s"</span><span class="p">)</span>
+                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"P50 latency: </span><span class="si">{</span><span class="nb">sorted</span><span class="p">(</span><span class="n">latencies</span><span class="p">)[</span><span class="nb">len</span><span class="p">(</span><span class="n">latencies</span><span class="p">)</span><span class="o">//</span><span class="mi">2</span><span class="p">]</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">s"</span><span class="p">)</span>
+                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"P99 latency: </span><span class="si">{</span><span class="nb">sorted</span><span class="p">(</span><span class="n">latencies</span><span class="p">)[</span><span class="nb">int</span><span class="p">(</span><span class="mf">0.99</span><span class="o">*</span><span class="nb">len</span><span class="p">(</span><span class="n">latencies</span><span class="p">))]</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">s"</span><span class="p">)</span>
+                <span class="n">asyncio</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">benchmark</span><span class="p">(</span><span class="n">concurrency</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span> <span class="n">total_requests</span><span class="o">=</span><span class="mi">64</span><span class="p">))</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> Concurrency: 16
+Total requests: 64
+Total time: 12.47s
+Total tokens: 7891
+Throughput: 632.7 tok/s
+Avg latency: 3.02s
+P50 latency: 2.87s
+P99 latency: 4.91s</div>
+<div class="code-caption"><strong>Code Fragment 9.5.2</strong>: Example 1: Launch vLLM server and benchmark throughput.</div>
+</div>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># Example 4: Comprehensive benchmarking script</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">aiohttp</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">RequestResult</span><span class="p">:</span>
+    <span class="n">ttft</span><span class="p">:</span> <span class="nb">float</span> <span class="c1"># time to first token (seconds)</span>
+    <span class="n">total_time</span><span class="p">:</span> <span class="nb">float</span> <span class="c1"># end-to-end latency</span>
+    <span class="n">output_tokens</span><span class="p">:</span> <span class="nb">int</span> <span class="c1"># number of generated tokens</span>
+    <span class="n">tpot</span><span class="p">:</span> <span class="nb">float</span> <span class="c1"># time per output token (after first)</span>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">benchmark_streaming</span><span class="p">(</span><span class="n">url</span><span class="p">,</span> <span class="n">model</span><span class="p">,</span> <span class="n">prompt</span><span class="p">,</span> <span class="n">max_tokens</span><span class="o">=</span><span class="mi">128</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">"""Measure TTFT and TPOT via streaming response."""</span>
+        <span class="n">payload</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s2">"model"</span><span class="p">:</span> <span class="n">model</span><span class="p">,</span>
+            <span class="s2">"messages"</span><span class="p">:</span> <span class="p">[{</span><span class="s2">"role"</span><span class="p">:</span> <span class="s2">"user"</span><span class="p">,</span> <span class="s2">"content"</span><span class="p">:</span> <span class="n">prompt</span><span class="p">}],</span>
+            <span class="s2">"max_tokens"</span><span class="p">:</span> <span class="n">max_tokens</span><span class="p">,</span>
+            <span class="s2">"temperature"</span><span class="p">:</span> <span class="mf">0.7</span><span class="p">,</span>
+            <span class="s2">"stream"</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+            <span class="p">}</span>
+        <span class="n">t0</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">perf_counter</span><span class="p">()</span>
+        <span class="n">ttft</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="n">token_count</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="k">async</span> <span class="k">with</span> <span class="n">aiohttp</span><span class="o">.</span><span class="n">ClientSession</span><span class="p">()</span> <span class="k">as</span> <span class="n">session</span><span class="p">:</span>
+            <span class="k">async</span> <span class="k">with</span> <span class="n">session</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="n">url</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="n">payload</span><span class="p">)</span> <span class="k">as</span> <span class="n">resp</span><span class="p">:</span>
+                <span class="k">async</span> <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">resp</span><span class="o">.</span><span class="n">content</span><span class="p">:</span>
+                    <span class="n">decoded</span> <span class="o">=</span> <span class="n">line</span><span class="o">.</span><span class="n">decode</span><span class="p">()</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+                    <span class="k">if</span> <span class="n">decoded</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">"data: "</span><span class="p">)</span> <span class="ow">and</span> <span class="n">decoded</span> <span class="o">!=</span> <span class="s2">"data: [DONE]"</span><span class="p">:</span>
+                        <span class="k">if</span> <span class="n">ttft</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                            <span class="n">ttft</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">perf_counter</span><span class="p">()</span> <span class="o">-</span> <span class="n">t0</span>
+                            <span class="n">token_count</span> <span class="o">+=</span> <span class="mi">1</span>
+                            <span class="n">total</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">perf_counter</span><span class="p">()</span> <span class="o">-</span> <span class="n">t0</span>
+                            <span class="n">decode_time</span> <span class="o">=</span> <span class="n">total</span> <span class="o">-</span> <span class="p">(</span><span class="n">ttft</span> <span class="ow">or</span> <span class="n">total</span><span class="p">)</span>
+                            <span class="n">tpot</span> <span class="o">=</span> <span class="n">decode_time</span> <span class="o">/</span> <span class="nb">max</span><span class="p">(</span><span class="n">token_count</span> <span class="o">-</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+                            <span class="k">return</span> <span class="n">RequestResult</span><span class="p">(</span><span class="n">ttft</span><span class="o">=</span><span class="n">ttft</span> <span class="ow">or</span> <span class="mi">0</span><span class="p">,</span> <span class="n">total_time</span><span class="o">=</span><span class="n">total</span><span class="p">,</span>
+                                <span class="n">output_tokens</span><span class="o">=</span><span class="n">token_count</span><span class="p">,</span> <span class="n">tpot</span><span class="o">=</span><span class="n">tpot</span><span class="p">)</span>
+                            <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">run_benchmark</span><span class="p">(</span><span class="n">concurrency_levels</span><span class="o">=</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">8</span><span class="p">,</span> <span class="mi">16</span><span class="p">,</span> <span class="mi">32</span><span class="p">]):</span>
+                                <span class="n">url</span> <span class="o">=</span> <span class="s2">"http://localhost:8000/v1/chat/completions"</span>
+                                <span class="n">model</span> <span class="o">=</span> <span class="s2">"meta-llama/Llama-3.1-8B-Instruct"</span>
+                                <span class="n">prompt</span> <span class="o">=</span> <span class="s2">"Describe the process of photosynthesis."</span>
+                                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="s1">'Concur'</span><span class="si">:</span><span class="s2">&gt;7</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="s1">'Throughput'</span><span class="si">:</span><span class="s2">&gt;11</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="s1">'Avg TTFT'</span><span class="si">:</span><span class="s2">&gt;10</span><span class="si">}</span><span class="s2"> "</span>
+                                    <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="s1">'P50 TTFT'</span><span class="si">:</span><span class="s2">&gt;10</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="s1">'Avg TPOT'</span><span class="si">:</span><span class="s2">&gt;10</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="s1">'P99 Lat'</span><span class="si">:</span><span class="s2">&gt;10</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+                                <span class="nb">print</span><span class="p">(</span><span class="s2">"-"</span> <span class="o">*</span> <span class="mi">62</span><span class="p">)</span>
+                                <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">concurrency_levels</span><span class="p">:</span>
+                                    <span class="n">n_requests</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">c</span> <span class="o">*</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">16</span><span class="p">)</span>
+                                    <span class="n">sem</span> <span class="o">=</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">Semaphore</span><span class="p">(</span><span class="n">c</span><span class="p">)</span>
+                                    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">bounded_req</span><span class="p">():</span>
+                                        <span class="k">async</span> <span class="k">with</span> <span class="n">sem</span><span class="p">:</span>
+                                            <span class="k">return</span> <span class="k">await</span> <span class="n">benchmark_streaming</span><span class="p">(</span><span class="n">url</span><span class="p">,</span> <span class="n">model</span><span class="p">,</span> <span class="n">prompt</span><span class="p">)</span>
+                                            <span class="n">tasks</span> <span class="o">=</span> <span class="p">[</span><span class="n">bounded_req</span><span class="p">()</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n_requests</span><span class="p">)]</span>
+                                            <span class="n">t0</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">perf_counter</span><span class="p">()</span>
+                                            <span class="n">results</span> <span class="o">=</span> <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">gather</span><span class="p">(</span><span class="o">*</span><span class="n">tasks</span><span class="p">)</span>
+                                            <span class="n">wall_time</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">perf_counter</span><span class="p">()</span> <span class="o">-</span> <span class="n">t0</span>
+                                            <span class="n">total_tok</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="n">r</span><span class="o">.</span><span class="n">output_tokens</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">results</span><span class="p">)</span>
+                                            <span class="n">ttfts</span> <span class="o">=</span> <span class="p">[</span><span class="n">r</span><span class="o">.</span><span class="n">ttft</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">results</span><span class="p">]</span>
+                                            <span class="n">lats</span> <span class="o">=</span> <span class="p">[</span><span class="n">r</span><span class="o">.</span><span class="n">total_time</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">results</span><span class="p">]</span>
+                                            <span class="n">tpots</span> <span class="o">=</span> <span class="p">[</span><span class="n">r</span><span class="o">.</span><span class="n">tpot</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">results</span><span class="p">]</span>
+                                            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">c</span><span class="si">:</span><span class="s2">&gt;7</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">total_tok</span><span class="o">/</span><span class="n">wall_time</span><span class="si">:</span><span class="s2">&gt;10.1f</span><span class="si">}</span><span class="s2">/s "</span>
+                                                <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">ttfts</span><span class="p">)</span><span class="o">*</span><span class="mi">1000</span><span class="si">:</span><span class="s2">&gt;9.0f</span><span class="si">}</span><span class="s2">ms "</span>
+                                                <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">np</span><span class="o">.</span><span class="n">percentile</span><span class="p">(</span><span class="n">ttfts</span><span class="p">,</span><span class="w"> </span><span class="mi">50</span><span class="p">)</span><span class="o">*</span><span class="mi">1000</span><span class="si">:</span><span class="s2">&gt;9.0f</span><span class="si">}</span><span class="s2">ms "</span>
+                                                <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">tpots</span><span class="p">)</span><span class="o">*</span><span class="mi">1000</span><span class="si">:</span><span class="s2">&gt;9.0f</span><span class="si">}</span><span class="s2">ms "</span>
+                                                <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">np</span><span class="o">.</span><span class="n">percentile</span><span class="p">(</span><span class="n">lats</span><span class="p">,</span><span class="w"> </span><span class="mi">99</span><span class="p">)</span><span class="si">:</span><span class="s2">&gt;9.2f</span><span class="si">}</span><span class="s2">s"</span><span class="p">)</span>
+                                            <span class="n">asyncio</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">run_benchmark</span><span class="p">())</span>
+</code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span>  Concur Throughput Avg TTFT P50 TTFT Avg TPOT P99 Lat
+--------------------------------------------------------------
+ 1 48.3/s 87ms 85ms 21ms 2.78s
+ 4 187.2/s 112ms 108ms 22ms 3.01s
+ 8 351.6/s 189ms 175ms 23ms 3.42s
+ 16 632.7/s 342ms 315ms 25ms 4.91s
+ 32 894.1/s 687ms 621ms 30ms 7.23s</div>
+<div class="code-caption"><strong>Code Fragment 9.5.3:</strong> Example 1: Launch vLLM server and benchmark throughput</div>
+</div>
+<div class="callout key-insight">
+<div class="callout-title">Key Insight</div>
+<p>The most common mistake teams make when choosing a serving framework is optimizing for the wrong metric. If your workload is latency-sensitive (real-time chat, code completion), optimize for time-to-first-token (TTFT) and per-token latency. If your workload is throughput-sensitive (batch processing, evaluation pipelines), optimize for total tokens per second across concurrent requests. These two objectives can conflict: techniques like continuous batching and large batch sizes increase throughput but also increase per-request latency. The benchmarking methodology in this section helps you measure the metrics that matter for your specific use case. For guidance on when to self-host versus use an API provider, see <a href="../../part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.3.html">Section 13.3</a>.</p>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 9.5.1: Latency vs. throughput tradeoff on vLLM <span class="exercise-type coding" title="Coding">Coding</span></div>
+<p>Spin up <code>vllm serve meta-llama/Llama-3.1-8B-Instruct</code> on a single GPU, then benchmark with <code>vllm bench serve</code> at concurrency levels {1, 4, 16, 64}. Plot TTFT (p50) and total tokens/sec on the same axes. Identify the concurrency level where TTFT crosses 500 ms; that is your operating ceiling for an interactive chat workload.</p>
+<details><summary>Answer Sketch</summary>
+<p>Typical 8B-on-A100 numbers: concurrency 1 gives TTFT ≈ 80 to 110 ms and 80 tok/s. Concurrency 16 gives TTFT ≈ 340 ms and 630 tok/s. Concurrency 64 gives TTFT ≈ 700+ ms and 900 tok/s but blows the interactive budget. The crossover above 500 ms TTFT typically lands between concurrency 24 and 32 on an A100; lower for shorter prompts, higher for longer. Operate just below the crossover for chat, above it for batch.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 9.5.2: KV cache memory calculation <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+<p>For Llama-3.1-8B (n_layers=32, n_kv_heads=8, head_dim=128, FP16), compute the KV cache memory per token, then per request for a 4096-token context. How many concurrent 4K-context requests fit in a 40 GB GPU after subtracting the 16 GB model weights?</p>
+<details><summary>Answer Sketch</summary>
+<p>Per token: 2 (K and V) x 32 layers x 8 KV heads x 128 dim x 2 bytes = 131,072 bytes ≈ 128 KB. Per 4096-token request: 128 KB x 4096 ≈ 512 MB. With 24 GB free (40 - 16), about 48 simultaneous 4K requests fit. This is the upper bound on vLLM's effective concurrency before PagedAttention reuse kicks in.</p>
+</details>
+</div>
+<div class="whats-next">
+<h3 id="what-s-next">What's Next?</h3>
+<p>In the next part of this section, <a href="section-9.6.html">Section 9.6: Serving Runtimes: SGLang, TGI, TensorRT &amp; Edge</a>, the llm serving stack and a deep dive into vllm, the most widely deployed open-source llm serving framework.</p>
 </div>
 <details class="bibliography-collapsible">
 <summary><strong>Further Reading</strong></summary>
 <section class="bibliography">
-<h3 id="foundational-pruning-methods">Foundational Pruning Methods</h3>
+<h3 id="serving-frameworks-and-systems">Serving Frameworks &amp; Systems</h3>
 <div class="bib-entry-card">
-<div class="bib-ref"><a href="https://arxiv.org/abs/2301.00774" rel="noopener" target="_blank">Frantar, E. &amp; Alistarh, D. (2023). <em>SparseGPT: Massive Language Models Can Be Accurately Pruned in One-Shot</em>. ICML 2023.</a> Introduced the one-shot pruning framework for LLMs that avoids expensive iterative fine-tuning. The Hessian-based weight adjustment technique enables pruning 175B-parameter models in hours on a single GPU. Useful for understanding modern LLM pruning.</div>
+<div class="bib-ref">Kwon, W. et al. (2023). <a href="https://arxiv.org/abs/2309.06180" rel="noopener" target="_blank">"Efficient Memory Management for Large Language Model Serving with PagedAttention."</a> <em>SOSP 2023</em>. The paper behind vLLM, the most widely deployed open-source LLM serving engine. Introduces PagedAttention for efficient KV cache management, enabling near-zero memory waste and request-level memory sharing.</div>
 </div>
 <div class="bib-entry-card">
-<div class="bib-ref"><a href="https://arxiv.org/abs/2306.11695" rel="noopener" target="_blank">Sun, M. et al. (2024). <em>A Simple and Effective Pruning Approach for Large Language Models</em>. ICLR 2024.</a> The Wanda paper that demonstrated activation-aware pruning without any weight updates. Its simplicity and competitive performance make it a practical first choice for LLM pruning experiments.</div>
-</div>
-<h3 id="hardware-sparsity">Hardware Sparsity</h3>
-<div class="bib-entry-card">
-<div class="bib-ref"><a href="https://arxiv.org/abs/2104.08378" rel="noopener" target="_blank">Mishra, A. et al. (2021). <em>Accelerating Sparse Deep Neural Networks</em>. NVIDIA Technical Report.</a> NVIDIA's technical report on 2:4 structured sparsity and Sparse Tensor Cores. Covers the hardware design, software stack, and benchmark results that demonstrate near-2x speedups for compatible workloads.</div>
+<div class="bib-ref">Zheng, L. et al. (2024). <a href="https://arxiv.org/abs/2312.07104" rel="noopener" target="_blank">"SGLang: Efficient Execution of Structured Language Model Programs."</a> <em>arXiv preprint arXiv:2312.07104</em>. Introduces RadixAttention for automatic prefix caching and a domain-specific language for structured LLM programs. Particularly strong for workloads with shared system prompts and constrained generation patterns.</div>
 </div>
 <div class="bib-entry-card">
-<div class="bib-ref"><a href="https://arxiv.org/abs/1803.03635" rel="noopener" target="_blank">Frankle, J. &amp; Carlin, M. (2019). <em>The Lottery Ticket Hypothesis: Finding Sparse, Trainable Neural Networks</em>. ICLR 2019.</a> The foundational paper on the Lottery Ticket Hypothesis, which demonstrated that dense networks contain sparse subnetworks capable of matching full performance. This theoretical result motivates all modern pruning research.</div>
+<div class="bib-ref">NVIDIA (2024). <a href="https://github.com/NVIDIA/TensorRT-LLM" rel="noopener" target="_blank">"TensorRT-LLM: A TensorRT Toolbox for Optimized Large Language Model Inference."</a> NVIDIA's production-grade inference library that compiles LLMs into optimized TensorRT engines. Delivers the highest throughput on NVIDIA hardware through custom CUDA kernels, FP8 quantization, and in-flight batching.</div>
 </div>
-<h3 id="pruning-quantization">Pruning + Quantization</h3>
+<h3 id="scheduling-and-batching-research">Scheduling &amp; Batching Research</h3>
 <div class="bib-entry-card">
-<div class="bib-ref"><a href="https://github.com/neuralmagic/deepsparse" rel="noopener" target="_blank">Neural Magic. (2024). <em>DeepSparse: Sparsity-Aware Inference Engine</em>.</a> An inference engine that accelerates sparse models on commodity CPUs. Particularly useful for deploying pruned models in environments without GPU access, achieving GPU-class throughput on modern CPUs.</div>
+<div class="bib-ref">Yu, G. et al. (2022). <a href="https://www.usenix.org/conference/osdi22/presentation/yu" rel="noopener" target="_blank">"Orca: A Distributed Serving System for Transformer-Based Generative Models."</a> <em>OSDI 2022</em>. Introduces iteration-level scheduling (continuous batching) for LLM serving, allowing new requests to join a batch as soon as any request completes. The foundational system paper that all modern serving frameworks build upon.</div>
 </div>
 <div class="bib-entry-card">
-<div class="bib-ref"><a href="https://arxiv.org/abs/2310.16944" rel="noopener" target="_blank">Song, Y. et al. (2023). <em>PowerInfer: Fast Large Language Model Serving with a Consumer-grade GPU</em>.</a> Demonstrates activation sparsity exploitation for LLM inference, offloading inactive neurons to CPU memory. Achieves up to 11x speedup on consumer GPUs by dynamically leveraging the inherent sparsity of neuron activations during inference.</div>
+<div class="bib-ref">Agrawal, A. et al. (2024). <a href="https://arxiv.org/abs/2403.02310" rel="noopener" target="_blank">"Taming Throughput-Latency Tradeoff in LLM Inference with Sarathi-Serve."</a> <em>OSDI 2024</em>. Addresses the interference between prefill and decode phases in continuous batching through chunked prefills and stall-free scheduling. Useful for understanding how production systems balance latency and throughput.</div>
+</div>
+<h3 id="local-and-edge-inference">Local &amp; Edge Inference</h3>
+<div class="bib-entry-card">
+<div class="bib-ref">Gerganov, G. et al. (2024). <a href="https://github.com/ggerganov/llama.cpp" rel="noopener" target="_blank">"llama.cpp: Inference of Meta's LLaMA model in pure C/C++."</a> The foundational project for local LLM inference, supporting CPU, Apple Silicon, and consumer GPU execution with GGUF quantization formats. Powers Ollama and most consumer-facing local LLM applications.</div>
 </div>
 </section>
 </details>
 <nav class="chapter-nav">
-<a class="prev" href="section-9.4b.html"><span class="nav-label">Previous</span><span class="nav-num">Section 9.4b</span><span class="nav-title">Serving Runtimes: SGLang, TGI, TensorRT &amp; Edge</span></a>
+<a class="prev" href="section-9.4.html"><span class="nav-label">Previous</span><span class="nav-num">Section 9.4</span><span class="nav-title">Speculative Decoding</span></a>
 <a class="up" href="index.html"><span class="nav-label">In Chapter</span><span class="nav-num">Chapter 9</span><span class="nav-title">Inference Optimization &amp; Efficient Serving</span></a>
-<a class="next" href="section-9.6.html"><span class="nav-label">Next</span><span class="nav-num">Section 9.6</span><span class="nav-title">Test-Time Compute &amp; Reasoning Models</span></a>
+<a class="next" href="section-9.6.html"><span class="nav-label">Next</span><span class="nav-num">Section 9.6</span><span class="nav-title">Serving Runtimes: SGLang, TGI, TensorRT & Edge</span></a>
 </nav>
 <footer><p>Fifteenth Edition, 2026 · <a href="../../toc.html">Contents</a></p></footer>
 </main>
-<script>
-window.addEventListener("DOMContentLoaded", function() {
-  if (window.PagefindUI) {
-    new PagefindUI({
-      element: "#search",
-      showSubResults: true,
-      showImages: false,
-      resetStyles: false,
-      pageSize: 8,
-      autofocus: false,
-      translations: {
-        placeholder: "Search the book\u2026",
-      },
-      processResult: function (result) {
-        try {
-          var part = (result && result.meta && result.meta.part) ? result.meta.part : "";
-          var chap = (result && result.meta && result.meta.chapter) ? result.meta.chapter : "";
-          var partShort = part.split(":")[0].trim();
-          var chapShort = chap.split(":")[0].trim();
-          var crumb = [partShort, chapShort].filter(Boolean).join(" \u203a ");
-          if (crumb && result.meta && result.meta.title
-              && result.meta.title.indexOf("[" + partShort) !== 0) {
-            result.meta.title = "[" + crumb + "]  " + result.meta.title;
-          }
-        } catch (e) { /* fall through */ }
-        return result;
-      },
-    });
-  }
-});
-</script>
 </body>
 </html>

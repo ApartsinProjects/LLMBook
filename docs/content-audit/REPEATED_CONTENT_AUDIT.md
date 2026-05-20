@@ -82,7 +82,7 @@ Each cluster lists: type, canonical home (proposed), and duplicate locations.
     > Embedding generation for converting text into dense vector representations. These vectors capture semantic meaning, enabling similarity search and clustering.
   - `part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.2.html:126` [Code Fragment 13.2.4]
     > Semantic cache implementation using cosine similarity for cache lookup. The SemanticCache.get_or_generate() method embeds incoming queries, compares against stored vectors at a configurable threshold 
-  - `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.4.html:420` [Code Fragment 31.4.4]
+  - `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.6.html:420` [Code Fragment 31.6.4]
     > Semantic chunking based on embedding similarity
   - `part-7-retrieval-information-extraction-with-llms/module-32-rag/section-32.1.html:320` [Code Fragment 32.1.2]  *(canonical)*
     > Batch-embedding chunks through the OpenAI text-embedding-3-small endpoint (respecting the 2048-text-per-call limit) and persisting them in a ChromaDB collection configured for cosine similarity. The m
@@ -100,15 +100,15 @@ Each cluster lists: type, canonical home (proposed), and duplicate locations.
     > This snippet demonstrates this approach. Study the implementation details to understand how each component contributes to the overall computation. Tracing through each step builds the intuition needed
   - `part-1-llm-building-blocks/module-01-foundations-nlp-text-representation/section-1.7.html:268` [Code Fragment 1.7.3]
     > This snippet demonstrates this approach. Study the implementation details to understand how each component contributes to the overall computation. Tracing through each step builds the intuition needed
-  - `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.3.html:484` [Code Fragment 3.3.3]
+  - `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.5.html:484` [Code Fragment 3.5.3]
     > This snippet demonstrates the diff_attention function using attention computation. Notice how the attention weights are computed and applied to the value vectors. Tracing through each step builds the 
   - `part-6-agentic-ai/module-26-ai-agents/section-26.1.html:402` [Code Fragment 26.1.3]
     > This snippet demonstrates this approach. Study the implementation details to understand how each component contributes to the overall computation. Tracing through each step builds the intuition needed
   - `part-7-retrieval-information-extraction-with-llms/module-32-rag/section-32.1.html:272` [Code Fragment 32.1.1]  *(canonical)*
     > This snippet demonstrates the chunk_by_tokens, chunk_by_structure functions using chunking. Notice how the chunking strategy balances granularity with context preservation. Tracing through each step b
-  - `part-7-retrieval-information-extraction-with-llms/module-32-rag/section-32.3.html:199` [Code Fragment 32.3.2]
+  - `part-7-retrieval-information-extraction-with-llms/module-32-rag/section-32.4.html:199` [Code Fragment 32.4.2]
     > Extracting database schema context (table names, columns, types) and formatting it as a prompt section so the LLM can write accurate SQL. The function encapsulates reusable logic that can be applied a
-  - `part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.1.html:413` [Code Fragment 35.1.4]
+  - `part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.1.html:413` [Code Fragment 35.2.2]
     > This snippet demonstrates the rerank_results function using retrieval, API calls. Notice how the retrieval step filters candidates before passing them to downstream processing. Tracing through each st
   - `part-9-llm-evaluation-observability/module-42-evaluation-foundations/section-42.6.html:168` [Code Fragment 42.6.1]
     > This snippet demonstrates the rag_pipeline, retrieve_documents functions using retrieval, vector search. Notice how the retrieval and generation stages are composed into a single pipeline. Tracing thr
@@ -124,7 +124,7 @@ Each cluster lists: type, canonical home (proposed), and duplicate locations.
     > Install the required packages for this lab.
   - `part-1-llm-building-blocks/module-02-sequence-models-attention/section-2.3.html:735` [Code Fragment 2.3.14]
     > Install the required packages for this lab.
-  - `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.5.html:327` [Code Fragment 3.5.5]
+  - `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.7.html:327` [Code Fragment 3.7.5]
     > Install the required packages for this lab.
   - `part-1-llm-building-blocks/module-04-decoding-text-generation/section-4.4.html:454` [Code Fragment 4.4.9]
     > Install the required packages for this lab.
@@ -136,13 +136,13 @@ Each cluster lists: type, canonical home (proposed), and duplicate locations.
 - **Occurrences:**
   - `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.1.html:805` [Code Fragment 31.1.8]  *(canonical)*
     > Code example
-  - `part-7-retrieval-information-extraction-with-llms/module-32-rag/section-32.1.html:825` [Code Fragment 32.1.7]
+  - `part-7-retrieval-information-extraction-with-llms/module-32-rag/section-32.1.html:825` [Code Fragment 32.2.2]
     > Code example
   - `part-7-retrieval-information-extraction-with-llms/module-32-rag/section-32.1.html:978` [Code Fragment 32.1.11]
     > Code example
-  - `part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.5.html:307` [Code Fragment 35.5.2]
+  - `part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.5.html:307` [Code Fragment 35.6.2]
     > Code example
-  - `part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.5.html:406` [Code Fragment 35.5.3]
+  - `part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.5.html:406` [Code Fragment 35.6.3]
     > Code example
   - `part-8-conversational-ai-with-llms/module-40-voice-realtime-multimodal/section-40.6.html:453` [Code Fragment 40.1.9]
     > Code example
@@ -156,7 +156,7 @@ Each cluster lists: type, canonical home (proposed), and duplicate locations.
 - **Occurrences:**
   - `part-4-training-adaptation/module-16-fine-tuning-fundamentals/section-16.7.html:221` ["Library Shortcut: RecursiveCharacterTextSplitter"]  *(canonical)*
     > In production, prefer langchain_text_splitters.RecursiveCharacterTextSplitter(chunk_size=512, chunk_overlap=64) instead of a hand-rolled window loop. It handles paragraph and sentence boundaries, fall
-  - `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.4.html:206` ["Library Shortcut: RecursiveCharacterTextSplitter"]
+  - `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.6.html:206` ["Library Shortcut: RecursiveCharacterTextSplitter"]
     > In production, prefer langchain_text_splitters.RecursiveCharacterTextSplitter(chunk_size=512, chunk_overlap=64) instead of a hand-rolled window loop. It handles paragraph and sentence boundaries, fall
   - `part-7-retrieval-information-extraction-with-llms/module-32-rag/section-32.1.html:275` ["Library Shortcut: RecursiveCharacterTextSplitter"]
     > In production, prefer langchain_text_splitters.RecursiveCharacterTextSplitter(chunk_size=512, chunk_overlap=64) instead of a hand-rolled window loop. It handles paragraph and sentence boundaries, fall
@@ -198,7 +198,7 @@ Each cluster lists: type, canonical home (proposed), and duplicate locations.
     > Install the required packages for this lab.
   - `part-1-llm-building-blocks/module-02-sequence-models-attention/section-2.3.html:735` [Code Fragment 2.3.14]
     > Install the required packages for this lab.
-  - `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.5.html:327` [Code Fragment 3.5.5]
+  - `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.7.html:327` [Code Fragment 3.7.5]
     > Install the required packages for this lab.
   - `part-1-llm-building-blocks/module-04-decoding-text-generation/section-4.4.html:454` [Code Fragment 4.4.9]
     > Install the required packages for this lab.
@@ -362,9 +362,9 @@ Each cluster lists: type, canonical home (proposed), and duplicate locations.
 - **Occurrences:**
   - `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.1.html:428` [Code Fragment 4.1.5]  *(canonical)*
     > a: A position-wise feed-forward network with GELU activation. Each token passes through the same two-layer MLP independently.
-  - `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.2.html:295` [Code Fragment 3.2.3]
+  - `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.2.html:295` [Code Fragment 3.3.3]
     > Position-wise feed-forward network with ReLU activation. This two-layer MLP is applied independently to each token position.
-  - `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.5.html:352` [Code Fragment 3.5.1]
+  - `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.7.html:352` [Code Fragment 3.7.1]
     > Layer normalization and a position-wise feedforward network implemented from scratch. Layer norm recenters each token's features to zero mean and unit variance, stabilizing gradients, while the feedfo
 - **Suggested action**: **RESTRUCTURE**: similar Code Fragments cover overlapping ground. Decide whether each is doing distinct didactic work; if not, consolidate to canonical and replace others with a 1-line See-Also pointer.
 
@@ -444,17 +444,17 @@ Each cluster lists: type, canonical home (proposed), and duplicate locations.
 
 **Before** (duplicate content):
 ```html
-<div class="code-caption"><strong>Code Fragment 32.1.7</strong>: Code example</div>
+<div class="code-caption"><strong>Code Fragment 32.2.2</strong>: Code example</div>
 ```
 
 **After** (replace with cross-ref to canonical `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.1.html`):
 ```html
-<div class="code-caption"><strong>Code Fragment 32.1.7</strong>:
+<div class="code-caption"><strong>Code Fragment 32.2.2</strong>:
   (rewrite this caption with section-specific content explaining what THIS code does.)
 </div>
 ```
 
-### Sketch 5: `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.4.html` (cluster type: callout_body)
+### Sketch 5: `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.6.html` (cluster type: callout_body)
 
 **Cluster signature**: `in production, prefer langchain_text_splitters.recursivecharactertextsplitter(chunk_size=512, chunk_overlap=64) instead `
 

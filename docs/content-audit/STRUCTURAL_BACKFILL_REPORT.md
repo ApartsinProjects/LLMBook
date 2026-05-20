@@ -17,12 +17,12 @@ firing).
 
 Two adjacent fixes were applied during the same pass:
 
-- Section 31.1b (Modern Embedding Architectures) and section 10.6b (Serving
+- Section 31.2 (Modern Embedding Architectures) and section 10.8 (Serving
   Runtimes) were flagged in the same SECTION_PAGE_LAYOUT family between cycles
   and received an authored prerequisites block.
 - 162 broken cross-references in newly authored prerequisites paragraphs were
   rewritten against the actual module path map (module names, part renames,
-  and section split filenames like `section-47.1a.html`).
+  and section split filenames like `section-47.1.html`).
 
 Final per-type insertion counts:
 
@@ -34,7 +34,7 @@ Final per-type insertion counts:
 | **Total**      | **261**  |
 
 (`16` big-picture rather than `15` reflects one extra block authored for
-section 10.8 to bring it into canonical shape; the insertion script detected
+section 10.10 to bring it into canonical shape; the insertion script detected
 that 10.8 already had a big-picture and skipped the duplicate, so the on-disk
 addition was 15 as the audit demanded.)
 
@@ -109,7 +109,7 @@ block were inserted.
 </blockquote>
 <div class="prerequisites">
 <h3 id="prerequisites">Prerequisites</h3>
-<p>This section assumes the next-token factorization from <a href="../../part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.2.html">Section 6.2</a>, the multimodal token-fusion patterns from <a href="../module-22-vision-language-models/section-22.7.html">Section 22.7</a>, and a working intuition for KV-cache mechanics from <a href="../../part-2-understanding-llms/module-09-inference-optimization/section-9.3.html">Section 9.3</a>.</p>
+<p>This section assumes the next-token factorization from <a href="../../part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.2.html">Section 6.2</a>, the multimodal token-fusion patterns from <a href="../module-22-vision-language-models/section-22.7.html">Section 22.7</a>, and a working intuition for KV-cache mechanics from <a href="../../part-2-understanding-llms/module-09-inference-optimization/section-9.4.html">Section 9.4</a>.</p>
 </div>
 ```
 
@@ -122,11 +122,11 @@ canonical order).
 ```html
 <div class="prerequisites">
 <h3 id="prerequisites">Prerequisites</h3>
-<p>This section assumes the transformer mechanics from <a href="../../part-1-llm-building-blocks/module-03-transformer-architecture/section-4.1.html">Section 4.1</a>, the tokenization and vocabulary discussion from <a href="../../part-1-llm-building-blocks/module-02-sequence-models-attention/section-2.1.html">Section 2.1</a>, and the autoregressive next-token loss from <a href="../../part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.2.html">Section 6.2</a>. A brief detour through diffusion-model basics (the image variant covered in <a href="../module-25-tools-of-the-trade/section-19.6.html">Section 19.6</a>) helps with the flow-matching half of the section.</p>
+<p>This section assumes the transformer mechanics from <a href="../../part-1-llm-building-blocks/module-03-transformer-architecture/section-4.1.html">Section 4.1</a>, the tokenization and vocabulary discussion from <a href="../../part-1-llm-building-blocks/module-02-sequence-models-attention/section-2.1.html">Section 2.1</a>, and the autoregressive next-token loss from <a href="../../part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.2.html">Section 6.2</a>. A brief detour through diffusion-model basics (the image variant covered in <a href="../module-25-tools-of-the-trade/section-19.7.html">Section 19.7</a>) helps with the flow-matching half of the section.</p>
 </div>
 ```
 
-### Sample 4: Section 10.5 (Platforms, EBP)
+### Sample 4: Section 10.6 (Platforms, EBP)
 
 ```html
 <blockquote class="epigraph">
@@ -139,7 +139,7 @@ canonical order).
 </div>
 <div class="prerequisites">
 <h3 id="prerequisites">Prerequisites</h3>
-<p>This section assumes you understand inference-time compute costs from <a href="../module-09-inference-optimization/section-9.1.html">Section 9.1</a>, the open-versus-closed model split from <a href="../../part-3-working-with-llms/module-11-llm-apis/section-11.1.html">Section 11.1</a>, and the KV-cache mechanics from <a href="../module-09-inference-optimization/section-9.3.html">Section 9.3</a>. Quantization basics from <a href="section-10.1.html">Section 10.1</a> will help you compare platforms on like-for-like throughput.</p>
+<p>This section assumes you understand inference-time compute costs from <a href="../module-09-inference-optimization/section-9.1.html">Section 9.1</a>, the open-versus-closed model split from <a href="../../part-3-working-with-llms/module-11-llm-apis/section-11.1.html">Section 11.1</a>, and the KV-cache mechanics from <a href="../module-09-inference-optimization/section-9.4.html">Section 9.4</a>. Quantization basics from <a href="section-10.1.html">Section 10.1</a> will help you compare platforms on like-for-like throughput.</p>
 </div>
 ```
 

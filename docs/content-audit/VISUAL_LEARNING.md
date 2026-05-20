@@ -15,7 +15,7 @@ All SVGs use the R2 palette specified in the agent brief (#3a73a8 blue, #d97706 
 
 | # | Section | Figure | Visual type | What it shows |
 |---|---------|--------|-------------|---------------|
-| 1 | `part-7/module-35/section-35.4.html` (RAG Ingestion) | Fig 35.4.2 | 3-panel comparison | Fixed-window vs semantic vs structure-aware chunking on the same document with two sections and one table. Highlights how fixed-window can split a table mid-cell, while structure-aware treats the table as atomic. |
+| 1 | `part-7/module-35/section-35.5.html` (RAG Ingestion) | Fig 35.5.2 | 3-panel comparison | Fixed-window vs semantic vs structure-aware chunking on the same document with two sections and one table. Highlights how fixed-window can split a table mid-cell, while structure-aware treats the table as atomic. |
 | 2 | `part-6/module-26/section-26.3.html` (Reasoning agents) | Fig 26.3.2 | 3-panel comparison | Think-then-Act vs Planner+Executor vs Adaptive Depth reasoning-agent architectures. Shows the cost-vs-capability trade for each. |
 | 3 | `part-6/module-28/section-28.2.html` (Multi-agent topologies) | Fig 28.2.2 | 3-panel topology | Swarm, debate, and hierarchical topologies. Complements the existing foundational-3 figure with the advanced-3. |
 | 4 | `part-6/module-28/section-28.2.html` (Multi-agent topologies) | Table 28.2.1 | Pattern selection table | 6 patterns x 6 criteria cheat sheet for picking supervisor / pipeline / mesh / swarm / debate / hierarchical. |

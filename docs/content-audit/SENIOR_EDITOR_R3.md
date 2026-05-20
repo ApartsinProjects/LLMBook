@@ -17,7 +17,7 @@ Of 39 sampled sections, **15 had at least one defect worth a surgical edit**. Th
 4. **Duplicate "What Comes Next" + "What's Next?"** (continuing R2 finding): Found two more cases (74.4, 77.1) of the manual h2 followed immediately by the standard whats-next div, both merged.
 5. **Self-referencing prereqs / forward links**: Section 67.10's prereqs claim "Readers who have also covered AI strategy (Chapter 67)" — but 67.10 IS in Chapter 67. Section 14.5's prereqs claim "tooling (Chapter 14)" but 14.5 IS in Chapter 14. Section 76.1's prereqs claim "emergence debate from Section 76.1" — self-loop.
 6. **Broken hash anchor in self-link**: Section 45.1 had `<a href="section-45.1.html#48-1-production-data-pipelines-and-serving-at-scale">Section 45.1 (Platforms)</a>` — a self-reference with an old appendix-style anchor, embedded in a closing paragraph that doesn't make sense at all (the paragraph reads "...feature stores (Section 45.1 (Platforms)), these components..."). Rewrote to remove the broken self-reference.
-7. **Code-block indentation bug rendered into HTML** (section-2.3b and section-4.4 saw it): The lab code block in 2.3b had 29 lines indented one level too deep, putting the `weights = F.softmax(...)`, `return out, weights`, and the entire test harness inside an `if causal:` block. Re-indented to method-body and module-level. Section 4.4 has the same pattern but I left it for a separate code-quality pass since the section is already research-frontier and the indentation bug repeats across several blocks.
+7. **Code-block indentation bug rendered into HTML** (section-2.3b and section-4.4 saw it): The lab code block in 2.4 had 29 lines indented one level too deep, putting the `weights = F.softmax(...)`, `return out, weights`, and the entire test harness inside an `if causal:` block. Re-indented to method-body and module-level. Section 4.4 has the same pattern but I left it for a separate code-quality pass since the section is already research-frontier and the indentation bug repeats across several blocks.
 8. **Mismatched chapter title between breadcrumb and pagefind metadata**: Section 67.8's pagefind-injected chapter meta said "Chapter 67: LLM Strategy & Use Case Prioritization" while the actual chapter is "Chapter 67: From Idea to MVP". Fixed.
 9. **Stray duplicate "In the next section" paragraph**: Section 67.8 had two consecutive "In the next section" paragraphs, the second pointing to a nonexistent "Section 65.5: LLM Compute Planning & Infrastructure". Merged into a single forward pointer.
 
@@ -26,7 +26,7 @@ Of 39 sampled sections, **15 had at least one defect worth a surgical edit**. Th
 | Section | Status | Notes |
 |---------|--------|-------|
 | part-1 / 0.4 | clean | RL foundations; reads cleanly |
-| part-1 / 2.3b | edited | Re-indented 29 lines of Python in the multi-head attention lab (was inside `if causal:`); fixed prereqs link from Section 0.4 (RL) → 0.3a (PyTorch tensors) |
+| part-1 / 2.3b | edited | Re-indented 29 lines of Python in the multi-head attention lab (was inside `if causal:`); fixed prereqs link from Section 0.5 (RL) → 0.3a (PyTorch tensors) |
 | part-1 / 4.4 | edited | Fixed prereq text "Sections 5.1" → "4.1" (text/link mismatch). Same indent-overdent issue in code blocks left for code-pedagogy pass. |
 | part-10 / 48.2 | clean | Input guardrails; tight |
 | part-10 / 51.1 | edited | Meta description "Part IX's platforms" → "Part X's platforms"; stray "39.1.1" prefix in table title removed |
@@ -46,7 +46,7 @@ Of 39 sampled sections, **15 had at least one defect worth a surgical edit**. Th
 | part-2 / 7.1b | clean | LLM landscape continuation |
 | part-2 / 9.3 | clean | Inference optimization |
 | part-2 / 10.6a | clean | Interpretability tooling |
-| part-3 / 12.4 | edited | Orphan paragraph "<p> categorizes these three attack types..." → "Figure 12.4.2 categorizes..."; fixed stale "Section 20.1 alignment techniques" → "Section 18.1a RLHF and DPO alignment techniques" |
+| part-3 / 12.4 | edited | Orphan paragraph "<p> categorizes these three attack types..." → "Figure 12.4.2 categorizes..."; fixed stale "Section 20.1 alignment techniques" → "Section 18.1 RLHF and DPO alignment techniques" |
 | part-3 / 14.5 | edited | Self-referencing prereq (Chapter 14 listed as prereq of section in chapter 14) → "prompt engineering (Chapter 12), and hybrid ML+LLM patterns (Chapter 13)" |
 | part-4 / 16.5 | clean | Representation-learning fine-tuning |
 | part-4 / 18.1b | edited | Fixed corrupted prereqs sentence ("<a>Section 6.1</a> pipeline covered in <a>Section 6.1: The Landmark Models</a>") with a clean two-link version pointing to 18.1a + 0.4 + 16.1 |
@@ -63,7 +63,7 @@ Of 39 sampled sections, **15 had at least one defect worth a surgical edit**. Th
 | part-8 / 37.5b | clean | Conv-AI continuation |
 | part-8 / 41.5 | edited | Breadcrumb and pagefind meta both bare "Chapter 41" → "Chapter 41: Conversational AI Tools of the Trade" |
 | part-9 / 42.9 | clean | Eval foundations closing |
-| part-9 / 45.1 | edited (heavy) | Five `Code Fragment K.5.X` and five `Code Fragment L.7.X` placeholders renumbered to 45.1.1-45.1.10; six h3 ids stripped of `o-7-` appendix prefix; broken self-anchor `section-45.1.html#48-1-production-data-pipelines-and-serving-at-scale` rewrite (the closing summary was nonsensical); stale "Section L.4" cross-ref → Section 9.1b |
+| part-9 / 45.1 | edited (heavy) | Five `Code Fragment K.5.X` and five `Code Fragment L.7.X` placeholders renumbered to 45.1.1-45.1.10; six h3 ids stripped of `o-7-` appendix prefix; broken self-anchor `section-45.1.html#48-1-production-data-pipelines-and-serving-at-scale` rewrite (the closing summary was nonsensical); stale "Section L.4" cross-ref → Section 9.2 |
 
 ### Highest-impact patterns the meta agent should investigate
 

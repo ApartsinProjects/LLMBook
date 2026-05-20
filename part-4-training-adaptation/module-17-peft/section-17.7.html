@@ -13,8 +13,8 @@ gtag('config', 'G-PWPHBQL2VL');
 </script>
 
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<meta content="Section 17.7: Continual Learning &amp; Domain Adaptation. LLMs are expensive to pretrain and quickly become outdated." name="description"/>
-<title>Section 17.7: Continual Learning &amp; Domain Adaptation</title>
+<meta content="Section 17.7: Model Merging &amp; Composition. Model merging creates multi-skilled models by combining weights from specialized fine-tunes, requiring no GPU training at all." name="description"/>
+<title>Section 17.7: Model Merging &amp; Composition</title>
 <link href="../../styles/book.css" rel="stylesheet"/>
 <link href="../../styles/pygments.css" rel="stylesheet"/>
 <link href="../../vendor/katex/katex.min.css" rel="stylesheet"/>
@@ -45,536 +45,475 @@ gtag('config', 'G-PWPHBQL2VL');
 </div>
 
 <div class="page-breadcrumb" data-pagefind-meta="chapter"><a href="../index.html">Part IV: LLM Training and Adaptation</a><span class="bc-sep">›</span><a href="index.html">Chapter 17: Parameter-Efficient Fine-Tuning, Distillation &amp; Model Merging</a></div>
-<h1>Continual Learning &amp; Domain Adaptation</h1><div class="page-current">Section 17.7</div>
+<h1>Model Merging &amp; Composition</h1><div class="page-current">Section 17.7</div>
 
 </header>
 <main class="content" id="main-content"><span class="pagefind-meta-injected" data-pagefind-meta="part:Part IV: LLM Training and Adaptation" hidden=""></span><span class="pagefind-meta-injected" data-pagefind-meta="chapter:Chapter 17: Parameter-Efficient Fine-Tuning, Distillation &amp; Model Merging" hidden=""></span>
 <blockquote class="epigraph">
-<p>I taught my model legal documents on Monday and it forgot how to write code by Friday. Catastrophic forgetting is the most polite name we have for "the bill came due."</p>
-<span class="agent-avatar-inline" style="background-color: #1abc9c;"><img alt="Distill" height="28" src="../../front-matter/images/agents/distill.png" width="28"/></span><cite>Distill, <span class="agent-desc">Catastrophically-Forgetting AI Agent</span></cite>
+<p>Average the weights of a code model and a medical model. Run zero gradient steps. Top the leaderboard. Nobody is sure why this works, and the people who do it for a living have stopped asking.</p> <span class="agent-avatar-inline" style="background-color: #1abc9c;"><img alt="Distill" height="28" src="../../front-matter/images/agents/distill.png" width="28"/></span><cite>Distill, <span class="agent-desc">Weight-Averaging AI Agent</span></cite>
 </blockquote>
 <div class="callout big-picture">
 <div class="callout-title">Big Picture</div>
-<p>LLMs are expensive to pretrain and quickly become outdated. New knowledge emerges, domains evolve, and organizational needs change. Continual learning addresses how to update a model with new information without expensive retraining from scratch, while avoiding "catastrophic forgetting" of previously learned capabilities. This section covers continual pretraining data on domain corpora, vocabulary extension for specialized terminology, replay methods, regularization techniques like Elastic Weight Consolidation, and progressive training strategies. These methods are essential for maintaining production LLMs that must adapt to changing requirements over time. The fine-tuning fundamentals from <a href="../module-16-fine-tuning-fundamentals/section-16.1.html">Section 16.1</a> provide the baseline adaptation spectrum that continual learning extends.</p>
+<p><strong>Model merging creates multi-skilled models by combining weights from specialized fine-tunes,</strong> requiring no GPU training at all. If you have a model fine-tuned for code and another fine-tuned for medical text, merging can produce a single model that handles both domains. This sounds like magic, and the theoretical understanding is still developing, but the empirical results are striking. Merged models regularly top the Open LLM Leaderboard, and the technique has become a core tool in the <a href="../../part-2-understanding-llms/module-07-modern-llm-landscape/section-7.1.html">open-source model</a> ecosystem. This section covers the key merging algorithms (Linear, SLERP, TIES, DARE), the theoretical framework of task arithmetic, and practical workflows using MergeKit. The fine-tuning techniques from <a href="../module-16-fine-tuning-fundamentals/section-16.3.html">Section 16.3</a> and Section 17.1 produce the specialized models that merging combines.</p>
 </div>
 <div class="prerequisites">
 <h3 id="prerequisites">Prerequisites</h3>
-<p>This section assumes familiarity with <a href="../module-16-fine-tuning-fundamentals/section-16.1.html">fine-tuning</a> fundamentals from <a href="../module-16-fine-tuning-fundamentals/section-16.2.html">Section 16.2</a> (including <a href="../module-16-fine-tuning-fundamentals/section-16.3.html">catastrophic forgetting</a> in <a href="../module-16-fine-tuning-fundamentals/section-16.2.html">full fine-tuning</a>) and the <a href="index.html">LoRA</a> adapter approach from <a href="section-17.1.html">Section 17.1</a>. You should also understand model merging from <a href="../module-17-peft/section-17.6.html">Section 17.6</a>, as adapter merging is a key strategy for composable domain adaptation.</p>
+<p>This section builds on the distillation fundamentals from <a href="../module-17-peft/section-17.5.html">Section 17.5: Knowledge Distillation for LLMs</a>. You should also be comfortable with <a href="../module-16-fine-tuning-fundamentals/section-16.1.html">fine-tuning</a> workflows from <a href="../module-16-fine-tuning-fundamentals/section-16.1.html">Section 16.1</a> and the <a href="index.html">LoRA</a> adapter mechanics covered in <a href="section-17.1.html">Section 17.1</a>, since merging frequently involves combining <a href="section-17.1.html">LoRA</a>-adapted models.</p>
 </div>
-<div class="callout note">
-<div class="callout-title">Note: See also</div>
-<p>The crossing-curves dynamic shown for fine-tuning in <a href="../../part-4-training-adaptation/module-16-fine-tuning-fundamentals/section-16.1.html"><strong>Figure 17.7.1</strong></a> applies identically to continual learning. As domain performance climbs, general capabilities decline; the goal is to find and maintain the sweet spot. The same chart and the same intervention strategies (replay, distillation, careful LR scheduling) apply.</p>
+<h2 id="17-7-1-why-model-merging-works">17.7.1 Why Model Merging Works</h2>
+<p>Model merging exploits a remarkable property of neural network loss landscapes: models fine-tuned from the same base occupy a connected region of parameter space where linear interpolations between them tend to perform well. When two models are fine-tuned from the same pretrained checkpoint, their weight differences from the base represent "task vectors" in parameter space. These task vectors can be combined arithmetically because the underlying loss landscape in the neighborhood of the pretrained model is approximately convex.
+ </p>
+<p>The key constraint is that all models being merged must share the same architecture and originate from the same base pretrained checkpoint. You cannot merge a Llama model with a Mistral model (for an overview of these model families, see <a href="../../part-2-understanding-llms/module-07-modern-llm-landscape/index.html">Chapter 7</a>), or even two Llama models fine-tuned from different pretrained versions. The common ancestry is what ensures the weight spaces are compatible. visualizes these task vectors in parameter space.
+ </p>
+<div class="callout tip">
+<div class="callout-title">Tip</div>
+<p>When merging models with MergeKit, always evaluate the merged model on benchmarks from all constituent tasks, not just the one you care about most. A common failure mode is that merging improves your target task while catastrophically degrading another. The TIES and DARE methods are specifically designed to minimize this interference by resolving sign conflicts and pruning redundant updates before merging.</p>
 </div>
 <div class="callout key-insight">
+<div class="callout-title">Key Insight: The Cocktail Mixer</div>
+<p>Think of model merging as mixing cocktails. Each fine-tuned model is a single spirit with a distinct flavor profile (one excels at code, another at creative writing, a third at math). Weight averaging is the simplest mix: equal parts of each. SLERP and TIES are more sophisticated bartending techniques that blend flavors along smooth curves or resolve conflicting ingredients. The result can be a balanced cocktail that inherits the best of each spirit, though poor mixing ratios can produce something undrinkable.</p>
+</div>
+<div class="diagram-container">
+<svg aria-label="Task vectors in parameter space: from a single base model, a Code fine-tune and a Medical fine-tune extend along two directions (Task Vector A and Task Vector B); adding the two vectors yields a merged multi-skill model." font-family="Segoe UI, system-ui, sans-serif" role="img" viewbox="0 -10 700 310" xmlns="http://www.w3.org/2000/svg">
+<defs>
+<lineargradient id="grad_c5ecae_f5f5f5" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#ffffff"></stop><stop offset="100%" stop-color="#f5f5f5"></stop></lineargradient>
+<filter height="115%" id="shadow_c5ecae" width="115%" x="-5%" y="-5%"><fedropshadow dx="2" dy="2" flood-opacity="0.1" stddeviation="3"></fedropshadow></filter>
+<marker id="arrTV_A" markerHeight="7" markerWidth="7" orient="auto-start-reverse" refX="9" refY="5" viewBox="0 0 10 10"><path d="M 0 0 L 10 5 L 0 10 z" fill="#2e7d32"></path></marker>
+<marker id="arrTV_B" markerHeight="7" markerWidth="7" orient="auto-start-reverse" refX="9" refY="5" viewBox="0 0 10 10"><path d="M 0 0 L 10 5 L 0 10 z" fill="#e65100"></path></marker>
+<marker id="arrTV_M" markerHeight="7" markerWidth="7" orient="auto-start-reverse" refX="9" refY="5" viewBox="0 0 10 10"><path d="M 0 0 L 10 5 L 0 10 z" fill="#8e44ad"></path></marker>
+</defs>
+<!-- Base model point -->
+<circle cx="350" cy="200" fill="#3949ab" r="8"></circle>
+<text fill="#3949ab" font-size="12" font-weight="bold" text-anchor="middle" x="350" y="230">Base Model</text>
+<!-- Code model -->
+<circle cx="180" cy="90" fill="#2e7d32" r="8"></circle>
+<text fill="#2e7d32" font-size="12" font-weight="bold" text-anchor="middle" x="180" y="75">Code FT</text>
+<line marker-end="url(#arrTV_A)" stroke="#2e7d32" stroke-dasharray="6" stroke-linecap="round" stroke-width="2" x1="345" x2="190" y1="195" y2="98"></line>
+<text fill="#2e7d32" font-size="11" transform="rotate(-35, 240, 160)" x="240" y="160">Task Vector A</text>
+<!-- Medical model -->
+<circle cx="520" cy="90" fill="#e65100" r="8"></circle>
+<text fill="#e65100" font-size="12" font-weight="bold" text-anchor="middle" x="520" y="75">Medical FT</text>
+<line marker-end="url(#arrTV_B)" stroke="#e65100" stroke-dasharray="6" stroke-linecap="round" stroke-width="2" x1="355" x2="510" y1="195" y2="98"></line>
+<text fill="#e65100" font-size="11" transform="rotate(35, 460, 160)" x="460" y="160">Task Vector B</text>
+<!-- Merged model -->
+<circle cx="350" cy="80" fill="#8e44ad" r="10" stroke="#8e44ad" stroke-linecap="round" stroke-width="2"></circle>
+<text fill="#8e44ad" font-size="12" font-weight="bold" text-anchor="middle" x="350" y="60">Merged Model</text>
+<line marker-end="url(#arrTV_M)" stroke="#8e44ad" stroke-linecap="round" stroke-width="2" x1="350" x2="350" y1="192" y2="95"></line>
+<text fill="#8e44ad" font-size="11" x="370" y="145">A + B combined</text>
+<!-- Legend -->
+<rect fill="url(#grad_c5ecae_f5f5f5)" filter="url(#shadow_c5ecae)" height="35" rx="4" stroke="#ddd" stroke-linecap="round" stroke-width="1" width="600" x="50" y="255"></rect>
+<text fill="#555" font-size="11" text-anchor="middle" x="350" y="278">Task vectors (weight deltas from base) can be added to create multi-skill models</text>
+</svg>
+<div class="diagram-caption"><strong>Figure 17.7.1</strong>: Task vectors represent the weight changes from fine-tuning. Adding task vectors combines capabilities.</div>
+</div>
+<p><strong>Why does model merging work at all?</strong> This is one of the most surprising results in recent LLM research. The intuition relies on the concept of <em>linear mode connectivity</em>: models fine-tuned from the same base checkpoint tend to occupy the same low-loss basin in the parameter space. Because they share the same initialization, the paths from the base model to each fine-tuned variant do not cross high-loss barriers. Averaging (or otherwise combining) their weights produces a point that also lies within this shared basin, inheriting capabilities from both. This explains why merging fails for models trained from different random initializations: they occupy entirely separate loss basins with no linear path between them. The practical consequence is that model merging is only reliable when all constituent models descend from the same base checkpoint.</p>
+<div class="callout key-insight">
 <div class="callout-title">Key Insight</div>
-<p>Catastrophic forgetting is more severe in full fine-tuning than in parameter-efficient methods. <a href="section-17.1.html">LoRA</a> naturally mitigates forgetting because the base model weights remain frozen, and the low-rank adapter can only make limited modifications. This is one reason why LoRA-based continual learning is increasingly preferred over full-parameter continual pretraining for domain adaptation.</p>
+<p>Model merging gives you multi-task capability without multi-task training data. If you have one LoRA adapter fine-tuned for code generation and another for medical Q&amp;A, merging them can produce a model competent at both tasks, without ever creating a dataset that mixes code and medical examples. This is uniquely valuable in practice because collecting balanced multi-task training data is one of the hardest parts of fine-tuning. Merging bypasses this entirely by combining independently trained specialists.</p>
 </div>
-<div class="callout practical-example">
-<div class="callout-title">Real-World Scenario: Continual Learning for a Financial LLM</div>
-<p><strong>Who:</strong> AI team at a financial services firm</p>
-<p><strong>Situation:</strong> The team adapted <a href="../../part-2-understanding-llms/module-07-modern-llm-landscape/section-7.2.html">Llama-2</a> 13B for financial analysis, but quarterly regulation changes and new financial instruments required regular model updates.</p>
-<p><strong>Problem:</strong> Each full fine-tuning cycle on updated data caused catastrophic forgetting: the model lost 15% accuracy on previously learned SEC filing formats while learning new ones.</p>
-<p><strong>Dilemma:</strong> Retraining from scratch on all historical plus new data was prohibitively expensive (72 GPU-hours per cycle), but incremental training on only new data caused severe forgetting.</p>
-<p><strong>Decision:</strong> They adopted elastic weight consolidation (EWC) combined with LoRA adapters, using replay buffers containing 10% of historical examples mixed into each update batch.</p>
-<p><strong>How:</strong> The Fisher information matrix identified which weights were critical for existing knowledge. EWC penalized changes to those weights during updates. A replay buffer of 2,000 curated examples from each previous quarter was mixed into training data.</p>
-<p><strong>Result:</strong> Forgetting dropped from 15% to under 2% accuracy loss on old tasks. Each quarterly update required only 8 GPU-hours (89% reduction), and the model maintained 94% accuracy across all historical and new regulation formats.</p>
-<p><strong>Lesson:</strong> Combining parameter-efficient methods (LoRA) with explicit anti-forgetting techniques (EWC + replay) is far more effective than either approach alone for ongoing model updates.</p>
+<div class="callout warning">
+<div class="callout-title">Warning: Common Mistake: Merging Models with Different Base Architectures</div>
+<p>Model merging only works when all models share the same base architecture and were fine-tuned from the same pretrained checkpoint. Merging a Llama-3 fine-tune with a Mistral fine-tune will produce garbage, not a model that combines both capabilities. The reason is that merging relies on parameter-space proximity: models fine-tuned from the same starting point differ only slightly, and interpolating between them stays in a "good" region of the loss landscape. Models with different architectures (or even the same architecture trained from scratch separately) occupy entirely different regions. Always verify that all models you intend to merge share the exact same base model before proceeding.</p>
 </div>
-<p><strong>Why this matters:</strong> Continual learning is the production reality of deployed models. Knowledge becomes outdated, regulations change, new products launch, and user behavior shifts. A model fine-tuned in January may be subtly wrong by June. The techniques in this section (replay buffers, elastic weight consolidation, progressive training) are not theoretical curiosities; they are the infrastructure for keeping models current without retraining from scratch. This connects to the broader <a href="../../part-9-llm-evaluation-observability/module-42-evaluation-foundations/section-42.3.html">drift monitoring</a> strategies in Chapter 29, where detecting when a model needs updating is just as important as knowing how to update it.</p>
-<div class="callout production-pattern">
-<div class="callout-title">Production Pattern: Production Example: Continual Pretraining at Bloomberg, Meditron, and Code Models</div>
-<p>Continual pretraining is the recipe behind several public domain-specific LLMs. <strong>BloombergGPT</strong> (50B params, 2023) was trained by mixing 363B tokens of financial text with general data and is the canonical CPT case study. <strong>Meditron</strong> (Llama-2 70B continually pretrained on medical literature by EPFL) and Google's <strong>Med-PaLM</strong> show the same pattern in healthcare. <strong>StarCoder2</strong> (the Hugging Face / BigCode collaboration) starts from a general checkpoint and continues pretraining on 600+ programming languages. The trick across all three: a small replay fraction (5 to 20 percent) of the original pretraining mix is interleaved with domain data to limit catastrophic forgetting of general capabilities.</p>
-</div>
-<h2 id="17-7-2-continual-pre-training">17.7.2 Continual Pre-Training</h2>
-<p>Continual pretraining (CPT) extends the standard <a href="../../part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.2.html">pretraining objective</a> (<a href="../../part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.2.html">next-token prediction</a>) on domain-specific corpora. Unlike instruction fine-tuning, which teaches the model to follow a new format, CPT injects new factual knowledge and domain vocabulary into the model's weights. This is the primary technique for creating domain-specific foundation models (for example, a medical LLM or a financial LLM).
- <strong>Code Fragment 17.7.5</strong> demonstrates the data preparation step for CPT.</p>
-<h3 id="17-7-2-1-data-preparation-for-cpt">17.7.2.1 Data Preparation for CPT</h3>
-<p>This snippet prepares a domain-specific corpus for continued pretraining by tokenizing and chunking the text.</p>
-<div class="code-block-wrapper">
-<pre><code class="pygments-highlighted lang-python"><span class="c1"># Load evaluation datasets for comparing distilled vs. base models</span>
-<span class="c1"># Use held-out test sets that neither model saw during training</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">datasets</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_dataset</span><span class="p">,</span> <span class="n">concatenate_datasets</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">AutoTokenizer</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">random</span>
-
-<span class="k">def</span><span class="w"> </span><span class="nf">prepare_cpt_dataset</span><span class="p">(</span>
-    <span class="n">domain_data_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
-    <span class="n">general_data_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
-    <span class="n">replay_ratio</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.1</span><span class="p">,</span>
-    <span class="n">tokenizer_id</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"meta-llama/Meta-Llama-3-8B"</span><span class="p">,</span>
-    <span class="n">max_seq_length</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">4096</span><span class="p">,</span>
-    <span class="p">):</span>
-<span class="w">    </span><span class="sd">"""Prepare CPT dataset with replay data to reduce forgetting."""</span>
-    <span class="n">tokenizer</span> <span class="o">=</span> <span class="n">AutoTokenizer</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span><span class="n">tokenizer_id</span><span class="p">)</span>
-
-    <span class="c1"># Load domain-specific data</span>
-    <span class="n">domain_ds</span> <span class="o">=</span> <span class="n">load_dataset</span><span class="p">(</span><span class="s2">"text"</span><span class="p">,</span> <span class="n">data_files</span><span class="o">=</span><span class="n">domain_data_path</span><span class="p">,</span> <span class="n">split</span><span class="o">=</span><span class="s2">"train"</span><span class="p">)</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Domain data: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">domain_ds</span><span class="p">)</span><span class="si">}</span><span class="s2"> documents"</span><span class="p">)</span>
-
-    <span class="c1"># Load general replay data (subset of original pretraining mix)</span>
-    <span class="n">general_ds</span> <span class="o">=</span> <span class="n">load_dataset</span><span class="p">(</span><span class="s2">"text"</span><span class="p">,</span> <span class="n">data_files</span><span class="o">=</span><span class="n">general_data_path</span><span class="p">,</span> <span class="n">split</span><span class="o">=</span><span class="s2">"train"</span><span class="p">)</span>
-
-    <span class="c1"># Sample replay data proportionally</span>
-    <span class="n">n_replay</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">domain_ds</span><span class="p">)</span> <span class="o">*</span> <span class="n">replay_ratio</span><span class="p">)</span>
-    <span class="n">general_ds</span> <span class="o">=</span> <span class="n">general_ds</span><span class="o">.</span><span class="n">shuffle</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="mi">42</span><span class="p">)</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="nb">min</span><span class="p">(</span><span class="n">n_replay</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">general_ds</span><span class="p">))))</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Replay data: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">general_ds</span><span class="p">)</span><span class="si">}</span><span class="s2"> documents (</span><span class="si">{</span><span class="n">replay_ratio</span><span class="o">*</span><span class="mi">100</span><span class="si">:</span><span class="s2">.0f</span><span class="si">}</span><span class="s2">%)"</span><span class="p">)</span>
-
-    <span class="c1"># Combine and shuffle</span>
-    <span class="n">combined</span> <span class="o">=</span> <span class="n">concatenate_datasets</span><span class="p">([</span><span class="n">domain_ds</span><span class="p">,</span> <span class="n">general_ds</span><span class="p">])</span>
-    <span class="n">combined</span> <span class="o">=</span> <span class="n">combined</span><span class="o">.</span><span class="n">shuffle</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="mi">42</span><span class="p">)</span>
-
-    <span class="c1"># Tokenize</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">tokenize</span><span class="p">(</span><span class="n">examples</span><span class="p">):</span>
-    <span class="k">return</span> <span class="n">tokenizer</span><span class="p">(</span>
-        <span class="n">examples</span><span class="p">[</span><span class="s2">"text"</span><span class="p">],</span>
-        <span class="n">truncation</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-        <span class="n">max_length</span><span class="o">=</span><span class="n">max_seq_length</span><span class="p">,</span>
-        <span class="n">padding</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
-        <span class="p">)</span>
-
-    <span class="n">tokenized</span> <span class="o">=</span> <span class="n">combined</span><span class="o">.</span><span class="n">map</span><span class="p">(</span><span class="n">tokenize</span><span class="p">,</span> <span class="n">batched</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">remove_columns</span><span class="o">=</span><span class="p">[</span><span class="s2">"text"</span><span class="p">])</span>
-    <span class="k">return</span> <span class="n">tokenized</span>
-</code></pre>
-<div class="code-caption"><strong>Code Fragment 17.7.1</strong>: Dataset loading and preparation for model training or evaluation. The preprocessing step formats raw data into the structure expected by the trainer.</div>
-<div class="code-output"><span class="output-label"><strong>Output:</strong></span> <div class="code-block-wrapper">
-<pre>
-per-param penalties: [0.9 0.001]
-total EWC penalty: 450.5
-</pre>
-<div class="code-caption"><strong>Code Fragment 17.7.2:</strong> Python implementation of continual Learning &amp; Domain Adaptation.</div>
-</div>
-</div>
-<p><strong>Code Fragment 17.7.4</strong> defines training hyperparameters.</p>
-<div class="code-block-wrapper">
-<pre><code class="pygments-highlighted lang-python"><span class="c1"># Load both the teacher and student models for side-by-side evaluation</span>
-<span class="c1"># Measure accuracy, latency, and memory footprint for each</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">transformers</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
- <span class="n">AutoModelForCausalLM</span><span class="p">,</span> <span class="n">AutoTokenizer</span><span class="p">,</span>
- <span class="n">TrainingArguments</span><span class="p">,</span> <span class="n">Trainer</span><span class="p">,</span> <span class="n">DataCollatorForLanguageModeling</span>
-<span class="p">)</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
-
-<span class="c1"># Load base model</span>
-<span class="n">model</span> <span class="o">=</span> <span class="n">AutoModelForCausalLM</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span>
- <span class="s2">"meta-llama/Meta-Llama-3-8B"</span><span class="p">,</span>
- <span class="n">torch_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">,</span>
- <span class="n">device_map</span><span class="o">=</span><span class="s2">"auto"</span><span class="p">,</span>
-<span class="p">)</span>
-<span class="c1"># Load tokenizer with vocabulary matching the model</span>
-<span class="n">tokenizer</span> <span class="o">=</span> <span class="n">AutoTokenizer</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span><span class="s2">"meta-llama/Meta-Llama-3-8B"</span><span class="p">)</span>
-<span class="n">tokenizer</span><span class="o">.</span><span class="n">pad_token</span> <span class="o">=</span> <span class="n">tokenizer</span><span class="o">.</span><span class="n">eos_token</span>
-
-<span class="c1"># CPT-specific training arguments</span>
-<span class="n">training_args</span> <span class="o">=</span> <span class="n">TrainingArguments</span><span class="p">(</span>
- <span class="n">output_dir</span><span class="o">=</span><span class="s2">"./cpt-medical-llama"</span><span class="p">,</span>
- <span class="n">num_train_epochs</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="c1"># Typically 1-2 epochs for CPT</span>
- <span class="n">per_device_train_batch_size</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
- <span class="n">gradient_accumulation_steps</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="c1"># Effective batch size = 32</span>
- <span class="n">learning_rate</span><span class="o">=</span><span class="mf">2e-5</span><span class="p">,</span> <span class="c1"># Much lower than pre-training</span>
- <span class="n">lr_scheduler_type</span><span class="o">=</span><span class="s2">"cosine"</span><span class="p">,</span>
- <span class="n">warmup_ratio</span><span class="o">=</span><span class="mf">0.05</span><span class="p">,</span>
- <span class="n">weight_decay</span><span class="o">=</span><span class="mf">0.1</span><span class="p">,</span>
- <span class="n">bf16</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
- <span class="n">logging_steps</span><span class="o">=</span><span class="mi">50</span><span class="p">,</span>
- <span class="n">save_strategy</span><span class="o">=</span><span class="s2">"steps"</span><span class="p">,</span>
- <span class="n">save_steps</span><span class="o">=</span><span class="mi">500</span><span class="p">,</span>
- <span class="n">max_grad_norm</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
-<span class="p">)</span>
-
-<span class="n">data_collator</span> <span class="o">=</span> <span class="n">DataCollatorForLanguageModeling</span><span class="p">(</span>
- <span class="n">tokenizer</span><span class="o">=</span><span class="n">tokenizer</span><span class="p">,</span> <span class="n">mlm</span><span class="o">=</span><span class="kc">False</span> <span class="c1"># Causal LM (next-token prediction)</span>
-<span class="p">)</span>
-
-<span class="c1"># Initialize HuggingFace Trainer with model, data, and config</span>
-<span class="n">trainer</span> <span class="o">=</span> <span class="n">Trainer</span><span class="p">(</span>
- <span class="n">model</span><span class="o">=</span><span class="n">model</span><span class="p">,</span>
- <span class="n">args</span><span class="o">=</span><span class="n">training_args</span><span class="p">,</span>
- <span class="n">train_dataset</span><span class="o">=</span><span class="n">cpt_dataset</span><span class="p">,</span>
- <span class="n">data_collator</span><span class="o">=</span><span class="n">data_collator</span><span class="p">,</span>
-<span class="p">)</span>
-
-<span class="c1"># Launch the training loop</span>
-<span class="n">trainer</span><span class="o">.</span><span class="n">train</span><span class="p">()</span></code></pre>
-
-<div class="code-caption"><strong>Code Fragment 17.7.3:</strong> <strong>Code Fragment 17.7.4</strong> defines training hyperparameters.</div></div>
-<p><strong>Code Fragment 17.7.5</strong> below implements a replay-aware dataset class that interleaves domain and general examples.</p>
-<div class="code-block-wrapper">
-<pre><code class="pygments-highlighted lang-python"><span class="c1"># Replay dataset: mix domain data with general replay samples</span>
-<span class="c1"># Interleaving prevents clustering of replay data at batch boundaries</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">torch.utils.data</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span><span class="p">,</span> <span class="n">DataLoader</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">random</span>
-
-<span class="k">class</span><span class="w"> </span><span class="nc">ReplayDataset</span><span class="p">(</span><span class="n">Dataset</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">"""Dataset that mixes domain data with replay data."""</span>
-
-    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">domain_dataset</span><span class="p">,</span> <span class="n">replay_dataset</span><span class="p">,</span> <span class="n">replay_ratio</span><span class="o">=</span><span class="mf">0.1</span><span class="p">):</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">domain</span> <span class="o">=</span> <span class="n">domain_dataset</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">replay</span> <span class="o">=</span> <span class="n">replay_dataset</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">replay_ratio</span> <span class="o">=</span> <span class="n">replay_ratio</span>
-
-        <span class="c1"># Calculate sizes for interleaving</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">total_size</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">domain_dataset</span><span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">n_replay_per_epoch</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">total_size</span> <span class="o">*</span> <span class="n">replay_ratio</span><span class="p">)</span>
-
-        <span class="c1"># Pre-sample replay indices for this epoch</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">_resample_replay</span><span class="p">()</span>
-
-    <span class="k">def</span><span class="w"> </span><span class="nf">_resample_replay</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">"""Resample replay indices (call at each epoch start)."""</span>
-        <span class="n">replay_indices</span> <span class="o">=</span> <span class="n">random</span><span class="o">.</span><span class="n">sample</span><span class="p">(</span>
-            <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">replay</span><span class="p">)),</span>
-            <span class="nb">min</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">n_replay_per_epoch</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">replay</span><span class="p">))</span>
-            <span class="p">)</span>
-        <span class="c1"># Interleave: every ~(1/ratio) steps, insert a replay sample</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">schedule</span> <span class="o">=</span> <span class="p">[]</span>
-        <span class="n">replay_iter</span> <span class="o">=</span> <span class="nb">iter</span><span class="p">(</span><span class="n">replay_indices</span><span class="p">)</span>
-        <span class="n">interval</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="mi">1</span> <span class="o">/</span> <span class="bp">self</span><span class="o">.</span><span class="n">replay_ratio</span><span class="p">)</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">replay_ratio</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="mi">999999</span>
-        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">total_size</span><span class="p">):</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">schedule</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="s2">"domain"</span><span class="p">,</span> <span class="n">i</span><span class="p">))</span>
-            <span class="k">if</span> <span class="p">(</span><span class="n">i</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">%</span> <span class="n">interval</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
-                <span class="k">try</span><span class="p">:</span>
-                    <span class="bp">self</span><span class="o">.</span><span class="n">schedule</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="s2">"replay"</span><span class="p">,</span> <span class="nb">next</span><span class="p">(</span><span class="n">replay_iter</span><span class="p">)))</span>
-                <span class="k">except</span> <span class="ne">StopIteration</span><span class="p">:</span>
-                    <span class="k">pass</span>
-
-            <span class="k">def</span><span class="w"> </span><span class="fm">__len__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-                <span class="k">return</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">schedule</span><span class="p">)</span>
-
-            <span class="k">def</span><span class="w"> </span><span class="fm">__getitem__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">idx</span><span class="p">):</span>
-                <span class="n">source</span><span class="p">,</span> <span class="n">data_idx</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">schedule</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span>
-                <span class="k">if</span> <span class="n">source</span> <span class="o">==</span> <span class="s2">"domain"</span><span class="p">:</span>
-                    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">domain</span><span class="p">[</span><span class="n">data_idx</span><span class="p">]</span>
-                <span class="k">else</span><span class="p">:</span>
-                    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">replay</span><span class="p">[</span><span class="n">data_idx</span><span class="p">]</span></code></pre>
-<div class="code-caption"><strong>Code Fragment 17.7.4:</strong> Dataset loading and preparation for model training or evaluation. The preprocessing step formats raw data into the structure expected by the trainer.</div>
-</div>
-<h2 id="17-7-5-elastic-weight-consolidation-ewc">17.7.5 Elastic Weight Consolidation (EWC)</h2>
-<p>Elastic Weight Consolidation (Kirkpatrick et al., 2017) adds a regularization term to the <a href="../../part-1-llm-building-blocks/module-00-ml-pytorch-foundations/section-0.2.html">loss function</a> that penalizes changes to parameters that were important for previous tasks. It estimates each parameter's "importance" using the Fisher Information Matrix, which measures how much the loss changes when a parameter is perturbed. Important parameters get a stronger regularization penalty, anchoring them near their original values while allowing less important parameters to adapt freely.
- </p>
-<p><strong>The "why" behind the Fisher anchor.</strong> A flat L2 penalty (anchor every parameter equally) would freeze the model: domain learning competes uniformly with task-A knowledge and you cannot adapt. EWC's insight is that loss landscapes are not isotropic, the loss is steep in some directions (small perturbation, big damage to task A) and almost flat in others (large perturbation, no effect). The diagonal Fisher is exactly the local curvature in each direction, so weighting the penalty by F<sub>i</sub> gives you a per-parameter spring constant: parameters that lie in a narrow valley for task A get stiff springs (cannot move), while parameters in flat regions move freely to learn task B. This is a second-order Bayesian-flavored regularizer wearing a deceptively simple quadratic suit.</p>
-<p>As shows, the strength of each "rubber band" is proportional to the parameter's Fisher information score, creating a selective constraint that protects critical knowledge while allowing the model to learn.</p>
-<p>The EWC loss adds a quadratic penalty term:
+<h2 id="17-7-2-merging-methods">17.7.2 Merging Methods</h2>
+<p>Linear mode connectivity explains why merging works at all; it does not tell us which arithmetic to use. Four families of methods (linear averaging, SLERP, TIES-Merging, and DARE) trade simplicity for sophistication, each fixing a failure mode of the last. We work up the ladder, starting with the simplest weighted average and noting where it breaks down.</p>
+<h3 id="17-7-2-1-linear-weighted-average">17.7.2.1 Linear (Weighted Average)</h3>
+<p>The simplest merging method computes a weighted average of model weights. Given models A and B with weights <span class="math">$W_{A}$</span> and <span class="math">$W_{B}$</span>, the merged model has weights:
  </p>
 <div class="math-block">
-$$L_{\text{total}} = L_{\text{task}} + \frac{\lambda}{2} \sum_{i} F_{i} \, (\theta_{i} - \theta_{i}^{*})^{2}$$
+$$W_{\text{merged}} = \alpha \cdot W_{A} + (1 - \alpha) \cdot W_{B}$$
 </div>
-<p>
-where <span class="math">$F_{i}$</span> is the Fisher information for parameter <span class="math">$i$</span>, <span class="math">$\theta_{i}^{*}$</span> is the original parameter value, and <span class="math">$\lambda$</span> controls the regularization strength.
-</p>
-<p>A concrete example with two parameters illustrates the selective penalty:</p>
+<p>The mixing coefficient α controls the balance between models. Setting α = 0.5 gives equal weight to both. Linear merging is fast and simple, but it can produce mediocre results when the models have very different weight distributions because opposing parameter changes can cancel each other out.
+ </p>
+<p>A tiny numeric example clarifies the effect. Consider a single parameter from two fine-tuned models:</p>
 <div class="code-block-wrapper">
-<pre><code class="pygments-highlighted lang-python"><span class="c1"># EWC penalty: numeric walkthrough with two parameters</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
-<span class="n">theta_star</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="mf">0.5</span><span class="p">,</span> <span class="mf">1.2</span><span class="p">])</span> <span class="c1"># original values after task A</span>
-<span class="n">theta_new</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="mf">0.8</span><span class="p">,</span> <span class="mf">1.3</span><span class="p">])</span> <span class="c1"># current values during task B training</span>
-<span class="n">F</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="mf">10.0</span><span class="p">,</span> <span class="mf">0.1</span><span class="p">])</span> <span class="c1"># Fisher information (importance)</span>
-<span class="n">lam</span> <span class="o">=</span> <span class="mi">1000</span>
-<span class="n">penalty</span> <span class="o">=</span> <span class="p">(</span><span class="n">lam</span> <span class="o">/</span> <span class="mi">2</span><span class="p">)</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">F</span> <span class="o">*</span> <span class="p">(</span><span class="n">theta_new</span> <span class="o">-</span> <span class="n">theta_star</span><span class="p">)</span> <span class="o">**</span> <span class="mi">2</span><span class="p">)</span>
-<span class="n">per_param</span> <span class="o">=</span> <span class="n">F</span> <span class="o">*</span> <span class="p">(</span><span class="n">theta_new</span> <span class="o">-</span> <span class="n">theta_star</span><span class="p">)</span> <span class="o">**</span> <span class="mi">2</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"per-param penalties: </span><span class="si">{</span><span class="n">per_param</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span> <span class="c1"># [0.9, 0.001]</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"total EWC penalty: </span><span class="si">{</span><span class="n">penalty</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span> <span class="c1"># 450.5</span>
-<span class="c1"># Parameter 1 (F=10.0) dominates: even a small shift of 0.3 costs 0.9.</span>
-<span class="c1"># Parameter 2 (F=0.1) can move freely because it was unimportant for task A.</span></code></pre>
-<div class="code-output"><span class="output-label"><strong>Output:</strong></span> per-param penalties: [0.9   0.001]
-total EWC penalty: 450.5</div>
-<div class="code-caption"><strong>Code Fragment 17.7.5:</strong> EWC penalty for two parameters. The Fisher information acts as a per-parameter spring constant: parameter 1 (F = 10.0) is tightly anchored because it was critical for the previous task, while parameter 2 (F = 0.1) is nearly free to adapt.</div>
-</div></div>
-<p><strong>Code Fragment 17.7.6</strong> shows this in practice.</p>
-<div class="code-block-wrapper">
-<pre><code class="pygments-highlighted lang-python"><span class="c1"># Evaluate the distilled model on downstream tasks using PyTorch</span>
-<span class="c1"># Compute accuracy, F1, and per-class metrics</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">torch.nn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nn</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">copy</span><span class="w"> </span><span class="kn">import</span> <span class="n">deepcopy</span>
-
-<span class="k">class</span><span class="w"> </span><span class="nc">EWCRegularizer</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">"""Elastic Weight Consolidation for continual learning."""</span>
-
-    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">model</span><span class="p">,</span> <span class="n">dataloader</span><span class="p">,</span> <span class="n">device</span><span class="p">,</span> <span class="n">n_samples</span><span class="o">=</span><span class="mi">200</span><span class="p">):</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">params</span> <span class="o">=</span> <span class="p">{</span>
-            <span class="n">n</span><span class="p">:</span> <span class="n">p</span><span class="o">.</span><span class="n">clone</span><span class="p">()</span><span class="o">.</span><span class="n">detach</span><span class="p">()</span>
-            <span class="k">for</span> <span class="n">n</span><span class="p">,</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">model</span><span class="o">.</span><span class="n">named_parameters</span><span class="p">()</span>
-            <span class="k">if</span> <span class="n">p</span><span class="o">.</span><span class="n">requires_grad</span>
-            <span class="p">}</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">fisher</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_compute_fisher</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">dataloader</span><span class="p">,</span> <span class="n">device</span><span class="p">,</span> <span class="n">n_samples</span><span class="p">)</span>
-
-    <span class="k">def</span><span class="w"> </span><span class="nf">_compute_fisher</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">model</span><span class="p">,</span> <span class="n">dataloader</span><span class="p">,</span> <span class="n">device</span><span class="p">,</span> <span class="n">n_samples</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">"""Estimate diagonal Fisher Information Matrix."""</span>
-        <span class="n">fisher</span> <span class="o">=</span> <span class="p">{</span>
-            <span class="n">n</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros_like</span><span class="p">(</span><span class="n">p</span><span class="p">)</span>
-            <span class="k">for</span> <span class="n">n</span><span class="p">,</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">model</span><span class="o">.</span><span class="n">named_parameters</span><span class="p">()</span>
-            <span class="k">if</span> <span class="n">p</span><span class="o">.</span><span class="n">requires_grad</span>
-            <span class="p">}</span>
-
-        <span class="n">model</span><span class="o">.</span><span class="n">eval</span><span class="p">()</span>
-        <span class="n">count</span> <span class="o">=</span> <span class="mi">0</span>
-        <span class="k">for</span> <span class="n">batch</span> <span class="ow">in</span> <span class="n">dataloader</span><span class="p">:</span>
-            <span class="k">if</span> <span class="n">count</span> <span class="o">&gt;=</span> <span class="n">n_samples</span><span class="p">:</span>
-                <span class="k">break</span>
-                <span class="n">input_ids</span> <span class="o">=</span> <span class="n">batch</span><span class="p">[</span><span class="s2">"input_ids"</span><span class="p">]</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">)</span>
-                <span class="n">outputs</span> <span class="o">=</span> <span class="n">model</span><span class="p">(</span><span class="n">input_ids</span><span class="o">=</span><span class="n">input_ids</span><span class="p">,</span> <span class="n">labels</span><span class="o">=</span><span class="n">input_ids</span><span class="p">)</span>
-                <span class="n">loss</span> <span class="o">=</span> <span class="n">outputs</span><span class="o">.</span><span class="n">loss</span>
-                <span class="n">loss</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
-
-                <span class="k">for</span> <span class="n">n</span><span class="p">,</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">model</span><span class="o">.</span><span class="n">named_parameters</span><span class="p">():</span>
-                    <span class="k">if</span> <span class="n">p</span><span class="o">.</span><span class="n">requires_grad</span> <span class="ow">and</span> <span class="n">p</span><span class="o">.</span><span class="n">grad</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-                        <span class="n">fisher</span><span class="p">[</span><span class="n">n</span><span class="p">]</span> <span class="o">+=</span> <span class="n">p</span><span class="o">.</span><span class="n">grad</span><span class="o">.</span><span class="n">detach</span><span class="p">()</span> <span class="o">**</span> <span class="mi">2</span>
-
-                        <span class="n">model</span><span class="o">.</span><span class="n">zero_grad</span><span class="p">()</span>
-                        <span class="n">count</span> <span class="o">+=</span> <span class="n">input_ids</span><span class="o">.</span><span class="n">size</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
-
-                        <span class="c1"># Normalize</span>
-                        <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="n">fisher</span><span class="p">:</span>
-                            <span class="n">fisher</span><span class="p">[</span><span class="n">n</span><span class="p">]</span> <span class="o">/=</span> <span class="n">count</span>
-
-                            <span class="k">return</span> <span class="n">fisher</span>
-
-        <span class="k">def</span><span class="w"> </span><span class="nf">penalty</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">model</span><span class="p">,</span> <span class="n">lambda_ewc</span><span class="o">=</span><span class="mi">1000</span><span class="p">):</span>
-<span class="w">            </span><span class="sd">"""Compute EWC regularization penalty."""</span>
-            <span class="n">loss</span> <span class="o">=</span> <span class="mi">0</span>
-            <span class="k">for</span> <span class="n">n</span><span class="p">,</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">model</span><span class="o">.</span><span class="n">named_parameters</span><span class="p">():</span>
-                <span class="k">if</span> <span class="n">n</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">fisher</span><span class="p">:</span>
-                    <span class="n">loss</span> <span class="o">+=</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">fisher</span><span class="p">[</span><span class="n">n</span><span class="p">]</span> <span class="o">*</span> <span class="p">(</span><span class="n">p</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">params</span><span class="p">[</span><span class="n">n</span><span class="p">])</span> <span class="o">**</span> <span class="mi">2</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span>
-                    <span class="k">return</span> <span class="p">(</span><span class="n">lambda_ewc</span> <span class="o">/</span> <span class="mi">2</span><span class="p">)</span> <span class="o">*</span> <span class="n">loss</span>
-
-                    <span class="c1"># Usage in training loop:</span>
-                        <span class="c1"># ewc = EWCRegularizer(model, general_dataloader, device)</span>
-                        <span class="c1"># for batch in domain_dataloader:</span>
-                            <span class="c1"># loss = model(**batch).loss + ewc.penalty(model)</span></code></pre>
-<div class="code-caption"><strong>Code Fragment 17.7.6:</strong> EWC penalty: numeric walkthrough with two parameters</div>
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># Linear merge of a single weight with different alpha values</span>
+<span class="n">w_a</span><span class="p">,</span> <span class="n">w_b</span> <span class="o">=</span> <span class="mf">1.4</span><span class="p">,</span> <span class="mf">0.6</span> <span class="c1"># same parameter in models A and B</span>
+<span class="k">for</span> <span class="n">alpha</span> <span class="ow">in</span> <span class="p">[</span><span class="mf">0.3</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">,</span> <span class="mf">0.7</span><span class="p">]:</span>
+    <span class="n">w_merged</span> <span class="o">=</span> <span class="n">alpha</span> <span class="o">*</span> <span class="n">w_a</span> <span class="o">+</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">alpha</span><span class="p">)</span> <span class="o">*</span> <span class="n">w_b</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"alpha=</span><span class="si">{</span><span class="n">alpha</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2"> -&gt; W_merged = </span><span class="si">{</span><span class="n">alpha</span><span class="si">}</span><span class="s2">*</span><span class="si">{</span><span class="n">w_a</span><span class="si">}</span><span class="s2"> + </span><span class="si">{</span><span class="mi">1</span><span class="o">-</span><span class="n">alpha</span><span class="si">}</span><span class="s2">*</span><span class="si">{</span><span class="n">w_b</span><span class="si">}</span><span class="s2"> = </span><span class="si">{</span><span class="n">w_merged</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+    <span class="c1"># alpha=0.3 -&gt; W_merged = 0.84 (closer to model B)</span>
+    <span class="c1"># alpha=0.5 -&gt; W_merged = 1.00 (midpoint)</span>
+    <span class="c1"># alpha=0.7 -&gt; W_merged = 1.16 (closer to model A)</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> <pre>
+alpha=0.3 -&gt; W_merged = 0.3*1.4 + 0.7*0.6 = 0.84
+alpha=0.5 -&gt; W_merged = 0.5*1.4 + 0.5*0.6 = 1.00
+alpha=0.7 -&gt; W_merged = 0.7*1.4 + 0.3*0.6 = 1.16
+</pre>
 </div>
-<div class="callout note">
-<div class="callout-title">Note</div>
-<p>Computing the full Fisher Information Matrix for a billion-parameter model is prohibitively expensive. In practice, EWC uses a diagonal approximation (only the diagonal of the Fisher matrix), which can be computed efficiently with a single pass over a small dataset. The <code>lambda_ewc</code> hyperparameter typically ranges from 100 to 10000 and requires tuning. Too low and forgetting persists; too high and the model cannot adapt to the new domain.</p>
+<div class="code-caption"><strong>Code Fragment 17.7.1</strong>: Linear merge of a single weight with different alpha values</div>
+</div>
+<h3 id="17-7-2-2-slerp-spherical-linear-interpolation">17.7.2.2 SLERP (Spherical Linear Interpolation)</h3>
+<p>SLERP treats weight vectors as points on a high-dimensional sphere and interpolates along the geodesic (shortest path on the sphere surface) rather than in a straight line through the interior. This preserves the magnitude of weight vectors better than linear interpolation, which tends to shrink weights toward zero when the models diverge.
+ </p>
+<p>SLERP is applied layer by layer (or parameter by parameter) and produces consistently better results than linear averaging. It is the recommended default for merging two models.
+ </p>
+<div class="callout key-insight">
+<div class="callout-title">Key Insight</div>
+<p>SLERP can only merge exactly two models at a time. For merging three or more models, you must either chain multiple SLERP operations (merge A+B, then merge result+C) or use a method that natively supports multiple inputs like Linear averaging or TIES. The order of chained SLERP merges can affect the result, so experiment with different orderings.</p>
+</div>
+<div class="callout practical-example">
+<div class="callout-title">Real-World Scenario: Merging Specialist LoRAs for a Multi-Skill Assistant</div>
+<p><strong>Who:</strong> Open-source model developer contributing to the <a href="../../part-2-understanding-llms/module-10-interpretability/section-10.7.html#12-2-huggingface-transformers-deep-dive">Hugging Face</a> community</p>
+<p><strong>Situation:</strong> The developer had three separately fine-tuned LoRA adapters on Mistral 7B: one for creative writing, one for code generation, and one for factual Q&amp;A.</p>
+<p><strong>Problem:</strong> Serving three separate adapters required either runtime adapter switching (adding latency) or running three model instances (tripling GPU cost).</p>
+<p><strong>Dilemma:</strong> Linear averaging of the three adapters degraded performance on all tasks because the code adapter and creative writing adapter pushed parameters in opposite directions for shared layers.</p>
+<p><strong>Decision:</strong> They used TIES-Merging with density 0.5 to resolve parameter conflicts, trimming low-magnitude deltas and electing the majority sign direction before averaging.</p>
+<p><strong>How:</strong> Using the <code>mergekit</code> library, they defined a YAML config specifying TIES as the merge method, set density to 0.5, and assigned equal weight to all three models. The merge completed in 4 minutes on CPU.</p>
+<p><strong>Result:</strong> The merged model retained 92% of each specialist's <a href="../../part-9-llm-evaluation-observability/module-42-evaluation-foundations/section-42.2.html">benchmark</a> score on its domain, compared to only 78% with naive linear averaging. A single model served all three tasks with no adapter switching overhead.</p>
+<p><strong>Lesson:</strong> When merging models with conflicting parameter updates, TIES resolves sign conflicts that destroy performance under simple averaging; always try TIES before concluding that merging does not work for your use case.</p>
 </div>
 <div class="callout fun-note">
 <div class="callout-title">Fun Fact</div>
-<p>Elastic Weight Consolidation is the neural network equivalent of putting "do not erase" signs on a whiteboard. New information fills the empty spaces freely, but the critical notes are preserved. The Fisher information matrix is the survey that identifies which notes are critical: the bigger the Fisher value, the bigger the sign.</p>
+<p>Model merging combines multiple fine-tuned models into one without any additional training. It is like mixing paint colors: if blue is good at code and red is good at creative writing, maybe purple can do both. Surprisingly, this metaphor holds up better than you would expect.</p>
 </div>
-<h2 id="17-7-6-progressive-training-and-curriculum-approaches">17.7.6 Progressive Training and Curriculum Approaches</h2>
-<p>Progressive training structures the continual learning process as a sequence of carefully designed stages, each building on the previous one. Rather than training on all domain data at once, you create a curriculum that gradually shifts the distribution from general to domain-specific.
+<h3 id="17-7-2-3-ties-trim-elect-sign-merge">17.7.2.3 TIES (TRIM, Elect Sign, merge)</h3>
+<p>TIES-Merging (2023) addresses the interference problem that plagues simple averaging. When two fine-tuned models modify the same parameter in opposite directions, averaging cancels out both changes. TIES handles this through three steps:
  </p>
-<p>The diagram below illustrates this staged approach. The subsections below detail the pipeline stages and the curriculum design principles that govern each transition.</p>
-<h3 id="17-7-6-1-multi-stage-domain-adaptation-pipeline">17.7.6.1 Multi-Stage Domain Adaptation Pipeline</h3>
-<p>The diagram below traces the progressive adaptation pipeline from general to domain-specific capabilities.</p>
+<p>A concrete interference case: pick a single parameter at layer 10. The code fine-tune pushed it from 0.50 (base) to 0.85 (delta +0.35). The creative-writing fine-tune pushed the same parameter from 0.50 to 0.15 (delta -0.35). Naive averaging gives back (0.85 + 0.15) / 2 = 0.50, exactly the base value: both fine-tunes' knowledge cancels out. TIES looks at the two deltas (+0.35 and -0.35), trims any tiny ones (these are large, so both survive), votes on the sign (here it is a tie, but with three models the majority wins), and merges only deltas matching the elected sign. If "+" wins, the resulting parameter becomes 0.50 + 0.35 = 0.85 (just the code knowledge); the conflicting -0.35 is zeroed rather than averaged in. The result preserves more useful capability than the averaged 0.50 ever could.</p>
+<ol>
+<li><strong>TRIM:</strong> Remove small-magnitude changes (below a threshold) that are likely noise rather than meaningful task knowledge.</li>
+<li><strong>Elect Sign:</strong> For each parameter, take a majority vote across models on the sign of the change. Parameters where models disagree on direction are resolved by the majority.</li>
+<li><strong>Merge:</strong> Average only the values that agree with the elected sign, zeroing out conflicting contributions.</li>
+</ol>
+<p><strong>Figure 17.7.2</strong> walks through these three TIES steps visually.</p>
 <div class="diagram-container">
-<svg aria-label="Diagram: 6.1 Multi-Stage Domain Adaptation Pipeline" font-family="Segoe UI, system-ui, sans-serif" role="img" viewbox="0 -10 700 210" xmlns="http://www.w3.org/2000/svg">
-<!-- Stage 1 -->
-<rect fill="url(#grad_f75c10_e8eaf6)" filter="url(#shadow_f75c10)" height="65" rx="6" stroke="#3949ab" stroke-linecap="round" stroke-width="1.5" width="140" x="20" y="55"></rect>
-<text fill="#3949ab" font-size="11" font-weight="bold" text-anchor="middle" x="90" y="78">Stage 1: CPT</text>
-<text fill="#555" font-size="11" text-anchor="middle" x="90" y="95">Domain corpus</text>
-<text fill="#555" font-size="11" text-anchor="middle" x="90" y="110">+ 20% replay</text>
-<line marker-end="url(#arrowP)" stroke="#333" stroke-linecap="round" stroke-width="1.5" x1="162" x2="185" y1="87" y2="87"></line>
+<svg aria-label="Diagram: 2.3 TIES (TRIM, Elect Sign, merge)" font-family="Segoe UI, system-ui, sans-serif" role="img" viewbox="0 -10 700 290" xmlns="http://www.w3.org/2000/svg">
 <defs>
-<lineargradient id="grad_f75c10_f3e5f5" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#fff4ff"></stop><stop offset="100%" stop-color="#f3e5f5"></stop></lineargradient>
-<lineargradient id="grad_f75c10_e8eaf6" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#f7f9ff"></stop><stop offset="100%" stop-color="#e8eaf6"></stop></lineargradient>
-<lineargradient id="grad_f75c10_f5f5f5" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#ffffff"></stop><stop offset="100%" stop-color="#f5f5f5"></stop></lineargradient>
-<lineargradient id="grad_f75c10_c8e6c9" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#d7f5d8"></stop><stop offset="100%" stop-color="#c8e6c9"></stop></lineargradient>
-<lineargradient id="grad_f75c10_fff3e0" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#ffffef"></stop><stop offset="100%" stop-color="#fff3e0"></stop></lineargradient>
-<filter height="115%" id="shadow_f75c10" width="115%" x="-5%" y="-5%"><fedropshadow dx="2" dy="2" flood-opacity="0.1" stddeviation="3"></fedropshadow></filter>
-<marker id="arrowP" markerheight="6" markerwidth="8" orient="auto" refx="8" refy="3"><polygon fill="#333" points="0 0, 8 3, 0 6"></polygon></marker></defs>
-<!-- Stage 2 -->
-<rect fill="url(#grad_f75c10_c8e6c9)" height="65" rx="6" stroke="#2e7d32" stroke-linecap="round" stroke-width="1.5" width="140" x="190" y="55"></rect>
-<text fill="#2e7d32" font-size="11" font-weight="bold" text-anchor="middle" x="260" y="78">Stage 2: SFT</text>
-<text fill="#555" font-size="11" text-anchor="middle" x="260" y="95">Domain instructions</text>
-<text fill="#555" font-size="11" text-anchor="middle" x="260" y="110">+ general instructions</text>
-<line marker-end="url(#arrowP)" stroke="#333" stroke-linecap="round" stroke-width="1.5" x1="332" x2="355" y1="87" y2="87"></line>
-<!-- Stage 3 -->
-<rect fill="url(#grad_f75c10_fff3e0)" height="65" rx="6" stroke="#e65100" stroke-linecap="round" stroke-width="1.5" width="140" x="360" y="55"></rect>
-<text fill="#e65100" font-size="11" font-weight="bold" text-anchor="middle" x="430" y="78">Stage 3: Align</text>
-<text fill="#555" font-size="11" text-anchor="middle" x="430" y="95">Domain DPO/RLHF</text>
-<text fill="#555" font-size="11" text-anchor="middle" x="430" y="110">+ safety alignment</text>
-<line marker-end="url(#arrowP)" stroke="#333" stroke-linecap="round" stroke-width="1.5" x1="502" x2="525" y1="87" y2="87"></line>
-<!-- Stage 4 -->
-<rect fill="url(#grad_f75c10_f3e5f5)" height="65" rx="6" stroke="#7b1fa2" stroke-linecap="round" stroke-width="1.5" width="140" x="530" y="55"></rect>
-<text fill="#7b1fa2" font-size="11" font-weight="bold" text-anchor="middle" x="600" y="78">Stage 4: Eval</text>
-<text fill="#555" font-size="11" text-anchor="middle" x="600" y="95">Domain benchmarks</text>
-<text fill="#555" font-size="11" text-anchor="middle" x="600" y="110">+ general benchmarks</text>
-<!-- Annotations -->
-<rect fill="url(#grad_f75c10_f5f5f5)" height="40" rx="4" stroke="#ddd" stroke-linecap="round" stroke-width="1" width="650" x="20" y="145"></rect>
-<text fill="#555" font-size="11" text-anchor="middle" x="350" y="170">Each stage uses LoRA adapters that can be merged sequentially or kept separate for modularity</text>
+<lineargradient id="grad_571eb4_f3e5f5" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#fff4ff"></stop><stop offset="100%" stop-color="#f3e5f5"></stop></lineargradient>
+<lineargradient id="grad_571eb4_ffcdd2" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#ffdce1"></stop><stop offset="100%" stop-color="#ffcdd2"></stop></lineargradient>
+<lineargradient id="grad_571eb4_c8e6c9" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#d7f5d8"></stop><stop offset="100%" stop-color="#c8e6c9"></stop></lineargradient>
+<lineargradient id="grad_571eb4_f5f5f5" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#ffffff"></stop><stop offset="100%" stop-color="#f5f5f5"></stop></lineargradient>
+<lineargradient id="grad_571eb4_e8f4fd" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#f7ffff"></stop><stop offset="100%" stop-color="#e8f4fd"></stop></lineargradient>
+<filter height="115%" id="shadow_571eb4" width="115%" x="-5%" y="-5%"><fedropshadow dx="2" dy="2" flood-opacity="0.1" stddeviation="3"></fedropshadow></filter>
+</defs>
+<!-- Step 1: Trim -->
+<rect fill="url(#grad_571eb4_e8f4fd)" filter="url(#shadow_571eb4)" height="110" rx="8" stroke="#3498db" stroke-linecap="round" stroke-width="1.5" width="190" x="30" y="50"></rect>
+<text fill="#1565c0" font-size="13" font-weight="bold" text-anchor="middle" x="125" y="75">1. TRIM</text>
+<text fill="#555" font-size="11" text-anchor="middle" x="125" y="98">Remove small changes</text>
+<text fill="#555" font-size="11" text-anchor="middle" x="125" y="115">(likely noise)</text>
+<rect fill="url(#grad_571eb4_c8e6c9)" height="15" stroke="#2e7d32" stroke-linecap="round" stroke-width="1" width="20" x="55" y="128"></rect>
+<rect fill="url(#grad_571eb4_ffcdd2)" height="15" stroke="#c62828" stroke-linecap="round" stroke-width="1" width="20" x="80" y="128"></rect>
+<rect fill="url(#grad_571eb4_c8e6c9)" height="15" stroke="#2e7d32" stroke-linecap="round" stroke-width="1" width="20" x="105" y="128"></rect>
+<rect fill="#eee" height="15" stroke="#999" stroke-dasharray="2" stroke-linecap="round" stroke-width="1" width="20" x="130" y="128"></rect>
+<rect fill="#eee" height="15" stroke="#999" stroke-dasharray="2" stroke-linecap="round" stroke-width="1" width="20" x="155" y="128"></rect>
+<text fill="#888" font-size="11" text-anchor="middle" x="125" y="155">Dashed = trimmed</text>
+<!-- Arrow -->
+<text fill="#333" font-size="24" text-anchor="middle" x="235" y="110">→</text>
+<!-- Step 2: Elect Sign -->
+<rect fill="#e8f5e9" height="110" rx="8" stroke="#2e7d32" stroke-linecap="round" stroke-width="1.5" width="190" x="255" y="50"></rect>
+<text fill="#2e7d32" font-size="13" font-weight="bold" text-anchor="middle" x="350" y="75">2. ELECT SIGN</text>
+<text fill="#555" font-size="11" text-anchor="middle" x="350" y="98">Majority vote on</text>
+<text fill="#555" font-size="11" text-anchor="middle" x="350" y="115">direction of change</text>
+<text fill="#2e7d32" font-size="11" x="285" y="140">Model A: +0.3</text>
+<text fill="#c62828" font-size="11" x="285" y="155">Model B: -0.1</text>
+<text fill="#2e7d32" font-size="11" font-weight="bold" x="380" y="148">Elect: +</text>
+<!-- Arrow -->
+<text fill="#333" font-size="24" text-anchor="middle" x="460" y="110">→</text>
+<!-- Step 3: Merge -->
+<rect fill="url(#grad_571eb4_f3e5f5)" height="110" rx="8" stroke="#7b1fa2" stroke-linecap="round" stroke-width="1.5" width="190" x="480" y="50"></rect>
+<text fill="#7b1fa2" font-size="13" font-weight="bold" text-anchor="middle" x="575" y="75">3. MERGE</text>
+<text fill="#555" font-size="11" text-anchor="middle" x="575" y="98">Average only values</text>
+<text fill="#555" font-size="11" text-anchor="middle" x="575" y="115">matching elected sign</text>
+<text fill="#555" font-size="11" text-anchor="middle" x="575" y="140">Keep +0.3 from A</text>
+<text fill="#555" font-size="11" text-anchor="middle" x="575" y="155">Zero out -0.1 from B</text>
+<!-- Result -->
+<rect fill="url(#grad_571eb4_f5f5f5)" height="60" rx="6" stroke="#ddd" stroke-linecap="round" stroke-width="1" width="440" x="130" y="200"></rect>
+<text fill="#333" font-size="12" font-weight="bold" text-anchor="middle" x="350" y="225">Result: Cleaner merge with less destructive interference</text>
+<text fill="#555" font-size="11" text-anchor="middle" x="350" y="245">Particularly effective when merging 3+ models with conflicting changes</text>
 </svg>
-<div class="diagram-caption"><strong>Figure 17.7.1</strong>: A multi-stage pipeline progressively adapts the model from general to domain-specific capabilities.</div>
+<div class="diagram-caption"><strong>Figure 17.7.2</strong>: TIES reduces interference by trimming noise, resolving sign conflicts, and merging only aligned contributions.</div>
 </div>
-<h3 id="17-7-6-2-curriculum-design-principles">17.7.6.2 Curriculum Design Principles</h3>
-<p>Effective curriculum design for continual learning follows several principles. Start with data that is closest to the original pretraining distribution and gradually shift toward the target domain. Within the domain data, present easier examples first (shorter texts, simpler concepts) and progress to harder examples. This gradual transition gives the model time to adjust its internal representations without abrupt distribution shifts.
+<h3 id="17-7-2-4-dare-drop-and-rescale">17.7.2.4 DARE (Drop And REscale)</h3>
+<p>DARE (2024) takes a different approach to reducing interference: it randomly drops a large fraction (typically 90-99%) of the delta parameters before merging, then rescales the remaining parameters to compensate. The intuition is that fine-tuning changes are highly redundant, and a small random subset of changes captures the essential task knowledge. By keeping only a sparse set of changes from each model, the probability of destructive interference is dramatically reduced.
  </p>
+<p>DARE can be combined with other merging methods (DARE+TIES is a popular combination) and tends to work especially well when merging many models or when the models have been fine-tuned for very different tasks.
+ </p>
+<h3 id="17-7-2-5-model-stock">17.7.2.5 Model Stock</h3>
+<p>Model Stock (2024) draws on ideas from portfolio theory in finance. Instead of merging all models uniformly, it selects an optimal subset and weighting based on the geometric properties of the models in weight space. It computes the distances between models and the base, then assigns weights that maximize diversity while minimizing deviation from the base. This produces more robust merges, particularly when some of the input models are lower quality or overfitted.
+ </p>
+<h2 id="17-7-3-merging-method-comparison">17.7.3 Merging Method Comparison</h2>
+<p> provides an at-a-glance comparison of the merging methods covered above. The table below adds quantitative detail on each method's capabilities and trade-offs.</p>
 <div class="comparison-table">
-<div class="comparison-table-title"><strong>Table 17.7.1:</strong> <em>Strategy Comparison (as of 2026).</em></div>
-<table>
+<div class="comparison-table-title"><strong>Table 17.7.1</strong>: <em>Merging Method Comparison (as of 2026).</em></div>
+<table class="complex-table">
 <thead>
-<tr><th scope="col">Strategy</th><th scope="col">Description</th><th scope="col">When to Use</th></tr>
+<tr><th scope="col">Method</th><th scope="col">Models</th><th scope="col">Handles Interference</th><th scope="col">Complexity</th><th scope="col">Best For</th></tr>
 </thead>
-<tr><td><strong>Data mixing schedule</strong></td><td>Start with 50% general / 50% domain, end with 10% / 90%</td><td>Large domain shift</td></tr>
-<tr><td><strong>Learning rate warmup</strong></td><td>Start very low (1e-6), gradually increase to target LR</td><td>Preventing early destabilization</td></tr>
-<tr><td><strong>Layer-wise learning rates</strong></td><td>Lower LR for early layers, higher for later layers</td><td>Preserving foundational features</td></tr>
-<tr><td><strong>LoRA rank scheduling</strong> (<a class="concept-link" href="section-17.1.html#17-1-3-1-rank-r-selection">Sec 17.1.3.1</a>)</td><td>Start with low rank (4), increase to final rank (16-32)</td><td>Memory-constrained setups</td></tr>
-<tr><td><strong>Multi-epoch curriculum</strong></td><td>Epoch 1: easy domain data; Epoch 2: hard domain data</td><td>Diverse difficulty levels in domain</td></tr>
+<tr><td><strong>Linear</strong></td><td>2+</td><td>No</td><td>Very Low</td><td>Quick baseline, similar models</td></tr>
+<tr><td><strong>SLERP</strong></td><td>2 only</td><td>Partially</td><td>Low</td><td>Default for two-model merges</td></tr>
+<tr><td><strong>TIES</strong></td><td>2+</td><td>Yes (sign election)</td><td>Medium</td><td>Merging 3+ diverse models</td></tr>
+<tr><td><strong>DARE</strong></td><td>2+</td><td>Yes (sparsification)</td><td>Medium</td><td>Many models, high diversity</td></tr>
+<tr><td><strong>DARE+TIES</strong></td><td>2+</td><td>Yes (both)</td><td>Medium</td><td>Best overall quality</td></tr>
+<tr><td><strong>Model Stock</strong></td><td>2+</td><td>Yes (selection)</td><td>High</td><td>Quality-sensitive merges</td></tr>
 </table>
 </div>
-<div class="callout key-insight">
-<div class="callout-title">Key Insight</div>
-<p>The most practical approach to continual domain adaptation for most teams is: use LoRA (not full fine-tuning) for each adaptation stage, keep the base model frozen, and maintain a library of composable adapters. This sidesteps catastrophic forgetting entirely because the base weights never change. You can then merge adapters using the techniques from <a href="../module-17-peft/section-17.6.html">Section 17.6</a> to combine capabilities, or swap them dynamically at serving time.</p>
+<h2 id="17-7-4-task-arithmetic">17.7.4 Task Arithmetic</h2>
+<p>Task arithmetic provides the theoretical framework for understanding model merging. A "task vector" is defined as the element-wise difference between a fine-tuned model and its pretrained base: <strong>τ = <span class="math">$W_{ft}$</span> - <span class="math">$W_{base}$</span></strong>. Task arithmetic shows that these vectors can be manipulated algebraically:
+ </p>
+<ul>
+<li><strong>Addition:</strong> <span class="math">$W_{base}$</span> + τ<sub>A</sub> + τ<sub>B</sub> creates a model with both capabilities</li>
+<li><strong>Negation:</strong> <span class="math">$W_{base}$</span> - τ<sub>A</sub> removes capability A (useful for unlearning)</li>
+<li><strong>Scaling:</strong> <span class="math">$W_{base}$</span> + λτ<sub>A</sub> controls the strength of adaptation</li>
+</ul>
+<p><strong>Code Fragment 17.7.2</strong> demonstrates this approach.</p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># Implement model merging by interpolating weight tensors</span>
+<span class="c1"># Linear interpolation (LERP/SLERP) blends capabilities from multiple models</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">AutoModelForCausalLM</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">compute_task_vector</span><span class="p">(</span><span class="n">base_model_id</span><span class="p">,</span> <span class="n">finetuned_model_id</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">"""Compute task vector: delta = finetuned - base."""</span>
+    <span class="c1"># Load pretrained causal LM (decoder-only architecture)</span>
+    <span class="n">base</span> <span class="o">=</span> <span class="n">AutoModelForCausalLM</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span><span class="n">base_model_id</span><span class="p">)</span>
+    <span class="n">finetuned</span> <span class="o">=</span> <span class="n">AutoModelForCausalLM</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span><span class="n">finetuned_model_id</span><span class="p">)</span>
+    <span class="n">task_vector</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">base</span><span class="o">.</span><span class="n">state_dict</span><span class="p">():</span>
+        <span class="n">task_vector</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="n">finetuned</span><span class="o">.</span><span class="n">state_dict</span><span class="p">()[</span><span class="n">name</span><span class="p">]</span><span class="o">.</span><span class="n">float</span><span class="p">()</span>
+            <span class="o">-</span> <span class="n">base</span><span class="o">.</span><span class="n">state_dict</span><span class="p">()[</span><span class="n">name</span><span class="p">]</span><span class="o">.</span><span class="n">float</span><span class="p">()</span>
+            <span class="p">)</span>
+        <span class="k">return</span> <span class="n">task_vector</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">apply_task_vectors</span><span class="p">(</span><span class="n">base_model_id</span><span class="p">,</span> <span class="n">task_vectors</span><span class="p">,</span> <span class="n">scaling_factors</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">"""Apply scaled task vectors to base model."""</span>
+        <span class="n">model</span> <span class="o">=</span> <span class="n">AutoModelForCausalLM</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span><span class="n">base_model_id</span><span class="p">)</span>
+        <span class="n">state_dict</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">state_dict</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">tv</span><span class="p">,</span> <span class="n">scale</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">task_vectors</span><span class="p">,</span> <span class="n">scaling_factors</span><span class="p">):</span>
+            <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">state_dict</span><span class="p">:</span>
+                <span class="n">state_dict</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">state_dict</span><span class="p">[</span><span class="n">name</span><span class="p">]</span><span class="o">.</span><span class="n">float</span><span class="p">()</span> <span class="o">+</span> <span class="n">scale</span> <span class="o">*</span> <span class="n">tv</span><span class="p">[</span><span class="n">name</span><span class="p">]</span>
+                <span class="n">model</span><span class="o">.</span><span class="n">load_state_dict</span><span class="p">(</span><span class="n">state_dict</span><span class="p">)</span>
+                <span class="k">return</span> <span class="n">model</span>
+                <span class="c1"># Example: combine code and medical capabilities</span>
+                <span class="n">code_tv</span> <span class="o">=</span> <span class="n">compute_task_vector</span><span class="p">(</span><span class="s2">"base-model"</span><span class="p">,</span> <span class="s2">"code-finetuned"</span><span class="p">)</span>
+                <span class="n">medical_tv</span> <span class="o">=</span> <span class="n">compute_task_vector</span><span class="p">(</span><span class="s2">"base-model"</span><span class="p">,</span> <span class="s2">"medical-finetuned"</span><span class="p">)</span>
+                <span class="n">merged</span> <span class="o">=</span> <span class="n">apply_task_vectors</span><span class="p">(</span>
+                    <span class="s2">"base-model"</span><span class="p">,</span>
+                    <span class="p">[</span><span class="n">code_tv</span><span class="p">,</span> <span class="n">medical_tv</span><span class="p">],</span>
+                    <span class="p">[</span><span class="mf">0.7</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">],</span> <span class="c1"># Scaling factors per task</span>
+                    <span class="p">)</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> <pre>
+Merge complete. Test with: transformers AutoModelForCausalLM.from_pretrained('./merged-output')
+</pre>
+</div>
+<div class="code-caption"><strong>Code Fragment 17.7.2:</strong> Implement model merging by interpolating weight tensors</div>
+</div>
+<p><strong>Code Fragment 17.7.3</strong> demonstrates model merging with a TIES configuration file.</p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-text"># TIES merge configuration (merge_ties.yml)
+models:
+ - model: models/code-llama-7b
+ parameters:
+ density: 0.5 # Keep top 50% of changes
+ weight: 1.0
+ - model: models/medical-llama-7b
+ parameters:
+ density: 0.5
+ weight: 0.8
+ - model: models/math-llama-7b
+ parameters:
+ density: 0.5
+ weight: 0.6
+
+merge_method: ties
+base_model: meta-llama/Llama-3-8B
+parameters:
+ normalize: true
+dtype: bfloat16</code></pre>
+<div class="code-caption"><strong>Code Fragment 17.7.3:</strong> TIES merge YAML configuration for MergeKit. Each model specifies a density parameter (fraction of weight changes to keep) and a weight for its contribution. The <code>normalize</code> flag ensures merged weights maintain proper scale.</div>
+</div>
+<p>Run the merge from the command line or use the MergeKit Python API for programmatic control. <strong>Code Fragment 17.7.3</strong> shows both approaches.</p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># pip install mergekit</span>
+<span class="c1"># Option 1: CLI (most common)</span>
+<span class="c1"># mergekit-yaml merge_ties.yml ./merged-output --cuda --copy-tokenizer</span>
+<span class="c1"># Option 2: Python API for programmatic merging</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mergekit.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">MergeConfiguration</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mergekit.merge</span><span class="w"> </span><span class="kn">import</span> <span class="n">MergeOptions</span><span class="p">,</span> <span class="n">run_merge</span>
+<span class="n">config</span> <span class="o">=</span> <span class="n">MergeConfiguration</span><span class="o">.</span><span class="n">from_yaml</span><span class="p">(</span><span class="s2">"merge_ties.yml"</span><span class="p">)</span>
+<span class="n">run_merge</span><span class="p">(</span>
+    <span class="n">config</span><span class="p">,</span>
+    <span class="n">out_path</span><span class="o">=</span><span class="s2">"./merged-output"</span><span class="p">,</span>
+    <span class="n">options</span><span class="o">=</span><span class="n">MergeOptions</span><span class="p">(</span>
+    <span class="n">cuda</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">copy_tokenizer</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">lazy_unpickle</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="c1"># lower RAM usage</span>
+    <span class="p">),</span>
+<span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"Merge complete. Test with: transformers AutoModelForCausalLM.from_pretrained('./merged-output')"</span><span class="p">)</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> Merge complete. Test with: transformers AutoModelForCausalLM.from_pretrained('./merged-output')</div>
+<div class="code-caption"><strong>Code Fragment 17.7.4:</strong> Run the merge from the command line or use the MergeKit Python API for programmatic control.</div></div>
+<div class="callout warning">
+<div class="callout-title">Warning</div>
+<p>Model merging requires enough system memory (RAM, not GPU VRAM) to hold all models simultaneously. Merging three 7B models in BF16 requires roughly 42 GB of RAM. Use the <code>--lazy-unpickle</code> flag in MergeKit to reduce memory usage by loading models incrementally. For very large models, consider merging on a cloud instance with sufficient RAM rather than on a local machine.</p>
+</div>
+<h2 id="17-7-7-evolutionary-model-merging">17.7.7 Evolutionary Model Merging</h2>
+<p>Evolutionary model merging (Sakana AI, 2024) automates the search for optimal merge configurations using evolutionary algorithms. Instead of manually selecting merge methods, weights, and layer-specific parameters, an evolutionary optimizer explores the space of possible merges and evaluates each candidate against a <a href="../../part-9-llm-evaluation-observability/module-42-evaluation-foundations/index.html">benchmark suite</a>. This approach has produced merged models that significantly outperform manually configured merges.
+ </p>
+<p>The search space includes merge method selection, per-layer interpolation weights, density parameters (for TIES/DARE), and even layer permutations. The evolutionary algorithm (typically CMA-ES or NSGA-II) optimizes these parameters against multiple objectives: performance on target benchmarks, retention of base model capabilities, and overall coherence. The diagram below depicts this optimization loop.
+ </p>
+<div class="diagram-container">
+<svg aria-label="Evolutionary model-merging loop: a population of N merge configurations is applied (Merge), each candidate is scored on a benchmark suite (Evaluate), then Select and Mutate produces the next generation; the cycle repeats for K generations." font-family="Segoe UI, system-ui, sans-serif" role="img" viewbox="0 -10 700 230" xmlns="http://www.w3.org/2000/svg">
+<!-- Population -->
+<rect fill="url(#grad_7d95de_e8eaf6)" filter="url(#shadow_7d95de)" height="60" rx="6" stroke="#3949ab" stroke-linecap="round" stroke-width="1.5" width="130" x="40" y="55"></rect>
+<text fill="#3949ab" font-size="12" font-weight="bold" text-anchor="middle" x="105" y="80">Population</text>
+<text fill="#555" font-size="11" text-anchor="middle" x="105" y="100">N merge configs</text>
+<!-- Arrow -->
+<line marker-end="url(#arrowE)" stroke="#333" stroke-linecap="round" stroke-width="1.5" x1="172" x2="210" y1="85" y2="85"></line>
+<defs>
+<lineargradient id="grad_7d95de_fff3e0" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#ffffef"></stop><stop offset="100%" stop-color="#fff3e0"></stop></lineargradient>
+<lineargradient id="grad_7d95de_f3e5f5" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#fff4ff"></stop><stop offset="100%" stop-color="#f3e5f5"></stop></lineargradient>
+<lineargradient id="grad_7d95de_e8eaf6" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#f7f9ff"></stop><stop offset="100%" stop-color="#e8eaf6"></stop></lineargradient>
+<lineargradient id="grad_7d95de_c8e6c9" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#d7f5d8"></stop><stop offset="100%" stop-color="#c8e6c9"></stop></lineargradient>
+<filter height="115%" id="shadow_7d95de" width="115%" x="-5%" y="-5%"><fedropshadow dx="2" dy="2" flood-opacity="0.1" stddeviation="3"></fedropshadow></filter>
+<marker id="arrowE" markerheight="6" markerwidth="8" orient="auto" refx="8" refy="3"><polygon fill="#333" points="0 0, 8 3, 0 6"></polygon></marker></defs>
+<!-- Merge -->
+<rect fill="url(#grad_7d95de_c8e6c9)" height="60" rx="6" stroke="#2e7d32" stroke-linecap="round" stroke-width="1.5" width="120" x="215" y="55"></rect>
+<text fill="#2e7d32" font-size="12" font-weight="bold" text-anchor="middle" x="275" y="80">Merge</text>
+<text fill="#555" font-size="11" text-anchor="middle" x="275" y="100">Apply each config</text>
+<line marker-end="url(#arrowE)" stroke="#333" stroke-linecap="round" stroke-width="1.5" x1="337" x2="375" y1="85" y2="85"></line>
+<!-- Evaluate -->
+<rect fill="url(#grad_7d95de_fff3e0)" height="60" rx="6" stroke="#e65100" stroke-linecap="round" stroke-width="1.5" width="120" x="380" y="55"></rect>
+<text fill="#e65100" font-size="12" font-weight="bold" text-anchor="middle" x="440" y="80">Evaluate</text>
+<text fill="#555" font-size="11" text-anchor="middle" x="440" y="100">Benchmark suite</text>
+<line marker-end="url(#arrowE)" stroke="#333" stroke-linecap="round" stroke-width="1.5" x1="502" x2="540" y1="85" y2="85"></line>
+<!-- Select + Mutate -->
+<rect fill="url(#grad_7d95de_f3e5f5)" height="60" rx="6" stroke="#7b1fa2" stroke-linecap="round" stroke-width="1.5" width="120" x="545" y="55"></rect>
+<text fill="#7b1fa2" font-size="12" font-weight="bold" text-anchor="middle" x="605" y="80">Select + Mutate</text>
+<text fill="#555" font-size="11" text-anchor="middle" x="605" y="100">Next generation</text>
+<!-- Loop back arrow -->
+<path d="M 605 117 L 605 165 L 105 165 L 105 117" fill="none" marker-end="url(#arrowE)" stroke="#888" stroke-dasharray="6" stroke-linecap="round" stroke-width="1.5"></path>
+<text fill="#888" font-size="11" text-anchor="middle" x="350" y="185">Repeat for K generations</text>
+</svg>
+<div class="diagram-caption"><strong>Figure 17.7.3</strong>: Evolutionary optimization searches the space of merge configurations, evaluating each candidate on benchmarks.</div>
 </div>
 <!-- Quiz Section -->
 
 <div class="callout tip">
-<div class="callout-title">Tip: Evaluate Merged Models on Multiple Benchmarks</div>
-<p>After model merging (TIES, DARE, or linear interpolation), test on benchmarks for each source model's specialty. Merging can create subtle capability regressions that only appear on specific task types.</p>
+<div class="callout-title">Tip: Use <a href="../../part-1-llm-building-blocks/module-04-decoding-text-generation/section-4.2.html">Temperature</a> Scaling During Distillation</div>
+<p>Set temperature to 2.0 to 4.0 when computing the teacher's soft labels. Higher temperatures reveal more of the teacher's uncertainty and inter-class relationships, giving the student richer learning signals than hard labels or low-temperature outputs.</p>
 </div>
 <!-- Key Takeaways -->
 
 <div class="callout research-frontier">
 <div class="callout-title">Research Frontier</div>
-<p>Continual learning for LLMs is advancing through <em>replay-based methods</em> that mix small amounts of previous task data into new training batches, significantly reducing catastrophic forgetting with minimal storage overhead. Research on <em>model editing</em> (like ROME and MEMIT) enables targeted knowledge updates to specific facts without retraining, complementing broader domain adaptation approaches.</p>
-<p><strong>The frontier challenge</strong> is building models that can learn continuously from deployment feedback while maintaining RLHF properties established during initial training.</p>
+<p>Model merging has moved beyond simple weight averaging with methods like TIES-Merging (which resolves sign conflicts between parameter deltas) and DARE (which randomly prunes delta parameters before merging). The <em>evolutionary model merging</em> approach by Sakana AI uses optimization algorithms to search over merging configurations, discovering non-obvious combinations that outperform expert-designed blends.</p>
+<p><strong>The key open problem</strong> is predicting merge quality before performing the merge, since current approaches require expensive post-merge evaluation to determine whether a combination was successful.</p>
 </div>
 <div class="callout key-takeaway">
 <div class="callout-title">Key Takeaways</div>
 <ul>
-<li><strong>Catastrophic forgetting</strong> degrades general capabilities when training on domain data. The severity increases with training duration and is worse for full fine-tuning than for parameter-efficient methods.</li>
-<li><strong>Continual pretraining</strong> uses next-token prediction on domain corpora to inject new knowledge. Use a lower learning rate (1e-5 to 5e-5) and limit to 1-2 epochs to balance adaptation and retention.</li>
-<li><strong>Replay methods</strong> mix general-domain data into the training stream. A 10-20% replay ratio prevents most forgetting for typical domain adaptation scenarios.</li>
-<li><strong>Vocabulary extension</strong> improves efficiency for domain-specific terminology, but requires continued training for new embeddings to become effective.</li>
-<li><strong>Elastic Weight Consolidation</strong> penalizes changes to important parameters using Fisher Information, providing a principled regularization approach that does not require storing replay data.</li>
-<li><strong>Progressive training</strong> structures adaptation as a multi-stage pipeline (CPT, <a href="../module-16-fine-tuning-fundamentals/section-16.4.html">SFT</a>, alignment, evaluation) with curriculum-based data scheduling.</li>
-<li><strong>LoRA-based adaptation is often the best practical choice</strong> because frozen base weights eliminate forgetting entirely, and adapters can be composed or swapped for modular domain specialization.</li>
-<li><strong>Always evaluate on both domain and general benchmarks</strong> after continual learning to verify that domain gains have not come at the cost of general degradation.</li>
+<li><strong>Model merging combines specialized models</strong> into multi-skilled models with zero additional training, requiring only system RAM (not GPU VRAM).</li>
+<li><strong>All models must share the same base</strong> architecture and pretrained checkpoint for merging to produce meaningful results.</li>
+<li><strong>SLERP is the best default for two-model merges</strong>, preserving weight magnitudes through spherical interpolation rather than linear averaging.</li>
+<li><strong>TIES and DARE handle interference</strong> when merging three or more models, using sign election and sparsification to prevent conflicting changes from canceling out.</li>
+<li><strong>Task arithmetic provides the theoretical foundation:</strong> task vectors (fine-tuning deltas) can be added, subtracted, and scaled to compose and decompose model capabilities.</li>
+<li><strong>Model soups average checkpoints</strong> from the same training process to improve robustness and generalization for a single task.</li>
+<li><strong>MergeKit is the standard tool</strong> for practical model merging, supporting all major algorithms through YAML configuration files.</li>
+<li><strong>Evolutionary merging automates</strong> the search for optimal merge configurations, often outperforming manually tuned merges.</li>
 </ul>
 </div>
 <div class="callout self-check">
 <div class="callout-title">Self-Check</div>
-<div class="quiz-question"><strong>Q1:</strong> What is catastrophic forgetting, and why is it particularly problematic for continual pretraining?</div>
+<div class="quiz-question"><strong>Q1:</strong> What is the fundamental requirement for two models to be mergeable, and why?</div>
 <details>
 <summary>Show Answer</summary>
-<div class="answer">Catastrophic forgetting occurs when gradient updates that optimize for new data push model weights away from regions that encode prior knowledge, causing the model to lose previously learned capabilities. It is particularly problematic for continual pretraining because CPT modifies all model parameters to absorb new domain knowledge, and the extended training on domain-specific data can substantially degrade general capabilities like instruction following, coding, and general knowledge.</div>
+<div class="answer">Both models must share the same architecture and originate from the same pretrained base checkpoint. This requirement exists because the weight spaces must be compatible. Models fine-tuned from the same base occupy a connected region of parameter space where interpolation between them traverses low-loss areas. Models from different bases have incompatible weight spaces where interpolation produces garbage.</div>
 </details>
-<div class="quiz-question"><strong>Q2:</strong> Why is the learning rate for continual pretraining typically much lower than for initial pretraining?</div>
+<div class="quiz-question"><strong>Q2:</strong> Why does SLERP generally outperform linear averaging for model merging?</div>
 <details>
 <summary>Show Answer</summary>
-<div class="answer">A lower learning rate (typically 1e-5 to 5e-5, versus 1e-4 to 3e-4 for initial pretraining) makes smaller parameter updates per step, reducing the risk of destabilizing the pretrained representations. Large learning rates cause aggressive weight changes that quickly overwrite previously learned features. The lower rate allows the model to gradually incorporate new domain knowledge while preserving its existing capabilities.</div>
+<div class="answer">Linear averaging interpolates through the interior of the weight space, which tends to shrink weight magnitudes when the two models diverge. SLERP interpolates along the surface of a hypersphere, preserving the magnitude of weight vectors while smoothly transitioning direction. This magnitude preservation maintains the scaling properties that the model learned during training, resulting in better performance.</div>
 </details>
-<div class="quiz-question"><strong>Q3:</strong> When should you extend the model's vocabulary, and what must you do afterward?</div>
+<div class="quiz-question"><strong>Q3:</strong> Explain the three steps of TIES-Merging and why each is necessary.</div>
 <details>
 <summary>Show Answer</summary>
-<div class="answer">Extend the vocabulary when domain-specific terms are consistently tokenized into 4+ sub-word tokens, when specialized notation or non-Latin scripts are poorly represented, or when high-frequency domain abbreviations would benefit from single-token representation. After extending the vocabulary, you must continue training the model for the new token <a href="../../part-1-llm-building-blocks/module-01-foundations-nlp-text-representation/section-1.3.html">embeddings</a> to become useful. The initialized embeddings are only approximations, and the model needs gradient updates on data containing the new tokens to learn proper representations.</div>
+<div class="answer">TRIM removes small-magnitude parameter changes that are likely training noise, reducing the chance of noise accumulation across models. ELECT SIGN resolves direction conflicts by taking a majority vote when models modify the same parameter in opposite directions. MERGE averages only the values that agree with the elected sign, zeroing out conflicting contributions. Together, these steps prevent the destructive interference where opposing changes cancel each other out during averaging.</div>
 </details>
-<div class="quiz-question"><strong>Q4:</strong> How does Elastic Weight Consolidation (EWC) prevent forgetting, and what is its main limitation?</div>
+<div class="quiz-question"><strong>Q4:</strong> What is a task vector, and how does task arithmetic enable model composition?</div>
 <details>
 <summary>Show Answer</summary>
-<div class="answer">EWC adds a regularization penalty that discourages changes to parameters that were important for previous tasks. It estimates importance using the diagonal of the Fisher Information Matrix. Parameters with high Fisher information (meaning small changes to them cause large changes in loss) receive strong regularization. The main limitation is that the diagonal Fisher approximation is crude for billion-parameter models, the lambda hyperparameter requires careful tuning, and computing even the diagonal Fisher requires a pass over representative data from previous tasks.</div>
+<div class="answer">A task vector is the element-wise difference between a fine-tuned model's weights and its pretrained base weights: τ = W_ft - W_base. It represents "what the model learned" during fine-tuning. Task arithmetic shows that these vectors can be added (to combine capabilities), subtracted (to remove capabilities), and scaled (to control strength). Adding multiple task vectors to a base model creates a single model that inherits capabilities from all source fine-tunes.</div>
 </details>
-<div class="quiz-question"><strong>Q5:</strong> Why do many practitioners prefer LoRA-based adaptation over full-parameter continual pretraining for domain adaptation?</div>
+<div class="quiz-question"><strong>Q5:</strong> When would you use model soups versus multi-model merging (TIES/DARE)?</div>
 <details>
 <summary>Show Answer</summary>
-<div class="answer">LoRA-based adaptation naturally mitigates catastrophic forgetting because the base model weights remain completely frozen. Only the small adapter weights are trained, which limits the model's ability to stray from its pretrained behavior. Additionally, LoRA adapters can be composed, swapped, or merged, providing a modular approach to domain adaptation. This avoids the need for replay data, EWC regularization, or other forgetting mitigation strategies, while requiring far less compute and memory than full-parameter continual pretraining.</div>
+<div class="answer">Model soups average checkpoints from the same training run or from runs that differ only in hyperparameters (learning rate, data ordering). The goal is improved robustness and generalization for a single task. Multi-model merging (TIES/DARE) combines models fine-tuned for different tasks to create a multi-skill model. Use soups when you want a more robust version of your existing model; use TIES/DARE when you want to combine capabilities from models trained on different domains or tasks.</div>
 </details>
 </div>
 <section class="exercises">
 <h2 id="exercises">Exercises</h2>
 <div class="callout exercise">
-<div class="callout-title">Exercise 16.3.1: Catastrophic forgetting mechanisms <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
-<p>Explain two mechanisms by which catastrophic forgetting occurs during continual learning. Why does fine-tuning on new data degrade performance on old tasks?</p>
+<div class="callout-title">Exercise 16.2.1: Task arithmetic concept <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+<p>Explain the concept of task arithmetic in model merging. What does it mean to compute a 'task vector', and how can you add or subtract task vectors?</p>
 <details><summary>Answer Sketch</summary>
-<p>Mechanism 1: Weight overwriting: gradient updates for the new task move shared weights away from values that were optimal for old tasks. Mechanism 2: Representation drift: the internal feature representations shift to favor the new task's distribution, making previously learned features less discriminative for old tasks. Both occur because neural networks share parameters across tasks, and optimizing for one objective necessarily changes the loss landscape for others.</p>
+<p>A task vector is the difference between a fine-tuned model's weights and the base model's weights: <code>task_vector = W_finetuned - W_base</code>. This vector captures what the fine-tuning learned. You can add task vectors to give the base model multiple skills: <code>W_merged = W_base + task_vector_code + task_vector_medical</code>. You can subtract to remove capabilities: <code>W_detoxified = W_base + task_vector - toxic_vector</code>. This treats model capabilities as compositional vectors in weight space.</p>
 </details>
 </div>
 <div class="callout exercise">
-<div class="callout-title">Exercise 16.3.2: EWC regularization <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
-<p>Describe Elastic Weight Consolidation (EWC). How does the Fisher Information Matrix help identify which weights are important for previously learned tasks?</p>
+<div class="callout-title">Exercise 16.2.2: SLERP vs. linear merging <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+<p>Compare linear interpolation and SLERP (Spherical Linear Interpolation) for merging two models. When does SLERP produce better results?</p>
 <details><summary>Answer Sketch</summary>
-<p>EWC adds a regularization term that penalizes changes to weights that are important for old tasks: <code>loss = new_task_loss + lambda * sum(F_i * (theta_i - theta_old_i)^2)</code>. The Fisher Information Matrix F estimates each parameter's importance by computing the squared gradient of the old task's loss. Parameters with high Fisher values (large gradients) were important for old performance, so EWC constrains them to stay near their old values. Less important parameters are free to adapt to the new task.</p>
+<p>Linear: <code>W = (1-t)*W_A + t*W_B</code>. Simple but can reduce the magnitude of weight vectors, potentially degrading quality. SLERP: interpolates along the great circle on the unit hypersphere, preserving the magnitude of weight vectors. SLERP produces better results when the two models have similar magnitudes but different directions, which is common for models fine-tuned from the same base. For very similar models, the difference is minimal.</p>
 </details>
 </div>
 <div class="callout exercise">
-<div class="callout-title">Exercise 16.3.3: Continual pretraining <span class="exercise-type coding" title="Coding">Coding</span></div>
-<p>Write the key configuration for continual pretraining of a Llama model on a domain-specific corpus (e.g., legal documents). Include learning rate schedule and data mixing strategy.</p>
+<div class="callout-title">Exercise 16.2.3: MergeKit workflow <span class="exercise-type coding" title="Coding">Coding</span></div>
+<p>Write a MergeKit YAML configuration that merges a code-specialized model and a math-specialized model using the TIES method with density 0.5.</p>
 <details><summary>Answer Sketch</summary>
-<p>Use a low learning rate (1e-5 to 5e-5, ~10x lower than original pretraining). Learning rate schedule: linear warmup over 5% of steps, then cosine decay. Data mixing: combine 70% domain corpus with 30% general-purpose data (to prevent forgetting). Train for 1 to 5 billion tokens. Key parameters: <code>per_device_train_batch_size=8, gradient_accumulation_steps=4, max_steps=5000, lr_scheduler_type='cosine'</code>. Evaluate general benchmarks (MMLU) alongside domain-specific metrics.</p>
+<p>Config: <code>merge_method: ties; base_model: meta-llama/Llama-3-8B; models: [{model: code-llama-8b, parameters: {density: 0.5, weight: 1.0}}, {model: math-llama-8b, parameters: {density: 0.5, weight: 1.0}}]; parameters: {normalize: true}; dtype: float16</code>. Run: <code>mergekit-yaml config.yaml output_dir/</code>. TIES resolves sign conflicts between task vectors by keeping only the top 50% (density) of parameters and resolving sign disagreements by majority vote.</p>
 </details>
 </div>
 <div class="callout exercise">
-<div class="callout-title">Exercise 16.3.4: Vocabulary extension <span class="exercise-type coding" title="Coding">Coding</span></div>
-<p>Explain how to extend a model's <a href="../../part-1-llm-building-blocks/module-01-foundations-nlp-text-representation/section-1.5.html">tokenizer</a> vocabulary with domain-specific terms. What happens to the embedding layer, and how do you initialize the new token embeddings?</p>
+<div class="callout-title">Exercise 16.2.4: DARE method <span class="exercise-type analysis" title="Analysis">Analysis</span></div>
+<p>Explain the DARE (Drop And REscale) merging method. How does randomly dropping delta parameters before merging improve the result compared to naive averaging?</p>
 <details><summary>Answer Sketch</summary>
-<p>Add tokens: <code>tokenizer.add_tokens(['myDomainTerm1', 'myDomainTerm2'])</code>. Resize: <code>model.resize_token_embeddings(len(tokenizer))</code>. Initialize new embeddings: (1) random initialization (simplest but needs more training), (2) mean of semantically similar existing tokens (better starting point), or (3) use the subword composition of the new term (e.g., average the embeddings of the subword pieces). Continue training for new embeddings to learn proper representations. The rest of the model remains unchanged initially.</p>
+<p>DARE randomly sets a fraction (1 minus p) of each task vector's parameters to zero, then rescales the remaining parameters by 1/p to preserve the expected magnitude. This works because most parameters in a task vector are noise; only a small fraction carry the task-specific signal. Dropping noise reduces interference between task vectors during merging, allowing more models to be merged simultaneously without quality degradation. DARE enables merging 5+ models where naive averaging fails.</p>
 </details>
 </div>
 <div class="callout exercise">
-<div class="callout-title">Exercise 16.3.5: Replay methods <span class="exercise-type analysis" title="Analysis">Analysis</span></div>
-<p>Compare three replay strategies for continual learning: (a) experience replay (store old examples), (b) generative replay (use a model to generate old-task examples), (c) data mixing during training. What are the storage and compute tradeoffs?</p>
+<div class="callout-title">Exercise 16.2.5: Merge evaluation <span class="exercise-type coding" title="Coding">Coding</span></div>
+<p>After merging a code model and a medical model, write an evaluation script that tests the merged model on both code generation and medical QA benchmarks, plus a general knowledge benchmark to check for degradation.</p>
 <details><summary>Answer Sketch</summary>
-<p>(a) Experience replay: store a buffer of old-task examples (requires storage, <span class="math">$O(buffer\_size)$</span>). (b) Generative replay: use the current model to generate pseudo-examples of old tasks (requires compute, no storage). (c) Data mixing: keep original training data accessible and mix it in (requires full dataset storage but simplest). Experience replay is most common; generative replay risks model collapse if the generator degrades. Data mixing is most reliable but requires access to all historical data.</p>
+<p>Run three evaluation suites: (1) Code: HumanEval or MBPP, measure pass@1. (2) Medical: MedQA or PubMedQA, measure accuracy. (3) General: MMLU or HellaSwag, measure accuracy. Compare against: the base model, the code-only fine-tune, and the medical-only fine-tune. The merged model should approach the specialist accuracy on each domain while retaining general capability above the base model. Report results in a comparison table with confidence intervals.</p>
 </details>
 </div>
 </section>
 <div class="whats-next">
 <h2 id="what-comes-next">What Comes Next</h2>
-<p>In the next chapter, <a href="../module-18-alignment-rlhf-dpo/index.html">Chapter 18: Alignment: RLHF, DPO &amp; Preference Tuning</a>, we turn to alignment, exploring how RLHF, <a href="../module-18-alignment-rlhf-dpo/section-18.2a.html">DPO</a>, and preference tuning make models safer and more helpful.</p>
+<p>In the next section, <a href="../module-17-peft/section-17.8.html">Section 17.8: Continual Learning and Domain Adaptation</a>, we address continual learning and domain adaptation, keeping models current as data distributions shift over time. Model merging approaches also relate to the <a href="section-17.1.html">LoRA adapter concepts in Section 17.1</a>, since adapters can themselves be merged.</p>
 </div>
 <details class="bibliography-collapsible">
 <summary><strong>Further Reading</strong></summary>
 <section class="bibliography">
-<h3 id="foundational-work">Foundational Work</h3>
+<h3 id="foundational-merging-theory">Foundational Merging Theory</h3>
 <div class="bib-entry-card">
-<div class="bib-ref"><a href="https://arxiv.org/abs/1612.00796" rel="noopener" target="_blank">Kirkpatrick, J., Pascanu, R., Rabinowitz, N., et al. (2017). Overcoming Catastrophic Forgetting in Neural Networks. <em>PNAS</em>, 114(13), 3521-3526.</a> Introduces Elastic Weight Consolidation (EWC), which uses Fisher information to identify and protect important parameters during new task learning. The foundational regularization approach for continual learning.</div>
-</div>
-<h3 id="llm-continual-pre-training">LLM Continual Pre-training</h3>
-<div class="bib-entry-card">
-<div class="bib-ref"><a href="https://arxiv.org/abs/2308.04014" rel="noopener" target="_blank">Gupta, S., Rao, A., Bisk, Y., &amp; Neubig, G. (2023). Continual Pre-Training of Large Language Models: How to (re)warm your model? <em>EMNLP Workshop on Efficient NLP</em>.</a> Practical guide to learning rate re-warming strategies for continual pre-training. Covers when and how to adjust the learning rate schedule to balance plasticity and stability in LLMs.</div>
+<div class="bib-ref"><a href="https://arxiv.org/abs/2212.04089" rel="noopener" target="_blank">Ilharco, G., Ribeiro, M. T., Wortsman, M., et al. (2023). Editing Models with Task Arithmetic. <em>ICLR 2023</em>.</a> Introduces the task vector framework: subtracting a base model's weights from a fine-tuned model creates a direction in weight space that can be added, negated, or combined. The theoretical foundation for most modern merging methods.</div>
 </div>
 <div class="bib-entry-card">
-<div class="bib-ref"><a href="https://arxiv.org/abs/2403.08763" rel="noopener" target="_blank">Ibrahim, A., Thérien, B., Gupta, K., et al. (2024). Simple and Scalable Strategies to Continually Pre-train Large Language Models.</a> Provides practical recipes for continual pre-training at scale, including data mixing ratios, learning rate schedules, and evaluation strategies. Highly recommended for practitioners updating production models.</div>
+<div class="bib-ref"><a href="https://arxiv.org/abs/2203.05482" rel="noopener" target="_blank">Wortsman, M., Ilharco, G., Gadre, S. Y., et al. (2022). Model soups: averaging weights of multiple fine-tuned models improves accuracy without increasing inference time. <em>ICML 2022</em>.</a> Demonstrates that averaging weights of models fine-tuned with different hyperparameters yields better accuracy than any individual model. The simplest and most reliable form of model merging.</div>
+</div>
+<h3 id="advanced-merging-algorithms">Advanced Merging Algorithms</h3>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://arxiv.org/abs/2306.01708" rel="noopener" target="_blank">Yadav, P., Tam, D., Choshen, L., Raffel, C., &amp; Bansal, M. (2023). TIES-Merging: Resolving Interference When Merging Models. <em>NeurIPS 2023</em>.</a> Addresses parameter interference during merging by trimming low-magnitude changes, resolving sign conflicts, and then merging. Produces significantly better results than naive averaging for dissimilar fine-tunes.</div>
 </div>
 <div class="bib-entry-card">
-<div class="bib-ref"><a href="https://arxiv.org/abs/2301.03675" rel="noopener" target="_blank">Ke, Z., Shao, Y., Lin, H., et al. (2023). Continual Pre-training of Language Models for Math Problem Understanding with Syntax-Aware Memory Replay. <em>ACL 2023</em>.</a> Demonstrates syntax-aware replay for domain-specific continual pre-training. Shows how selective replay of previous data prevents forgetting while efficiently learning new mathematical reasoning capabilities.</div>
+<div class="bib-ref"><a href="https://arxiv.org/abs/2311.03099" rel="noopener" target="_blank">Yu, L., Yu, B., Yu, H., Huang, F., &amp; Li, Y. (2024). Language Models are Super Mario: Absorbing Abilities from Homologous Models as a Free Lunch. <em>ICML 2024</em>.</a> Introduces DARE (Drop And REscale), which randomly drops most delta parameters before merging. Counterintuitively, this sparsification improves merged model quality by reducing interference between task vectors.</div>
 </div>
 <div class="bib-entry-card">
-<div class="bib-ref"><a href="https://arxiv.org/abs/2205.12393" rel="noopener" target="_blank">Scialom, T., Chakrabarty, T., &amp; Muresan, S. (2022). Fine-tuned Language Models are Continual Learners. <em>EMNLP 2022</em>.</a> Argues that fine-tuned LMs naturally retain more prior knowledge than expected, challenging overly pessimistic views of catastrophic forgetting. Important for calibrating expectations about forgetting in practice.</div>
+<div class="bib-ref"><a href="https://arxiv.org/abs/2111.09832" rel="noopener" target="_blank">Matena, M. &amp; Raffel, C. (2022). Merging Models with Fisher-Weighted Averaging. <em>NeurIPS 2022</em>.</a> Uses Fisher information to weight parameters by their importance during merging. More principled than uniform averaging, though computationally more expensive. Good for understanding information-theoretic merging.</div>
 </div>
-<h3 id="surveys">Surveys</h3>
+<h3 id="tools-and-toolkits">Tools &amp; Toolkits</h3>
 <div class="bib-entry-card">
-<div class="bib-ref"><a href="https://arxiv.org/abs/2402.01364" rel="noopener" target="_blank">Wu, T., Luo, L., Li, Y., et al. (2024). Continual Learning for Large Language Models: A Survey.</a> Comprehensive survey covering continual pre-training, instruction tuning, and alignment in the LLM context. Categorizes methods by their approach to the stability-plasticity tradeoff and provides detailed comparisons.</div>
+<div class="bib-ref"><a href="https://arxiv.org/abs/2403.13257" rel="noopener" target="_blank">Goddard, C., Siriwardhana, S., Ehghaghi, M., et al. (2024). Arcee's MergeKit: A Toolkit for Merging Large Language Models.</a> The standard open-source toolkit for model merging, supporting linear, SLERP, TIES, DARE, and other methods via YAML configuration. Essential for anyone doing practical merging work with Hugging Face models.</div>
 </div>
 </section>
 </details>
 <nav class="chapter-nav">
-<a class="prev" href="section-17.6.html"><span class="nav-label">Previous</span><span class="nav-num">Section 17.6</span><span class="nav-title">Model Merging &amp; Composition</span></a>
+<a class="prev" href="section-17.6.html"><span class="nav-label">Previous</span><span class="nav-num">Section 17.6</span><span class="nav-title">Distillation: Licensing, Speculative & Reasoning</span></a>
 <a class="up" href="index.html"><span class="nav-label">In Chapter</span><span class="nav-num">Chapter 17</span><span class="nav-title">Parameter-Efficient Fine-Tuning, Distillation &amp; Model Merging</span></a>
-<a class="next" href="../module-18-alignment-rlhf-dpo/section-18.1a.html"><span class="nav-label">Next</span><span class="nav-num">Section 18.1</span><span class="nav-title">RLHF: Teaching a Model What 'Helpful' Means</span></a>
+<a class="next" href="section-17.8.html"><span class="nav-label">Next</span><span class="nav-num">Section 17.8</span><span class="nav-title">Continual Learning &amp; Domain Adaptation</span></a>
 </nav>
 <footer><p>Fifteenth Edition, 2026 · <a href="../../toc.html">Contents</a></p></footer>
 </main>
-<script>
-window.addEventListener("DOMContentLoaded", function() {
-  if (window.PagefindUI) {
-    new PagefindUI({
-      element: "#search",
-      showSubResults: true,
-      showImages: false,
-      resetStyles: false,
-      pageSize: 8,
-      autofocus: false,
-      translations: {
-        placeholder: "Search the book\u2026",
-      },
-      processResult: function (result) {
-        try {
-          var part = (result && result.meta && result.meta.part) ? result.meta.part : "";
-          var chap = (result && result.meta && result.meta.chapter) ? result.meta.chapter : "";
-          var partShort = part.split(":")[0].trim();
-          var chapShort = chap.split(":")[0].trim();
-          var crumb = [partShort, chapShort].filter(Boolean).join(" \u203a ");
-          if (crumb && result.meta && result.meta.title
-              && result.meta.title.indexOf("[" + partShort) !== 0) {
-            result.meta.title = "[" + crumb + "]  " + result.meta.title;
-          }
-        } catch (e) { /* fall through */ }
-        return result;
-      },
-    });
-  }
-});
-</script>
 </body>
 </html>

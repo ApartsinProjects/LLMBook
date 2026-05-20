@@ -36,14 +36,57 @@ NUM_IN_CAPTION_RE = re.compile(
 )
 
 
+def _library_shortcut_spans(html: str) -> list[tuple[int, int]]:
+    """Return list of (start, end) byte spans for each library-shortcut callout.
+
+    Captions inside these spans are excluded from sequence ordering: the
+    library-shortcut callouts are sidebars whose code-caption numbers are
+    assigned independently of the main per-section fragment sequence.
+    """
+    spans = []
+    open_re = re.compile(r'<div\s+class="callout\s+library-shortcut"[^>]*>',
+                         re.IGNORECASE)
+    div_re = re.compile(r'<(/?)div\b', re.IGNORECASE)
+    for om in open_re.finditer(html):
+        depth = 1
+        pos = om.end()
+        end = -1
+        while pos < len(html) and depth > 0:
+            dm = div_re.search(html, pos)
+            if not dm:
+                break
+            if dm.group(1) == "/":
+                depth -= 1
+            else:
+                depth += 1
+            pos = dm.end()
+            if depth == 0:
+                end = pos
+                break
+        if end > 0:
+            spans.append((om.start(), end))
+    return spans
+
+
 def run(filepath, html, context):
     issues = []
+
+    # Pre-compute library-shortcut spans so we can ignore their captions.
+    shortcut_spans = _library_shortcut_spans(html)
+
+    def _in_shortcut(pos: int) -> bool:
+        for s, e in shortcut_spans:
+            if s <= pos < e:
+                return True
+        return False
 
     # Collect all captioned items: (kind, prefix) -> [(seq_num, letter, line_num)]
     groups = defaultdict(list)
     for cm in CAPTION_SUBSTRING_RE.finditer(html):
         caption_text = cm.group(1) or cm.group(2) or ''
         if not caption_text.strip():
+            continue
+        if _in_shortcut(cm.start()):
             continue
         line_no = html.count("\n", 0, cm.start()) + 1
         # Only the FIRST number in the caption text is the caption's OWN

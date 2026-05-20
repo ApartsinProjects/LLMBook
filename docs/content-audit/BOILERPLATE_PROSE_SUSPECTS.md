@@ -11,7 +11,7 @@ Each row is one h2-bounded subsection of a section file.
 |---:|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
 | 4.85 | S41.5 | 41.5.11 Research groups and labs to follow | 223 | 1 | 19.0 | 1.0 | 0.88 | 1.3 | 0.0 | 0.0 |
 | 4.7 | S61.2 | 61.2.11 Stack composition by training stage | 313 | 1 | 16.0 | 1.0 | 0.93 | 2.6 | 1.0 | 0.0 |
-| 4.7 | S7.1b | 7.1.10 Rate Limits and Practical Constraints | 206 | 3 | 34.0 | 0.33 | 0.46 | 1.5 | 1.9 | 0.0 |
+| 4.7 | S7.1b | 7.2.4 Rate Limits and Practical Constraints | 206 | 3 | 34.0 | 0.33 | 0.46 | 1.5 | 1.9 | 0.0 |
 | 4.45 | S33.3 | 33.3.3 When RAG Wins | 187 | 2 | 37.0 | 0.5 | 0.55 | 1.1 | 0.0 | 0.0 |
 | 4.45 | S41.1 | 41.1.10 Platform pricing shapes | 187 | 2 | 23.0 | 0.5 | 0.73 | 1.1 | 0.0 | 0.0 |
 | 4.45 | S41.5 | 41.5.13 Reading lists by role | 243 | 1 | 13.0 | 1.0 | 0.93 | 2.1 | 0.0 | 0.0 |
@@ -19,9 +19,9 @@ Each row is one h2-bounded subsection of a section file.
 | 4.4 | S41.5 | 41.5.12 Conferences to attend or stream | 137 | 1 | 11.0 | 1.0 | 0.88 | 2.9 | 0.7 | 0.0 |
 | 4.35 | S22.6 | 22.6.2 Where Pipelines Win | 224 | 2 | 42.5 | 0.5 | 0.56 | 2.2 | 0.9 | 0.0 |
 | 4.3 | S56.5 | 56.5.6 Practitioner communities | 254 | 1 | 16.0 | 1.0 | 0.93 | 2.8 | 0.4 | 0.0 |
-| 4.25 | S7.1b | 7.1.11 Architectural Insights from the Outside | 162 | 1 | 14.0 | 1.0 | 0.8 | 2.5 | 0.0 | 0.0 |
+| 4.25 | S7.1b | 7.2.5 Architectural Insights from the Outside | 162 | 1 | 14.0 | 1.0 | 0.8 | 2.5 | 0.0 | 0.0 |
 | 4.15 | S61.2 | 61.2.9 Library evaluation checklist | 356 | 2 | 67.5 | 0.5 | 0.59 | 1.7 | 0.0 | 0.0 |
-| 4.15 | S9.1b | 9.1.8 Calibration Strategies | 188 | 2 | 19.5 | 1.0 | 0.78 | 2.7 | 0.0 | 0.0 |
+| 4.15 | S9.1b | 9.2.5 Calibration Strategies | 188 | 2 | 19.5 | 1.0 | 0.78 | 2.7 | 0.0 | 0.0 |
 | 4.1 | S56.3 | 56.3.9 Benchmarks by deployment stage | 446 | 2 | 82.5 | 0.5 | 0.6 | 1.8 | 0.0 | 0.0 |
 | 4.1 | S61.5 | 61.5.5 Newsletters and podcasts | 162 | 1 | 12.0 | 1.0 | 0.9 | 5.6 | 1.2 | 0.0 |
 | 4.1 | S41.4 | 41.4.13 What to look for in a model card | 217 | 1 | 19.0 | 1.0 | 0.87 | 3.7 | 0.9 | 0.0 |
@@ -32,7 +32,7 @@ Each row is one h2-bounded subsection of a section file.
 | 3.95 | S61.5 | 61.5.11 Survey papers and state-of-the-field reports | 129 | 1 | 15.0 | 1.0 | 0.84 | 3.1 | 0.0 | 0.0 |
 | 3.95 | S33.3 | 33.3.4 When Hybrid Wins | 140 | 2 | 27.0 | 0.5 | 0.59 | 2.1 | 0.0 | 0.0 |
 | 3.94 | S54.9 | 54.9.1 The Three Purposes of Logging | 549 | 4 | 70.5 | 0.25 | 0.46 | 1.5 | 0.7 | 0.0 |
-| 3.91 | S9.5 | 9.5.3 Structured Pruning | 397 | 3 | 55.7 | 0.33 | 0.53 | 2.5 | 1.0 | 0.0 |
+| 3.91 | S9.5 | 9.7.3 Structured Pruning | 397 | 3 | 55.7 | 0.33 | 0.53 | 2.5 | 1.0 | 0.0 |
 | 3.91 | S44.7 | 44.7.8 The Platform vs. Build Decision | 619 | 6 | 44.8 | 0.33 | 0.53 | 1.8 | 0.3 | 0.0 |
 | 3.9 | S53.5 | 53.5.3 The Open-Weight Debate | 392 | 2 | 68.0 | 0.0 | 0.61 | 1.0 | 0.8 | 0.0 |
 | 3.9 | S59.1 | 59.1.6 A Minimal DDP Training Loop | 156 | 2 | 16.5 | 1.0 | 0.75 | 3.2 | 0.0 | 0.0 |

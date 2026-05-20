@@ -202,9 +202,9 @@ From `REPEATED_CONTENT_AUDIT.md` — **179 duplicate blocks, ~6300 words reducti
 ### F. Scientific-depth additions (SCIENTIFIC_DEPTH_OPPORTUNITIES.md)
 36 opportunities in 8 areas. Top 5 prioritized:
 1. Section 3.1.5 attention forward pass (algorithm callout)
-2. Section 9.3.2 speculative decoding rejection sampling proof
+2. Section 9.4.2 speculative decoding rejection sampling proof
 3. Section 18.2 DPO vs PPO contrast (extend existing)
-4. Sections 31.2.2-31.2.4 HNSW/IVF/PQ (algorithm callouts)
+4. Sections 31.3.2-31.2.4 HNSW/IVF/PQ (algorithm callouts)
 5. Section 26.1.3 ReAct loop (algorithm callout)
 
 ### G. Image inventory

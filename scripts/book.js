@@ -429,7 +429,26 @@ document.addEventListener('DOMContentLoaded', function () {
   //     spans from the first wrapper to the last sibling that is still
   //     code-related (subsequent code-block-wrappers).
   document.querySelectorAll('.callout.library-shortcut').forEach(function (ls) {
-    // Skip if we've already wrapped (idempotency)
+    // Self-heal: previous book.js versions could add a redundant nested
+    // <details class="shortcut-code-collapse"> inside an existing
+    // <details class="code-collapsible">, producing TWO "Show code" buttons.
+    // If we detect that nested-pair state, unwrap the inner shortcut wrapper.
+    var existingCollapsible = ls.querySelector('details.code-collapsible');
+    if (existingCollapsible) {
+      var innerDup = existingCollapsible.querySelector('details.shortcut-code-collapse');
+      if (innerDup) {
+        var parent = innerDup.parentNode;
+        Array.prototype.slice.call(innerDup.childNodes).forEach(function (node) {
+          if (node.tagName !== 'SUMMARY') {
+            parent.insertBefore(node, innerDup);
+          }
+        });
+        innerDup.remove();
+      }
+      // Either way, don't add a new outer wrapper if collapsible already exists.
+      return;
+    }
+    // Skip if we've already wrapped at the top level (idempotency).
     if (ls.querySelector('details.shortcut-code-collapse')) return;
     var firstCb = ls.querySelector('.code-block-wrapper');
     if (!firstCb) return;
@@ -505,6 +524,58 @@ document.addEventListener('DOMContentLoaded', function () {
   // default and reveals it when .search-open is set. We toggle the class
   // on click, focus the input on open, and bind ESC + outside-click to
   // close.
+  // Initialize PagefindUI on the header-search target if pagefind-ui.js
+  // has loaded. Without this, section/index pages show an empty
+  // <div id="search"> with no input. toc.html and the home index already
+  // have their own inline initializer; this is the catch-all for every
+  // other page that includes the header-search element.
+  var searchTarget = document.getElementById('search');
+  // When opened directly from disk via file://, browsers block pagefind's
+  // fetch() calls for the index files (cross-origin policy on local files).
+  // Detect that case and render a friendly message instead of an empty box.
+  if (searchTarget && location.protocol === 'file:'
+      && !searchTarget.dataset.pfInitialized) {
+    searchTarget.innerHTML =
+      '<div class="search-offline-note">'
+      + '<strong>Search needs a local web server.</strong><br>'
+      + 'Run <code>python -m http.server 8765</code> from the book folder, '
+      + 'then open <code>http://localhost:8765/toc.html</code>.'
+      + '</div>';
+    searchTarget.dataset.pfInitialized = 'offline';
+  }
+  if (searchTarget && window.PagefindUI && !searchTarget.dataset.pfInitialized) {
+    try {
+      new PagefindUI({
+        element: '#search',
+        showSubResults: true,
+        showImages: false,
+        resetStyles: false,
+        pageSize: 8,
+        autofocus: false,
+        translations: { placeholder: 'Search the book…' },
+        processResult: function (result) {
+          try {
+            var part = (result && result.meta && result.meta.part)
+              ? result.meta.part : '';
+            var chap = (result && result.meta && result.meta.chapter)
+              ? result.meta.chapter : '';
+            var partShort = part.split(':')[0].trim();
+            var chapShort = chap.split(':')[0].trim();
+            var crumb = [partShort, chapShort].filter(Boolean).join(' › ');
+            if (crumb && result.meta && result.meta.title
+                && result.meta.title.indexOf('[' + partShort) !== 0) {
+              result.meta.title = '[' + crumb + ']  ' + result.meta.title;
+            }
+          } catch (e) { /* fall through */ }
+          return result;
+        },
+      });
+      searchTarget.dataset.pfInitialized = '1';
+    } catch (err) {
+      // pagefind-ui.js failed to load; nothing to do.
+    }
+  }
+
   var searchWrap = document.querySelector('.header-search');
   if (searchWrap) {
     searchWrap.setAttribute('role', 'button');

@@ -189,9 +189,9 @@ Hardcoded color highlight spans bypassing the design tokens.
 ## D. User-reported file-specific bugs (Rounds 14-17)
 
 ### Resolved during the session
-- section-3.4.html: algorithm bold + lab + further-reading + see-also (DONE)
-- section-3.5.html: "Warning: Common Misconception" double prefix (DONE)
-- section-3.6.html: warning icon-title same line + key-takeaway nested in takeaways (DONE)
+- section-3.6.html: algorithm bold + lab + further-reading + see-also (DONE)
+- section-3.7.html: "Warning: Common Misconception" double prefix (DONE)
+- section-3.8.html: warning icon-title same line + key-takeaway nested in takeaways (DONE)
 - section-4.1.html: Algorithm 5.1.2 ↔ Code Fragment 4.1.3 mixup (DONE)
 - section-4.2.html: Table 4.2.1 unwrap + 4.2.9 Lab structured (DONE)
 - section-4.3.html: key-takeaway double title (DONE)

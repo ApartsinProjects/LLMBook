@@ -141,11 +141,11 @@ These are the alternate field names used across the book that deviate from the s
 
 - L907 title=`Parameter Budget Planning for Model Deployment` fields=`(no <strong> fields)` issues=missing Who:,Situation:,Result:,Lesson:; title not 'Real-World Scenario'
 
-### `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.4.html` (1 non-conforming)
+### `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.6.html` (1 non-conforming)
 
 - L435 title=`Profiling a Transformer Inference Pipeline` fields=`(no <strong> fields)` issues=missing Who:,Situation:,Result:,Lesson:; title not 'Real-World Scenario'
 
-### `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.5.html` (1 non-conforming)
+### `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.7.html` (1 non-conforming)
 
 - L270 title=`Designing Prompts Around Computational Limits` fields=`(no <strong> fields)` issues=missing Who:,Situation:,Result:,Lesson:; title not 'Real-World Scenario'
 
@@ -163,7 +163,7 @@ These are the alternate field names used across the book that deviate from the s
 - L646 title=`langchain in Practice` fields=`(no <strong> fields)` issues=missing Who:,Situation:,Result:,Lesson:; title not 'Real-World Scenario'
 - L907 title=`Practical Example: Minimal Setup for Each Part of the Textbook` fields=`(no <strong> fields)` issues=missing Who:,Situation:,Result:,Lesson:; title not 'Real-World Scenario'
 
-### `part-1-llm-building-blocks/module-05-tools-of-the-trade/section-5.4.html` (1 non-conforming)
+### `part-1-llm-building-blocks/module-05-tools-of-the-trade/section-5.5.html` (1 non-conforming)
 
 - L110 title=`Practical example: loading both reference models` fields=`(no <strong> fields)` issues=missing Who:,Situation:,Result:,Lesson:; title not 'Real-World Scenario'
 
@@ -174,7 +174,7 @@ These are the alternate field names used across the book that deviate from the s
 - L696 title=`Real-World Scenario: Implementing a Multi-Layer Jailbreak Defense` fields=`Who:, Situation:, Problem:, Decision:, Result:, Lesson:` issues=Lesson lacks nested bold
 - L727 title=`Real-World Scenario: Defending a Customer Service Bot Against Prompt Injection` fields=`Who:, Situation:, Problem:, Dilemma:, Decision:, How:, Result:, Lesson:` issues=Lesson lacks nested bold
 
-### `part-10-llm-security-runtime-safety/module-47-adversarial-security-red-team/section-47.2.html` (2 non-conforming)
+### `part-10-llm-security-runtime-safety/module-47-adversarial-security-red-team/section-47.3.html` (2 non-conforming)
 
 - L338 title=`Real-World Scenario: A Payload Splitting Attack in Production` fields=`Who:, Situation:, Problem:, Decision:, Result:, Lesson:` issues=Lesson lacks nested bold
 - L598 title=`Real-World Scenario: Red Team Cadence for a Production Chatbot` fields=`Who:, Situation:, Problem:, Decision:, Result:, Lesson:` issues=Lesson lacks nested bold
@@ -644,7 +644,7 @@ These are the alternate field names used across the book that deviate from the s
 - L233 title=`Practical Example` fields=`(no <strong> fields)` issues=missing Who:,Situation:,Result:,Lesson:; title not 'Real-World Scenario'
 - L373 title=`Practical Example` fields=`(no <strong> fields)` issues=missing Who:,Situation:,Result:,Lesson:; title not 'Real-World Scenario'
 
-### `part-2-understanding-llms/module-09-inference-optimization/section-9.5.html` (1 non-conforming)
+### `part-2-understanding-llms/module-09-inference-optimization/section-9.7.html` (1 non-conforming)
 
 - L257 title=`Practical Example` fields=`(no <strong> fields)` issues=missing Who:,Situation:,Result:,Lesson:; title not 'Real-World Scenario'
 
@@ -663,11 +663,11 @@ These are the alternate field names used across the book that deviate from the s
 - L496 title=`Practical Example` fields=`(no <strong> fields)` issues=missing Who:,Situation:,Result:,Lesson:; title not 'Real-World Scenario'
 - L1004 title=`Practical Example` fields=`(no <strong> fields)` issues=missing Who:,Situation:,Result:,Lesson:; title not 'Real-World Scenario'
 
-### `part-2-understanding-llms/module-10-interpretability/section-10.7.html` (1 non-conforming)
+### `part-2-understanding-llms/module-10-interpretability/section-10.9.html` (1 non-conforming)
 
 - L76 title=`What a real corpus pipeline costs` fields=`(no <strong> fields)` issues=missing Who:,Situation:,Result:,Lesson:; title not 'Real-World Scenario'
 
-### `part-2-understanding-llms/module-10-interpretability/section-10.8.html` (3 non-conforming)
+### `part-2-understanding-llms/module-10-interpretability/section-10.10.html` (3 non-conforming)
 
 - L77 title=`Practical example: loading three open-weight families` fields=`(no <strong> fields)` issues=missing Who:,Situation:,Result:,Lesson:; title not 'Real-World Scenario'
 - L105 title=`Case study: DeepSeek-R1 and the open-reasoning recipe` fields=`(no <strong> fields)` issues=missing Who:,Situation:,Result:,Lesson:; title not 'Real-World Scenario'
@@ -758,11 +758,11 @@ These are the alternate field names used across the book that deviate from the s
 
 - L329 title=`Real-World Scenario: Multi-Tenant LoRA Serving for Enterprise Customers` fields=`Who:, Situation:, Problem:, Decision:, Result:, Lesson:` issues=Lesson lacks nested bold
 
-### `part-4-training-adaptation/module-17-peft/section-17.6.html` (1 non-conforming)
+### `part-4-training-adaptation/module-17-peft/section-17.7.html` (1 non-conforming)
 
 - L140 title=`Real-World Scenario: Merging Specialist LoRAs for a Multi-Skill Assistant` fields=`Who:, Situation:, Problem:, Dilemma:, Decision:, How:, Result:, Lesson:` issues=Lesson lacks nested bold
 
-### `part-4-training-adaptation/module-17-peft/section-17.7.html` (1 non-conforming)
+### `part-4-training-adaptation/module-17-peft/section-17.8.html` (1 non-conforming)
 
 - L61 title=`Real-World Scenario: Continual Learning for a Financial LLM` fields=`Who:, Situation:, Problem:, Dilemma:, Decision:, How:, Result:, Lesson:` issues=Lesson lacks nested bold
 
@@ -775,11 +775,11 @@ These are the alternate field names used across the book that deviate from the s
 
 - L123 title=`Real-World Scenario: DPO for Tone Alignment in a Corporate Assistant` fields=`Who:, Situation:, Problem:, Dilemma:, Decision:, How:, Result:, Lesson:` issues=Lesson lacks nested bold
 
-### `part-4-training-adaptation/module-18-alignment-rlhf-dpo/section-18.3.html` (1 non-conforming)
+### `part-4-training-adaptation/module-18-alignment-rlhf-dpo/section-18.5.html` (1 non-conforming)
 
 - L305 title=`Real-World Scenario: Using CAI to Align a Medical Q&amp;A Assistant` fields=`Who:, Situation:, Problem:, Decision:, Result:, Lesson:` issues=Lesson lacks nested bold
 
-### `part-4-training-adaptation/module-18-alignment-rlhf-dpo/section-18.4.html` (1 non-conforming)
+### `part-4-training-adaptation/module-18-alignment-rlhf-dpo/section-18.6.html` (1 non-conforming)
 
 - L440 title=`Real-World Scenario: Building a math tutoring assistant with RLVR` fields=`(no <strong> fields)` issues=missing Who:,Situation:,Result:,Lesson:
 
@@ -796,7 +796,7 @@ These are the alternate field names used across the book that deviate from the s
 - L103 title=`Case study: Tulu 3 full open release (Nov 2024)` fields=`(no <strong> fields)` issues=missing Who:,Situation:,Result:,Lesson:; title not 'Real-World Scenario'
 - L438 title=`Practical Example: C4-Style Preprocessing Pipeline` fields=`(no <strong> fields)` issues=missing Who:,Situation:,Result:,Lesson:; title not 'Real-World Scenario'
 
-### `part-4-training-adaptation/module-19-tools-of-the-trade/section-19.4.html` (1 non-conforming)
+### `part-4-training-adaptation/module-19-tools-of-the-trade/section-19.5.html` (1 non-conforming)
 
 - L579 title=`Practical Example` fields=`(no <strong> fields)` issues=missing Who:,Situation:,Result:,Lesson:; title not 'Real-World Scenario'
 
@@ -1003,11 +1003,11 @@ These are the alternate field names used across the book that deviate from the s
 
 - L641 title=`Real-World Scenario: Scaling Product Search with HNSW vs. IVF` fields=`Who:, Situation:, Problem:, Dilemma:, Decision:, How:, Result:, Lesson:` issues=Lesson lacks nested bold
 
-### `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.4.html` (1 non-conforming)
+### `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.6.html` (1 non-conforming)
 
 - L800 title=`Real-World Scenario: Optimizing Chunk Size for a Medical Knowledge Base` fields=`Who:, Situation:, Problem:, Dilemma:, Decision:, How:, Result:, Lesson:` issues=Lesson lacks nested bold
 
-### `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.5.html` (1 non-conforming)
+### `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.8.html` (1 non-conforming)
 
 - L459 title=`Real-World Scenario: Replacing a Fragile Document Pipeline with Vision-Based Ret` fields=`Who:, Situation:, Problem:, Decision:, Result:, Lesson:` issues=Lesson lacks nested bold
 
@@ -1015,11 +1015,11 @@ These are the alternate field names used across the book that deviate from the s
 
 - L734 title=`Real-World Scenario: Building a RAG Pipeline for Internal Documentation` fields=`Who:, Situation:, Problem:, Dilemma:, Decision:, How:, Result:, Lesson:` issues=Lesson lacks nested bold
 
-### `part-7-retrieval-information-extraction-with-llms/module-32-rag/section-32.2.html` (1 non-conforming)
+### `part-7-retrieval-information-extraction-with-llms/module-32-rag/section-32.3.html` (1 non-conforming)
 
 - L587 title=`Real-World Scenario: Building a Deep Research Agent for Competitive Intelligence` fields=`Who:, Situation:, Problem:, Dilemma:, Decision:, How:, Result:, Lesson:` issues=Lesson lacks nested bold
 
-### `part-7-retrieval-information-extraction-with-llms/module-32-rag/section-32.3.html` (2 non-conforming)
+### `part-7-retrieval-information-extraction-with-llms/module-32-rag/section-32.4.html` (2 non-conforming)
 
 - L456 title=`Real-World Scenario: Replacing a Dashboard with Natural Language SQL Queries` fields=`Who:, Situation:, Problem:, Dilemma:, Decision:, How:, Result:, Lesson:` issues=Lesson lacks nested bold
 - L569 title=`Real-World Scenario: AutoRAG Optimization for an Enterprise Knowledge Base` fields=`Scenario:, Approach:, Result:` issues=missing Who:,Situation:,Lesson:
@@ -1044,15 +1044,15 @@ These are the alternate field names used across the book that deviate from the s
 
 - L198 title=`Real-World Scenario: Extracting Structured Clinical Data from Physician Notes` fields=`Who:, Situation:, Problem:, Dilemma:, Decision:, How:, Result:, Lesson:` issues=Lesson lacks nested bold
 
-### `part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.2.html` (1 non-conforming)
+### `part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.3.html` (1 non-conforming)
 
 - L447 title=`Real-World Scenario: Adding a Knowledge Graph to a Pharmaceutical RAG System` fields=`Who:, Situation:, Problem:, Dilemma:, Decision:, How:, Result:, Lesson:` issues=Lesson lacks nested bold
 
-### `part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.3.html` (1 non-conforming)
+### `part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.4.html` (1 non-conforming)
 
 - L321 title=`Real-World Scenario: Building a GraphRAG System for Legal Document Analysis` fields=`Who:, Situation:, Problem:, Dilemma:, Decision:, How:, Result:, Lesson:` issues=Lesson lacks nested bold
 
-### `part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.4.html` (2 non-conforming)
+### `part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.5.html` (2 non-conforming)
 
 - L263 title=`Real-World Scenario: Choosing a Chunking Strategy` fields=`Who:, Situation:, Problem:, Decision:, Result:, Lesson:` issues=Lesson lacks nested bold
 - L398 title=`Real-World Scenario: Lineage Tracking for Debugging` fields=`Who:, Situation:, Problem:, Decision:, Result:, Lesson:` issues=Lesson lacks nested bold
@@ -1290,14 +1290,14 @@ No missing cross-references in:
 
 ### Chapter 35 (8 opportunities)
 
-**`part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.2.html`** (1 opportunities)
+**`part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.3.html`** (1 opportunities)
 
 - L34: `RAG` -- link to `part-7-retrieval-information-extraction-with-llms/module-32-rag-fundamentals/index.html` (suggested visible text: "Chapter 32 (RAG Fundamentals)"). Context: "...gents/rag.png" width="28"/> RAG, Graph-Obsesse..."
 
-**`part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.3.html`** (7 opportunities)
+**`part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.4.html`** (7 opportunities)
 
-- L318: `BM25` -- link to `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-databases/section-31.3.html` (suggested visible text: "Section 31.3 (Sparse retrieval)"). Context: "...nnected in the graph. Full-text search (BM25) handles exact keyword and identifier m..."
-- L51: `re-ranking` -- link to `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-databases/section-31.5.html` (suggested visible text: "Section 31.5 (Reranking)"). Context: "...ag/section-35.1.html">Section 35.1 (re-ranking, fusion retrieval) will help you unders..."
+- L318: `BM25` -- link to `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-databases/section-31.5.html` (suggested visible text: "Section 31.5 (Sparse retrieval)"). Context: "...nnected in the graph. Full-text search (BM25) handles exact keyword and identifier m..."
+- L51: `re-ranking` -- link to `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-databases/section-31.8.html` (suggested visible text: "Section 31.8 (Reranking)"). Context: "...ag/section-35.1.html">Section 35.1 (re-ranking, fusion retrieval) will help you unders..."
 - L43: `RAG` -- link to `part-7-retrieval-information-extraction-with-llms/module-32-rag-fundamentals/index.html` (suggested visible text: "Chapter 32 (RAG Fundamentals)"). Context: "...gents/rag.png" width="28"/> RAG, Fact-Hoarding..."
 - L350: `chain-of-thought` -- link to `part-3-working-with-llms/module-12-prompt-engineering/index.html` (suggested visible text: "Chapter 12 (Prompt Engineering)"). Context: "...itself, which it does poorly even with chain-of-thought. The data structure mismatch can't be f..."
 - L220: `LLM-as-judge` -- link to `part-9-llm-evaluation-observability/module-46-llm-as-judge-automated-evaluation/index.html` (suggested visible text: "Chapter 46 (LLM-as-Judge)"). Context: "...er cover all relevant aspects? LLM-as-judge pairwise comparison against baseline</t..."
@@ -1309,9 +1309,9 @@ No missing cross-references in:
 
 **`part-7-retrieval-information-extraction-with-llms/module-36-retrieval-tools/section-36.1.html`** (9 opportunities)
 
-- L35: `BM25` -- link to `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-databases/section-31.3.html` (suggested visible text: "Section 31.3 (Sparse retrieval)"). Context: "...first-class support for hybrid search (BM25 + vector with a configurable alpha weig..."
+- L35: `BM25` -- link to `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-databases/section-31.5.html` (suggested visible text: "Section 31.5 (Sparse retrieval)"). Context: "...first-class support for hybrid search (BM25 + vector with a configurable alpha weig..."
 - L27: `vector databases` -- link to `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-databases/index.html` (suggested visible text: "Chapter 31 (Embeddings, Vector Databases & Semantic Search)"). Context: "...ape sorts into four buckets: serverless vector databases (Pinecone, Turbopuffer, Weaviate Cloud,..."
-- L40: `cross-encoder` -- link to `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-databases/section-31.5.html` (suggested visible text: "Section 31.5 (Reranking)"). Context: "...etrieval, lightweight rerank, expensive cross-encoder) and you want it all in one call; avoid..."
+- L40: `cross-encoder` -- link to `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-databases/section-31.8.html` (suggested visible text: "Section 31.8 (Reranking)"). Context: "...etrieval, lightweight rerank, expensive cross-encoder) and you want it all in one call; avoid..."
 - L33: `RAG` -- link to `part-7-retrieval-information-extraction-with-llms/module-32-rag-fundamentals/index.html` (suggested visible text: "Chapter 32 (RAG Fundamentals)"). Context: "...atabase and the most-cited reference in RAG literature, distinguished by its 2024 s..."
 - L36: `quantization` -- link to `part-2-understanding-llms/module-09-inference-optimization/index.html` (suggested visible text: "Chapter 9 (Inference Optimization)"). Context: "...t-based Qdrant engine, distinguished by quantization options (scalar, product, binary) that..."
 - L212: `Glove` -- link to `part-1-llm-building-blocks/module-01-foundations-nlp-text-representation/section-1.3.html` (suggested visible text: "Section 1.3 (Word Embeddings)"). Context: "...on a vendor's reference dataset (often Glove, MS MARCO, or a synthetic 1M-vector set..."
@@ -1321,10 +1321,10 @@ No missing cross-references in:
 
 **`part-7-retrieval-information-extraction-with-llms/module-36-retrieval-tools/section-36.2.html`** (10 opportunities)
 
-- L37: `ColBERT` -- link to `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-databases/section-31.4.html` (suggested visible text: "Section 31.4 (Late Interaction Models)"). Context: "...BGE-M3 (which emits dense, sparse, and ColBERT-style vectors in one pass). Its objecti..."
-- L27: `bm25` -- link to `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-databases/section-31.3.html` (suggested visible text: "Section 31.3 (Sparse retrieval)"). Context: "...xt; and a hybrid-retrieval helper (rank-bm25, ranx, or in-engine fusion) that combin..."
+- L37: `ColBERT` -- link to `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-databases/section-31.6.html` (suggested visible text: "Section 31.6 (Late Interaction Models)"). Context: "...BGE-M3 (which emits dense, sparse, and ColBERT-style vectors in one pass). Its objecti..."
+- L27: `bm25` -- link to `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-databases/section-31.5.html` (suggested visible text: "Section 31.5 (Sparse retrieval)"). Context: "...xt; and a hybrid-retrieval helper (rank-bm25, ranx, or in-engine fusion) that combin..."
 - L55: `vector database` -- link to `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-databases/index.html` (suggested visible text: "Chapter 31 (Embeddings, Vector Databases & Semantic Search)"). Context: "...e similarity equals dot product in your vector database. Most "my retrieval is bad" tickets in..."
-- L27: `cross-encoder` -- link to `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-databases/section-31.5.html` (suggested visible text: "Section 31.5 (Reranking)"). Context: "...Cohere, OpenAI, or Voyage); a reranker (cross-encoder or hosted reranker API); a retrieval or..."
+- L27: `cross-encoder` -- link to `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-databases/section-31.8.html` (suggested visible text: "Section 31.8 (Reranking)"). Context: "...Cohere, OpenAI, or Voyage); a reranker (cross-encoder or hosted reranker API); a retrieval or..."
 - L71: `RAG` -- link to `part-7-retrieval-information-extraction-with-llms/module-32-rag-fundamentals/index.html` (suggested visible text: "Chapter 32 (RAG Fundamentals)"). Context: "...n an add-on. Its objective is to be the RAG-first framework with the deepest catalo..."
 - L71: `knowledge graph` -- link to `part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.1.html` (suggested visible text: "Section 35.1 (Knowledge graphs)"). Context: "...atalog of index types (vector, summary, knowledge graph, document graph) and post-processors, w..."
 - L33: `fine-tuning` -- link to `part-4-training-adaptation/module-16-fine-tuning-fundamentals/index.html` (suggested visible text: "Chapter 16 (Fine-Tuning Fundamentals)"). Context: "...(2024+) added trainer-class support for fine-tuning your own embedders. <a..."
@@ -1334,9 +1334,9 @@ No missing cross-references in:
 
 **`part-7-retrieval-information-extraction-with-llms/module-36-retrieval-tools/section-36.3.html`** (8 opportunities)
 
-- L65: `ColBERT` -- link to `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-databases/section-31.4.html` (suggested visible text: "Section 31.4 (Late Interaction Models)"). Context: "...raction benchmarks distributed with the ColBERT paper, including LoTTE (Long-Tail Topic..."
-- L45: `BM25` -- link to `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-databases/section-31.3.html` (suggested visible text: "Section 31.3 (Sparse retrieval)"). Context: "...that dense retrievers can underperform BM25 on out-of-domain tasks; that finding is..."
-- L46: `reranking` -- link to `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-databases/section-31.5.html` (suggested visible text: "Section 31.5 (Reranking)"). Context: "...retrieval, classification, clustering, reranking, semantic textual similarity, and summa..."
+- L65: `ColBERT` -- link to `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-databases/section-31.6.html` (suggested visible text: "Section 31.6 (Late Interaction Models)"). Context: "...raction benchmarks distributed with the ColBERT paper, including LoTTE (Long-Tail Topic..."
+- L45: `BM25` -- link to `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-databases/section-31.5.html` (suggested visible text: "Section 31.5 (Sparse retrieval)"). Context: "...that dense retrievers can underperform BM25 on out-of-domain tasks; that finding is..."
+- L46: `reranking` -- link to `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-databases/section-31.8.html` (suggested visible text: "Section 31.8 (Reranking)"). Context: "...retrieval, classification, clustering, reranking, semantic textual similarity, and summa..."
 - L27: `RAG` -- link to `part-7-retrieval-information-extraction-with-llms/module-32-rag-fundamentals/index.html` (suggested visible text: "Chapter 32 (RAG Fundamentals)"). Context: "...now graded against. And on top are the RAG-specific benchmarks (HotpotQA, FRAMES,..."
 - L33: `fine-tune` -- link to `part-4-training-adaptation/module-16-fine-tuning-fundamentals/index.html` (suggested visible text: "Chapter 16 (Fine-Tuning Fundamentals)"). Context: "...ng-data default for any dense-retriever fine-tune (almost every open embedder in Section..."
 - L81: `MRR` -- link to `part-9-llm-evaluation-observability/module-42-evaluation-foundations/index.html` (suggested visible text: "Chapter 42 (LLM Evaluation & Quality Metrics)"). Context: "...eb-scale passage retrieval ~45 MRR@10 Sparse judgments..."
@@ -1345,9 +1345,9 @@ No missing cross-references in:
 
 **`part-7-retrieval-information-extraction-with-llms/module-36-retrieval-tools/section-36.4.html`** (11 opportunities)
 
-- L42: `ColBERT` -- link to `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-databases/section-31.4.html` (suggested visible text: "Section 31.4 (Late Interaction Models)"). Context: "...ing dense, sparse (BM25-replacing), and ColBERT-style multi-vector outputs in a single..."
-- L42: `BM25` -- link to `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-databases/section-31.3.html` (suggested visible text: "Section 31.3 (Sparse retrieval)"). Context: "...istinguished by emitting dense, sparse (BM25-replacing), and ColBERT-style multi-vec..."
-- L71: `cross-encoders` -- link to `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-databases/section-31.5.html` (suggested visible text: "Section 31.5 (Reranking)"). Context: "...nker models Reranker models are cross-encoders or late-interaction models that score q..."
+- L42: `ColBERT` -- link to `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-databases/section-31.6.html` (suggested visible text: "Section 31.6 (Late Interaction Models)"). Context: "...ing dense, sparse (BM25-replacing), and ColBERT-style multi-vector outputs in a single..."
+- L42: `BM25` -- link to `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-databases/section-31.5.html` (suggested visible text: "Section 31.5 (Sparse retrieval)"). Context: "...istinguished by emitting dense, sparse (BM25-replacing), and ColBERT-style multi-vec..."
+- L71: `cross-encoders` -- link to `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-databases/section-31.8.html` (suggested visible text: "Section 31.8 (Reranking)"). Context: "...nker models Reranker models are cross-encoders or late-interaction models that score q..."
 - L35: `RAG` -- link to `part-7-retrieval-information-extraction-with-llms/module-32-rag-fundamentals/index.html` (suggested visible text: "Chapter 32 (RAG Fundamentals)"). Context: "...ext together cover 90% of long-document RAG without re-chunking. <..."
 - L64: `cross-modal` -- link to `part-7-retrieval-information-extraction-with-llms/module-33-cross-modal-reasoning-rag/index.html` (suggested visible text: "Chapter 33 (Cross-Modal Reasoning & Multimodal RAG)"). Context: "...astive embedder. Still the baseline for cross-modal retrieval in 2026, though stronger spec..."
 - L230: `fine-tuning` -- link to `part-4-training-adaptation/module-16-fine-tuning-fundamentals/index.html` (suggested visible text: "Chapter 16 (Fine-Tuning Fundamentals)"). Context: "...7B model on in-domain retrieval. Domain fine-tuning is the highest-leverage upgrade once yo..."
@@ -1359,10 +1359,10 @@ No missing cross-references in:
 
 **`part-7-retrieval-information-extraction-with-llms/module-36-retrieval-tools/section-36.5.html`** (9 opportunities)
 
-- L27: `ColBERT` -- link to `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-databases/section-31.4.html` (suggested visible text: "Section 31.4 (Late Interaction Models)"). Context: "...g et al.'s textbook, TREC tracks, BM25, ColBERT, learning-to-rank) and the LLM-RAG trad..."
-- L27: `BM25` -- link to `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-databases/section-31.3.html` (suggested visible text: "Section 31.3 (Sparse retrieval)"). Context: "...Manning et al.'s textbook, TREC tracks, BM25, ColBERT, learning-to-rank) and the LLM..."
+- L27: `ColBERT` -- link to `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-databases/section-31.6.html` (suggested visible text: "Section 31.6 (Late Interaction Models)"). Context: "...g et al.'s textbook, TREC tracks, BM25, ColBERT, learning-to-rank) and the LLM-RAG trad..."
+- L27: `BM25` -- link to `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-databases/section-31.5.html` (suggested visible text: "Section 31.5 (Sparse retrieval)"). Context: "...Manning et al.'s textbook, TREC tracks, BM25, ColBERT, learning-to-rank) and the LLM..."
 - L44: `vector database` -- link to `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-databases/index.html` (suggested visible text: "Chapter 31 (Embeddings, Vector Databases & Semantic Search)"). Context: "...e HNSW paper. The algorithm under every vector database in Section 36.1. <a hr..."
-- L33: `cross-encoder` -- link to `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-databases/section-31.5.html` (suggested visible text: "Section 31.5 (Reranking)"). Context: "...the dense-retrieval architectures, the cross-encoder rerankers, and the ColBERT-style late-i..."
+- L33: `cross-encoder` -- link to `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-databases/section-31.8.html` (suggested visible text: "Section 31.8 (Reranking)"). Context: "...the dense-retrieval architectures, the cross-encoder rerankers, and the ColBERT-style late-i..."
 - L27: `RAG` -- link to `part-7-retrieval-information-extraction-with-llms/module-32-rag-fundamentals/index.html` (suggested visible text: "Chapter 32 (RAG Fundamentals)"). Context: "...ColBERT, learning-to-rank) and the LLM-RAG tradition (NeurIPS, ICLR, ACL, EMNLP, a..."
 - L61: `quantization` -- link to `part-2-understanding-llms/module-09-inference-optimization/index.html` (suggested visible text: "Chapter 9 (Inference Optimization)"). Context: "...technical deep-dives on filtered HNSW, quantization tradeoffs, and the engineering behind Q..."
 - L50: `fine-tune` -- link to `part-4-training-adaptation/module-16-fine-tuning-fundamentals/index.html` (suggested visible text: "Chapter 16 (Fine-Tuning Fundamentals)"). Context: "...ecipe that every modern dense-retriever fine-tune uses. <a href="https:/..."
@@ -1413,14 +1413,14 @@ No missing cross-references in:
 **`part-8-conversational-ai-with-llms/module-41-conv-ai-tools/section-41.4.html`** (12 opportunities)
 
 - L209: `RAG` -- link to `part-7-retrieval-information-extraction-with-llms/module-32-rag-fundamentals/index.html` (suggested visible text: "Chapter 32 (RAG Fundamentals)"). Context: "...al / financial chatbot), prompting plus RAG over domain documents usually beats fin..."
-- L61: `MoE` -- link to `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.3.html` (suggested visible text: "Section 3.3 (MoE)"). Context: "...2024-2025) are DeepSeek's open MoE chat and reasoning models, distinguishe..."
+- L61: `MoE` -- link to `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.5.html` (suggested visible text: "Section 3.5 (MoE)"). Context: "...2024-2025) are DeepSeek's open MoE chat and reasoning models, distinguishe..."
 - L40: `chain-of-thought` -- link to `part-3-working-with-llms/module-12-prompt-engineering/index.html` (suggested visible text: "Chapter 12 (Prompt Engineering)"). Context: "...frontier, distinguished by interleaved chain-of-thought and structured tool use. For pure conve..."
 - L38: `reasoning models` -- link to `part-2-understanding-llms/module-08-reasoning-models-test-time-compute/index.html` (suggested visible text: "Chapter 8 (Reasoning Models & Test-Time Compute)"). Context: "...xt and tool-use, the more recent OpenAI reasoning models can be stronger. <a hr..."
 - L36: `fine-tuning` -- link to `part-4-training-adaptation/module-16-fine-tuning-fundamentals/index.html` (suggested visible text: "Chapter 16 (Fine-Tuning Fundamentals)"). Context: "...ept is heavy RLHF and Constitutional AI fine-tuning on conversational preferences. Pick Son..."
 - L55: `LoRA` -- link to `part-4-training-adaptation/module-17-peft/index.html` (suggested visible text: "Chapter 17 (PEFT, LoRA)"). Context: "...cy, cost-at-scale, model customization (LoRA / continued pre-training / RLHF), or ve..."
 - L36: `RLHF` -- link to `part-4-training-adaptation/module-18-alignment/index.html` (suggested visible text: "Chapter 18 (Alignment, RLHF, DPO)"). Context: "...reliability. The core concept is heavy RLHF and Constitutional AI fine-tuning on co..."
 - L38: `tokenizer` -- link to `part-1-llm-building-blocks/module-01-foundations-nlp-text-representation/section-1.6.html` (suggested visible text: "Section 1.6 (Subword Tokenization)"). Context: "...latency. The core concept is a unified tokenizer over text and audio plus joint training..."
-- L37: `tool-use` -- link to `part-6-agentic-ai/module-27-tool-use-protocols/index.html` (suggested visible text: "Chapter 27 (Tool Use & Function Calling)"). Context: "...ts (Section 30.4) covers these in their tool-use role; for chat-only, they are essential..."
+- L37: `tool-use` -- link to `part-6-agentic-ai/module-27-tool-use-protocols/index.html` (suggested visible text: "Chapter 27 (Tool Use & Function Calling)"). Context: "...ts (Section 30.5) covers these in their tool-use role; for chat-only, they are essential..."
 - L236: `on-device` -- link to `part-12-llm-systems-at-scale/module-60-edge-on-device-llms/index.html` (suggested visible text: "Chapter 60 (Edge & On-Device LLMs)"). Context: "...distilled, mobile, and edge models for on-device chat. These are relevant when network l..."
 - L30: `voice-aware models</strong> (GPT-4o Realtime` -- link to `part-8-conversational-ai-with-llms/module-40-voice-realtime-multimodal/index.html` (suggested visible text: "Chapter 40 (Voice & Realtime Multimodal)"). Context: "...production-quality assistants; voice-aware models (GPT-4o Realtime, Gemini Live, Sonic) that take audio in..."
 - L55: `pre-training` -- link to `part-2-understanding-llms/module-06-pretraining-scaling-laws/index.html` (suggested visible text: "Chapter 6 (Pre-training)"). Context: "..., model customization (LoRA / continued pre-training / RLHF), or vendor independence matter..."
@@ -1518,21 +1518,21 @@ No missing cross-references in:
 
 **`part-12-llm-systems-at-scale/module-59-distributed-training-systems/section-59.2.html`** (4 opportunities)
 
-- L373: `MoE` -- link to `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.3.html` (suggested visible text: "Section 3.3 (MoE)"). Context: "...iPPy or Megatron-Core MoE / Expert parallel Tutel / DeepS..."
+- L373: `MoE` -- link to `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.5.html` (suggested visible text: "Section 3.5 (MoE)"). Context: "...iPPy or Megatron-Core MoE / Expert parallel Tutel / DeepS..."
 - L290: `Quantization` -- link to `part-2-understanding-llms/module-09-inference-optimization/index.html` (suggested visible text: "Chapter 9 (Inference Optimization)"). Context: "...by $4\times$ at minimal accuracy loss. Quantization is per-block (one scale per ~128 elemen..."
 - L392: `Fine-Tuned` -- link to `part-4-training-adaptation/module-16-fine-tuning-fundamentals/index.html` (suggested visible text: "Chapter 16 (Fine-Tuning Fundamentals)"). Context: "...t al. "Llama 2: Open Foundation and Fine-Tuned Chat Models." arXiv:2307.09288 (20..."
 - L279: `H100` -- link to `part-12-llm-systems-at-scale/module-58-frontier-systems-hardware/index.html` (suggested visible text: "Chapter 58 (Frontier Systems & Hardware)"). Context: "...16 \approx 70$ GB, which fits an 80 GB H100 with breathing room for activations. Wi..."
 
 **`part-12-llm-systems-at-scale/module-59-distributed-training-systems/section-59.3.html`** (4 opportunities)
 
-- L331: `MoE` -- link to `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.3.html` (suggested visible text: "Section 3.3 (MoE)"). Context: "...ce dimension. Mixture-of-Expert layers (MoE) shard by expert , which is mor..."
+- L331: `MoE` -- link to `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.5.html` (suggested visible text: "Section 3.5 (MoE)"). Context: "...ce dimension. Mixture-of-Expert layers (MoE) shard by expert , which is mor..."
 - L195: `vLLM` -- link to `part-2-understanding-llms/module-09-inference-optimization/index.html` (suggested visible text: "Chapter 9 (Inference Optimization)"). Context: "...in production code (Megatron-LM, NeMo, vLLM serving) is identical; this strips it t..."
 - L295: `fine-tune` -- link to `part-4-training-adaptation/module-16-fine-tuning-fundamentals/index.html` (suggested visible text: "Chapter 16 (Fine-Tuning Fundamentals)"). Context: "...Llama-2 70B Meta's 32k-context fine-tune of Llama-2 70B (the long-context base f..."
 - L295: `H100` -- link to `part-12-llm-systems-at-scale/module-58-frontier-systems-hardware/index.html` (suggested visible text: "Chapter 58 (Frontier Systems & Hardware)"). Context: "...ich fit alongside KV caches in an 80 GB H100. Sequence parallelism was the differenc..."
 
 **`part-12-llm-systems-at-scale/module-59-distributed-training-systems/section-59.4.html`** (2 opportunities)
 
-- L396: `FlashAttention` -- link to `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.3.html` (suggested visible text: "Section 3.3 (Transformer Variants & Efficiency)"). Context: "...the context-parallel ring (Liu et al., FlashAttention-2, 2023). The technique was sca..."
+- L396: `FlashAttention` -- link to `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.5.html` (suggested visible text: "Section 3.5 (Transformer Variants & Efficiency)"). Context: "...the context-parallel ring (Liu et al., FlashAttention-2, 2023). The technique was sca..."
 - L373: `A100` -- link to `part-12-llm-systems-at-scale/module-58-frontier-systems-hardware/index.html` (suggested visible text: "Chapter 58 (Frontier Systems & Hardware)"). Context: "...176B (BigScience, 2022) trained on 384 A100 80GB GPUs with $TP=4$ (limited because..."
 
 **`part-12-llm-systems-at-scale/module-59-distributed-training-systems/section-59.5.html`** (6 opportunities)
@@ -1558,7 +1558,7 @@ No missing cross-references in:
 
 **`part-12-llm-systems-at-scale/module-61-scale-tools/section-61.2.html`** (13 opportunities)
 
-- L27: `Flash Attention` -- link to `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.3.html` (suggested visible text: "Section 3.3 (Transformer Variants & Efficiency)"). Context: "...u achieve 30 percent or 50 percent MFU: Flash Attention 2 / 3, xformers, bitsandbytes, NVIDIA T..."
+- L27: `Flash Attention` -- link to `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.5.html` (suggested visible text: "Section 3.5 (Transformer Variants & Efficiency)"). Context: "...u achieve 30 percent or 50 percent MFU: Flash Attention 2 / 3, xformers, bitsandbytes, NVIDIA T..."
 - L84: `KV cache` -- link to `part-2-understanding-llms/module-09-inference-optimization/index.html` (suggested visible text: "Chapter 9 (Inference Optimization)"). Context: "...ptimizations (in-flight batching, paged KV cache), which matters because vLLM-class thro..."
 - L33: `fine-tuning` -- link to `part-4-training-adaptation/module-16-fine-tuning-fundamentals/index.html` (suggested visible text: "Chapter 16 (Fine-Tuning Fundamentals)"). Context: "...erational complexity; avoid for smaller fine-tuning where Accelerate or torchtitan deliver..."
 - L45: `PEFT` -- link to `part-4-training-adaptation/module-17-peft/index.html` (suggested visible text: "Chapter 17 (Parameter-Efficient Fine-Tuning)"). Context: "...formers, Accelerate / DeepSpeed / FSDP, PEFT (LoRA / QLoRA), and TRL into a single Y..."
@@ -1574,7 +1574,7 @@ No missing cross-references in:
 
 **`part-12-llm-systems-at-scale/module-61-scale-tools/section-61.3.html`** (11 opportunities)
 
-- L80: `Flash Attention` -- link to `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.3.html` (suggested visible text: "Section 3.3 (Transformer Variants & Efficiency)"). Context: "...h include most torch.compile output and Flash Attention). Pick proton when you specifically nee..."
+- L80: `Flash Attention` -- link to `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.5.html` (suggested visible text: "Section 3.5 (Transformer Variants & Efficiency)"). Context: "...h include most torch.compile output and Flash Attention). Pick proton when you specifically nee..."
 - L153: `Chinchilla` -- link to `part-2-understanding-llms/module-06-pretraining-scaling-laws/index.html` (suggested visible text: "Chapter 6 (Pre-training & Scaling Laws)"). Context: "...with scaling laws in concrete ways. The Chinchilla scaling law (Hoffmann et al., 2022) fou..."
 - L68: `chain-of-thought` -- link to `part-3-working-with-llms/module-12-prompt-engineering/index.html` (suggested visible text: "Chapter 12 (Prompt Engineering)"). Context: "...ifferences in benchmark implementation (chain-of-thought versus not, exact prompt format, log-li..."
 - L45: `fine-tuning` -- link to `part-4-training-adaptation/module-16-fine-tuning-fundamentals/index.html` (suggested visible text: "Chapter 16 (Fine-Tuning Fundamentals)"). Context: "...>After pretraining comes the supervised fine-tuning (SFT) and preference-tuning (DPO / PPO..."
@@ -1588,7 +1588,7 @@ No missing cross-references in:
 
 **`part-12-llm-systems-at-scale/module-61-scale-tools/section-61.4.html`** (16 opportunities)
 
-- L27: `mixture-of-experts` -- link to `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.3.html` (suggested visible text: "Section 3.3 (MoE)"). Context: "...hosted serving start from. Second, MoE (mixture-of-experts) checkpoints (DeepSeek-V3 / R1, Mixtral..."
+- L27: `mixture-of-experts` -- link to `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.5.html` (suggested visible text: "Section 3.5 (MoE)"). Context: "...hosted serving start from. Second, MoE (mixture-of-experts) checkpoints (DeepSeek-V3 / R1, Mixtral..."
 - L250: `vLLM` -- link to `part-2-understanding-llms/module-09-inference-optimization/index.html` (suggested visible text: "Chapter 9 (Inference Optimization)"). Context: "...-Factory, TRL), every inference engine (vLLM, SGLang, TensorRT-LLM, Triton, llama.cp..."
 - L226: `reasoning models` -- link to `part-2-understanding-llms/module-08-reasoning-models-test-time-compute/index.html` (suggested visible text: "Chapter 8 (Reasoning Models & Test-Time Compute)"). Context: "...particular outperformed many larger non-reasoning models on math and code, making it the de fact..."
 - L27: `fine-tuning` -- link to `part-4-training-adaptation/module-16-fine-tuning-fundamentals/index.html` (suggested visible text: "Chapter 16 (Fine-Tuning Fundamentals)"). Context: "...foundation checkpoints that production fine-tuning and self-hosted serving start from. Sec..."
@@ -1607,7 +1607,7 @@ No missing cross-references in:
 
 **`part-12-llm-systems-at-scale/module-61-scale-tools/section-61.5.html`** (11 opportunities)
 
-- L54: `Flash Attention` -- link to `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.3.html` (suggested visible text: "Section 3.3 (Transformer Variants & Efficiency)"). Context: "...ao et al., 2022) : the original Flash Attention paper. Foundational reading. <..."
+- L54: `Flash Attention` -- link to `part-1-llm-building-blocks/module-03-transformer-architecture/section-3.5.html` (suggested visible text: "Section 3.5 (Transformer Variants & Efficiency)"). Context: "...ao et al., 2022) : the original Flash Attention paper. Foundational reading. <..."
 - L46: `Chinchilla` -- link to `part-2-understanding-llms/module-06-pretraining-scaling-laws/index.html` (suggested visible text: "Chapter 6 (Pre-training & Scaling Laws)"). Context: "...hy "20 tokens per parameter" became the Chinchilla rule of thumb and why later models trai..."
 - L89: `vLLM` -- link to `part-2-understanding-llms/module-09-inference-optimization/index.html` (suggested visible text: "Chapter 9 (Inference Optimization)"). Context: ".../strong>: the GitHub issue trackers for vLLM, SGLang, TensorRT-LLM, Megatron-LM, Dee..."
 - L69: `fine-tuning` -- link to `part-4-training-adaptation/module-16-fine-tuning-fundamentals/index.html` (suggested visible text: "Chapter 16 (Fine-Tuning Fundamentals)"). Context: "...with extensive "scale" series (Llama-3 fine-tuning at scale, FineWeb buildout, training la..."
@@ -1627,7 +1627,7 @@ No missing cross-references in:
 
 When inserting a link, the visible text should typically be the section/chapter reference followed by a short descriptor: e.g.
 
-- `<a href="../../part-1-llm-building-blocks/module-03-transformer-architecture/section-3.3.html">Section 3.3 (Flash Attention)</a>`
+- `<a href="../../part-1-llm-building-blocks/module-03-transformer-architecture/section-3.5.html">Section 3.5 (Flash Attention)</a>`
 - For "see Chapter X" prose, wrap just "Chapter X" in the link.
 - For inline mentions like "using PEFT", prefer either wrapping the technique itself (`<a href="...">PEFT</a>`) OR adding a parenthetical at the end of the sentence ("using PEFT (see Chapter 17)").
 - Avoid hyperlinking the SAME concept multiple times in the same paragraph; one link per first mention per section is the convention used elsewhere in the book.

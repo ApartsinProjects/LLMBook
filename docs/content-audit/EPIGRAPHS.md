@@ -60,30 +60,30 @@ Total rewrites: 17 epigraphs across 17 section files.
     - Before: "The best API calls are the ones where you let the model think before it speaks." (Pip, Thoughtfully Patient)
     - After: "You used to pay for output tokens. Now you also pay for the model to sit in silence and think. Some of those silences are worth ten cents; some are worth ten dollars." (Pip, Thinking-Budget-Tracking)
 
-11. `part-4-training-adaptation/module-17-peft/section-17.6.html`
+11. `part-4-training-adaptation/module-17-peft/section-17.7.html`
     - Before: "The whole is greater than the sum of its parts, especially when the parts are neural networks that learned different things." (Distill, Synergy-Seeking)
     - After: "Average the weights of a code model and a medical model. Run zero gradient steps. Top the leaderboard. Nobody is sure why this works, and the people who do it for a living have stopped asking." (Distill, Weight-Averaging)
 
-12. `part-4-training-adaptation/module-17-peft/section-17.7.html`
+12. `part-4-training-adaptation/module-17-peft/section-17.8.html`
     - Before: "A mind that learns new things while forgetting old ones is not truly learning; it is merely replacing." (Distill, Anti-Amnesiac)
     - After: "I taught my model legal documents on Monday and it forgot how to write code by Friday. Catastrophic forgetting is the most polite name we have for 'the bill came due.'" (Distill, Catastrophically-Forgetting)
 
-13. `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.2a.html`
+13. `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.3.html`
     - Before: "The art of progress is to preserve order amid change and to preserve change amid order." (Vec, Orderly)
     - After: "Brute force finds the exact nearest neighbor in a billion vectors. It takes a week. HNSW finds the approximately-nearest one in 800 microseconds. Most users cannot tell the difference, and nobody waits a week." (Vec, Approximate-and-Proud)
 
-14. `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.2b.html`
+14. `part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.4.html`
     - Same rewrite as 31.2a (duplicate file).
 
-15. `part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.2.html`
+15. `part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.3.html`
     - Before: "The universe is not made of atoms. It is made of stories. And the best stories are the ones where you can trace every connection." (RAG, Graph-Obsessed)
     - After: "Vector search finds documents that sound similar. A knowledge graph finds the cousin of the founder of the company that acquired the supplier of your competitor. One of these is more useful at the deposition." (RAG, Multi-Hop-Traversing)
 
-16. `part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.5a.html`
+16. `part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.6.html`
     - Before: "A good framework should make the easy things trivial and the hard things possible, especially when retrieval is involved." (RAG, Framework-Savvy)
     - After: "LangChain wraps six API calls in eighteen abstractions. LlamaIndex wraps them in twelve. Haystack wraps them in nine. The honest tutorial wraps them in six. Pick the layer of abstraction you can debug at 3 AM." (RAG, Abstraction-Counting)
 
-17. `part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.5b.html`
+17. `part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.7.html`
     - Same rewrite as 35.5a (duplicate file).
 
 18. `part-8-conversational-ai-with-llms/module-37-conversational-ai/section-37.3.html`
@@ -94,11 +94,11 @@ Total rewrites: 17 epigraphs across 17 section files.
     - Before: "A single brilliant answer means nothing if the conversation that produced it makes no sense." (Echo, Coherence-Obsessed)
     - After: "The happy path is six turns long. Real users take forty, change their mind twice, ask the same question in three different ways, and then complain that I forgot. Multi-turn dialogue is the chapter where the demo dies and the product is born." (Echo, Unhappy-Path)
 
-20. `part-8-conversational-ai-with-llms/module-40-voice-realtime-multimodal/section-40.6a.html`
+20. `part-8-conversational-ai-with-llms/module-40-voice-realtime-multimodal/section-40.6.html`
     - Before: "The most natural interface is no interface at all, just a voice that understands." (Echo, Softly Spoken)
     - After: "Whisper transcribes, an LLM decides, ElevenLabs speaks. Three vendors, three hops, and a 600-millisecond budget. The user does not care about the architecture; they hear the silence." (Echo, Three-Hop-Latency)
 
-21. `part-8-conversational-ai-with-llms/module-40-voice-realtime-multimodal/section-40.6b.html`
+21. `part-8-conversational-ai-with-llms/module-40-voice-realtime-multimodal/section-40.7.html`
     - Before: same as 40.6a above.
     - After (specific to speech-to-speech focus of 40.6b): "Speech-to-speech skips the text in the middle and saves 200 milliseconds. It also skips the audit log in the middle and saves 200 milliseconds of compliance review. Choose your trade." (Echo, End-to-End-Audio)
 

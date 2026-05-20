@@ -113,16 +113,17 @@ def run(filepath, html, context):
                         f'NAV_LINEAR_CHAIN: section next "{href}" should be the next section in this module ("{expected}")',
                     ))
         else:
-            # This is the last section in the module — next should be next
-            # module's FIRST section, NOT the next module's index.
-            # Exception: the appendices/index.html target is the canonical
-            # end-of-book destination for the very last section in the book
-            # (no "next module" exists past it).
-            if href.endswith('index.html') and 'appendices/index.html' not in href:
+            # This is the last section in the module — per the book's reading
+            # convention, "next" should point to the NEXT MODULE'S INDEX
+            # (chapter starter), not directly to its first section. The
+            # reader sees the new chapter's title/big-picture before
+            # advancing into its sections. If the href points directly to a
+            # `section-N.1.html` of a different module, flag it.
+            if 'section-' in href.lower() and href.endswith('.html'):
                 line = html.count('\n', 0, m.start()) + 1
                 issues.append(Issue(
                     PRIORITY, CHECK_ID, filepath, line,
-                    f'NAV_LINEAR_CHAIN: last-section next "{href}" points to a module index; should point to the next module\'s FIRST section (section-N.1.html)',
+                    f'NAV_LINEAR_CHAIN: last-section next "{href}" points directly to a section; should point to the next module\'s index page (chapter starter)',
                 ))
 
     return issues

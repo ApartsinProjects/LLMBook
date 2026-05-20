@@ -102,7 +102,7 @@ Scope: Part 9 (Evaluation & Observability, Ch 42-46), Part 10 (Security & Runtim
 - Prereq labels Chapter 45 / 14 / 44 / 20 with mismatched hrefs (correct hrefs to current modules 62/12/42/18)
 - "What's Next" → "Chapter 50: Agent Safety & Security" (should be Ch 49 to match href)
 - Section 47.1: breadcrumb says "Chapter 47: Safety, Ethics & Regulation"; pagefind-meta agrees; in-page TOC uses anchor `id="30-1-x"` with visible label "30.1.x"; Figure 49.1.1 caption; "Section 45.1" prereq; "Section 44.3" inline ref; visible H3 "49.1.1 OWASP Top 10..."
-- Section 47.2: same H2/caption staleness pattern
+- Section 47.3: same H2/caption staleness pattern
 
 **Chapter 48 (Guardrails)**
 - Index meta + title + breadcrumb all say "Chapter 40" (off by 8). Header H1 correct

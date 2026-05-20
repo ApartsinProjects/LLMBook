@@ -9,10 +9,14 @@ Allowed exceptions:
 - Inline avatar images (images/agents/*.png) used in epigraph attributions
 - chapter-opener.jpg / chapter-opener.png inside a SINGLE chapter
   (one per module index plus same image inside section files of THAT
-  module is OK — but the same chapter-opener image should not appear
+  module is OK, but the same chapter-opener image should not appear
   in DIFFERENT modules)
 - Image used in a section AND its chapter-index/part-index (sometimes a
-  hero image is shared) — flagged as advisory, not error.
+  hero image is shared), flagged as advisory, not error.
+- Deliberate cross-module references via ``../../part-XX/module-YY/...``
+  paths (e.g., a security section in part-10 reusing a prompt-injection
+  illustration from a prompt-engineering module in part-3). These are
+  intentional citations, not accidental copies.
 
 The cross-section-file invariant we enforce: an image SRC ending in
 specific filename (chapter-opener.jpg excluded) must appear in <= 1
@@ -37,10 +41,21 @@ ALLOWED_SHARED = (
     'part-opener.jpg', 'part-opener.png',
 )
 
+# Cross-module reference pattern: src that traverses up to another part's
+# module images folder is a DELIBERATE cross-reference (e.g., section 49.1
+# in part-10 reusing a prompt-injection illustration from part-3/module-12).
+# Such intentional references should not be flagged as accidental duplicates.
+CROSS_MODULE_RE = re.compile(r'\.\./\.\./part-', re.IGNORECASE)
+
 
 def _allowed(src: str) -> bool:
     s = src.lower()
-    return any(frag in s for frag in ALLOWED_SHARED)
+    if any(frag in s for frag in ALLOWED_SHARED):
+        return True
+    # Deliberate cross-module reference (../../part-XX/module-YY/images/...)
+    if CROSS_MODULE_RE.search(src):
+        return True
+    return False
 
 
 def _resolve(filepath: Path, src: str) -> str:

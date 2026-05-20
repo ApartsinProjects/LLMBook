@@ -217,8 +217,8 @@ Five fix scripts would land most of the value:
 - **TODO**: validator `check_ambiguous_section_reference.py`.
 
 ### Issue: long-distance prev nav crosses parts silently
-- **Where**: line 175 — first section of Chapter 20 (Part V) `prev` link points back to `part-4-training-adaptation/module-19-tools-of-the-trade/section-19.5.html`.
-- **What's wrong**: Cross-part backward nav can be intentional (linear reading), but the absence of any visual cue or "Previous Part" label can disorient readers. The label says "Previous · Section 19.5" with no part hint.
+- **Where**: line 175 — first section of Chapter 20 (Part V) `prev` link points back to `part-4-training-adaptation/module-19-tools-of-the-trade/section-19.6.html`.
+- **What's wrong**: Cross-part backward nav can be intentional (linear reading), but the absence of any visual cue or "Previous Part" label can disorient readers. The label says "Previous · Section 19.6" with no part hint.
 - **Generalized pattern**: For any `nav.chapter-nav > a.prev`, compare `href` directory prefix vs. current file's directory prefix; flag when the part directory differs. Regex: parse `part-(\d+)-` prefix; alert when prev's part differs.
 - **Suggested fix**: Include a "Previous Part" label or wrap nav with an explicit part-boundary marker in CSS.
 - **TODO**: validator `check_prev_nav_crosses_part_silently.py`; (no automated fix; report only).
@@ -634,7 +634,7 @@ Five fix scripts would land most of the value:
 
 ---
 
-## Iteration 13 (part-10-llm-security-runtime-safety/module-47-adversarial-security-red-team/section-47.2.html)
+## Iteration 13 (part-10-llm-security-runtime-safety/module-47-adversarial-security-red-team/section-47.3.html)
 
 ### Issue: stale numbering on pseudocode callout
 - **Where**: line 68 — `<div class="callout-title">Pseudocode 35.8.1: Automated red teaming pipeline</div>` inside section 47.2.
@@ -643,7 +643,7 @@ Five fix scripts would land most of the value:
 - **TODO**: extension of `check_table_caption_numbers.py` to include pseudocode/algorithm labels; or new validator `check_pseudocode_numbering.py`.
 
 ### Issue: duplicate code caption with second-form stale label
-- **Where**: lines 161-163 — first `<div class="code-caption"><strong>Code Fragment 47.2.1:</strong>...` (correct), then immediately `<p class="caption"><strong>Code 32.8.1:</strong> Basic PyRIT red teaming setup...` — *both* describing the same code block.
+- **Where**: lines 161-163 — first `<div class="code-caption"><strong>Code Fragment 47.3.1:</strong>...` (correct), then immediately `<p class="caption"><strong>Code 32.8.1:</strong> Basic PyRIT red teaming setup...` — *both* describing the same code block.
 - **What's wrong**: Two captions for one code block; the second uses a different label scheme ("Code" vs "Code Fragment") AND a stale chapter prefix (32 vs 47).
 - **Generalized pattern**: After `<div class="code-caption">`, detect immediately following `<p class="caption">`. Regex: `<div class="code-caption">[^<]*<strong>Code Fragment [\d.]+:.*?</div>\s*<p class="caption"><strong>Code [\d.]+`.
 - **Suggested fix**: Remove the orphan `<p class="caption">`.
@@ -684,7 +684,7 @@ Five fix scripts would land most of the value:
 
 ### Issue: H2 anchors use plain slugs without chapter-section prefix
 - **Where**: lines 32, 43, 45, 47, 49, 51, 53, 59 — `<h2 id="the-eight-frameworks-that-apply">`, `<h2 id="omb-m-24-10-in-practice">`, etc.
-- **What's wrong**: Other section pages number their H2s with the section prefix (e.g., `id="47-2-1-...">47.2.1 ...`), enabling deep linking by number and supporting the book-wide section/subsection grid. This page uses plain text slugs without the numeric prefix, breaking the convention.
+- **What's wrong**: Other section pages number their H2s with the section prefix (e.g., `id="47-2-1-...">47.3.1 ...`), enabling deep linking by number and supporting the book-wide section/subsection grid. This page uses plain text slugs without the numeric prefix, breaking the convention.
 - **Generalized pattern**: For each `<h2 id="...">N.M.K ...</h2>` in `section-N.M.html`, assert id starts with `N-M-K-`. Regex: `<h2 id="([^"]+)">(\d+\.\d+\.\d+) ` and assert id slug starts with `\2`'s dot-to-dash form.
 - **Suggested fix**: Renumber H2s and update IDs.
 - **TODO**: validator `check_h2_numeric_prefix.py`; fix `fix_h2_numeric_prefix.py` (use section number + sequential subsection counter).
@@ -895,7 +895,7 @@ Confirms that the part-index template has systematic drift across the book: ever
 
 ---
 
-## Iteration 22 (part-7-retrieval-information-extraction-with-llms/module-32-rag/section-32.3.html)
+## Iteration 22 (part-7-retrieval-information-extraction-with-llms/module-32-rag/section-32.4.html)
 
 ### Issue: code-prefix placeholder comment "# implement <function_name>"
 - **Where**: line 56 — `# implement ask_about_table`; line 162 — `# implement get_schema_context`; line 191 — `# implement text_to_sql`. Each Python code fragment begins with a one-line comment that reads like a code-generation task spec.
@@ -905,7 +905,7 @@ Confirms that the part-index template has systematic drift across the book: ever
 - **TODO**: validator `check_implement_placeholder_comment.py`; fix `fix_strip_implement_placeholder_comment.py`.
 
 ### Issue: caption appends generic boilerplate sentence
-- **Where**: line 186 — Code Fragment 32.3.2 caption ends with "The function encapsulates reusable logic that can be applied across different inputs. Tracing through each step builds the intuition needed when debugging or extending similar systems."
+- **Where**: line 186 — Code Fragment 32.4.2 caption ends with "The function encapsulates reusable logic that can be applied across different inputs. Tracing through each step builds the intuition needed when debugging or extending similar systems."
 - **What's wrong**: Two sentences of pure boilerplate appended to a code caption. They describe code in general, not this specific code. Looks like an LLM template suffix.
 - **Generalized pattern**: Detect `<div class="code-caption">` body containing one or more of these stock phrases: "encapsulates reusable logic", "Tracing through each step builds the intuition", "applied across different inputs", "for debugging or extending similar systems".
 - **Suggested fix**: Trim to the topic sentence only.
@@ -1179,9 +1179,9 @@ Page is otherwise well-structured: good Big Picture, multiple genre-relevant cal
 - **Suggested fix**: Rename to shorter slug and update src; pair with alt text that ends in a complete word.
 - **TODO**: validator `check_long_truncated_image_filenames.py`; fix `fix_shorten_image_filenames.py`.
 
-### Issue: code-fragment numbering jumps (9.4.7 as first fragment in section 9.4)
-- **Where**: line 169 — `<strong>Code Fragment 9.4.7</strong>:</strong>` — first code block in section 9.4 should be 9.4.1.
-- **What's wrong**: Numbering jumps to 9.4.7 with no 9.4.1-9.4.6 preceding. Suggests fragments from elsewhere were referenced/renumbered.
+### Issue: code-fragment numbering jumps (9.6.5 as first fragment in section 9.4)
+- **Where**: line 169 — `<strong>Code Fragment 9.6.5</strong>:</strong>` — first code block in section 9.4 should be 9.5.1.
+- **What's wrong**: Numbering jumps to 9.6.5 with no 9.5.1-9.4.6 preceding. Suggests fragments from elsewhere were referenced/renumbered.
 - **TODO**: counter +1 of `check_caption_numbering_sequence.py`.
 
 ### Issue: non-canonical `cross-ref` callout class
@@ -1358,11 +1358,11 @@ Page is otherwise well-structured with Big Picture, prerequisites (still missing
 
 ---
 
-## Iteration 40 (part-6-agentic-ai/module-30-tools-of-the-trade/section-30.5.html)
+## Iteration 40 (part-6-agentic-ai/module-30-tools-of-the-trade/section-30.6.html)
 
 ### Issue: redundant `<em>` numeric prefix in `comparison-table-title`
-- **Where**: line 58 — `<strong>Table 30.5.1:</strong> <em>30.5.1 Where to go for what (Part VI).</em>`. The numeric prefix in `<em>` is correct (matches 30.5.1) but redundant with the preceding bold "Table 30.5.1".
-- **What's wrong**: Even when the number is correct, repeating it inside the italic descriptor reads awkwardly. The convention should be either bold-only with number (Table 30.5.1: descriptor) OR italic-only without leading number.
+- **Where**: line 58 — `<strong>Table 30.6.1:</strong> <em>30.6.1 Where to go for what (Part VI).</em>`. The numeric prefix in `<em>` is correct (matches 30.6.1) but redundant with the preceding bold "Table 30.6.1".
+- **What's wrong**: Even when the number is correct, repeating it inside the italic descriptor reads awkwardly. The convention should be either bold-only with number (Table 30.6.1: descriptor) OR italic-only without leading number.
 - **Generalized pattern**: Same family as iter 1 (stale prefix) — extend to also flag *redundant* identical prefix.
 - **Suggested fix**: Drop the numeric prefix from `<em>` whenever it matches the bold `Table N.M.K`.
 - **TODO**: extension of `check_table_caption_numbers.py`; fix script can simply strip the leading `\d+\.\d+\.\d+ ` from `<em>` content.

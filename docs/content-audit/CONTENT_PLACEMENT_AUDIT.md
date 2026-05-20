@@ -31,7 +31,7 @@
 | 11 | `part-8/module-41-conv-ai-tools/section-41.3.html` | LLM-as-judge algorithm | Mod 46 LLM-as-Judge | `MOVE_TO_46` |
 | 12 | `part-3/module-12-prompt-engineering/section-12.4.html` | 4.2 KB Prompt Injection + Defenses | Mod 47 (trim 12.4 to defensive overview) | `NEEDS_DECISION` |
 | 13 | `part-4/module-15-synthetic-data/section-15.3.html` | LLM-as-judge for quality scoring (15.3.1) | Mod 46 methodology / Mod 15 application | `NEEDS_DECISION` |
-| 14 | `part-1/module-03-transformer-architecture/section-3.6.html` | SSMs/MoE/MLA (duplicated in 80.3) | 80.3 canonical; trim 3.6 to pointer | `NEEDS_DECISION` |
+| 14 | `part-1/module-03-transformer-architecture/section-3.8.html` | SSMs/MoE/MLA (duplicated in 80.3) | 80.3 canonical; trim 3.6 to pointer | `NEEDS_DECISION` |
 | 15 | `part-15/module-75-frontier-architectures/section-75.3.html` | SSMs/Mamba/Linear-Attention (7 h2s) | KEEP as canonical | `KEEP` |
 
 Items 4-11 are on `MASTER_TODO_2026_05_18.md` awaiting user decision. Items 1, 2, 3, 14 are new.

@@ -84,14 +84,14 @@ appropriate for hands-on technical sections.
 
 ## Notes for Reviewers
 
-- Section 9.1a had a stray `<antml-parameter>` tag in the first edit that was
+- Section 9.1 had a stray `<antml-parameter>` tag in the first edit that was
   removed in a follow-up edit; the file is now clean.
 - Section 33.1 and 33.2 already had quality `<details><summary>Show Answer</summary>`
   quiz blocks; not modified to avoid accumulation past 5 exercises in those
   sections.
 - Tools-of-the-trade modules (5, 14, 19, 25, 36, 41, 45) were intentionally
   skipped per scope.
-- The DPO exercise (18.2.1) cross-references the chapter's canonical
+- The DPO exercise (18.3.1) cross-references the chapter's canonical
   beta-sensitivity finding; aligned with the example given in the agent's
   scope brief.
 - Exercise 32.1.1 implements the "naive RAG on 5 PDFs" workflow that anchors

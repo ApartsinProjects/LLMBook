@@ -27,7 +27,7 @@ These are entries where the cited URL resolves to a paper with a **different tit
 - **L321 - Cognition AI (2024) "Devin: AI Software Engineer", arXiv preprint** linked to `https://arxiv.org/abs/2411.01747` - **FABRICATED.** arXiv 2411.01747 is "DynaSaur: Large Language Agents Beyond Predefined Actions" by Nguyen et al. Cognition has never published an arXiv paper for Devin; the announcement was a blog post at `cognition.ai/blog/introducing-devin` (which does exist, and is cited correctly in section 29.4).
 - **L324 - Cursor Team (2025) "Cursor: An AI Code Editor", arXiv preprint** linked to `https://arxiv.org/abs/2502.14499` - **FABRICATED.** arXiv 2502.14499 is "MLGym: A New Framework and Benchmark for Advancing AI Research Agents" by Nathani et al. (Meta). Cursor (Anysphere) has not published an arXiv paper describing the editor.
 
-### Wave 17i 35.3 - `part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.3.html`
+### Wave 17i 35.3 - `part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.4.html`
 
 - **L423 - Traag, V.A. et al. (2019) "From Louvain to Leiden: Guaranteeing Well-Connected Communities", Scientific Reports** linked to `https://arxiv.org/abs/1810.00826` - **WRONG URL.** arXiv 1810.00826 is "How Powerful are Graph Neural Networks?" by Xu, Hu, Leskovec, Jegelka (the GIN paper). The correct Leiden URL is `arXiv:1810.08473` (Traag, Waltman, van Eck).
 
@@ -51,7 +51,7 @@ These look legitimate (real domain, real-format ID) but have a metadata inconsis
 - All arXiv references resolved cleanly to the cited paper (AIF360 1810.01943, SHAP 1705.07874, Llama Guard 2312.06674, Watermark 2301.10226, DP-SGD 1607.00133, CFE 1711.00399, BBQ 2110.08193, TruthfulQA 2109.07958, Folktables 2108.04884, Memorization 2202.07646, OLMo 2402.00838, Sadasivan 2303.11156, GPT detectors 2304.02819). Strong signal that this chapter was authored carefully.
 - **L186 - "Rauber, A., et al. (2024). NeMo Guardrails: A Toolkit for Controllable and Safe LLM Applications" (linked to `developer.nvidia.com/nemo-guardrails`)** - NeMo Guardrails does have a published arXiv paper (`arXiv:2310.10501`) but the lead author is Traian Rebedea, not Rauber. The cited "Rauber, A., et al. (2024)" attribution looks invented; the URL itself is a real NVIDIA developer page so the entry is partly true. Author-line is likely hallucinated.
 
-### Wave 17i 35.2 - `module-35-advanced-rag/section-35.2.html`
+### Wave 17i 35.2 - `module-35-advanced-rag/section-35.3.html`
 
 - **L526 - Baek, J. et al. (2023)** has **two URLs** under one entry: the correct arXiv link plus a stray internal cross-reference (`../../part-4-training-adaptation/module-16-fine-tuning-fundamentals/index.html`) that does not belong in a bibliography card. Layout bug rather than a hallucination, but worth cleaning.
 

@@ -19,7 +19,7 @@ Reviewed roughly 30 candidate sections across Parts 4 through 7. Many sections i
 2. **`part-4-training-adaptation/module-17-peft/section-17.4.html`** (Soft Prompts)
    - Added concrete example showing how 5 hard prompt tokens (5 embedded vectors at fixed points) differ from 5 soft prompt vectors (5 free-floating R^4096 vectors). Clarifies what "no natural language interpretation" actually means in tensor terms.
 
-3. **`part-4-training-adaptation/module-17-peft/section-17.6.html`** (TIES Merging)
+3. **`part-4-training-adaptation/module-17-peft/section-17.7.html`** (TIES Merging)
    - Added a numeric example showing how a parameter at +0.35 in the code fine-tune and -0.35 in the writing fine-tune averages to 0 (canceling) under naive merging but preserves +0.35 under TIES sign-election. Anchors why TIES outperforms linear merging when fine-tunes pull in opposite directions.
 
 ### Part 5 (Multimodal LLMs)
@@ -39,19 +39,19 @@ The cycle-1 round already added many concrete examples to Part 6 sections. The a
 
 ### Part 7 (Retrieval and Information Extraction)
 
-7. **`part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.4.html`** (Chunking)
+7. **`part-7-retrieval-information-extraction-with-llms/module-31-embeddings-vector-db/section-31.6.html`** (Chunking)
    - Added the dosage example: "what's the recommended dosage?" with 4-page chunks (noise dominates) vs. one-sentence chunks (no adult/pediatric context). Anchors the 256-512 token sweet spot in a recognizable concrete failure pair.
 
-8. **`part-7-retrieval-information-extraction-with-llms/module-32-rag/section-32.3.html`** (Schema linking)
+8. **`part-7-retrieval-information-extraction-with-llms/module-32-rag/section-32.4.html`** (Schema linking)
    - Added the churn example: user asks "show me churn last quarter" but no `churn` column exists. Model must recognize churn is derived from `cancellation_date` or `status='cancelled'`. Concretely shows what schema linking failure looks like in production.
 
-9. **`part-7-retrieval-information-extraction-with-llms/module-32-rag/section-32.4.html`** (Citation hallucination)
+9. **`part-7-retrieval-information-extraction-with-llms/module-32-rag/section-32.5.html`** (Citation hallucination)
    - Added the 90-day-return-window example: Sources [1] (30 days) and [2] (2-year warranty), model writes "90 days [1][2]". Real citations stapled to invented claim that's the average. Concretely shows why NLI verification and quote-matching catch this.
 
-10. **`part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.1b.html`** (HyDE)
+10. **`part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.2.html`** (HyDE)
    - Added a worked HyDE pass on "How does a transformer's KV cache reduce inference cost?". Shows step 1 (fake answer generation) and step 2 (embed the fake answer instead of the question). Clarifies why a wrong hypothetical answer still helps retrieval.
 
-11. **`part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.3.html`** (GraphRAG local vs global)
+11. **`part-7-retrieval-information-extraction-with-llms/module-35-advanced-rag/section-35.4.html`** (GraphRAG local vs global)
    - Added concrete medical-paper corpus example. Local query "what drugs interact with metformin?" traverses the Metformin node's neighborhood. Global query "what are the major themes?" runs map-reduce over 52 community summaries. Anchors the abstract local/global distinction in a recognizable corpus.
 
 ## Quality Bar Notes

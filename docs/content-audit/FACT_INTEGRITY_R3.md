@@ -136,7 +136,7 @@ Total: **10 edits applied**, 9 factual corrections + 1 typo.
 
 **Verdict:** No edits.
 
-### Section 32.4 - RAG Citation
+### Section 32.5 - RAG Citation
 
 **Facts checked:**
 - Vectara 2024 study, ~15% citation hallucination rate: PLAUSIBLE (Vectara's "hallucination leaderboard" is well-known; specific number not independently verified).
