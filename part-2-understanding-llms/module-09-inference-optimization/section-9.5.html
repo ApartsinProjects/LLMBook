@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-PWPHBQL2VL"></script>
+<script>
+window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', 'G-PWPHBQL2VL');
+</script>
+
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<meta content="Section 9.5: Serving Stack &amp; vLLM Deep Dive. The LLM serving stack and a deep dive into vLLM, the most widely deployed open-source LLM serving framework." name="description"/>
+<title>Section 9.5: Serving Stack &amp; vLLM Deep Dive</title>
+<link href="../../styles/book.css" rel="stylesheet"/>
+<link href="../../styles/pygments.css" rel="stylesheet"/>
+<link href="../../vendor/prism/prism-theme.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/prism/prism-bundle.min.js"></script>
+<script defer="" src="../../scripts/book.js"></script>
+<link href="../../pagefind/pagefind-ui.css" rel="stylesheet"/>
+<script defer="" src="../../pagefind/pagefind-ui.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
+
+<header class="chapter-header">
+<nav class="header-nav">
+<a class="book-title-link" href="../../index.html">Building Conversational AI with LLMs and Agents</a>
+<a class="toc-link" href="../../toc.html" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+</nav>
+<div class="header-search">
+<div id="search"></div>
+</div>
+
+<div class="page-breadcrumb" data-pagefind-meta="chapter"><a href="../index.html">Part II: Understanding LLMs</a><span class="bc-sep">›</span><a href="index.html">Chapter 9: Inference Optimization &amp; Efficient Serving</a></div>
+<h1>Serving Stack & vLLM Deep Dive</h1><div class="page-current">Section 9.5</div>
+
+</header>
+<main class="content" id="main-content"><span class="pagefind-meta-injected" data-pagefind-meta="part:Part II: Understanding LLMs" hidden=""></span><span class="pagefind-meta-injected" data-pagefind-meta="chapter:Chapter 9: Inference Optimization &amp; Efficient Serving" hidden=""></span>
+<blockquote class="epigraph">
+<p>Serving an LLM in production is 10% machine learning and 90% convincing the infrastructure that thousands of users can share one very expensive GPU without anyone noticing the wait.</p>
+<span class="agent-avatar-inline" style="background-color: #1abc9c;"><img alt="Quant" height="28" src="../../front-matter/images/agents/quant.png" width="28"/></span><cite>Quant, <span class="agent-desc">Queue Wrangling AI Agent</span></cite>
+</blockquote>
+<div class="callout big-picture">
+<div class="callout-title">Big Picture</div>
+<p>From model weights to production endpoint. A trained model is just a collection of tensors on disk. Turning it into a responsive, scalable API requires specialized serving infrastructure that handles continuous batching, KV cache management, request scheduling, model parallelism, and hardware-specific kernel optimization. For production deployment patterns and safety considerations, see <a href="../../part-10-llm-security-runtime-safety/module-47-adversarial-security-red-team/index.html">Chapter 47</a>. Building on the quantization (<a href="section-9.1.html">Section 9.1</a>), KV cache (<a href="section-9.3.html">Section 9.3</a>), and speculative decoding (Section 9.4) techniques covered earlier in this chapter, this section surveys the major serving frameworks available today, explains their architectural differences, and provides practical guidance for choosing the right tool for your deployment scenario. We conclude with a benchmarking methodology so you can make data-driven decisions for your own workloads.</p>
+</div>
+<div class="prerequisites">
+<h3 id="prerequisites">Prerequisites</h3>
+<p>This section ties together all previous <a href="index.html">Chapter 9: Inference Optimization &amp; Efficient Serving</a> concepts: quantization (<a class="prereq-link" href="../../part-2-understanding-llms/module-09-inference-optimization/section-9.1.html">Section 9.1</a>), <a href="../module-09-inference-optimization/section-9.3.html">KV cache</a> management (<a class="prereq-link" href="../../part-2-understanding-llms/module-09-inference-optimization/section-9.3.html">Section 9.3</a>), and speculative decoding (<a class="prereq-link" href="../../part-2-understanding-llms/module-09-inference-optimization/section-9.4.html">Section 9.4</a>). Serving frameworks combine these techniques. Understanding of continuous batching requires familiarity with autoregressive generation from <a href="../../part-1-llm-building-blocks/module-04-decoding-text-generation/section-4.1.html">Section 4.1</a>.</p>
+</div>
+<div class="callout cross-ref">
+<div class="callout-title">See Also</div>
+<p>For a hands-on tutorial deploying models with vLLM, TGI, and SGLang, see <a href="../../part-2-understanding-llms/module-10-interpretability/section-10.7.html#12-2-vllm-deep-dive">Appendix K: Inference Serving</a>.</p>
+</div>
+<h2 id="9-5-1-the-serving-stack">9.5.1 The Serving Stack</h2>
+<div class="callout key-insight">
+<div class="callout-title">Key Insight: Why: PagedAttention is virtual memory for the KV cache</div>
+<p>PagedAttention works because the KV cache has the same access pattern as virtual memory: many concurrent requests of unknown final length, each growing one page at a time, all needing to share a fixed physical pool. Kwon et al. (2023) explicitly modeled this on the OS paging algorithms from the 1960s. The 2-4x throughput gain comes from eliminating two waste sources: internal fragmentation (preallocating worst-case KV lengths per request) and external fragmentation (free slots stranded between active requests). Stating that PagedAttention is "virtual memory for the KV cache" (not just an LLM-specific trick) lets readers transfer all their OS-paging intuitions (copy-on-write, swapping, page-sharing for prefix caching) directly.</p>
+</div>
+<figure class="illustration">
+<img alt="A restaurant kitchen metaphor for the LLM serving stack with load balancers as hosts, inference engines as chefs, and APIs as waiters" src="images/serving-stack-restaurant.png" width="1200" height="896"/>
+<figcaption><strong>Figure 9.5.1</strong>: The serving stack is a restaurant kitchen: the load balancer seats guests, the inference engine cooks, and the API layer serves the dishes.</figcaption>
+</figure>
+<p>An LLM serving system sits between the raw model weights and the HTTP API that clients consume. It manages several critical responsibilities that are absent from a naive <code>model.generate()</code> call:</p>
+<ul>
+<li><strong>Request scheduling:</strong> Ordering incoming requests, managing priority queues, and enforcing rate limits.</li>
+<li><strong>Continuous batching:</strong> Dynamically adding and removing sequences from the active batch at each iteration (as covered in <a href="section-9.3.html">Section 9.3</a>).</li>
+<li><strong>KV cache management:</strong> Allocating, sharing, and evicting KV cache blocks using PagedAttention or similar techniques.</li>
+<li><strong>Model parallelism:</strong> Distributing model weights across multiple GPUs using tensor parallelism (splitting layers) or pipeline parallelism (splitting stages).</li>
+<li><strong>Kernel optimization:</strong> Using hardware-specific fused kernels (<a href="../../part-1-llm-building-blocks/module-03-transformer-architecture/section-3.6.html">FlashAttention</a>, custom GEMM) to maximize throughput.</li>
+<li><strong>API layer:</strong> Exposing an OpenAI-compatible HTTP endpoint with streaming support (the client-side perspective is covered in <a href="../../part-3-working-with-llms/module-11-llm-apis/section-11.1.html">Section 11.1</a>).</li>
+</ul>
+<div class="callout practical-example">
+<div class="callout-title">Real-World Scenario: <a href="../../part-9-llm-evaluation-observability/module-42-evaluation-foundations/section-42.2.html">Benchmarking</a> Serving Frameworks for a Multi-Model Gateway</div>
+<p><strong>Who:</strong> A DevOps engineer at an AI platform company building a unified API gateway that routes requests to different models based on task type.</p>
+<p><strong>Situation:</strong> The gateway needed to serve three models simultaneously (Llama-3.1 8B for chat, Llama-3.1 70B for complex reasoning, and a code-specialized 13B model), sharing a pool of 16 A100 GPUs.</p>
+<p><strong>Problem:</strong> Using Hugging Face's text-generation-inference (TGI) for all models resulted in suboptimal GPU utilization (average 35%) and high P99 latency (8.2 seconds) during peak traffic, because each model instance reserved GPUs exclusively.</p>
+<p><strong>Dilemma:</strong> vLLM offered better throughput via PagedAttention but lacked built-in multi-model support at the time. SGLang promised even higher throughput with RadixAttention but was newer and less battle-tested. TensorRT-LLM offered maximum single-model performance but required NVIDIA-specific compilation.</p>
+<p><strong>Decision:</strong> They deployed vLLM with separate instances per model, fronted by a custom routing proxy that directed requests based on task type and managed GPU allocation dynamically.</p>
+<p><strong>How:</strong> The team ran a structured benchmark: 1,000 requests per model with mixed prompt lengths (128 to 4,096 tokens) and output lengths (64 to 2,048 tokens), measuring throughput (tokens/second), time-to-first-token (TTFT), and P99 latency across vLLM, TGI, and SGLang.</p>
+<p><strong>Result:</strong> vLLM achieved 2.1x higher throughput than TGI for the 70B model and 1.4x for the 8B model. P99 latency dropped from 8.2 to 3.1 seconds. GPU utilization rose to 62%. SGLang matched vLLM on throughput and showed 15% better prefix cache hit rates for the chat model.</p>
+<p><strong>Lesson:</strong> <strong>Always benchmark serving frameworks on your actual workload distribution (prompt lengths, output lengths, concurrency), not just on synthetic benchmarks. The best framework depends on your specific traffic patterns.</strong></p>
+</div>
+<!-- Serving Stack Diagram -->
+<div class="diagram-container">
+<img alt="The layers of an LLM serving stack, from HTTP clients down to G..." src="images/fig-9.5.2-the-layers-of-an-llm-serving-stack-from-http-clients-down-t.png" width="1400" height="754"/>
+<div class="diagram-caption"><strong>Figure 9.5.2</strong>: The layers of an LLM serving stack, from HTTP clients down to GPU hardware. Each framework implements these layers with different design choices.</div>
+</div>
+<h2 id="9-5-2-vllm">9.5.2 vLLM</h2>
+<div class="callout fun-note">
+<div class="callout-title">Fun Fact</div>
+<p>vLLM went from a UC Berkeley research project to the default serving framework for the <a href="../module-07-modern-llm-landscape/section-7.1.html">open-source LLM</a> community in under a year. Its PagedAttention paper was published in 2023, and by 2024 it was serving models at companies ranging from startups to Fortune 500 firms. In the LLM world, adoption timelines are measured in months, not years.</p>
+</div>
+<p>vLLM (Kwon et al., 2023) is the most widely adopted open-source LLM serving framework. Its core innovation is PagedAttention (covered in <a href="section-9.3.html">Section 9.3</a>), which enables near-zero-waste KV cache <a href="../../part-8-conversational-ai-with-llms/module-37-conversational-ai/section-37.3.html">memory management</a>. Beyond PagedAttention, vLLM provides continuous batching, tensor parallelism, prefix caching, speculative decoding support, and an OpenAI-compatible API server. By 2026 vLLM ships chunked prefill, prefix caching, and disaggregated prefill/decode (separating the compute-bound prefill phase from the memory-bound decode phase onto different GPUs) by default; SGLang and TensorRT-LLM provide comparable feature sets.</p>
+<h3 id="key-features">Key features:</h3>
+<ul>
+<li><strong>PagedAttention:</strong> Block-based KV cache allocation with copy-on-write for shared prefixes.</li>
+<li><strong>Continuous batching:</strong> Iteration-level scheduling that adds new requests as soon as GPU slots become available.</li>
+<li><strong>Quantization support:</strong> GPTQ, AWQ, FP8, and GGUF formats.</li>
+<li><strong>Tensor parallelism:</strong> Splits model layers across GPUs for large models.</li>
+<li><strong>OpenAI-compatible API:</strong> Drop-in replacement for OpenAI endpoints with <code>/v1/completions</code> and <code>/v1/chat/completions</code>.</li>
+</ul>
+<div class="callout library-shortcut">
+<div class="callout-title">Library Shortcut: vLLM PagedAttention + tensor parallel</div>
+<p>Spinning up vLLM is a one-line CLI launch or four lines of Python. Pass <code>tensor_parallel_size</code> to shard across multiple GPUs, and <code>enable_prefix_caching=True</code> to share KV blocks across requests with overlapping prompts. The OpenAI-compatible server makes vLLM a drop-in replacement for OpenAI clients during local development.</p>
+<details class="code-collapsible"><summary>Show code</summary><div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="n">pip</span> <span class="n">install</span> <span class="n">vllm</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">vllm</span><span class="w"> </span><span class="kn">import</span> <span class="n">LLM</span><span class="p">,</span> <span class="n">SamplingParams</span>
+<span class="n">llm</span> <span class="o">=</span> <span class="n">LLM</span><span class="p">(</span><span class="n">model</span><span class="o">=</span><span class="s2">&quot;meta-llama/Llama-3.1-70B-Instruct&quot;</span><span class="p">,</span>
+          <span class="n">tensor_parallel_size</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">enable_prefix_caching</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+          <span class="n">gpu_memory_utilization</span><span class="o">=</span><span class="mf">0.9</span><span class="p">)</span>
+<span class="n">out</span> <span class="o">=</span> <span class="n">llm</span><span class="o">.</span><span class="n">generate</span><span class="p">([</span><span class="s2">&quot;Write a haiku about GPUs.&quot;</span><span class="p">],</span> <span class="n">SamplingParams</span><span class="p">(</span><span class="n">max_tokens</span><span class="o">=</span><span class="mi">64</span><span class="p">))</span></code></pre>
+<div class="code-caption"><strong>Code Fragment 9.5.1a:</strong> Four lines of vLLM serve a 70B model across four GPUs with PagedAttention and prefix caching on.</div>
+</div></details>
+</div>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># Example 1: Launch vLLM server and benchmark throughput</span>
+<span class="c1"># Terminal: Start the vLLM server</span>
+<span class="c1"># $ python -m vllm.entrypoints.openai.api_server \</span>
+<span class="c1"># --model meta-llama/Llama-3.1-8B-Instruct \</span>
+<span class="c1"># --dtype float16 \</span>
+<span class="c1"># --max-model-len 8192 \</span>
+<span class="c1"># --gpu-memory-utilization 0.90 \</span>
+<span class="c1"># --enable-prefix-caching \</span>
+<span class="c1"># --port 8000</span>
+<span class="c1"># Python: Benchmark with concurrent requests</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">aiohttp</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">send_request</span><span class="p">(</span><span class="n">session</span><span class="p">,</span> <span class="n">url</span><span class="p">,</span> <span class="n">prompt</span><span class="p">,</span> <span class="n">max_tokens</span><span class="o">=</span><span class="mi">128</span><span class="p">):</span>
+    <span class="n">payload</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s2">"model"</span><span class="p">:</span> <span class="s2">"meta-llama/Llama-3.1-8B-Instruct"</span><span class="p">,</span>
+        <span class="s2">"messages"</span><span class="p">:</span> <span class="p">[{</span><span class="s2">"role"</span><span class="p">:</span> <span class="s2">"user"</span><span class="p">,</span> <span class="s2">"content"</span><span class="p">:</span> <span class="n">prompt</span><span class="p">}],</span>
+        <span class="s2">"max_tokens"</span><span class="p">:</span> <span class="n">max_tokens</span><span class="p">,</span>
+        <span class="s2">"temperature"</span><span class="p">:</span> <span class="mf">0.7</span><span class="p">,</span>
+        <span class="p">}</span>
+    <span class="n">t0</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">perf_counter</span><span class="p">()</span>
+    <span class="k">async</span> <span class="k">with</span> <span class="n">session</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="n">url</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="n">payload</span><span class="p">)</span> <span class="k">as</span> <span class="n">resp</span><span class="p">:</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">resp</span><span class="o">.</span><span class="n">json</span><span class="p">()</span>
+        <span class="n">elapsed</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">perf_counter</span><span class="p">()</span> <span class="o">-</span> <span class="n">t0</span>
+        <span class="n">n_tokens</span> <span class="o">=</span> <span class="n">result</span><span class="p">[</span><span class="s2">"usage"</span><span class="p">][</span><span class="s2">"completion_tokens"</span><span class="p">]</span>
+        <span class="k">return</span> <span class="n">n_tokens</span><span class="p">,</span> <span class="n">elapsed</span>
+        <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">benchmark</span><span class="p">(</span><span class="n">concurrency</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span> <span class="n">total_requests</span><span class="o">=</span><span class="mi">64</span><span class="p">):</span>
+            <span class="n">url</span> <span class="o">=</span> <span class="s2">"http://localhost:8000/v1/chat/completions"</span>
+            <span class="n">prompts</span> <span class="o">=</span> <span class="p">[</span>
+                <span class="s2">"Explain quantum entanglement simply."</span><span class="p">,</span>
+                <span class="s2">"Write a Python function to merge two sorted lists."</span><span class="p">,</span>
+                <span class="s2">"What causes the northern lights?"</span><span class="p">,</span>
+                <span class="s2">"Describe the water cycle in four steps."</span><span class="p">,</span>
+                <span class="p">]</span>
+            <span class="n">connector</span> <span class="o">=</span> <span class="n">aiohttp</span><span class="o">.</span><span class="n">TCPConnector</span><span class="p">(</span><span class="n">limit</span><span class="o">=</span><span class="n">concurrency</span><span class="p">)</span>
+            <span class="k">async</span> <span class="k">with</span> <span class="n">aiohttp</span><span class="o">.</span><span class="n">ClientSession</span><span class="p">(</span><span class="n">connector</span><span class="o">=</span><span class="n">connector</span><span class="p">)</span> <span class="k">as</span> <span class="n">session</span><span class="p">:</span>
+                <span class="n">tasks</span> <span class="o">=</span> <span class="p">[</span>
+                    <span class="n">send_request</span><span class="p">(</span><span class="n">session</span><span class="p">,</span> <span class="n">url</span><span class="p">,</span> <span class="n">prompts</span><span class="p">[</span><span class="n">i</span> <span class="o">%</span> <span class="nb">len</span><span class="p">(</span><span class="n">prompts</span><span class="p">)])</span>
+                    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">total_requests</span><span class="p">)</span>
+                    <span class="p">]</span>
+                <span class="n">t_start</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">perf_counter</span><span class="p">()</span>
+                <span class="n">results</span> <span class="o">=</span> <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">gather</span><span class="p">(</span><span class="o">*</span><span class="n">tasks</span><span class="p">)</span>
+                <span class="n">t_total</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">perf_counter</span><span class="p">()</span> <span class="o">-</span> <span class="n">t_start</span>
+                <span class="n">total_tokens</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="n">r</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">results</span><span class="p">)</span>
+                <span class="n">latencies</span> <span class="o">=</span> <span class="p">[</span><span class="n">r</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">results</span><span class="p">]</span>
+                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Concurrency: </span><span class="si">{</span><span class="n">concurrency</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Total requests: </span><span class="si">{</span><span class="n">total_requests</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Total time: </span><span class="si">{</span><span class="n">t_total</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">s"</span><span class="p">)</span>
+                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Total tokens: </span><span class="si">{</span><span class="n">total_tokens</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Throughput: </span><span class="si">{</span><span class="n">total_tokens</span><span class="o">/</span><span class="n">t_total</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2"> tok/s"</span><span class="p">)</span>
+                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Avg latency: </span><span class="si">{</span><span class="nb">sum</span><span class="p">(</span><span class="n">latencies</span><span class="p">)</span><span class="o">/</span><span class="nb">len</span><span class="p">(</span><span class="n">latencies</span><span class="p">)</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">s"</span><span class="p">)</span>
+                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"P50 latency: </span><span class="si">{</span><span class="nb">sorted</span><span class="p">(</span><span class="n">latencies</span><span class="p">)[</span><span class="nb">len</span><span class="p">(</span><span class="n">latencies</span><span class="p">)</span><span class="o">//</span><span class="mi">2</span><span class="p">]</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">s"</span><span class="p">)</span>
+                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"P99 latency: </span><span class="si">{</span><span class="nb">sorted</span><span class="p">(</span><span class="n">latencies</span><span class="p">)[</span><span class="nb">int</span><span class="p">(</span><span class="mf">0.99</span><span class="o">*</span><span class="nb">len</span><span class="p">(</span><span class="n">latencies</span><span class="p">))]</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">s"</span><span class="p">)</span>
+                <span class="n">asyncio</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">benchmark</span><span class="p">(</span><span class="n">concurrency</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span> <span class="n">total_requests</span><span class="o">=</span><span class="mi">64</span><span class="p">))</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> Concurrency: 16
+Total requests: 64
+Total time: 12.47s
+Total tokens: 7891
+Throughput: 632.7 tok/s
+Avg latency: 3.02s
+P50 latency: 2.87s
+P99 latency: 4.91s</div>
+<div class="code-caption"><strong>Code Fragment 9.5.2</strong>: Example 1: Launch vLLM server and benchmark throughput.</div>
+</div>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># Example 4: Comprehensive benchmarking script</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">aiohttp</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">RequestResult</span><span class="p">:</span>
+    <span class="n">ttft</span><span class="p">:</span> <span class="nb">float</span> <span class="c1"># time to first token (seconds)</span>
+    <span class="n">total_time</span><span class="p">:</span> <span class="nb">float</span> <span class="c1"># end-to-end latency</span>
+    <span class="n">output_tokens</span><span class="p">:</span> <span class="nb">int</span> <span class="c1"># number of generated tokens</span>
+    <span class="n">tpot</span><span class="p">:</span> <span class="nb">float</span> <span class="c1"># time per output token (after first)</span>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">benchmark_streaming</span><span class="p">(</span><span class="n">url</span><span class="p">,</span> <span class="n">model</span><span class="p">,</span> <span class="n">prompt</span><span class="p">,</span> <span class="n">max_tokens</span><span class="o">=</span><span class="mi">128</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">"""Measure TTFT and TPOT via streaming response."""</span>
+        <span class="n">payload</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s2">"model"</span><span class="p">:</span> <span class="n">model</span><span class="p">,</span>
+            <span class="s2">"messages"</span><span class="p">:</span> <span class="p">[{</span><span class="s2">"role"</span><span class="p">:</span> <span class="s2">"user"</span><span class="p">,</span> <span class="s2">"content"</span><span class="p">:</span> <span class="n">prompt</span><span class="p">}],</span>
+            <span class="s2">"max_tokens"</span><span class="p">:</span> <span class="n">max_tokens</span><span class="p">,</span>
+            <span class="s2">"temperature"</span><span class="p">:</span> <span class="mf">0.7</span><span class="p">,</span>
+            <span class="s2">"stream"</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+            <span class="p">}</span>
+        <span class="n">t0</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">perf_counter</span><span class="p">()</span>
+        <span class="n">ttft</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="n">token_count</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="k">async</span> <span class="k">with</span> <span class="n">aiohttp</span><span class="o">.</span><span class="n">ClientSession</span><span class="p">()</span> <span class="k">as</span> <span class="n">session</span><span class="p">:</span>
+            <span class="k">async</span> <span class="k">with</span> <span class="n">session</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="n">url</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="n">payload</span><span class="p">)</span> <span class="k">as</span> <span class="n">resp</span><span class="p">:</span>
+                <span class="k">async</span> <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">resp</span><span class="o">.</span><span class="n">content</span><span class="p">:</span>
+                    <span class="n">decoded</span> <span class="o">=</span> <span class="n">line</span><span class="o">.</span><span class="n">decode</span><span class="p">()</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+                    <span class="k">if</span> <span class="n">decoded</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">"data: "</span><span class="p">)</span> <span class="ow">and</span> <span class="n">decoded</span> <span class="o">!=</span> <span class="s2">"data: [DONE]"</span><span class="p">:</span>
+                        <span class="k">if</span> <span class="n">ttft</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                            <span class="n">ttft</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">perf_counter</span><span class="p">()</span> <span class="o">-</span> <span class="n">t0</span>
+                            <span class="n">token_count</span> <span class="o">+=</span> <span class="mi">1</span>
+                            <span class="n">total</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">perf_counter</span><span class="p">()</span> <span class="o">-</span> <span class="n">t0</span>
+                            <span class="n">decode_time</span> <span class="o">=</span> <span class="n">total</span> <span class="o">-</span> <span class="p">(</span><span class="n">ttft</span> <span class="ow">or</span> <span class="n">total</span><span class="p">)</span>
+                            <span class="n">tpot</span> <span class="o">=</span> <span class="n">decode_time</span> <span class="o">/</span> <span class="nb">max</span><span class="p">(</span><span class="n">token_count</span> <span class="o">-</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+                            <span class="k">return</span> <span class="n">RequestResult</span><span class="p">(</span><span class="n">ttft</span><span class="o">=</span><span class="n">ttft</span> <span class="ow">or</span> <span class="mi">0</span><span class="p">,</span> <span class="n">total_time</span><span class="o">=</span><span class="n">total</span><span class="p">,</span>
+                                <span class="n">output_tokens</span><span class="o">=</span><span class="n">token_count</span><span class="p">,</span> <span class="n">tpot</span><span class="o">=</span><span class="n">tpot</span><span class="p">)</span>
+                            <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">run_benchmark</span><span class="p">(</span><span class="n">concurrency_levels</span><span class="o">=</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">8</span><span class="p">,</span> <span class="mi">16</span><span class="p">,</span> <span class="mi">32</span><span class="p">]):</span>
+                                <span class="n">url</span> <span class="o">=</span> <span class="s2">"http://localhost:8000/v1/chat/completions"</span>
+                                <span class="n">model</span> <span class="o">=</span> <span class="s2">"meta-llama/Llama-3.1-8B-Instruct"</span>
+                                <span class="n">prompt</span> <span class="o">=</span> <span class="s2">"Describe the process of photosynthesis."</span>
+                                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="s1">'Concur'</span><span class="si">:</span><span class="s2">&gt;7</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="s1">'Throughput'</span><span class="si">:</span><span class="s2">&gt;11</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="s1">'Avg TTFT'</span><span class="si">:</span><span class="s2">&gt;10</span><span class="si">}</span><span class="s2"> "</span>
+                                    <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="s1">'P50 TTFT'</span><span class="si">:</span><span class="s2">&gt;10</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="s1">'Avg TPOT'</span><span class="si">:</span><span class="s2">&gt;10</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="s1">'P99 Lat'</span><span class="si">:</span><span class="s2">&gt;10</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+                                <span class="nb">print</span><span class="p">(</span><span class="s2">"-"</span> <span class="o">*</span> <span class="mi">62</span><span class="p">)</span>
+                                <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">concurrency_levels</span><span class="p">:</span>
+                                    <span class="n">n_requests</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">c</span> <span class="o">*</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">16</span><span class="p">)</span>
+                                    <span class="n">sem</span> <span class="o">=</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">Semaphore</span><span class="p">(</span><span class="n">c</span><span class="p">)</span>
+                                    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">bounded_req</span><span class="p">():</span>
+                                        <span class="k">async</span> <span class="k">with</span> <span class="n">sem</span><span class="p">:</span>
+                                            <span class="k">return</span> <span class="k">await</span> <span class="n">benchmark_streaming</span><span class="p">(</span><span class="n">url</span><span class="p">,</span> <span class="n">model</span><span class="p">,</span> <span class="n">prompt</span><span class="p">)</span>
+                                            <span class="n">tasks</span> <span class="o">=</span> <span class="p">[</span><span class="n">bounded_req</span><span class="p">()</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n_requests</span><span class="p">)]</span>
+                                            <span class="n">t0</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">perf_counter</span><span class="p">()</span>
+                                            <span class="n">results</span> <span class="o">=</span> <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">gather</span><span class="p">(</span><span class="o">*</span><span class="n">tasks</span><span class="p">)</span>
+                                            <span class="n">wall_time</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">perf_counter</span><span class="p">()</span> <span class="o">-</span> <span class="n">t0</span>
+                                            <span class="n">total_tok</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="n">r</span><span class="o">.</span><span class="n">output_tokens</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">results</span><span class="p">)</span>
+                                            <span class="n">ttfts</span> <span class="o">=</span> <span class="p">[</span><span class="n">r</span><span class="o">.</span><span class="n">ttft</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">results</span><span class="p">]</span>
+                                            <span class="n">lats</span> <span class="o">=</span> <span class="p">[</span><span class="n">r</span><span class="o">.</span><span class="n">total_time</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">results</span><span class="p">]</span>
+                                            <span class="n">tpots</span> <span class="o">=</span> <span class="p">[</span><span class="n">r</span><span class="o">.</span><span class="n">tpot</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">results</span><span class="p">]</span>
+                                            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">c</span><span class="si">:</span><span class="s2">&gt;7</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">total_tok</span><span class="o">/</span><span class="n">wall_time</span><span class="si">:</span><span class="s2">&gt;10.1f</span><span class="si">}</span><span class="s2">/s "</span>
+                                                <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">ttfts</span><span class="p">)</span><span class="o">*</span><span class="mi">1000</span><span class="si">:</span><span class="s2">&gt;9.0f</span><span class="si">}</span><span class="s2">ms "</span>
+                                                <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">np</span><span class="o">.</span><span class="n">percentile</span><span class="p">(</span><span class="n">ttfts</span><span class="p">,</span><span class="w"> </span><span class="mi">50</span><span class="p">)</span><span class="o">*</span><span class="mi">1000</span><span class="si">:</span><span class="s2">&gt;9.0f</span><span class="si">}</span><span class="s2">ms "</span>
+                                                <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">tpots</span><span class="p">)</span><span class="o">*</span><span class="mi">1000</span><span class="si">:</span><span class="s2">&gt;9.0f</span><span class="si">}</span><span class="s2">ms "</span>
+                                                <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">np</span><span class="o">.</span><span class="n">percentile</span><span class="p">(</span><span class="n">lats</span><span class="p">,</span><span class="w"> </span><span class="mi">99</span><span class="p">)</span><span class="si">:</span><span class="s2">&gt;9.2f</span><span class="si">}</span><span class="s2">s"</span><span class="p">)</span>
+                                            <span class="n">asyncio</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">run_benchmark</span><span class="p">())</span>
+</code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span>  Concur Throughput Avg TTFT P50 TTFT Avg TPOT P99 Lat
+--------------------------------------------------------------
+ 1 48.3/s 87ms 85ms 21ms 2.78s
+ 4 187.2/s 112ms 108ms 22ms 3.01s
+ 8 351.6/s 189ms 175ms 23ms 3.42s
+ 16 632.7/s 342ms 315ms 25ms 4.91s
+ 32 894.1/s 687ms 621ms 30ms 7.23s</div>
+<div class="code-caption"><strong>Code Fragment 9.5.3:</strong> Example 1: Launch vLLM server and benchmark throughput</div>
+</div>
+<div class="callout key-insight">
+<div class="callout-title">Key Insight</div>
+<p>The most common mistake teams make when choosing a serving framework is optimizing for the wrong metric. If your workload is latency-sensitive (real-time chat, code completion), optimize for time-to-first-token (TTFT) and per-token latency. If your workload is throughput-sensitive (batch processing, evaluation pipelines), optimize for total tokens per second across concurrent requests. These two objectives can conflict: techniques like continuous batching and large batch sizes increase throughput but also increase per-request latency. The benchmarking methodology in this section helps you measure the metrics that matter for your specific use case. For guidance on when to self-host versus use an API provider, see <a href="../../part-3-working-with-llms/module-13-hybrid-ml-llm/section-13.3.html">Section 13.3</a>.</p>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 9.5.1: Latency vs. throughput tradeoff on vLLM <span class="exercise-type coding" title="Coding">Coding</span></div>
+<p>Spin up <code>vllm serve meta-llama/Llama-3.1-8B-Instruct</code> on a single GPU, then benchmark with <code>vllm bench serve</code> at concurrency levels {1, 4, 16, 64}. Plot TTFT (p50) and total tokens/sec on the same axes. Identify the concurrency level where TTFT crosses 500 ms; that is your operating ceiling for an interactive chat workload.</p>
+<details><summary>Answer Sketch</summary>
+<p>Typical 8B-on-A100 numbers: concurrency 1 gives TTFT ≈ 80 to 110 ms and 80 tok/s. Concurrency 16 gives TTFT ≈ 340 ms and 630 tok/s. Concurrency 64 gives TTFT ≈ 700+ ms and 900 tok/s but blows the interactive budget. The crossover above 500 ms TTFT typically lands between concurrency 24 and 32 on an A100; lower for shorter prompts, higher for longer. Operate just below the crossover for chat, above it for batch.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 9.5.2: KV cache memory calculation <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+<p>For Llama-3.1-8B (n_layers=32, n_kv_heads=8, head_dim=128, FP16), compute the KV cache memory per token, then per request for a 4096-token context. How many concurrent 4K-context requests fit in a 40 GB GPU after subtracting the 16 GB model weights?</p>
+<details><summary>Answer Sketch</summary>
+<p>Per token: 2 (K and V) x 32 layers x 8 KV heads x 128 dim x 2 bytes = 131,072 bytes ≈ 128 KB. Per 4096-token request: 128 KB x 4096 ≈ 512 MB. With 24 GB free (40 - 16), about 48 simultaneous 4K requests fit. This is the upper bound on vLLM's effective concurrency before PagedAttention reuse kicks in.</p>
+</details>
+</div>
+<div class="whats-next">
+<h3 id="what-s-next">What's Next?</h3>
+<p>In the next part of this section, <a href="section-9.6.html">Section 9.6: Serving Runtimes: SGLang, TGI, TensorRT &amp; Edge</a>, the llm serving stack and a deep dive into vllm, the most widely deployed open-source llm serving framework.</p>
+</div>
+<details class="bibliography-collapsible">
+<summary><strong>Further Reading</strong></summary>
+<section class="bibliography">
+<h3 id="serving-frameworks-and-systems">Serving Frameworks &amp; Systems</h3>
+<div class="bib-entry-card">
+<div class="bib-ref">Kwon, W. et al. (2023). <a href="https://arxiv.org/abs/2309.06180" rel="noopener" target="_blank">"Efficient Memory Management for Large Language Model Serving with PagedAttention."</a> <em>SOSP 2023</em>. The paper behind vLLM, the most widely deployed open-source LLM serving engine. Introduces PagedAttention for efficient KV cache management, enabling near-zero memory waste and request-level memory sharing.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Zheng, L. et al. (2024). <a href="https://arxiv.org/abs/2312.07104" rel="noopener" target="_blank">"SGLang: Efficient Execution of Structured Language Model Programs."</a> <em>arXiv preprint arXiv:2312.07104</em>. Introduces RadixAttention for automatic prefix caching and a domain-specific language for structured LLM programs. Particularly strong for workloads with shared system prompts and constrained generation patterns.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">NVIDIA (2024). <a href="https://github.com/NVIDIA/TensorRT-LLM" rel="noopener" target="_blank">"TensorRT-LLM: A TensorRT Toolbox for Optimized Large Language Model Inference."</a> NVIDIA's production-grade inference library that compiles LLMs into optimized TensorRT engines. Delivers the highest throughput on NVIDIA hardware through custom CUDA kernels, FP8 quantization, and in-flight batching.</div>
+</div>
+<h3 id="scheduling-and-batching-research">Scheduling &amp; Batching Research</h3>
+<div class="bib-entry-card">
+<div class="bib-ref">Yu, G. et al. (2022). <a href="https://www.usenix.org/conference/osdi22/presentation/yu" rel="noopener" target="_blank">"Orca: A Distributed Serving System for Transformer-Based Generative Models."</a> <em>OSDI 2022</em>. Introduces iteration-level scheduling (continuous batching) for LLM serving, allowing new requests to join a batch as soon as any request completes. The foundational system paper that all modern serving frameworks build upon.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Agrawal, A. et al. (2024). <a href="https://arxiv.org/abs/2403.02310" rel="noopener" target="_blank">"Taming Throughput-Latency Tradeoff in LLM Inference with Sarathi-Serve."</a> <em>OSDI 2024</em>. Addresses the interference between prefill and decode phases in continuous batching through chunked prefills and stall-free scheduling. Useful for understanding how production systems balance latency and throughput.</div>
+</div>
+<h3 id="local-and-edge-inference">Local &amp; Edge Inference</h3>
+<div class="bib-entry-card">
+<div class="bib-ref">Gerganov, G. et al. (2024). <a href="https://github.com/ggerganov/llama.cpp" rel="noopener" target="_blank">"llama.cpp: Inference of Meta's LLaMA model in pure C/C++."</a> The foundational project for local LLM inference, supporting CPU, Apple Silicon, and consumer GPU execution with GGUF quantization formats. Powers Ollama and most consumer-facing local LLM applications.</div>
+</div>
+</section>
+</details>
+<nav class="chapter-nav">
+<a class="prev" href="section-9.4.html"><span class="nav-label">Previous</span><span class="nav-num">Section 9.4</span><span class="nav-title">Speculative Decoding</span></a>
+<a class="up" href="index.html"><span class="nav-label">In Chapter</span><span class="nav-num">Chapter 9</span><span class="nav-title">Inference Optimization &amp; Efficient Serving</span></a>
+<a class="next" href="section-9.6.html"><span class="nav-label">Next</span><span class="nav-num">Section 9.6</span><span class="nav-title">Serving Runtimes: SGLang, TGI, TensorRT & Edge</span></a>
+</nav>
+<footer><p>Fifteenth Edition, 2026 · <a href="../../toc.html">Contents</a></p></footer>
+</main>
+</body>
+</html>

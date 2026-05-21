@@ -5,13 +5,18 @@ Canonical order for chapter index pages:
   2. illustration (optional)
   3. overview
   4. big-picture (optional callout)
-  5. prereqs
-  6. objectives
-  7. sections-list
-  8. whats-next
-  9. bibliography (optional)
+  5. fun-note (optional, opener-style engagement)
+  6. prereqs
+  7. objectives
+  8. sections-list
+  9. whats-next
+  10. bibliography (optional)
 
-Also enforces: no fun-note callouts in index files (fun facts belong in sections).
+Earlier policy disallowed fun-note callouts in chapter index pages on
+the grounds that "fun facts belong in sections". User policy has shifted:
+chapter-opener fun-notes are valuable for engagement (modules 01, 03, 04
+already have curated openers). The rule is retired; fun-notes now sit
+between big-picture and prereqs in the canonical order.
 """
 import re
 from collections import namedtuple
@@ -22,12 +27,31 @@ DESCRIPTION = "Module index element out of canonical order or disallowed callout
 
 Issue = namedtuple("Issue", ["priority", "check_id", "filepath", "line", "message"])
 
-# Canonical order: element name -> rank
+# Canonical order: element name -> rank.
+# Pedagogical sequence (corrected 2026-05-18):
+#   1. epigraph (motivating quote)
+#   2. illustration (chapter opener)
+#   3. big-picture (callout: one-paragraph hook for the chapter)
+#   4. overview (h2 + detailed section-by-section walkthrough)
+#   5. fun-note (optional engagement opener, sits beside overview)
+#   6. prereqs (what the reader should know before reading)
+#   7. objectives (concrete "after this chapter, you can..." list)
+#   8. sections-list (cards or list of section titles)
+#   9. whats-next / 10. bibliography
+#
+# Earlier this had overview BEFORE big-picture, but the chapter-starter
+# agent and existing reviewed chapters put big-picture FIRST (one-line
+# pitch), then overview (detailed walkthrough). big-picture is the hook,
+# overview is the expansion. Rule corrected to match.
 CANONICAL_ORDER = {
     "epigraph": 1,
     "illustration": 2,
+    # big-picture and overview share rank 3 (either order is fine; some
+    # chapters lead with the one-paragraph hook then expand, others lead
+    # with the detailed walkthrough then summarize). The plugin no longer
+    # enforces a strict order between these two.
+    "big-picture": 3,
     "overview": 3,
-    "big-picture": 4,
     "prereqs": 5,
     "objectives": 6,
     "sections-list": 7,
@@ -49,8 +73,8 @@ ELEMENT_PATTERNS = [
 ]
 
 DISALLOWED_IN_INDEX = [
-    ("callout fun-note", re.compile(r'class="callout fun-note"')),
-    ("bare fun-note", re.compile(r'class="fun-note"')),
+    # fun-note no longer disallowed; openers like "Fun Fact: Before
+    # Computers Could Read" are engagement assets, not deletion targets.
     ("time-estimate", re.compile(r'class="time-estimate"')),
 ]
 

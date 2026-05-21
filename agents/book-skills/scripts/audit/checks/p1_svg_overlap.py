@@ -21,10 +21,12 @@ MIN_PANEL_HEIGHT = 30
 # Minimum overlap in px to flag
 MIN_OVERLAP_PX = 15
 
-# Match rect with x, y, width, height in any order using lookaheads
+# Match rect with x, y, width, height in any order using lookaheads.
+# Use word boundary \b before each attribute name so rx="3" (corner
+# radius) doesn't accidentally satisfy x="3" via greedy [^>]* matching.
 RECT_RE = re.compile(
-    r'<rect\s(?=[^>]*x="(?P<x>[\d.]+)")(?=[^>]*y="(?P<y>[\d.]+)")'
-    r'(?=[^>]*width="(?P<w>[\d.]+)")(?=[^>]*height="(?P<h>[\d.]+)")[^>]*/?>',
+    r'<rect\s(?=[^>]*\bx="(?P<x>[\d.]+)")(?=[^>]*\by="(?P<y>[\d.]+)")'
+    r'(?=[^>]*\bwidth="(?P<w>[\d.]+)")(?=[^>]*\bheight="(?P<h>[\d.]+)")[^>]*/?>',
     re.DOTALL,
 )
 
@@ -34,18 +36,50 @@ Y_TOLERANCE = 5  # rects within 5px of same y are considered same row
 
 
 def _parse_panel_rects(svg_text):
-    """Extract large panel rects from SVG text (skip small decorative rects)."""
+    """Extract large panel rects from SVG text (skip small decorative rects).
+
+    Skips rects inside <g transform=...> groups: their coordinates live
+    in a translated frame, so a simple x/y comparison against siblings
+    in a different translated frame returns spurious overlaps. Multi-
+    column catalogs commonly use one <g transform="translate(...)">
+    per column with local rects at the same x; those are visually
+    side-by-side, not overlapping.
+    """
     rects = []
-    for m in RECT_RE.finditer(svg_text):
-        w = float(m.group("w"))
-        h = float(m.group("h"))
-        if w >= MIN_PANEL_WIDTH and h >= MIN_PANEL_HEIGHT:
-            rects.append({
-                "x": float(m.group("x")),
-                "y": float(m.group("y")),
-                "w": w,
-                "h": h,
-            })
+    # Walk tokens; maintain a g-stack of (has_transform) so we know
+    # whether any ancestor of the current rect uses a transform.
+    g_stack = []
+    pat = re.compile(
+        r'<g\b([^>]*)>|</g>|<rect\b[^>]*?/?>',
+        re.IGNORECASE | re.DOTALL,
+    )
+    for m in pat.finditer(svg_text):
+        tok = m.group(0)
+        low = tok.lower()
+        if low.startswith("</g"):
+            if g_stack:
+                g_stack.pop()
+            continue
+        if low.startswith("<g"):
+            attrs = m.group(1) or ""
+            g_stack.append("transform=" in attrs.lower())
+            continue
+        if low.startswith("<rect"):
+            if any(g_stack):
+                # Inside a transformed group; skip.
+                continue
+            rm = RECT_RE.match(tok)
+            if not rm:
+                continue
+            w = float(rm.group("w"))
+            h = float(rm.group("h"))
+            if w >= MIN_PANEL_WIDTH and h >= MIN_PANEL_HEIGHT:
+                rects.append({
+                    "x": float(rm.group("x")),
+                    "y": float(rm.group("y")),
+                    "w": w,
+                    "h": h,
+                })
     return rects
 
 
@@ -69,12 +103,27 @@ def _group_by_y(rects):
 
 
 def _check_overlaps(row):
-    """Check for x-range overlaps within a row of rects."""
+    """Check for x-range overlaps within a row of rects.
+
+    Skips pairs of rects with identical x and width (or near-identical):
+    these are layered styling effects (background + foreground rect,
+    border + fill, shadow + body) where 100% overlap is intentional,
+    not a layout bug. Only flags partial overlaps where two genuinely
+    different panels collide.
+    """
     overlaps = []
     sorted_row = sorted(row, key=lambda r: r["x"])
     for i in range(len(sorted_row) - 1):
         a = sorted_row[i]
         b = sorted_row[i + 1]
+        # Layered styling effect: skip when x and w are identical
+        # (or differ by <= 2px, which captures border/padding tweaks).
+        if abs(a["x"] - b["x"]) <= 2 and abs(a["w"] - b["w"]) <= 2:
+            continue
+        # Concentric layering: same x, different widths means a smaller
+        # decoration sits inside a larger panel (common pattern). Skip.
+        if abs(a["x"] - b["x"]) <= 2:
+            continue
         a_right = a["x"] + a["w"]
         if a_right > b["x"] + MIN_OVERLAP_PX:
             overlap_px = a_right - b["x"]

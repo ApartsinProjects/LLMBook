@@ -18,6 +18,14 @@ SKIP_LINK_RE = re.compile(
 
 def run(filepath, html, context):
     issues = []
+    # The cover page (root index.html) is a marketing landing that intentionally
+    # has no skip-link; the first interactive element is the hero CTA itself.
+    import os
+    basename = os.path.basename(filepath)
+    if basename == 'index.html':
+        dirname = os.path.basename(os.path.dirname(filepath))
+        if dirname in ('', 'LLMBook'):  # root-level index.html
+            return issues
     body_match = BODY_RE.search(html)
     if not body_match:
         return issues

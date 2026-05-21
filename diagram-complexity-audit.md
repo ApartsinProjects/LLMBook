@@ -1,0 +1,97 @@
+# Diagram complexity audit
+
+Round 3 update. Box-diagram score combines size, line count, rect count, text
+count, long-text count, canvas size, and group count. Score >= 4 flags as
+overly complex.
+
+Round 1 (commit `6da1b83e`) simplified 11. Round 2 (commit `12878e0f`)
+simplified 20 more. Round 3 simplifies the next 20 worst-offenders.
+
+Grid-signature diagrams correctly remain unchanged (the grid IS the visual
+message): positional-encoding heatmap, 2:4 sparsity, attention-head
+matrices, attention variants, quantization granularity. Hand-drawn charts
+also remain (param-growth log/linear, encoder-timeline lineage matrix).
+
+## Top 10 over-complex remaining (post-round-3)
+
+| Rank | Score | Path | Notes |
+|---:|---:|---|---|
+| 1 | 6 | `module-07/fig-6.6.4-pipeline.svg` | already simplified r1; grid stays |
+| 2 | 6 | `module-09/fig-8.2.1-three-patterns-reasoning.svg` | candidate for round 4 |
+| 3 | 6 | `module-08/bolt-on-vs-native-multimodal.svg` | candidate for round 4 |
+| 4 | 6 | `module-07/fig-6.7.2-bayesian.svg` | candidate for round 4 |
+| 5 | 6 | `module-07/fig-6.5.3-grokking.svg` | candidate for round 4 |
+| 6 | 6 | `module-03/fig-3.1.6-seq2seq.svg` | candidate for round 4 |
+| 7 | 6 | `module-64/diagram-frontier-alignment-tax.svg` | candidate for round 4 |
+| 8 | 6 | `module-14/section-11.2-svg3.svg` | candidate for round 4 |
+| 9 | 6 | `module-10/fig-9.1.3-gptq-compensation.svg` | candidate for round 4 |
+| 10 | 6 | (other score-6 items) | borderline |
+
+## Simplified round 1 (11)
+
+`fig-30.9.1-eu-ai-act-risk-tiers`, `diagram-32-6-1`, `diagram-32-7-1`,
+`diagram-32-4-1`, `fig-8.1.3-four-reasoning`, `fig-5.4.3-ar-vs-diffusion`,
+`fig-2.3.4-tokenizer-landscape`, `fig-6.6.4-pipeline`, `fig-2.1.5-token-artifacts`,
+`fig-28.13.1-experiment-flow`, `fig-2.2.4-unigram`.
+
+## Simplified round 2 (20)
+
+| # | File | Was rank | Was score |
+|---:|---|---:|---:|
+| 1 | `module-10/fig-9.2.2-pagedattention.svg` | 5 | 11 |
+| 2 | `module-63/diagram-frontier-edge-device-matrix.svg` | 8 | 10 |
+| 3 | `module-63/diagram-frontier-fa4-memory-hierarchy.svg` | 16 | 8 |
+| 4 | `module-35/fig-29.6.2-framework-comparison.svg` | new | 9 |
+| 5 | `module-32/diagram-32-5-1.svg` | 6 | 11 |
+| 6 | `appendix-f/diagram-framework-selection.svg` | 7 | 11 |
+| 7 | `module-32/diagram-32-3-1.svg` | 12 | 8 |
+| 8 | `module-63/diagram-frontier-codesign-stacks.svg` | 13 | 8 |
+| 9 | `module-14/fig-12.6.1-dspy-optimization-loop.svg` | 14 | 8 |
+| 10 | `module-04/fig-4.3.5-head-behaviors.svg` | new | 8 |
+| 11 | `module-05/fig-5.4.2-diffusion.svg` | 17 | 8 |
+| 12 | `module-02/fig-2.2.5-byte-bpe.svg` | 3 | 12 |
+| 13 | `module-32/diagram-32-1-1.svg` | new | 8 |
+| 14 | `module-23/fig-20.3-graphrag-pipeline.svg` | new | 7 |
+| 15 | `module-15/fig-13.8.1-log-to-dataset-pipeline.svg` | 10 | 8 |
+| 16 | `module-07/fig-6.8.1-production-llm-training.svg` | 11 | 8 |
+| 17 | `module-02/fig-2.3.2-chat-template.svg` | new | 7 |
+| 18 | `module-32/diagram-32-8-1.svg` | new | 7 |
+| 19 | `module-35/fig-29.6.1-durable-execution-recovery.svg` | new | 7 |
+| 20 | `module-04/diagram-transformer-anatomy.svg` | 9 | 9 |
+
+## Simplified round 3 (20)
+
+| # | File | Pre score | Post score |
+|---:|---|---:|---:|
+| 1 | `module-02/fig-2.3.3-multimodal-tokens.svg` | 8 | 0 |
+| 2 | `module-00/fig-0.4.4-rl-to-llm-rlhf.svg` | 7 | 2 |
+| 3 | `module-05/fig-5.3.2-contrastive.svg` | 7 | 2 |
+| 4 | `module-35/fig-29.9.1-k8s-llm-stack.svg` | 7 | 2 |
+| 5 | `module-24/fig-20.6.1-voice-agent-architecture.svg` | 7 | 1 |
+| 6 | `module-07/fig-6.2.2-clm-mlm.svg` | 7 | 3 |
+| 7 | `module-08/fig-7.3.3-orms-prms.svg` | 7 | 4 |
+| 8 | `module-37/fig-30.9.2-gpai-obligations.svg` | 7 | 2 |
+| 9 | `module-10/fig-9.4.2-llm-serving-stack.svg` | 7 | 1 |
+| 10 | `module-11/fig-10.3.2-debugging-workflow.svg` | 6 | 2 |
+| 11 | `module-23/fig-19.7.1-graphrag-pipeline.svg` | 6 | 3 |
+| 12 | `module-04/fig-4.3.4-pos-strategies.svg` | 6 | 1 |
+| 13 | `module-64/diagram-frontier-augmentation-vs-automation.svg` | 6 | 3 |
+| 14 | `module-63/diagram-demo-sparse-gradient.svg` | 6 | 3 |
+| 15 | `module-10/fig-9.3.3-tree-structured-verification.svg` | 6 | 3 |
+| 16 | `module-13/fig-11.1.2-llm-api-ecosystem.svg` | 6 | 3 |
+| 17 | `module-03/fig-3.2.4-gradient-attention.svg` | 6 | 2 |
+| 18 | `module-04/fig-4.3-s4-three-views.svg` | 6 | 3 |
+| 19 | `module-05/fig-5.3.3-speculative.svg` | 6 | 4 |
+| 20 | `module-35/fig-29.6.3-saga-compensation.svg` | 6 | 3 |
+
+All canvases <= 1100x620; <= 8 primary boxes; <= 3-word labels in boxes;
+single directional flow; takeaways moved to bottom strips. Filenames +
+titles preserved so all existing img-src refs and captions still resolve.
+
+Two files retain score 4 (post-simplification) because they need many small
+decorative rects to convey their content (token strips for speculative
+decoding; per-step PRM scores). Primary-box count and 3-word-label rules
+still hold; the 4-score is driven by long-text and rect-count proxies, not
+genuine visual clutter.
+
+PNG sidecars to be regenerated by the next build pass.

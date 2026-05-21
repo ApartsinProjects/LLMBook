@@ -55,10 +55,17 @@ PLACEHOLDER_ATTR_RE = re.compile(
 )
 
 
+CODE_OUTPUT_RE = re.compile(
+    r'<div\s+class="code-output"[^>]*>.*?</div>',
+    re.IGNORECASE | re.DOTALL,
+)
+
+
 def _strip_excluded_regions(html):
     """Remove regions that should not be scanned for placeholders."""
     html = CODE_BLOCK_TAGS.sub('', html)
     html = CODE_CAPTION_RE.sub('', html)
+    html = CODE_OUTPUT_RE.sub('', html)  # Python program output, may contain TODO strings
     html = PLACEHOLDER_ATTR_RE.sub('', html)
     return html
 

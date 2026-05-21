@@ -26,11 +26,15 @@ def run(filepath, html, context):
     if not fragments:
         return issues
 
-    # Check for non-standard suffixes (letters appended)
+    # Letter suffixes (e.g., 32.2.3a) are canonical for library-shortcut
+    # variants: the "a" suffix marks the QUICK version of a fragment that
+    # has a fuller version below. Only flag if multi-letter or non-lowercase
+    # suffixes (which are typographical errors, not canonical variants).
     for num, line_num in fragments:
-        if re.search(r'[a-zA-Z]$', num):
+        m = re.search(r'([A-Z]+|[a-z]{2,})$', num)
+        if m:
             issues.append(Issue(PRIORITY, CHECK_ID, filepath, line_num,
-                f'Non-standard code fragment number: "{num}" (has letter suffix)'))
+                f'Non-standard code fragment number: "{num}" (uppercase or multi-letter suffix; canonical is single lowercase letter or no suffix)'))
 
     # Check sequencing (extract the last digit and verify monotonic increase)
     seen = {}

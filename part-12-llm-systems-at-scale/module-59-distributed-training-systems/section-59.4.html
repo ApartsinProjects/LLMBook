@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-PWPHBQL2VL"></script>
+<script>
+window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', 'G-PWPHBQL2VL');
+</script>
+
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<meta content="Section 59.4: Pipeline Parallelism and Hybrid Strategies. GPipe, 1F1B, interleaved scheduling, zero-bubble pipeline, and 3D parallelism recipes that combine TP, PP, and DP." name="description"/>
+<title>Section 59.4: Pipeline Parallelism and Hybrid Strategies | Building Conversational AI with LLMs and Agents</title>
+<link href="../../styles/book.css" rel="stylesheet"/>
+<link href="../../styles/pygments.css" rel="stylesheet"/>
+<link href="../../vendor/katex/katex.min.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/katex/katex.min.js"></script>
+<script defer="" onload="renderMathInElement(document.body, {
+ delimiters: [
+ {left: '$$', right: '$$', display: true},
+ {left: '$', right: '$', display: false}
+ ],
+ throwOnError: false
+ });" src="../../vendor/katex/contrib/auto-render.min.js"></script>
+<script defer="" src="../../scripts/book.js"></script>
+<link href="../../pagefind/pagefind-ui.css" rel="stylesheet"/>
+<script defer="" src="../../pagefind/pagefind-ui.js"></script>
+</head>
+<body class="section-page">
+<a class="skip-link" href="#main-content">Skip to main content</a>
+
+<header class="chapter-header">
+<nav class="header-nav">
+<a class="book-title-link" href="../../index.html">Building Conversational AI with LLMs and Agents</a>
+<a class="toc-link" href="../../toc.html" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+</nav>
+<div class="header-search">
+<div id="search"></div>
+</div>
+<div class="page-breadcrumb" data-pagefind-meta="chapter"><a href="../index.html">Part XII: LLM Systems at Scale</a><span class="bc-sep">&rsaquo;</span><a href="index.html">Chapter 59: Distributed Training Systems</a><span class="bc-sep">&rsaquo;</span><span class="bc-current">Section 59.4</span></div>
+<div class="page-current">Section 59.4</div>
+<h1>Pipeline Parallelism and Hybrid Strategies</h1>
+</header>
+<main class="content" id="main-content">
+<span class="pagefind-meta-injected" data-pagefind-meta="chapter:Chapter 59: Distributed Training Systems" hidden=""></span>
+<blockquote class="epigraph">
+<p>"Stage zero is bored, stage seven is bored, and the bubble between them is where my throughput went to die. Schedule me harder."</p>
+<span class="agent-avatar-inline" style="background-color: #f39c12;"><img alt="Sched" height="28" src="../../front-matter/images/agents/sched.png" width="28"/></span><cite>Sched, <span class="agent-desc">Bubble-Squashing Pipeline AI Agent</span></cite>
+</blockquote>
+<div class="callout big-picture">
+<div class="callout-title">Big Picture</div>
+<p>Pipeline parallelism (PP) splits the layer stack across $P$ devices and pipelines micro-batches through the resulting stages. Done naively (GPipe) it leaves a $\mathcal{O}(P/M)$ idle fraction (the bubble); 1F1B (Narayanan et al., 2021) and interleaved 1F1B (Megatron-LM, 2021) shrink that bubble, and zero-bubble schedulers (Qi et al., 2023) essentially eliminate it. PP is the third axis of distributed training after data parallelism (DP, replicate the model and shard the batch) and tensor parallelism (TP, shard each layer's matrix multiplications across devices); together these three are what makes 1T-parameter models reachable. In production, all three are composed: TP within a node, PP across nodes inside a "pod", DP across pods. The choice of how to apportion GPUs among $(TP, PP, DP)$ is the highest-leverage knob a frontier training run owns.</p>
+</div>
+<div class="prerequisites">
+<h3 id="prerequisites">Prerequisites</h3>
+<p>This section assumes familiarity with <a href="section-59.3.html">tensor parallelism</a> from Section 59.3 and with <a href="section-59.2.html">ZeRO and FSDP</a> from Section 59.2. Familiarity with <a href="../../part-1-llm-building-blocks/module-00-ml-pytorch-foundations/section-0.5.html">PyTorch autograd</a> from Section 0.5 helps when reading the 1F1B scheduler walkthrough.</p>
+</div>
+
+<h2 id="59-4-1-why-add-pipeline-when-fsdp-exists">59.4.1 Why Add Pipeline When FSDP Exists?</h2>
+<div class="callout fun-note">
+<div class="callout-title">Fun Fact</div>
+<p>The GPipe paper (Huang et al., 2019) was published while the authors were simultaneously training a model with 137 billion parameters, the largest neural net ever trained at the time. The 137B model was never released publicly because Google's lawyers concluded the inference cost would make any product around it unprofitable; the pipeline-parallelism technique outlived the model it was built for by years.</p>
+</div>
+<p>FSDP scales data parallelism efficiently to thousands of GPUs and reduces per-rank memory to $16/N$ bytes per parameter. Why bother with pipeline parallelism, which adds a famously tricky scheduler and a bubble penalty?</p>
+
+<p>The answer is communication cost. FSDP requires an all-gather of each layer's parameters every forward and every backward pass, plus a reduce-scatter on each gradient. For a 70B model with $N=512$ data-parallel ranks, the per-step wire traffic is roughly $3 \cdot 2 \cdot 70 \times 10^{9}$ bytes $= 420$ GB <em>per step</em>. On a 400 Gb/s InfiniBand fabric, that is hundreds of milliseconds of communication. Pipeline parallelism moves <em>only activations</em> between stages (a few MB per micro-batch), which is orders of magnitude less than FSDP's parameter gathers.</p>
+
+<p>The trade-off is that pipeline parallelism has a hard <em>bubble</em>: the first stage cannot start the second micro-batch until the first has cleared the pipeline; the last stage cannot start its backward until the first stage's forward has reached the end. This idle time scales as $(P-1) / M$ where $M$ is the number of micro-batches per step. The scheduler design problem is to make that bubble small.</p>
+
+<h2 id="59-4-2-gpipe-the-naive-schedule">59.4.2 GPipe: The Naive Schedule</h2>
+<p>GPipe (Huang et al., 2019) is the simplest pipeline schedule. The mini-batch is split into $M$ micro-batches; <strong>all forwards run first</strong> (filling and draining the pipeline), then <strong>all backwards run</strong>. The bubble is large but the algorithm is dead simple.</p>
+
+<figure class="diagram">
+<svg aria-label="GPipe (all-forward-then-all-backward) versus 1F1B (one-forward-one-backward) pipeline schedules across four stages and four micro-batches, showing how 1F1B reduces idle bubble time and peak activation memory" role="img" style="font-family: 'Segoe UI', sans-serif; max-width: 100%; height: auto;" viewBox="-20 -20 940 460" xmlns="http://www.w3.org/2000/svg">
+  <rect width="940" height="460" fill="#ffffff" x="-20" y="-20"/>
+
+  <!-- GPipe -->
+  <g transform="translate(40, 60)">
+    <text x="0" y="0" font-size="14" font-weight="700" fill="#1a4078">GPipe (all-F-then-all-B), 4 stages &#215; 4 micro-batches</text>
+    <text x="0" y="18" font-size="11" font-style="italic" fill="#5a4a3a">Large idle bubbles at start, middle (between F and B), and end.</text>
+
+    <!-- Stage labels -->
+    <g transform="translate(0, 28)">
+      <text x="-4" y="22" font-size="10" font-weight="600" text-anchor="end">S0</text>
+      <text x="-4" y="42" font-size="10" font-weight="600" text-anchor="end">S1</text>
+      <text x="-4" y="62" font-size="10" font-weight="600" text-anchor="end">S2</text>
+      <text x="-4" y="82" font-size="10" font-weight="600" text-anchor="end">S3</text>
+    </g>
+
+    <!-- GPipe grid 16 time slots, 4 stages. Each slot 38 wide, 16 tall. -->
+    <!-- Stage 0: F1 F2 F3 F4 _ _ _ _ _ _ _ _ B4 B3 B2 B1 -->
+    <!-- Stage 1: _ F1 F2 F3 F4 _ _ _ _ _ _ B4 B3 B2 B1 _ -->
+    <!-- Stage 2: _ _ F1 F2 F3 F4 _ _ _ _ B4 B3 B2 B1 _ _ -->
+    <!-- Stage 3: _ _ _ F1 F2 F3 F4 B4 B3 B2 B1 _ _ _ _ _ -->
+
+    <g transform="translate(0, 38)">
+      <!-- forward cells F (green), backward B (orange), idle (light grey) -->
+      <!-- 16 columns starting at x=0, each width 38 -->
+      <!-- Use a helper: we'll lay out manually -->
+
+      <!-- Stage 0 row -->
+      <g transform="translate(0, 0)">
+        <rect x="0" y="0" width="38" height="16" fill="#cfe9d4"/><text x="19" y="12" font-size="9" text-anchor="middle">F1</text>
+        <rect x="38" y="0" width="38" height="16" fill="#cfe9d4"/><text x="57" y="12" font-size="9" text-anchor="middle">F2</text>
+        <rect x="76" y="0" width="38" height="16" fill="#cfe9d4"/><text x="95" y="12" font-size="9" text-anchor="middle">F3</text>
+        <rect x="114" y="0" width="38" height="16" fill="#cfe9d4"/><text x="133" y="12" font-size="9" text-anchor="middle">F4</text>
+        <rect x="152" y="0" width="304" height="16" fill="#e8e8e8"/>
+        <rect x="456" y="0" width="38" height="16" fill="#f7d0a6"/><text x="475" y="12" font-size="9" text-anchor="middle">B4</text>
+        <rect x="494" y="0" width="38" height="16" fill="#f7d0a6"/><text x="513" y="12" font-size="9" text-anchor="middle">B3</text>
+        <rect x="532" y="0" width="38" height="16" fill="#f7d0a6"/><text x="551" y="12" font-size="9" text-anchor="middle">B2</text>
+        <rect x="570" y="0" width="38" height="16" fill="#f7d0a6"/><text x="589" y="12" font-size="9" text-anchor="middle">B1</text>
+      </g>
+      <!-- Stage 1 -->
+      <g transform="translate(0, 20)">
+        <rect x="0" y="0" width="38" height="16" fill="#e8e8e8"/>
+        <rect x="38" y="0" width="38" height="16" fill="#cfe9d4"/><text x="57" y="12" font-size="9" text-anchor="middle">F1</text>
+        <rect x="76" y="0" width="38" height="16" fill="#cfe9d4"/><text x="95" y="12" font-size="9" text-anchor="middle">F2</text>
+        <rect x="114" y="0" width="38" height="16" fill="#cfe9d4"/><text x="133" y="12" font-size="9" text-anchor="middle">F3</text>
+        <rect x="152" y="0" width="38" height="16" fill="#cfe9d4"/><text x="171" y="12" font-size="9" text-anchor="middle">F4</text>
+        <rect x="190" y="0" width="228" height="16" fill="#e8e8e8"/>
+        <rect x="418" y="0" width="38" height="16" fill="#f7d0a6"/><text x="437" y="12" font-size="9" text-anchor="middle">B4</text>
+        <rect x="456" y="0" width="38" height="16" fill="#f7d0a6"/><text x="475" y="12" font-size="9" text-anchor="middle">B3</text>
+        <rect x="494" y="0" width="38" height="16" fill="#f7d0a6"/><text x="513" y="12" font-size="9" text-anchor="middle">B2</text>
+        <rect x="532" y="0" width="38" height="16" fill="#f7d0a6"/><text x="551" y="12" font-size="9" text-anchor="middle">B1</text>
+        <rect x="570" y="0" width="38" height="16" fill="#e8e8e8"/>
+      </g>
+      <!-- Stage 2 -->
+      <g transform="translate(0, 40)">
+        <rect x="0" y="0" width="76" height="16" fill="#e8e8e8"/>
+        <rect x="76" y="0" width="38" height="16" fill="#cfe9d4"/><text x="95" y="12" font-size="9" text-anchor="middle">F1</text>
+        <rect x="114" y="0" width="38" height="16" fill="#cfe9d4"/><text x="133" y="12" font-size="9" text-anchor="middle">F2</text>
+        <rect x="152" y="0" width="38" height="16" fill="#cfe9d4"/><text x="171" y="12" font-size="9" text-anchor="middle">F3</text>
+        <rect x="190" y="0" width="38" height="16" fill="#cfe9d4"/><text x="209" y="12" font-size="9" text-anchor="middle">F4</text>
+        <rect x="228" y="0" width="152" height="16" fill="#e8e8e8"/>
+        <rect x="380" y="0" width="38" height="16" fill="#f7d0a6"/><text x="399" y="12" font-size="9" text-anchor="middle">B4</text>
+        <rect x="418" y="0" width="38" height="16" fill="#f7d0a6"/><text x="437" y="12" font-size="9" text-anchor="middle">B3</text>
+        <rect x="456" y="0" width="38" height="16" fill="#f7d0a6"/><text x="475" y="12" font-size="9" text-anchor="middle">B2</text>
+        <rect x="494" y="0" width="38" height="16" fill="#f7d0a6"/><text x="513" y="12" font-size="9" text-anchor="middle">B1</text>
+        <rect x="532" y="0" width="76" height="16" fill="#e8e8e8"/>
+      </g>
+      <!-- Stage 3 -->
+      <g transform="translate(0, 60)">
+        <rect x="0" y="0" width="114" height="16" fill="#e8e8e8"/>
+        <rect x="114" y="0" width="38" height="16" fill="#cfe9d4"/><text x="133" y="12" font-size="9" text-anchor="middle">F1</text>
+        <rect x="152" y="0" width="38" height="16" fill="#cfe9d4"/><text x="171" y="12" font-size="9" text-anchor="middle">F2</text>
+        <rect x="190" y="0" width="38" height="16" fill="#cfe9d4"/><text x="209" y="12" font-size="9" text-anchor="middle">F3</text>
+        <rect x="228" y="0" width="38" height="16" fill="#cfe9d4"/><text x="247" y="12" font-size="9" text-anchor="middle">F4</text>
+        <rect x="266" y="0" width="76" height="16" fill="#e8e8e8"/>
+        <rect x="342" y="0" width="38" height="16" fill="#f7d0a6"/><text x="361" y="12" font-size="9" text-anchor="middle">B4</text>
+        <rect x="380" y="0" width="38" height="16" fill="#f7d0a6"/><text x="399" y="12" font-size="9" text-anchor="middle">B3</text>
+        <rect x="418" y="0" width="38" height="16" fill="#f7d0a6"/><text x="437" y="12" font-size="9" text-anchor="middle">B2</text>
+        <rect x="456" y="0" width="38" height="16" fill="#f7d0a6"/><text x="475" y="12" font-size="9" text-anchor="middle">B1</text>
+        <rect x="494" y="0" width="114" height="16" fill="#e8e8e8"/>
+      </g>
+    </g>
+    <text x="600" y="135" font-size="11" fill="#1a4078" font-weight="700">Bubble = 6/16 = 37.5%</text>
+  </g>
+
+  <!-- 1F1B -->
+  <g transform="translate(40, 250)">
+    <text x="0" y="0" font-size="14" font-weight="700" fill="#1f7a3a">1F1B (one-forward-one-backward), same shape, much smaller bubble</text>
+    <text x="0" y="18" font-size="11" font-style="italic" fill="#5a4a3a">After warm-up, each stage strictly alternates F and B. Steady-state has zero idle.</text>
+
+    <g transform="translate(0, 28)">
+      <text x="-4" y="22" font-size="10" font-weight="600" text-anchor="end">S0</text>
+      <text x="-4" y="42" font-size="10" font-weight="600" text-anchor="end">S1</text>
+      <text x="-4" y="62" font-size="10" font-weight="600" text-anchor="end">S2</text>
+      <text x="-4" y="82" font-size="10" font-weight="600" text-anchor="end">S3</text>
+    </g>
+
+    <g transform="translate(0, 38)">
+      <!-- 1F1B steady-state: F and B interleave once steady state reached. -->
+      <!-- We show a compact 14-slot view. Forward warmup: P-1 forwards. -->
+      <!-- Stage 0:  F1 F2 F3 F4 B1 F5 B2 F6 B3 F7 B4 B5 B6 B7 -->
+      <!-- Stage 1:  _ F1 F2 F3 B1 F4 B2 F5 B3 F6 B4 F7 B5 B6 -->
+      <!-- Stage 2:  _ _ F1 F2 B1 F3 B2 F4 B3 F5 B4 F6 B5 F7 -->
+      <!-- Stage 3:  _ _ _ F1 B1 F2 B2 F3 B3 F4 B4 F5 B5 F6 -->
+      <g transform="translate(0, 0)">
+        <!-- Stage 0 -->
+        <g transform="translate(0, 0)">
+          <rect x="0" y="0" width="38" height="16" fill="#cfe9d4"/><text x="19" y="12" font-size="9" text-anchor="middle">F1</text>
+          <rect x="38" y="0" width="38" height="16" fill="#cfe9d4"/><text x="57" y="12" font-size="9" text-anchor="middle">F2</text>
+          <rect x="76" y="0" width="38" height="16" fill="#cfe9d4"/><text x="95" y="12" font-size="9" text-anchor="middle">F3</text>
+          <rect x="114" y="0" width="38" height="16" fill="#cfe9d4"/><text x="133" y="12" font-size="9" text-anchor="middle">F4</text>
+          <rect x="152" y="0" width="38" height="16" fill="#f7d0a6"/><text x="171" y="12" font-size="9" text-anchor="middle">B1</text>
+          <rect x="190" y="0" width="38" height="16" fill="#cfe9d4"/><text x="209" y="12" font-size="9" text-anchor="middle">F5</text>
+          <rect x="228" y="0" width="38" height="16" fill="#f7d0a6"/><text x="247" y="12" font-size="9" text-anchor="middle">B2</text>
+          <rect x="266" y="0" width="38" height="16" fill="#cfe9d4"/><text x="285" y="12" font-size="9" text-anchor="middle">F6</text>
+          <rect x="304" y="0" width="38" height="16" fill="#f7d0a6"/><text x="323" y="12" font-size="9" text-anchor="middle">B3</text>
+          <rect x="342" y="0" width="38" height="16" fill="#cfe9d4"/><text x="361" y="12" font-size="9" text-anchor="middle">F7</text>
+          <rect x="380" y="0" width="38" height="16" fill="#f7d0a6"/><text x="399" y="12" font-size="9" text-anchor="middle">B4</text>
+          <rect x="418" y="0" width="38" height="16" fill="#f7d0a6"/><text x="437" y="12" font-size="9" text-anchor="middle">B5</text>
+          <rect x="456" y="0" width="38" height="16" fill="#f7d0a6"/><text x="475" y="12" font-size="9" text-anchor="middle">B6</text>
+          <rect x="494" y="0" width="38" height="16" fill="#f7d0a6"/><text x="513" y="12" font-size="9" text-anchor="middle">B7</text>
+        </g>
+        <!-- Stage 1 -->
+        <g transform="translate(0, 20)">
+          <rect x="0" y="0" width="38" height="16" fill="#e8e8e8"/>
+          <rect x="38" y="0" width="38" height="16" fill="#cfe9d4"/><text x="57" y="12" font-size="9" text-anchor="middle">F1</text>
+          <rect x="76" y="0" width="38" height="16" fill="#cfe9d4"/><text x="95" y="12" font-size="9" text-anchor="middle">F2</text>
+          <rect x="114" y="0" width="38" height="16" fill="#cfe9d4"/><text x="133" y="12" font-size="9" text-anchor="middle">F3</text>
+          <rect x="152" y="0" width="38" height="16" fill="#f7d0a6"/><text x="171" y="12" font-size="9" text-anchor="middle">B1</text>
+          <rect x="190" y="0" width="38" height="16" fill="#cfe9d4"/><text x="209" y="12" font-size="9" text-anchor="middle">F4</text>
+          <rect x="228" y="0" width="38" height="16" fill="#f7d0a6"/><text x="247" y="12" font-size="9" text-anchor="middle">B2</text>
+          <rect x="266" y="0" width="38" height="16" fill="#cfe9d4"/><text x="285" y="12" font-size="9" text-anchor="middle">F5</text>
+          <rect x="304" y="0" width="38" height="16" fill="#f7d0a6"/><text x="323" y="12" font-size="9" text-anchor="middle">B3</text>
+          <rect x="342" y="0" width="38" height="16" fill="#cfe9d4"/><text x="361" y="12" font-size="9" text-anchor="middle">F6</text>
+          <rect x="380" y="0" width="38" height="16" fill="#f7d0a6"/><text x="399" y="12" font-size="9" text-anchor="middle">B4</text>
+          <rect x="418" y="0" width="38" height="16" fill="#cfe9d4"/><text x="437" y="12" font-size="9" text-anchor="middle">F7</text>
+          <rect x="456" y="0" width="38" height="16" fill="#f7d0a6"/><text x="475" y="12" font-size="9" text-anchor="middle">B5</text>
+          <rect x="494" y="0" width="38" height="16" fill="#f7d0a6"/><text x="513" y="12" font-size="9" text-anchor="middle">B6</text>
+        </g>
+        <!-- Stage 2 -->
+        <g transform="translate(0, 40)">
+          <rect x="0" y="0" width="76" height="16" fill="#e8e8e8"/>
+          <rect x="76" y="0" width="38" height="16" fill="#cfe9d4"/><text x="95" y="12" font-size="9" text-anchor="middle">F1</text>
+          <rect x="114" y="0" width="38" height="16" fill="#cfe9d4"/><text x="133" y="12" font-size="9" text-anchor="middle">F2</text>
+          <rect x="152" y="0" width="38" height="16" fill="#f7d0a6"/><text x="171" y="12" font-size="9" text-anchor="middle">B1</text>
+          <rect x="190" y="0" width="38" height="16" fill="#cfe9d4"/><text x="209" y="12" font-size="9" text-anchor="middle">F3</text>
+          <rect x="228" y="0" width="38" height="16" fill="#f7d0a6"/><text x="247" y="12" font-size="9" text-anchor="middle">B2</text>
+          <rect x="266" y="0" width="38" height="16" fill="#cfe9d4"/><text x="285" y="12" font-size="9" text-anchor="middle">F4</text>
+          <rect x="304" y="0" width="38" height="16" fill="#f7d0a6"/><text x="323" y="12" font-size="9" text-anchor="middle">B3</text>
+          <rect x="342" y="0" width="38" height="16" fill="#cfe9d4"/><text x="361" y="12" font-size="9" text-anchor="middle">F5</text>
+          <rect x="380" y="0" width="38" height="16" fill="#f7d0a6"/><text x="399" y="12" font-size="9" text-anchor="middle">B4</text>
+          <rect x="418" y="0" width="38" height="16" fill="#cfe9d4"/><text x="437" y="12" font-size="9" text-anchor="middle">F6</text>
+          <rect x="456" y="0" width="38" height="16" fill="#f7d0a6"/><text x="475" y="12" font-size="9" text-anchor="middle">B5</text>
+          <rect x="494" y="0" width="38" height="16" fill="#cfe9d4"/><text x="513" y="12" font-size="9" text-anchor="middle">F7</text>
+        </g>
+        <!-- Stage 3 -->
+        <g transform="translate(0, 60)">
+          <rect x="0" y="0" width="114" height="16" fill="#e8e8e8"/>
+          <rect x="114" y="0" width="38" height="16" fill="#cfe9d4"/><text x="133" y="12" font-size="9" text-anchor="middle">F1</text>
+          <rect x="152" y="0" width="38" height="16" fill="#f7d0a6"/><text x="171" y="12" font-size="9" text-anchor="middle">B1</text>
+          <rect x="190" y="0" width="38" height="16" fill="#cfe9d4"/><text x="209" y="12" font-size="9" text-anchor="middle">F2</text>
+          <rect x="228" y="0" width="38" height="16" fill="#f7d0a6"/><text x="247" y="12" font-size="9" text-anchor="middle">B2</text>
+          <rect x="266" y="0" width="38" height="16" fill="#cfe9d4"/><text x="285" y="12" font-size="9" text-anchor="middle">F3</text>
+          <rect x="304" y="0" width="38" height="16" fill="#f7d0a6"/><text x="323" y="12" font-size="9" text-anchor="middle">B3</text>
+          <rect x="342" y="0" width="38" height="16" fill="#cfe9d4"/><text x="361" y="12" font-size="9" text-anchor="middle">F4</text>
+          <rect x="380" y="0" width="38" height="16" fill="#f7d0a6"/><text x="399" y="12" font-size="9" text-anchor="middle">B4</text>
+          <rect x="418" y="0" width="38" height="16" fill="#cfe9d4"/><text x="437" y="12" font-size="9" text-anchor="middle">F5</text>
+          <rect x="456" y="0" width="38" height="16" fill="#f7d0a6"/><text x="475" y="12" font-size="9" text-anchor="middle">B5</text>
+          <rect x="494" y="0" width="38" height="16" fill="#cfe9d4"/><text x="513" y="12" font-size="9" text-anchor="middle">F6</text>
+        </g>
+      </g>
+    </g>
+    <text x="600" y="135" font-size="11" fill="#1f7a3a" font-weight="700">Bubble = 3/14 = 21%</text>
+    <text x="600" y="150" font-size="10" fill="#5a4a3a" font-style="italic">(also halves activation memory)</text>
+  </g>
+</svg>
+<figcaption><strong>Figure 59.4.1</strong>: GPipe (top, $M=4$ micro-batches) vs 1F1B (bottom, $M=7$), both for $P=4$ stages. GPipe is simpler but pays a $\approx (P-1)/M$ bubble penalty (37.5% of the timeline here). 1F1B interleaves forwards and backwards once warm-up completes; the bubble fraction follows the same formula, but the peak activation memory is roughly halved because backward consumes activations as soon as they are produced.</figcaption>
+</figure>
+
+<h3 id="59-4-2-1-the-bubble-formula">59.4.2.1 The Bubble Formula</h3>
+<p>With $P$ pipeline stages and $M$ micro-batches per global mini-batch, GPipe's bubble fraction is:</p>
+
+<div class="math-block">$$\text{bubble}_{\text{GPipe}} = \frac{P - 1}{M}$$</div>
+
+<p>The interpretation: it takes $P-1$ time-slots for the pipeline to fill at the start of the forward, and another $P-1$ for the backward; while only $M$ slots are productive on each stage. The bubble shrinks as $M$ grows, but increasing $M$ shrinks each micro-batch (assuming a fixed global batch), which hurts GPU utilization within each kernel.</p>
+
+<p>For $P=8$ and a typical $M=64$, the bubble is $7/64 \approx 11\%$. For frontier training where $P$ might be 16 or 32 and $M$ is constrained by memory, the bubble can easily reach 20-30%.</p>
+
+<h2 id="59-4-3-1f1b-one-forward-one-backward">59.4.3 1F1B: One Forward, One Backward</h2>
+<p>Narayanan et al. (PipeDream, SOSP'19) introduced the 1F1B schedule. After an initial warm-up phase of $P-1$ forwards, each stage strictly alternates one forward (of micro-batch $t$) with one backward (of micro-batch $t-P+1$). Once steady state is reached, every stage is busy on every time step.</p>
+
+<p>The total wall-clock for one mini-batch is the same as GPipe at the same $(P, M)$, but 1F1B's <strong>peak activation memory</strong> is dramatically lower. Under GPipe, all $M$ forwards complete before any backward starts, so $M$ activations stack up on each stage; under 1F1B, the first backward starts as soon as the first forward reaches the last stage, freeing activations on each stage as it goes. Peak activations per stage is bounded by $P$, not $M$.</p>
+
+<p>This is the production default: every Megatron-LM, NeMo, and DeepSpeed-Megatron training run since 2020 uses 1F1B (or a refinement of it). The PipeDream paper's full title, "PipeDream: Generalized Pipeline Parallelism for DNN Training," is still the foundational reference.</p>
+
+<h2 id="59-4-4-interleaved-pipeline-virtual-stages">59.4.4 Interleaved Pipeline: Virtual Stages</h2>
+<p>The 1F1B bubble can be shrunk further. Megatron-LM's <strong>interleaved 1F1B</strong> (also called <em>virtual pipeline parallelism</em>) divides the layers on each physical GPU into $v$ <strong>virtual stages</strong>, interleaved on the same device. With $v=2$, GPU 0 holds the first $L/(2P)$ layers and the $(P/2+1)$-th block of $L/(2P)$ layers, GPU 1 holds the second and $(P/2+2)$-th, etc.</p>
+
+<p>The bubble fraction becomes:</p>
+
+<div class="math-block">$$\text{bubble}_{\text{interleaved}} = \frac{1}{v} \cdot \frac{P - 1}{M}$$</div>
+
+<p>For $v=4, P=8, M=64$: bubble $= \frac{1}{4} \cdot \frac{7}{64} \approx 2.7\%$. The price is that each "stage" is now finer-grained, so more inter-GPU sends per micro-batch. On NVLink within a node these are essentially free; over InfiniBand they start to bite. The interleaved schedule was used for Megatron-Turing 530B (Smith et al., 2022) and is the default in NVIDIA's Megatron-Core today.</p>
+
+<h2 id="59-4-5-zero-bubble-pipeline">59.4.5 Zero-Bubble Pipeline</h2>
+<p>The latest refinement (Qi et al., 2023) <em>splits the backward pass into two halves</em>: the activation-gradient computation $\nabla A$ and the weight-gradient accumulation $\nabla W$. The crucial observation is that $\nabla W$ only needs to complete <em>by the end of the step</em>, not immediately after $\nabla A$. By scheduling $\nabla W$ into the bubbles in the pipeline, the schedule reaches near-zero bubble in steady state.</p>
+
+<p>This is more complex to implement (requires careful tracking of weight-update dependencies and a custom autograd path), but at the scale where you would do interleaved 1F1B, the throughput win is another 2-5%. DeepSeek-V3 (December 2024) was the first publicly disclosed 671B-scale run to use zero-bubble pipeline; Llama-4 and successive Megatron releases have followed.</p>
+
+<div class="callout key-insight">
+<div class="callout-title">Key Insight: The bubble pays for memory savings</div>
+<p>Pipeline parallelism's bubble is the price of <em>not</em> doing an FSDP-style parameter gather every layer. Instead of $P$ parallel data replicas each issuing $O(\text{model size})$ communication per step, pipeline parallelism partitions the model along its depth and sends only activations ($O(\text{batch} \cdot \text{seq} \cdot \text{hidden})$) between stages. At 70B-scale, the activation traffic is 100-1000$\times$ smaller than the FSDP gather traffic. The bubble is the latency overhead that wraps that bandwidth saving, and shrinks as you increase the number of micro-batches.</p>
+</div>
+
+<h2 id="59-4-6-3d-parallelism-the-modern-recipe">59.4.6 3D Parallelism: The Modern Recipe</h2>
+<p>Frontier training combines all three axes. The standard layout uses a 3D grid of $N_{\text{total}} = TP \cdot PP \cdot DP$ GPUs:</p>
+
+<figure class="diagram">
+<svg aria-label="Three-dimensional parallelism layout showing how 1024 GPUs are partitioned: tensor parallel within an NVLink node, pipeline parallel across nodes in a pod over InfiniBand, and data parallel across pods over the spine fabric" role="img" style="font-family: 'Segoe UI', sans-serif; max-width: 100%; height: auto;" viewBox="0 0 900 380" xmlns="http://www.w3.org/2000/svg">
+  <rect width="900" height="380" fill="#ffffff" x="0" y="0"/>
+  <text x="450" y="30" font-size="12" font-style="italic" text-anchor="middle" fill="#5a4a3a">Example: 1024 GPUs = TP(8) &#215; PP(8) &#215; DP(16)</text>
+
+  <!-- TP within node -->
+  <g transform="translate(60, 82)">
+    <rect x="0" y="8" width="240" height="160" rx="6" fill="#fef3e0" stroke="#a67c1a" stroke-width="2"/>
+    <text x="120" y="22" font-size="14" font-weight="700" text-anchor="middle" fill="#a67c1a">TP within node</text>
+    <text x="120" y="40" font-size="11" font-style="italic" text-anchor="middle" fill="#5a4a3a">NVLink only</text>
+    <g transform="translate(20, 60)">
+      <rect x="0" y="0" width="24" height="24" rx="2" fill="#ffffff" stroke="#a67c1a"/>
+      <rect x="28" y="0" width="24" height="24" rx="2" fill="#ffffff" stroke="#a67c1a"/>
+      <rect x="56" y="0" width="24" height="24" rx="2" fill="#ffffff" stroke="#a67c1a"/>
+      <rect x="84" y="0" width="24" height="24" rx="2" fill="#ffffff" stroke="#a67c1a"/>
+      <rect x="112" y="0" width="24" height="24" rx="2" fill="#ffffff" stroke="#a67c1a"/>
+      <rect x="140" y="0" width="24" height="24" rx="2" fill="#ffffff" stroke="#a67c1a"/>
+      <rect x="168" y="0" width="24" height="24" rx="2" fill="#ffffff" stroke="#a67c1a"/>
+      <rect x="196" y="0" width="24" height="24" rx="2" fill="#ffffff" stroke="#a67c1a"/>
+    </g>
+    <text x="120" y="115" font-size="11" font-weight="600" text-anchor="middle" fill="#a67c1a">8 GPUs share one layer</text>
+    <text x="120" y="135" font-size="10" font-style="italic" text-anchor="middle" fill="#5a4a3a">All-reduce per layer = cheap</text>
+  </g>
+
+  <!-- PP across nodes in pod -->
+  <g transform="translate(330, 82)">
+    <rect x="0" y="8" width="240" height="160" rx="6" fill="#ecf6ee" stroke="#1f7a3a" stroke-width="2"/>
+    <text x="120" y="22" font-size="14" font-weight="700" text-anchor="middle" fill="#1f7a3a">PP across pod</text>
+    <text x="120" y="40" font-size="11" font-style="italic" text-anchor="middle" fill="#5a4a3a">IB within pod</text>
+    <g transform="translate(50, 60)">
+      <rect x="0" y="0" width="38" height="14" fill="#ffffff" stroke="#1f7a3a"/>
+      <rect x="0" y="14" width="38" height="14" fill="#ffffff" stroke="#1f7a3a"/>
+      <rect x="0" y="28" width="38" height="14" fill="#ffffff" stroke="#1f7a3a"/>
+      <rect x="0" y="42" width="38" height="14" fill="#ffffff" stroke="#1f7a3a"/>
+      <rect x="42" y="0" width="38" height="14" fill="#ffffff" stroke="#1f7a3a"/>
+      <rect x="42" y="14" width="38" height="14" fill="#ffffff" stroke="#1f7a3a"/>
+      <rect x="42" y="28" width="38" height="14" fill="#ffffff" stroke="#1f7a3a"/>
+      <rect x="42" y="42" width="38" height="14" fill="#ffffff" stroke="#1f7a3a"/>
+      <text x="40" y="74" font-size="9" text-anchor="middle">Stage 0</text>
+      <text x="40" y="86" font-size="9" text-anchor="middle">Stage 1</text>
+    </g>
+    <text x="120" y="115" font-size="11" font-weight="600" text-anchor="middle" fill="#1f7a3a">8 stages of layer groups</text>
+    <text x="120" y="135" font-size="10" font-style="italic" text-anchor="middle" fill="#5a4a3a">Only activations cross IB</text>
+  </g>
+
+  <!-- DP across pods -->
+  <g transform="translate(600, 82)">
+    <rect x="0" y="8" width="240" height="160" rx="6" fill="#eef4fa" stroke="#1a4078" stroke-width="2"/>
+    <text x="120" y="22" font-size="14" font-weight="700" text-anchor="middle" fill="#1a4078">DP across pods</text>
+    <text x="120" y="40" font-size="11" font-style="italic" text-anchor="middle" fill="#5a4a3a">Spine fabric (oversubscribed)</text>
+    <g transform="translate(30, 60)">
+      <rect x="0" y="0" width="40" height="40" rx="3" fill="#ffffff" stroke="#1a4078"/><text x="20" y="24" font-size="10" text-anchor="middle">Pod 0</text>
+      <rect x="44" y="0" width="40" height="40" rx="3" fill="#ffffff" stroke="#1a4078"/><text x="64" y="24" font-size="10" text-anchor="middle">Pod 1</text>
+      <rect x="88" y="0" width="40" height="40" rx="3" fill="#ffffff" stroke="#1a4078"/><text x="108" y="24" font-size="10" text-anchor="middle">...</text>
+      <rect x="132" y="0" width="48" height="40" rx="3" fill="#ffffff" stroke="#1a4078"/><text x="156" y="24" font-size="10" text-anchor="middle">Pod 15</text>
+    </g>
+    <text x="120" y="115" font-size="11" font-weight="600" text-anchor="middle" fill="#1a4078">16 replicas of full model</text>
+    <text x="120" y="135" font-size="10" font-style="italic" text-anchor="middle" fill="#5a4a3a">All-reduce gradients once/step</text>
+  </g>
+
+</svg>
+<figcaption><strong>Figure 59.4.2</strong>: 3D parallelism. The fastest interconnect (NVLink) hosts tensor parallel; the next-fastest (InfiniBand within a pod) hosts pipeline parallel; the slowest (cross-pod spine) hosts data parallel, where the per-step communication is bounded. Rule of thumb (2026): scale TP up to the NVLink fanout (typically 8) and PP up to layers / 4 (each stage holds at least 4 layers). DP picks up the slack as DP = total_GPUs / (TP * PP). If per-rank state still does not fit, add FSDP within each DP replica.</figcaption>
+</figure>
+
+<h3 id="59-4-6-1-picking-the-dimensions">59.4.6.1 Picking the Dimensions</h3>
+<p>For a model with $L$ layers, $H$ attention heads, hidden dim $d$, on a cluster of $N$ GPUs:</p>
+
+<ol>
+<li><strong>$TP$</strong>: start at $TP = 8$ (NVLink fanout). Reduce only if $H$ or $d$ are not divisible by 8.</li>
+<li><strong>$PP$</strong>: pick the smallest $PP$ that lets the per-stage memory fit, which is $\lceil M_{\text{model}} / (TP \cdot M_{\text{GPU}}) \rceil$ where $M_{\text{model}}$ is the model state, $M_{\text{GPU}}$ is available per-GPU memory after accounting for activations.</li>
+<li><strong>$DP$</strong>: $DP = N / (TP \cdot PP)$. The global batch size is $DP \cdot (\text{micro-batch} \cdot M)$.</li>
+</ol>
+
+<p>For a 405B model with $N=2048$ H100s:</p>
+<ul>
+<li>$TP = 8$ (NVLink within node).</li>
+<li>Model is $\approx 810$ GB of state per replica. Each TP rank holds $810 / 8 = 101$ GB, which does not fit on 80 GB. Pick $PP = 16$ so each stage holds $810 / (8 \cdot 16) \approx 6$ GB of parameters per rank, plus a similar amount of optimizer state with FSDP-1 inside the DP group.</li>
+<li>$DP = 2048 / (8 \cdot 16) = 16$ data-parallel replicas.</li>
+</ul>
+
+<p>Global batch size at micro-batch 1 and $M = 64$ micro-batches per step is $DP \cdot M = 1024$ sequences. At $L = 8192$ tokens per sequence, that is 8.4M tokens per step. Llama-3 405B's actual training plan used roughly this layout (with slight variations across pod boundaries).</p>
+
+<h2 id="59-4-7-breadth-first-and-other-emerging-schedules">59.4.7 Breadth-First and Other Emerging Schedules</h2>
+<p>Two more recent developments:</p>
+
+<ul>
+<li><strong>Breadth-first pipeline</strong> (Lamy-Poirier, 2023): all stages run forward on micro-batch $t$ before any starts forward on micro-batch $t+1$, but backwards interleave 1F1B-style. This gives slightly better memory utilization at the cost of a marginally larger bubble; useful for activation-heavy long-context training.</li>
+<li><strong>Chimera</strong> (Li & Hoefler, SC'21): runs two pipelines in opposite directions on the same GPUs (each GPU is part of two virtual stages). Halves the bubble at the cost of doubling activation memory; the right trade for very deep models.</li>
+</ul>
+
+<p>The pipeline-parallel literature is unusually rich; the basic 1F1B is enough for most teams, but custom schedules (zero-bubble, breadth-first) provide single-digit percentage improvements that matter at frontier scale.</p>
+
+<div class="callout practical-example">
+<div class="callout-title">Real-World Scenario: BLOOM 176B's 3D layout</div>
+<p>BLOOM 176B (BigScience, 2022) trained on 384 A100 80GB GPUs with $TP=4$ (limited because Jean Zay's NVLink had only 4-GPU fanout), $PP=12$ (each stage held 7 of the 70 transformer layers), and $DP=8$. The global batch was 2048 sequences of 2048 tokens each. The bubble was visible (about 8% with $M=24$) but tolerable because TP=4 instead of 8 left more room in the all-reduce schedule. The Llama-3 generation has standardized on $TP=8$, $PP=8$-16, $DP$ = whatever fills the cluster; this is now the default. The OPT-175B retrospective (Zhang et al., 2022) documents the training instabilities BLOOM partly inherited from the same 3D configuration.</p>
+</div>
+
+<h2 id="59-4-8-when-pipeline-parallelism-hurts">59.4.8 When Pipeline Parallelism Hurts</h2>
+<p>Pipeline parallelism has failure modes that FSDP and TP do not:</p>
+
+<ul>
+<li><strong>Imbalanced stages</strong>. If the first or last stage has more work (embedding lookup, output head), the schedule's <em>slowest</em> stage sets the pace. Megatron's "balance" parameter lets you assign different layer counts per stage to compensate.</li>
+<li><strong>Load imbalance across micro-batches</strong>. Variable sequence lengths within a global batch create stragglers within each stage. Bucketing the data by length (and pipelining each bucket separately) mitigates this; the "no padding" approach in long-context training amplifies the problem.</li>
+<li><strong>The send/recv pattern is sequential</strong>. Activation passes between stages are point-to-point, and a single slow link breaks the entire pipeline. NCCL's <code>send</code>/<code>recv</code> primitives are simpler than collectives but have less aggressive overlap; production code uses Megatron's batched <code>SendBackward</code> / <code>SendForward</code> helpers.</li>
+</ul>
+
+<div class="callout warning">
+<div class="callout-title">Warning: Pipeline parallelism breaks BF16 reduction semantics</div>
+<p>Vanilla DDP / FSDP gradient reduction averages BF16 gradients in BF16. Pipeline parallelism keeps the FP32 master weights on the stage that owns them and only sends FP16/BF16 activations, but the gradient on each stage's parameters is local and never reduced across stages (pipeline ranks own disjoint parameters). This is fine, except: <em>gradient clipping</em>, which traditionally normalizes by the global gradient norm, now requires an explicit all-reduce of $\| g \|^2$ across pipeline stages. Forgetting this is a classic "loss looks fine for 5000 steps then diverges" bug. The fix is in all production frameworks but is easy to miss in custom code.</p>
+</div>
+
+<h2 id="59-4-9-pipeline-parallel-and-expert-routing">59.4.9 Pipeline Parallel and Expert Routing in MoE Models</h2>
+<p>Mixture-of-Expert models add a fourth axis: <strong>expert parallelism</strong>, where each rank holds a subset of the experts and tokens are routed to the rank that owns the chosen expert. The routing is implemented as an <code>all_to_all</code> collective: each rank sends its tokens to the right destination and receives tokens routed to its experts.</p>
+
+<p>Pipeline parallelism composes with expert parallelism in a slightly awkward way: the MoE layer is the bottleneck because all-to-all is expensive, so you want it concentrated in as few pipeline stages as possible. The GLaM (Du et al., 2022), Mixtral (Jiang et al., 2024), and DeepSeek-V3 (Liu et al., 2024) post-mortems all converge on the same recipe: interleave MoE layers with dense layers (typically every 2nd or 4th layer is MoE), pin each MoE layer to a single pipeline stage that owns all its experts, and use TP within the dense layers. The cross-rank all-to-all happens only at the MoE boundaries, not at every layer.</p>
+
+<h2 id="59-4-10-context-parallelism-for-long-sequences">59.4.10 Context Parallelism for Long Sequences</h2>
+<p>For 100k+ context training, the activations along the sequence dimension become the bottleneck even with sequence parallelism. <strong>Context parallelism</strong> (also called sequence parallelism, distinguished from the Megatron sequence-parallel of Section 59.3) shards the <em>sequence dimension itself</em> across a new group of ranks. Each rank holds 1/C of the sequence and runs attention on its slice; the attention computation requires a ring-style exchange of keys and values around the context-parallel ring (Liu et al., FlashAttention-2, 2023).</p>
+
+<p>The technique was scaled to a million-token context window in Gemini 1.5 (Google, 2024) and at the open level in NeMo's long-context training recipes. Context parallelism composes orthogonally with TP/PP/DP: it is a fifth axis. The communication cost is the all-to-all of K and V, which is $\mathcal{O}(L \cdot d)$ per layer; for 1M context this is in the hundreds of MB per layer, so context parallelism only works at the bandwidth tier where NVLink stops and InfiniBand begins, comparable to where tensor parallelism is viable.</p>
+
+<div class="callout library-shortcut">
+<div class="callout-title">Library Shortcut: <code>torch.distributed.pipelining</code> for GPipe and 1F1B without Megatron</div>
+<p>The schedules above (GPipe, 1F1B, interleaved 1F1B) have lived in framework-specific implementations for years; PyTorch 2.4+ ships the official <strong><code>torch.distributed.pipelining</code></strong> API that turns any <code>nn.Module</code> into a pipeline-parallel run with a stage definition plus a choice of <code>Schedule</code>. Prefer the native API when the model is plain PyTorch and you want to avoid taking a Megatron-Core dependency for pipelining alone; DeepSpeed's <code>PipelineModule</code> remains the alternative when you are already on DeepSpeed.</p>
+<details class="code-collapsible"><summary>Show code</summary><div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span><span class="o">,</span><span class="w"> </span><span class="nn">torch.distributed</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">dist</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torch.distributed.pipelining</span><span class="w"> </span><span class="kn">import</span> <span class="n">PipelineStage</span><span class="p">,</span> <span class="n">ScheduleGPipe</span><span class="p">,</span> <span class="n">Schedule1F1B</span>
+
+<span class="n">dist</span><span class="o">.</span><span class="n">init_process_group</span><span class="p">(</span><span class="n">backend</span><span class="o">=</span><span class="s2">&quot;nccl&quot;</span><span class="p">)</span>
+<span class="n">rank</span><span class="p">,</span> <span class="n">world</span> <span class="o">=</span> <span class="n">dist</span><span class="o">.</span><span class="n">get_rank</span><span class="p">(),</span> <span class="n">dist</span><span class="o">.</span><span class="n">get_world_size</span><span class="p">()</span>
+
+<span class="c1"># Each rank owns a SequentialChunk of the model.</span>
+<span class="n">stage_module</span> <span class="o">=</span> <span class="n">model_chunks</span><span class="p">[</span><span class="n">rank</span><span class="p">]</span>            <span class="c1"># e.g. layers[rank*N//world : (rank+1)*N//world]</span>
+<span class="n">stage</span> <span class="o">=</span> <span class="n">PipelineStage</span><span class="p">(</span><span class="n">stage_module</span><span class="p">,</span> <span class="n">stage_index</span><span class="o">=</span><span class="n">rank</span><span class="p">,</span> <span class="n">num_stages</span><span class="o">=</span><span class="n">world</span><span class="p">,</span>
+                      <span class="n">device</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">(</span><span class="s2">&quot;cuda&quot;</span><span class="p">,</span> <span class="n">rank</span><span class="p">))</span>
+
+<span class="c1"># Pick a schedule; same call site for GPipe or 1F1B.</span>
+<span class="n">schedule</span> <span class="o">=</span> <span class="n">Schedule1F1B</span><span class="p">(</span><span class="n">stage</span><span class="p">,</span> <span class="n">n_microbatches</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">loss_fn</span><span class="o">=</span><span class="n">loss_fn</span><span class="p">)</span>
+
+<span class="k">for</span> <span class="n">inputs</span><span class="p">,</span> <span class="n">labels</span> <span class="ow">in</span> <span class="n">loader</span><span class="p">:</span>
+    <span class="k">if</span> <span class="n">rank</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>        <span class="n">schedule</span><span class="o">.</span><span class="n">step</span><span class="p">(</span><span class="n">inputs</span><span class="p">)</span>
+    <span class="k">elif</span> <span class="n">rank</span> <span class="o">==</span> <span class="n">world</span><span class="o">-</span><span class="mi">1</span><span class="p">:</span> <span class="n">losses</span> <span class="o">=</span> <span class="p">[];</span> <span class="n">schedule</span><span class="o">.</span><span class="n">step</span><span class="p">(</span><span class="n">target</span><span class="o">=</span><span class="n">labels</span><span class="p">,</span> <span class="n">losses</span><span class="o">=</span><span class="n">losses</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>                 <span class="n">schedule</span><span class="o">.</span><span class="n">step</span><span class="p">()</span></code></pre>
+<div class="code-caption"><strong>Code Fragment 59.4.10.1:</strong> A GPipe-or-1F1B pipeline-parallel loop using only the official PyTorch API.</div>
+</div></details>
+</div>
+
+<div class="callout looking-back" id="59-4-11-summary">
+<div class="callout-title">Looking Back: Summary</div>
+<p>Pipeline parallelism partitions the model along its depth and pipelines micro-batches through stages, paying a bubble penalty for the privilege of not gathering parameters every layer. GPipe is the dead-simple schedule; 1F1B halves the activation memory at the same throughput; interleaved 1F1B and zero-bubble pipeline shrink the bubble to a few percent. In practice, all three axes (TP, PP, DP) compose: TP inside a node, PP within a pod, DP across pods, with FSDP layered into the DP axis when state still does not fit. The rule of thumb for 2026 frontier training: max out TP at NVLink fanout, pick PP to fit per-stage memory, fill the cluster with DP. Section 59.5 takes us out of the algorithms and into the operational reality of running this for 30 days straight without losing a week to a single failed checkpoint.</p>
+</div>
+
+<div class="callout whats-next">
+<div class="callout-title">What's Next</div>
+<p>Algorithms get you a parallelism plan; running that plan reliably at scale needs production-grade infrastructure. Continue to <a href="section-59.5.html">Section 59.5: Production Training Infrastructure</a>.</p>
+</div>
+<details class="bibliography-collapsible">
+<summary><strong>Further Reading</strong></summary>
+<section class="bibliography">
+<div class="bib-entry-card">
+<div class="bib-ref">Huang, Y. et al. <em>"GPipe: Efficient Training of Giant Neural Networks using Pipeline Parallelism."</em> NeurIPS (2019). The foundational pipeline-parallel paper.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Narayanan, D. et al. <em>"PipeDream: Generalized Pipeline Parallelism for DNN Training."</em> SOSP (2019). The 1F1B schedule.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Narayanan, D. et al. <em>"Efficient Large-Scale Language Model Training on GPU Clusters Using Megatron-LM."</em> SC '21. Interleaved 1F1B and 3D parallelism.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Qi, P., Wan, X., Huang, G., Lin, M. <em>"Zero Bubble Pipeline Parallelism."</em> ICLR (2024). Splitting backward into &nabla;A and &nabla;W.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Smith, S. et al. <em>"Using DeepSpeed and Megatron to Train Megatron-Turing NLG 530B."</em> arXiv:2201.11990 (2022). Production 3D parallelism at 530B.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Li, S., Hoefler, T. <em>"Chimera: efficiently training large-scale neural networks with bidirectional pipelines."</em> SC '21.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Lamy-Poirier, J. <em>"Breadth-First Pipeline Parallelism."</em> MLSys (2023).</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Zhang, S. et al. <em>"OPT: Open Pretrained Transformer Language Models."</em> arXiv:2205.01068 (2022). 175B-scale 3D parallelism retrospective.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Le Scao, T. et al. <em>"BLOOM: A 176B-Parameter Open-Access Multilingual Language Model."</em> arXiv:2211.05100 (2022). BLOOM's 3D layout on Jean Zay.</div>
+</div>
+</section>
+</details>
+<nav class="chapter-nav">
+<a class="prev" href="section-59.3.html"><span class="nav-label">Previous</span><span class="nav-num">Section 59.3</span><span class="nav-title">Megatron-LM and Tensor Parallelism</span></a>
+<a class="up" href="index.html"><span class="nav-label">In Chapter</span><span class="nav-num">Chapter 59</span><span class="nav-title">Distributed Training Systems</span></a>
+<a class="next" href="section-59.5.html"><span class="nav-label">Next</span><span class="nav-num">Section 59.5</span><span class="nav-title">Production Training Infrastructure</span></a>
+</nav>
+<footer><p>Fifteenth Edition, 2026 &middot; <a href="../../toc.html">Contents</a></p></footer>
+</main>
+</body>
+</html>

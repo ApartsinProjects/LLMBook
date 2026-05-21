@@ -38,12 +38,21 @@ def estimate_text_width(content, font_size, is_bold):
     return w
 
 
+G_OPEN_RE = re.compile(r'<g\b([^>]*)>', re.IGNORECASE)
+G_CLOSE_RE = re.compile(r'</g>', re.IGNORECASE)
+
+
 def run(filepath, html, context):
     issues = []
     lines = html.split("\n")
 
     current_vb_width = None
     svg_start_line = 0
+    # Stack of text-anchor values from ancestor <g> elements. SVG inherits
+    # presentation attributes through the group hierarchy; the audit must
+    # match that or it generates false positives where a <text> without
+    # an explicit text-anchor is rendered as "middle" via its <g> parent.
+    g_anchor_stack: list[str] = []
 
     for i, line in enumerate(lines, 1):
         # Track SVG open/close
@@ -56,22 +65,40 @@ def run(filepath, html, context):
                 except ValueError:
                     current_vb_width = None
             svg_start_line = i
+            g_anchor_stack = []
 
         if SVG_CLOSE.search(line):
             current_vb_width = None
+            g_anchor_stack = []
             continue
 
         if current_vb_width is None:
             continue
+
+        # Track <g> push/pop with inherited text-anchor. A <g> with an
+        # explicit text-anchor attribute pushes that value; a <g> without
+        # inherits whatever its parent had.
+        for gm in G_OPEN_RE.finditer(line):
+            ga_m = ATTR_ANCHOR.search(gm.group(1))
+            inherited = g_anchor_stack[-1] if g_anchor_stack else "start"
+            g_anchor_stack.append(ga_m.group(1) if ga_m else inherited)
+        for _ in G_CLOSE_RE.finditer(line):
+            if g_anchor_stack:
+                g_anchor_stack.pop()
 
         # Find text elements on this line
         for m in TEXT_EL.finditer(line):
             attrs = m.group(1)
             content = m.group(2)
 
-            # Get text-anchor
+            # Get text-anchor (own attr, else inherited from <g> stack)
             anchor_m = ATTR_ANCHOR.search(attrs)
-            anchor = anchor_m.group(1) if anchor_m else "start"
+            if anchor_m:
+                anchor = anchor_m.group(1)
+            elif g_anchor_stack:
+                anchor = g_anchor_stack[-1]
+            else:
+                anchor = "start"
 
             # Only check start-anchored text (flows rightward)
             if anchor != "start":

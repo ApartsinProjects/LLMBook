@@ -38,10 +38,13 @@ SECTION_CHECKS = {
     "any_callout": re.compile(r'class="callout '),
 }
 
-# Module-level checks (aggregated across all sections)
+# Module-level checks (aggregated across all sections).
+# whats-next has two valid forms: <div class="whats-next"> (legacy block)
+# and <div class="callout whats-next"> (callout form). Both render the
+# "What's Next" section; the check accepts either.
 MODULE_REQUIRED = {
     "bibliography": re.compile(r'class="bibliography|class="references|Annotated Bibliography|Further Reading', re.I),
-    "whats_next": re.compile(r'class="whats-next"'),
+    "whats_next": re.compile(r'class="(?:callout\s+)?whats-next"'),
     "big_picture": re.compile(r'class="callout big-picture"'),
 }
 
@@ -103,24 +106,48 @@ def run(filepath, html, context):
                     break
             issues.append(Issue(PRIORITY, CHECK_ID, filepath, line, msg))
 
-    # --- key-takeaway check (should be key-insight) ---
-    if 'class="callout key-takeaway"' in html:
-        issues.append(Issue(PRIORITY, CHECK_ID, filepath, 0,
-                            "Uses key-takeaway callout (consolidate to key-insight)"))
+    # key-takeaway is a canonical callout type (has its own ::before icon in
+    # book.css). It was historically called out as "consolidate to key-insight"
+    # but the design later split them: key-insight is for one-sentence
+    # observations within a section; key-takeaway is for a bulleted summary
+    # box at the end. Both are valid. No issue.
 
     # --- Nesting check (all files) ---
     issues.extend(_check_nesting(html, filepath))
 
     # --- Section-level checks ---
     if is_section:
-        if not SECTION_CHECKS["epigraph"].search(html):
+        # Tools-of-the-trade and appendix sections are reference-style: they
+        # catalog libraries/tools/math/glossary rather than build a narrative.
+        # An epigraph (a literary opening quote) is editorially out-of-place
+        # in those, so we skip the epigraph requirement for them.
+        rel_lower = rel.lower().replace('\\', '/')
+        # Match any "-tools-of-the-trade/" / "-scale-tools/" /
+        # "-retrieval-tools/" / "-conv-ai-tools/" / "-responsible-ai-tools/"
+        # module dir (number-agnostic, survives book renumbers).
+        is_reference_section = (
+            bool(re.search(r'/module-\d+[ab]?-tools-of-the-trade/', rel_lower))
+            or bool(re.search(r'/module-\d+[ab]?-(?:scale|retrieval|conv-ai|responsible-ai)-tools/', rel_lower))
+            or '/appendices/' in rel_lower
+            or '/appendix-' in rel_lower
+        )
+        if not is_reference_section and not SECTION_CHECKS["epigraph"].search(html):
             issues.append(Issue("P2", CHECK_ID, filepath, 0, "Section has no epigraph"))
-        if not SECTION_CHECKS["any_callout"].search(html):
+        # Tools-of-the-trade sections often catalog library tables without
+        # any narrative callouts; treat the lack of callouts as canonical.
+        if (not is_reference_section
+                and not SECTION_CHECKS["any_callout"].search(html)):
             issues.append(Issue(PRIORITY, CHECK_ID, filepath, 0, "Section has no callouts"))
         # Each section should have takeaways or at least one key-insight
+        # OR a key-takeaway (the bulleted-summary form). Skip for reference
+        # sections that are catalog-style.
         has_takeaways = 'class="takeaways"' in html
         has_key_insight = 'class="callout key-insight"' in html
-        if not has_takeaways and not has_key_insight:
+        has_key_takeaway = 'class="callout key-takeaway"' in html
+        if (not is_reference_section
+                and not has_takeaways
+                and not has_key_insight
+                and not has_key_takeaway):
             issues.append(Issue("P2", CHECK_ID, filepath, 0,
                                 "Section has no takeaways and no key-insight callout"))
 
@@ -150,16 +177,29 @@ def run(filepath, html, context):
                 issues.append(Issue(PRIORITY, CHECK_ID, filepath, 0,
                                     f"{mod_label} has no {label}"))
 
-        # At least one key-insight across all sections
-        if 'class="callout key-insight"' not in all_html:
+        # At least one key-insight across all sections.
+        # Tools-of-the-trade modules are catalog-style; key-insight is
+        # editorially out of place there, so the requirement is waived.
+        mod_lower = str(mod_label).lower().replace('\\', '/')
+        is_reference_module = (
+            'tools-of-the-trade' in mod_lower
+            or 'module-61-scale-tools' in mod_lower
+            or 'module-36-retrieval-tools' in mod_lower
+            or 'module-41-conv-ai-tools' in mod_lower
+            or 'module-56-responsible-ai-tools' in mod_lower
+        )
+        if (not is_reference_module
+                and 'class="callout key-insight"' not in all_html):
             issues.append(Issue(PRIORITY, CHECK_ID, filepath, 0,
                                 f"{mod_label} has no key-insight callout in any section"))
 
-        # Last section should have whats-next
+        # Last section should have whats-next (accept either form:
+        # legacy <div class="whats-next"> or canonical callout form).
         if section_htmls:
             last_section = max(section_htmls.keys())
             last_html = section_htmls[last_section]
-            if 'class="whats-next"' not in last_html:
+            if ('class="whats-next"' not in last_html
+                    and 'class="callout whats-next"' not in last_html):
                 last_rel = last_section.relative_to(book_root)
                 issues.append(Issue("P2", CHECK_ID, filepath, 0,
                                     f"Last section {last_rel} has no What's Next box"))

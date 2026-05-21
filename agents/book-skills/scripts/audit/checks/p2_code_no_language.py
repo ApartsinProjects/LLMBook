@@ -10,7 +10,7 @@ Issue = namedtuple("Issue", ["priority", "check_id", "filepath", "line", "messag
 
 # Match <pre><code> or <pre><code class="..."> where class has no language- prefix
 PRE_CODE_RE = re.compile(r'<pre>\s*<code\b([^>]*)>', re.IGNORECASE)
-LANG_CLASS_RE = re.compile(r'class="[^"]*\blanguage-\w+')
+LANG_CLASS_RE = re.compile(r'class="[^"]*\b(?:language-|lang-)\w+')
 
 # Exclude algorithm/pseudocode blocks (typically have algo-line-keyword spans)
 ALGO_RE = re.compile(r'algo-line-keyword|pseudocode|algorithm', re.IGNORECASE)

@@ -10,15 +10,15 @@ Audit root: `E:/Projects/BookBlogsHome/LLMBook`
 | Part I: Foundations | **no** | yes | (none) |
 | Part II: Understanding LLMs | **no** | yes | (none) |
 | Part III: Working with LLMs | **no** | yes | (none) |
-| Part IV: Training and Adapting | **no** | yes | Ch 16 |
-| Part V: Retrieval and Conversation | **no** | yes | (none) |
+| Part IV: LLM Training and Adaptation | **no** | yes | Ch 16 |
+| Part V: Retrieval and Conversation with LLMs and Agents | **no** | yes | (none) |
 | Part VI: Agentic AI | **no** | yes | Ch 21, Ch 24 |
 | Part VII: AI Applications | **no** | yes | (none) |
 | Part VIII: Evaluation & Production | **no** | yes | (none) |
 | Part IX: Safety & Strategy | **no** | yes | Ch 30 |
 | Part X: Frontiers | **no** | yes | (none) |
 | Part XI: From Idea to AI Product | **no** | yes | Ch 34 |
-| Part XII: LLM Applications Across Industries | yes | yes | (none) |
+| Part XII: LLM LLM Applications Across Industries | yes | yes | (none) |
 | Appendices | yes | n/a | appendix-g-model-cards, appendix-h-prompt-templates, appendix-i-datasets-benchmarks, appendix-j-huggingface-ecosystem, appendix-k-langchain, appendix-l-experiment-tracking, appendix-m-inference-serving, appendix-n-distributed-ml, appendix-o-docker-containers, appendix-p-tooling-ecosystem, appendix-u-freshness-2026 |
 | Capstone | yes | n/a | (none) |
 

@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-PWPHBQL2VL"></script>
+<script>
+window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', 'G-PWPHBQL2VL');
+</script>
+
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<meta content="Section 23.1: 3D Gaussian Splatting Fundamentals. Mathematical foundations, training, COLMAP preprocessing, and dynamic splat extensions." name="description"/>
+<title>Section 23.1: 3D Gaussian Splatting Fundamentals</title>
+<link href="../../styles/book.css" rel="stylesheet"/>
+<link href="../../styles/pygments.css" rel="stylesheet"/>
+<link href="../../vendor/katex/katex.min.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/katex/katex.min.js"></script>
+<script defer="" onload="renderMathInElement(document.body, {
+ delimiters: [
+ {left: '$$', right: '$$', display: true},
+ {left: '$', right: '$', display: false}
+ ],
+ throwOnError: false
+ });" src="../../vendor/katex/contrib/auto-render.min.js"></script>
+<link href="../../vendor/prism/prism-theme.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/prism/prism-bundle.min.js"></script>
+<script defer="" src="../../scripts/book.js"></script>
+<link href="../../pagefind/pagefind-ui.css" rel="stylesheet"/>
+<script defer="" src="../../pagefind/pagefind-ui.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
+
+<header class="chapter-header">
+<nav class="header-nav">
+<a class="book-title-link" href="../../index.html">Building Conversational AI with LLMs and Agents</a>
+<a class="toc-link" href="../../toc.html" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+</nav>
+<div class="header-search">
+<div id="search"></div>
+</div>
+<div class="page-breadcrumb" data-pagefind-meta="chapter"><a href="../index.html">Part V: Multimodal LLMs</a><span class="bc-sep">›</span><a href="index.html">Chapter 23: 3D Generation and Neural Scenes</a></div>
+<h1>3D Gaussian Splatting Fundamentals</h1><div class="page-current">Section 23.1</div>
+</header>
+<main class="content" id="main-content"><span class="pagefind-meta-injected" data-pagefind-meta="part:Part V: Multimodal LLMs" hidden=""></span><span class="pagefind-meta-injected" data-pagefind-meta="chapter:Chapter 23: 3D Generation and Neural Scenes" hidden=""></span>
+<blockquote class="epigraph">
+<p>"NeRF gave us photoreal 3D at the cost of forty minutes per frame. Gaussians gave it back at 120 fps."</p>
+<span class="agent-avatar-inline" style="background-color: #1abc9c;"><img alt="Pixel" height="28" src="../../front-matter/images/agents/pixel.png" width="28"/></span><cite>Pixel, <span class="agent-desc">Splat-Curious AI Agent</span></cite>
+</blockquote>
+<div class="callout big-picture">
+<div class="callout-title">Big Picture</div>
+<p>3D Gaussian Splatting (3DGS) replaced Neural Radiance Fields (NeRFs) as the default representation for photoreal scene reconstruction in late 2023, and by 2026 it powers nearly every shipping product in volumetric capture, AR scene scanning, and real-time 3D synthesis. A scene becomes a cloud of millions of anisotropic Gaussians, each with position, covariance, opacity, and view-dependent color expressed as spherical harmonics. Rendering is a sort-and-blend operation on the GPU rasterizer rather than expensive ray marching, which lets the same scene render at over 100 fps where a comparable-quality NeRF needed seconds per frame.</p>
+<p><strong>Why this lives in an LLM and agents book.</strong> Modern multimodal LLMs and embodied agents increasingly need to <em>see</em>, <em>navigate</em>, and <em>reason about</em> 3D space. Vision-language-action models (Chapter 24) operate on splat-derived scene maps; spatial-reasoning agents query 3DGS scenes the way text agents query a vector store; world-model agents (Section 41.4) and robotics policies (Chapter 24) use NeRF or 3DGS as their differentiable simulator. The optimization itself shares its bones with the <a href="../../part-1-llm-building-blocks/module-01-foundations-nlp-text-representation/section-1.5.html">gradient descent of Chapter 1</a>, but the parameters are 3D Gaussians instead of weights of an MLP. This section walks through the math, the training loop, COLMAP preprocessing, and the first extensions toward dynamic and language-conditioned splats.</p>
+</div>
+<div class="prerequisites">
+<h3 id="prerequisites">Prerequisites</h3>
+<p>This section assumes comfort with camera matrices and basic linear algebra (covariance, eigendecomposition). Familiarity with PyTorch gradient flow from <a href="../../part-1-llm-building-blocks/module-00-ml-pytorch-foundations/section-0.3.html">Section 0.3</a> helps when reading the training loop.</p>
+</div>
+<figure class="illustration">
+<img alt="Side-by-side comparison: a NeRF MLP querying a continuous volumetric function vs. a 3D Gaussian Splatting scene as an explicit cloud of ellipsoids being rasterized" src="images/fig-36.1.1-nerf-vs-3dgs.svg" width="1100" height="540"/>
+<figcaption><strong>Figure 23.1.1</strong>: NeRF queries an implicit MLP for every point along every ray (millions of forward passes per image). 3D Gaussian Splatting represents the scene as an explicit, sortable cloud of anisotropic Gaussians that the GPU rasterizer can paint to the framebuffer in a single pass. The functional change from implicit to explicit is what unlocks real-time rendering.</figcaption>
+</figure>
+<h2 id="23-1-1-from-nerf-to-splats">23.1.1 From NeRF to Splats: The Representation Shift</h2>
+<div class="callout fun-note">
+<div class="callout-title">Fun Fact</div>
+<p>3D Gaussian Splatting won the SIGGRAPH 2023 best-paper award and within six months had spawned more arXiv follow-ups than NeRF managed in two years. The reason was simple: NeRF rendering took seconds per frame, while splats rendered at 100+ FPS on a laptop GPU. The graphics community had spent decades arguing that machine learning was too slow for real-time rendering, and then a paper using a 200-year-old idea (Gaussian blobs, attributed to Carl Friedrich himself) quietly walked in and ended the argument.</p>
+</div>
+<p>A Neural Radiance Field, introduced by Mildenhall et al. (2020), trains an MLP to map a 5D coordinate (3D position plus 2D viewing direction) to a 4D output (RGB color plus volumetric density). Rendering a single pixel requires sampling dozens to hundreds of points along the camera ray, evaluating the MLP at each, and integrating the radiance with quadrature. Quality is excellent but rendering is slow: an unaccelerated NeRF takes seconds per 800x800 frame and minutes to hours to train.</p>
+<p>3D Gaussian Splatting, introduced by Kerbl et al. (2023) at SIGGRAPH 2023, throws away the MLP. The scene is represented by a set of explicit 3D Gaussians, each parameterized by:</p>
+<ul>
+<li>A 3D position $\mu \in \mathbb{R}^3$ (the mean).</li>
+<li>A 3x3 covariance matrix $\Sigma$, factored as $\Sigma = R S S^\top R^\top$ where $R$ is a rotation (stored as a quaternion) and $S$ is a diagonal scale.</li>
+<li>An opacity scalar $\alpha \in [0, 1]$.</li>
+<li>A view-dependent color, typically encoded as the coefficients of low-order spherical harmonics (SH) of degree 0 to 3.</li>
+</ul>
+<p>The probability density of one Gaussian at point $x$ is the familiar form $G(x) = \exp\!\big({-\frac{1}{2}(x-\mu)^\top \Sigma^{-1}(x-\mu)}\big)$. To render, each 3D Gaussian is projected to a 2D image-space Gaussian using the affine approximation of the perspective projection, splatted on the framebuffer, and alpha-composited front-to-back after sorting by depth.</p>
+<div class="callout key-insight">
+<div class="callout-title">Key Insight: Why sort-and-blend beats ray marching</div>
+<p>A NeRF integrates radiance per ray. A 3DGS rasterizer integrates radiance per pixel by accumulating contributions from sorted Gaussians until opacity saturates. Both implement the same volume rendering equation, but 3DGS pays per Gaussian (a few million), while NeRF pays per sample (hundreds of millions per frame). When the geometry is sparse, which is true of most real scenes, the explicit representation wins by two orders of magnitude.</p>
+</div>
+<h2 id="23-1-2-the-rendering-equation">23.1.2 The Differentiable Rasterizer</h2>
+<p>For a pixel at image coordinate $u$, the rendered color is an alpha-composite over the depth-sorted Gaussians that overlap the pixel:</p>
+<p>$$ C(u) = \sum_{i \in N} c_i\, \alpha_i'(u) \prod_{j=1}^{i-1} \big(1 - \alpha_j'(u)\big) $$</p>
+<p>where $c_i$ is the SH-evaluated color of Gaussian $i$ in the viewing direction, and $\alpha_i'(u) = \alpha_i \cdot \exp\!\big({-\frac{1}{2}(u-\mu_i')^\top \Sigma_i'^{-1}(u-\mu_i')}\big)$ is the 2D Gaussian footprint scaled by the learned opacity. The projection $\Sigma_i'$ is computed by the Jacobian of the perspective transform; the original Kerbl et al. paper derives this in closed form and the CUDA kernel evaluates it in a few tens of FLOPs per pixel-Gaussian pair.</p>
+<p>Because every operation, projection, exponential, alpha compositing, is differentiable, gradients flow from the rendered pixel back to every Gaussian parameter. This is the same trick that powers neural rendering in general; the novelty is that the primitive is an explicit Gaussian instead of a queried MLP.</p>
+<figure>
+<table>
+<thead>
+<tr><th scope="col">Parameter</th><th scope="col">Shape per Gaussian</th><th scope="col">Total for 1M Gaussians</th><th scope="col">Notes</th></tr>
+</thead>
+<tbody>
+<tr><td>Position $\mu$</td><td>3 floats</td><td>12 MB</td><td>FP32 by default</td></tr>
+<tr><td>Rotation (quaternion)</td><td>4 floats</td><td>16 MB</td><td>Normalized after each step</td></tr>
+<tr><td>Scale (log)</td><td>3 floats</td><td>12 MB</td><td>Exponentiated to enforce positivity</td></tr>
+<tr><td>Opacity (logit)</td><td>1 float</td><td>4 MB</td><td>Sigmoid to $[0, 1]$</td></tr>
+<tr><td>SH degree 3</td><td>48 floats (3 channels x 16 coeffs)</td><td>192 MB</td><td>Largest term; SH degree 0 is just RGB</td></tr>
+</tbody>
+</table>
+<figcaption><strong>Table 23.1.2</strong>: Parameter budget for a 1-million-Gaussian scene. The SH coefficients dominate memory; many production pipelines (e.g., LumaAI) ship SH degree 1 or 2 to halve VRAM with marginal quality loss.</figcaption>
+</figure>
+<h2 id="23-1-3-the-training-loop">23.1.3 The Training Loop: Initialization, Loss, Densification</h2>
+<p>Training a 3DGS scene starts from a sparse point cloud, evolves it through gradient descent, and densifies or prunes Gaussians along the way. The pseudocode below captures the essential loop from the reference implementation.</p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># 3DGS training loop, simplified. Real code lives in</span>
+<span class="c1"># https://github.com/graphdeco-inria/gaussian-splatting</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">gsplat</span><span class="w"> </span><span class="kn">import</span> <span class="n">rasterization</span>
+
+<span class="n">gaussians</span> <span class="o">=</span> <span class="n">GaussianModel</span><span class="o">.</span><span class="n">from_point_cloud</span><span class="p">(</span><span class="n">colmap_points</span><span class="p">)</span>  <span class="c1"># ~100k init</span>
+<span class="n">optimizer</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">optim</span><span class="o">.</span><span class="n">Adam</span><span class="p">(</span><span class="n">gaussians</span><span class="o">.</span><span class="n">parameters</span><span class="p">(),</span> <span class="n">lr</span><span class="o">=</span><span class="mf">1.6e-4</span><span class="p">)</span>
+
+<span class="k">for</span> <span class="n">step</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">30_000</span><span class="p">):</span>
+    <span class="n">cam</span><span class="p">,</span> <span class="n">gt_image</span> <span class="o">=</span> <span class="n">dataset</span><span class="o">.</span><span class="n">sample_view</span><span class="p">()</span>          <span class="c1"># random training view</span>
+    <span class="n">render</span><span class="p">,</span> <span class="n">viewspace</span><span class="p">,</span> <span class="n">visibility</span> <span class="o">=</span> <span class="n">rasterization</span><span class="p">(</span>
+        <span class="n">gaussians</span><span class="o">.</span><span class="n">means</span><span class="p">,</span> <span class="n">gaussians</span><span class="o">.</span><span class="n">quats</span><span class="p">,</span> <span class="n">gaussians</span><span class="o">.</span><span class="n">scales</span><span class="p">,</span>
+        <span class="n">gaussians</span><span class="o">.</span><span class="n">opacities</span><span class="p">,</span> <span class="n">gaussians</span><span class="o">.</span><span class="n">colors</span><span class="p">,</span>
+        <span class="n">viewmat</span><span class="o">=</span><span class="n">cam</span><span class="o">.</span><span class="n">world_to_cam</span><span class="p">,</span> <span class="n">K</span><span class="o">=</span><span class="n">cam</span><span class="o">.</span><span class="n">intrinsics</span><span class="p">,</span>
+        <span class="n">width</span><span class="o">=</span><span class="n">cam</span><span class="o">.</span><span class="n">W</span><span class="p">,</span> <span class="n">height</span><span class="o">=</span><span class="n">cam</span><span class="o">.</span><span class="n">H</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="c1"># L1 + SSIM is the standard 3DGS photometric loss</span>
+    <span class="n">loss</span> <span class="o">=</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">-</span> <span class="n">lam</span><span class="p">)</span> <span class="o">*</span> <span class="n">l1</span><span class="p">(</span><span class="n">render</span><span class="p">,</span> <span class="n">gt_image</span><span class="p">)</span> <span class="o">+</span> <span class="n">lam</span> <span class="o">*</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">-</span> <span class="n">ssim</span><span class="p">(</span><span class="n">render</span><span class="p">,</span> <span class="n">gt_image</span><span class="p">))</span>
+    <span class="n">loss</span><span class="o">.</span><span class="n">backward</span><span class="p">()</span>
+    <span class="n">optimizer</span><span class="o">.</span><span class="n">step</span><span class="p">()</span>
+    <span class="n">optimizer</span><span class="o">.</span><span class="n">zero_grad</span><span class="p">(</span><span class="n">set_to_none</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+    <span class="c1"># Adaptive density control: split big Gaussians with high grad,</span>
+    <span class="c1"># clone small ones, prune low-opacity.</span>
+    <span class="k">if</span> <span class="n">step</span> <span class="o">%</span> <span class="mi">100</span> <span class="o">==</span> <span class="mi">0</span> <span class="ow">and</span> <span class="n">step</span> <span class="o">&lt;</span> <span class="mi">15_000</span><span class="p">:</span>
+        <span class="n">gaussians</span><span class="o">.</span><span class="n">densify_and_prune</span><span class="p">(</span>
+            <span class="n">grad_threshold</span><span class="o">=</span><span class="mf">0.0002</span><span class="p">,</span>
+            <span class="n">min_opacity</span><span class="o">=</span><span class="mf">0.005</span><span class="p">,</span>
+            <span class="n">max_screen_size</span><span class="o">=</span><span class="mi">20</span><span class="p">,</span>
+        <span class="p">)</span></code></pre>
+<div class="code-caption"><strong>Code Fragment 23.1.1</strong>: The reference 3DGS training loop. Three things matter: the L1 + SSIM photometric loss (with $\lambda = 0.2$), the differentiable rasterization step from <code>gsplat</code> (the BSD-licensed re-implementation by Nerfstudio), and the adaptive density control that splits, clones, or prunes Gaussians based on their accumulated screen-space gradient.</div>
+</div>
+<div class="callout note">
+<div class="callout-title">Note: Why densification, not just optimization</div>
+<p>If you simply ran Adam on the initial point cloud you would get a blurry mess: there are not enough Gaussians to represent fine geometry. The adaptive density control monitors the screen-space gradient of every Gaussian. A high gradient indicates the Gaussian is straddling a feature it cannot represent: if it is small, the algorithm <em>clones</em> it (duplicate at the same location); if it is large, the algorithm <em>splits</em> it (replace with two smaller Gaussians along the gradient direction). Opacity below a threshold triggers <em>pruning</em>. This produces a roughly self-organizing point density that matches scene complexity.</p>
+</div>
+<h2 id="23-1-4-colmap-preprocessing">23.1.4 COLMAP and the Camera-Pose Bootstrap</h2>
+<p>Every 3DGS pipeline starts with a structure-from-motion (SfM) pass that recovers camera poses and a sparse point cloud from input images. The de facto tool is <a href="https://colmap.github.io/" target="_blank" rel="noopener">COLMAP</a> by Schoenberger and Frahm. The pipeline is:</p>
+<ol>
+<li><strong>Feature detection</strong> with SIFT on each image.</li>
+<li><strong>Pairwise matching</strong> (exhaustive for small captures, vocab-tree for larger ones).</li>
+<li><strong>Incremental SfM</strong> that triangulates a sparse 3D point cloud while jointly optimizing camera poses through bundle adjustment.</li>
+<li><strong>Optional dense MVS</strong>, though 3DGS does not require dense depth.</li>
+</ol>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-bash"><span class="c1"># Minimal COLMAP CLI invocation for a 3DGS capture.</span>
+<span class="c1"># Assumes ~100 photos in ./input/ shot from varied angles.</span>
+colmap feature_extractor <span class="se">\</span>
+    --database_path scene.db <span class="se">\</span>
+    --image_path ./input/ <span class="se">\</span>
+    --ImageReader.single_camera <span class="m">1</span>
+
+colmap exhaustive_matcher --database_path scene.db
+
+<span class="nb">mkdir</span> sparse
+colmap mapper <span class="se">\</span>
+    --database_path scene.db <span class="se">\</span>
+    --image_path ./input/ <span class="se">\</span>
+    --output_path ./sparse
+
+<span class="c1"># Convert to the format 3DGS expects (cameras.bin, images.bin, points3D.bin)</span>
+colmap model_converter <span class="se">\</span>
+    --input_path ./sparse/0 <span class="se">\</span>
+    --output_path ./sparse/0 <span class="se">\</span>
+    --output_type BIN</code></pre>
+<div class="code-caption"><strong>Code Fragment 23.1.2:</strong> COLMAP CLI pipeline that produces the camera intrinsics, extrinsics, and seed point cloud expected by every reference 3DGS trainer. On a 100-image capture this runs in 5 to 30 minutes on CPU; GPU SIFT and vocab-tree matching cut that to a couple of minutes.</div>
+</div>
+<div class="callout warning">
+<div class="callout-title">Warning: COLMAP failure modes</div>
+<p>The single biggest source of bad 3DGS reconstructions is bad camera poses. COLMAP can silently lose track of a chunk of your input if you have low texture (white walls), motion blur, rolling-shutter artifacts, or images shot from too similar a viewpoint. Always inspect <code>sparse/0</code> before training: if half your images are missing, your splats will collapse or float. Newer alternatives like Nerfstudio's <a href="https://github.com/nerfstudio-project/nerfstudio" target="_blank" rel="noopener">ns-process-data</a> wrap COLMAP with HLOC-based matching and produce noticeably more robust poses on hard captures.</p>
+</div>
+<h2 id="23-1-5-rendering-and-export">23.1.5 Rendering, Viewers, and Web Export</h2>
+<p>A trained 3DGS scene is a single PLY file with one row per Gaussian. The community has converged on the .splat / .ksplat formats for compressed web delivery. Real-time viewers run in WebGL: see <a href="https://github.com/antimatter15/splat" target="_blank" rel="noopener">antimatter15/splat</a> for a minimal viewer, <a href="https://github.com/playcanvas/supersplat" target="_blank" rel="noopener">PlayCanvas Supersplat</a> for an editor, and Nerfstudio's gsplat-based viewer for a production-quality experience. Browser rendering of a 1M-Gaussian scene at 1080p typically clears 60 fps on a 2022 MacBook.</p>
+<p>For production deployment, the LumaAI <a href="https://lumalabs.ai/luma-web-library" target="_blank" rel="noopener">Luma Web Library</a> wraps splat playback in a React component; Polycam, KIRI Engine, and Postshot offer mobile-to-cloud capture-train-export pipelines.</p>
+<h2 id="23-1-6-dynamic-splats-preview">23.1.6 Dynamic Splats: A Preview of Section 23.2</h2>
+<p>Static 3DGS captures a frozen scene. By 2024 the field had moved to dynamic splats where each Gaussian is also a function of time. The dominant approaches are:</p>
+<ul>
+<li><strong>4DGS</strong> (Wu et al., 2024) attaches a small MLP to each Gaussian that predicts a per-timestep position and rotation delta. Memory grows linearly with Gaussian count but is independent of clip length.</li>
+<li><strong>Dynamic 3D Gaussians</strong> (Luiten et al., 2024) explicitly tracks each Gaussian's position over time and adds isotropic, local-rigidity, and rotational regularizers that prevent it from drifting through scene structure.</li>
+<li><strong>Deformable 3DGS</strong> (Yang et al., 2024) uses a shared deformation field MLP conditioned on canonical position and time, similar to D-NeRF.</li>
+</ul>
+<p><a href="section-23.2.html">Section 23.2</a> picks this up in detail; here it suffices to note that the static 3DGS infrastructure (rasterizer, optimizer, densifier) transfers cleanly to the dynamic case with relatively small changes to the per-Gaussian state.</p>
+<figure class="illustration">
+<img alt="A timeline diagram of dynamic Gaussian splat evolution: 3DGS (2023), 4DGS (2024), Dynamic 3D Gaussians (2024), 4D-Rotor and Spacetime Gaussians (2024-2025)" src="images/fig-36.1.2-dynamic-splat-timeline.svg" width="1100" height="540"/>
+<figcaption><strong>Figure 23.1.2</strong>: The dynamic-splat ecosystem in 18 months. Each variant trades off memory, per-frame quality, and supported motion magnitude. <a href="section-23.2.html">Section 23.2</a> compares them quantitatively.</figcaption>
+</figure>
+<div class="callout key-insight">
+<div class="callout-title">Key Insight</div>
+<p>3D Gaussian Splatting is the 2024-2026 default for photoreal 3D reconstruction. An explicit cloud of millions of anisotropic Gaussians with view-dependent SH color is differentiably rasterized by a CUDA kernel that runs at 100+ fps. Training is end-to-end gradient descent on an L1 + SSIM photometric loss with adaptive density control. The only non-trivial preprocessing is COLMAP-derived camera poses. Everything in the rest of this chapter, dynamic splats, image-to-3D, scene relighting, builds on this primitive.</p>
+</div>
+<div class="callout self-check">
+<div class="callout-title">Self-Check</div>
+<div class="quiz-question"><strong>Q1:</strong> Why is the alpha-compositing equation in 3DGS mathematically equivalent to NeRF volume rendering, yet 100x faster in practice?</div>
+<details>
+<summary>Show Answer</summary>
+<div class="answer">Both implement the same volume-rendering integral $C = \sum_i T_i \alpha_i c_i$ with $T_i = \prod_{j<i}(1-\alpha_j)$. The difference is what you pay per ray: NeRF samples 64-256 query points along each ray and runs an MLP at every one (hundreds of millions of MLP forward passes per frame), while 3DGS rasterizes a sparse set of explicit primitives, sorts by depth once per tile, and accumulates contributions on the GPU. Sparsity of real scenes (most rays hit empty space) is what makes the explicit form win by two orders of magnitude.</div>
+</details>
+<div class="quiz-question"><strong>Q2:</strong> What goes wrong if you initialize 3DGS from a uniform random point cloud instead of COLMAP's sparse SfM points?</div>
+<details>
+<summary>Show Answer</summary>
+<div class="answer">Convergence collapses or diverges. COLMAP points lie on real scene surfaces, so the Gaussians start near the right opacities and the gradient signal teaches them to refine. Uniformly random Gaussians sit mostly in empty space; the gradient pulls them toward surfaces but the path is long and unstable, and the adaptive-density controller will spend most of its budget pruning the bad initializations rather than building structure. Practical workarounds (random + heavy regularization, or learned monocular-depth initializers) exist but always lag a proper SfM cloud in PSNR.</div>
+</details>
+<div class="quiz-question"><strong>Q3:</strong> The SH degree-3 coefficients dominate memory. When can you safely drop to SH degree 0 (constant RGB per Gaussian)?</div>
+<details>
+<summary>Show Answer</summary>
+<div class="answer">When the scene has little view-dependent appearance: matte indoor scenes under diffuse lighting, foreground objects with no specular highlights, or any setting where you tolerate slightly muted reflections in exchange for a 16x reduction in per-Gaussian color memory. SH-3 (16 coefficients per channel) is what lets glossy surfaces and metallics shimmer; SH-0 (3 floats per Gaussian) is enough for matte. Many shipping AR pipelines start at SH-0 and only upgrade to SH-2 or SH-3 if the qualitative review demands it.</div>
+</details>
+<div class="quiz-question"><strong>Q4:</strong> Why does the adaptive density controller need both a "clone" and a "split" operation? What does each fix that the other does not?</div>
+<details>
+<summary>Show Answer</summary>
+<div class="answer">Clone duplicates an existing Gaussian in place to fix <em>under-reconstruction</em>: large gradient magnitude on a small Gaussian means the surface is finer-grained than the primitive can represent, so we add a second Gaussian and let optimization tease them apart. Split replaces one large Gaussian with two smaller children (scaled down) to fix <em>over-reconstruction</em>: large gradient magnitude on a large Gaussian means the primitive is straddling two surface features, so we cut it in half. Clone adds capacity where detail is missing; split refines where geometry is conflated. You need both because the two failure modes have opposite causes.</div>
+</details>
+</div>
+<div class="whats-next">
+<h2 id="what-comes-next">What Comes Next</h2>
+<p><a href="section-23.2.html">Section 23.2: 4D and Dynamic Splats</a> extends the static formulation to time. We will look at how 4DGS, Dynamic 3D Gaussians, and Spacetime Gaussians handle moving cameras, articulated humans, and the long-tail problems of motion priors and temporal regularization.</p>
+</div>
+<details class="bibliography-collapsible">
+<summary><strong>Further Reading</strong></summary>
+<section class="bibliography">
+<h3 id="foundational">Foundational</h3>
+<div class="bib-entry-card">
+<div class="bib-ref">Kerbl, B., Kopanas, G., Leimkuhler, T., &amp; Drettakis, G. (2023). "3D Gaussian Splatting for Real-Time Radiance Field Rendering." <em>ACM Transactions on Graphics (SIGGRAPH)</em>. <a href="https://arxiv.org/abs/2308.04079" rel="noopener" target="_blank">arXiv:2308.04079</a></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Mildenhall, B., Srinivasan, P. P., Tancik, M., et al. (2020). "NeRF: Representing Scenes as Neural Radiance Fields for View Synthesis." <em>ECCV</em>. <a href="https://arxiv.org/abs/2003.08934" rel="noopener" target="_blank">arXiv:2003.08934</a></div>
+</div>
+<h3 id="implementations-2024-2026">Implementations (2024 to 2026)</h3>
+<div class="bib-entry-card">
+<div class="bib-ref">Ye, V., Li, R., Kerr, J., et al. (2024). "gsplat: An Open-Source Library for Gaussian Splatting." Nerfstudio. <a href="https://github.com/nerfstudio-project/gsplat" rel="noopener" target="_blank">github.com/nerfstudio-project/gsplat</a></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Tancik, M., Weber, E., Ng, E., et al. (2023). "Nerfstudio: A Modular Framework for Neural Radiance Field Development." <em>ACM SIGGRAPH</em>. <a href="https://arxiv.org/abs/2302.04264" rel="noopener" target="_blank">arXiv:2302.04264</a></div>
+</div>
+<h3 id="preprocessing">Camera-Pose Preprocessing</h3>
+<div class="bib-entry-card">
+<div class="bib-ref">Schoenberger, J. L., &amp; Frahm, J. M. (2016). "Structure-from-Motion Revisited." <em>CVPR</em>. (COLMAP system paper.) <a href="https://demuc.de/papers/schoenberger2016sfm.pdf" rel="noopener" target="_blank">demuc.de/papers/schoenberger2016sfm.pdf</a></div>
+</div>
+<h3 id="surveys">2025 Surveys</h3>
+<div class="bib-entry-card">
+<div class="bib-ref">Chen, G., &amp; Wang, W. (2024). "A Survey on 3D Gaussian Splatting." <em>arXiv</em>. <a href="https://arxiv.org/abs/2401.03890" rel="noopener" target="_blank">arXiv:2401.03890</a></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Fei, B., Xu, J., Zhang, R., et al. (2024). "3D Gaussian Splatting as New Era: A Survey." <em>arXiv</em>. <a href="https://arxiv.org/abs/2402.07181" rel="noopener" target="_blank">arXiv:2402.07181</a></div>
+</div>
+</section>
+</details>
+<nav class="chapter-nav">
+<a class="prev" href="index.html"><span class="nav-label">Previous</span><span class="nav-num">Chapter 23</span><span class="nav-title">3D Generation and Neural Scenes</span></a>
+<a class="up" href="index.html"><span class="nav-label">In Chapter</span><span class="nav-num">Chapter 23</span><span class="nav-title">3D Generation and Neural Scenes</span></a>
+<a class="next" href="section-23.2.html"><span class="nav-label">Next</span><span class="nav-num">Section 23.2</span><span class="nav-title">4D &amp; Dynamic Splats</span></a>
+</nav>
+<footer><p>Fifteenth Edition, 2026 · <a href="../../toc.html">Contents</a></p></footer>
+</main>
+</body>
+</html>

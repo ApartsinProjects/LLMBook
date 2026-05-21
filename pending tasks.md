@@ -94,7 +94,7 @@ current editorial pass. Sections:
    Shipping → Post-Launch Monitoring. Absorb Module 31 (Strategy) from
    Part 9 and the production/ops half of Chapter 25.
 4. **Part 12 = Consolidated industry applications**: absorb Module 27
-   (LLM Applications Across Industries) content into the existing
+   (LLM LLM Applications Across Industries) content into the existing
    industry chapters (36-42); promote section 27.1 (Vibe-Coding) into
    its own Part 11 chapter.
 
@@ -520,23 +520,23 @@ Currently the Parts have inconsistent title style:
 - "Part I: Foundations" (terse noun)
 - "Part II: Understanding LLMs" (gerund)
 - "Part III: Working with LLMs" (gerund)
-- "Part IV: Training and Adapting" (gerund pair)
-- "Part V: Retrieval and Conversation" (noun pair)
+- "Part IV: LLM Training and Adaptation" (gerund pair)
+- "Part V: Retrieval and Conversation with LLMs and Agents" (noun pair)
 - "Part VI: Agentic AI" (terse noun)
 - "Part VII: AI Applications" (terse noun — also misleading; should be "Multimodal Generation")
-- "Part VIII: Evaluation and Production" (noun pair)
+- "Part VIII: Evaluation of LLM-Based Systems" (noun pair)
 - "Part IX: Safety and Strategy" (noun pair — should change to "Safety, Security, Guardrails, Ethics")
 - "Part X: Frontiers" (terse noun)
 - "Part XI: From Idea to AI Product" (phrase) ← inconsistent with others
-- "Part XII: LLM Applications Across Industries" (noun phrase)
+- "Part XII: LLM LLM Applications Across Industries" (noun phrase)
 
 **Recommended uniform style**: "noun-phrase" (matches the majority).
 Proposed renames:
 - VII: "Multimodal Generation"
-- IX: "Safety, Security & Ethics"
+- IX: "LLM Safety, Security, and Ethics"
 - X: "Frontiers" (keep)
-- XI: "Idea to Product"
-- XII: "Applications Across Industries"
+- XI: "Building LLM and Agent Products"
+- XII: "LLM Applications Across Industries"
 
 Decision needed: lock the style.
 

@@ -5,15 +5,22 @@
 document.addEventListener('DOMContentLoaded', function () {
 
   // 1. Make ALL <pre> code blocks collapsible.
-  //    - Code goes inside a <details> element within the wrapper
-  //    - Output (.code-output) and caption (.code-caption) stay visible
+  //    - Code AND its sibling .code-output go inside a <details> element
+  //      so that when "Show code" is closed, BOTH code and output hide
+  //      (per editorial decision: an output without its code is noise)
+  //    - .code-caption stays visible as a figure label
   //    - Short code blocks (10 lines or fewer) start OPEN
   //    - Longer code blocks start COLLAPSED
+  //    - SKIP pre elements inside library-shortcut callouts; step 9c
+  //      handles those with its own outer "Show code" wrapper (avoids
+  //      the "show code in show code" double-wrap reported in 42.1)
   document.querySelectorAll('pre').forEach(function (pre) {
     // Skip if already inside a <details> element
     if (pre.closest('details')) return;
     // Skip if inside a callout UNLESS it's wrapped in a code-block-wrapper
     if (pre.closest('.callout') && !pre.closest('.code-block-wrapper')) return;
+    // Skip if inside a library-shortcut: step 9c handles those
+    if (pre.closest('.callout.library-shortcut')) return;
     // Skip inline-style pre (very short, less than 20 chars)
     var text = pre.textContent || '';
     if (text.trim().length < 20) return;
@@ -26,7 +33,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     var isShort = lineCount <= 10;
 
-    // Create the <details> wrapper for just the code
+    // Create the <details> wrapper for code (+ output)
     var details = document.createElement('details');
     details.className = 'code-collapse';
     if (isShort) {
@@ -47,7 +54,27 @@ document.addEventListener('DOMContentLoaded', function () {
     pre.parentNode.insertBefore(details, pre);
     details.appendChild(pre);
 
-    // Output and caption stay outside <details> (visible when code collapsed)
+    // Move the immediately-following <div class="code-output"> inside the
+    // same details so it hides together with the code. Stops at the first
+    // non-whitespace non-code-output sibling (typically the caption).
+    var cursor = details.nextSibling;
+    while (cursor) {
+      if (cursor.nodeType === 3 && (cursor.textContent || '').trim() === '') {
+        // whitespace text node: skip and continue scanning
+        cursor = cursor.nextSibling;
+        continue;
+      }
+      if (cursor.nodeType === 1) {
+        var cls = cursor.className || '';
+        if (typeof cls === 'string' && cls.indexOf('code-output') >= 0) {
+          var moved = cursor;
+          cursor = cursor.nextSibling;
+          details.appendChild(moved);
+          continue;
+        }
+      }
+      break;
+    }
   });
 
   // 2. Remove standalone "Exercises" headings (redundant with the container title).
@@ -175,8 +202,20 @@ document.addEventListener('DOMContentLoaded', function () {
   });
 
   // 6. Make labs collapsible and collapsed by default.
-  //    Pattern: <h3 class="lab-title">Lab: ...</h3> followed by <div class="lab">
-  //    Also handles labs with h2/h3 title inside the lab div itself.
+  //    Priority order for the lab title:
+  //      1. <div class="callout-title"> inside the lab (CANONICAL form)
+  //      2. <h3 class="lab-title"> immediately before the lab (legacy)
+  //      3. First <h2>/<h3> inside the lab div (legacy)
+  //      4. Fallback "Hands-On Lab"
+  //
+  //    Match only <div class="callout lab"> / <div class="lab"> tops, NOT
+  //    inner divs like .lab-objective, .lab-meta, .lab-skills (those match
+  //    `class="lab-objective"` etc. which the `.lab` selector already skips
+  //    because class names are whole tokens). The previous version of this
+  //    routine ignored the canonical .callout-title and instead picked up the
+  //    "Objective" h3 inside .lab-objective as the lab title, producing two
+  //    misleading rendered cards: "Hands-On Lab" (fallback) and
+  //    "Lab: Objective" (mis-identified). Now we prioritize .callout-title.
   document.querySelectorAll('.lab').forEach(function (lab) {
     // Skip if already inside a details
     if (lab.closest('details.lab-collapse')) return;
@@ -185,15 +224,29 @@ document.addEventListener('DOMContentLoaded', function () {
     var labTitle = 'Hands-On Lab';
     var removeInternalHeading = false;
     var internalHeading = null;
+    var calloutTitleEl = null;
 
-    if (titleEl && titleEl.classList.contains('lab-title')) {
+    // PRIORITY 1: canonical callout-title inside the lab (direct child only,
+    // not any descendant — to avoid grabbing a step-level callout-title).
+    for (var i = 0; i < lab.children.length; i++) {
+      var ch = lab.children[i];
+      if (ch.classList && ch.classList.contains('callout-title')) {
+        calloutTitleEl = ch;
+        break;
+      }
+    }
+    if (calloutTitleEl) {
+      labTitle = calloutTitleEl.textContent.trim();
+      // Normalize "Hands-On Lab: X" → "Lab: X" for visual consistency
+      labTitle = labTitle.replace(/^Hands-On Lab:\s*/i, 'Lab: ');
+    } else if (titleEl && titleEl.classList.contains('lab-title')) {
+      // PRIORITY 2: legacy <h3 class="lab-title">Lab: ...</h3> before the lab
       labTitle = titleEl.textContent.trim();
     } else {
-      // Check for h2/h3 inside the lab div as title source
+      // PRIORITY 3: first h2/h3 inside the lab div
       internalHeading = lab.querySelector('h2, h3');
       if (internalHeading) {
         var headingText = internalHeading.textContent.trim();
-        // Strip "Hands-On Lab:" prefix if present
         labTitle = headingText.replace(/^Hands-On Lab:\s*/i, 'Lab: ');
         if (labTitle === headingText && !headingText.toLowerCase().startsWith('lab')) {
           labTitle = 'Lab: ' + headingText;
@@ -217,6 +270,11 @@ document.addEventListener('DOMContentLoaded', function () {
     if (titleEl && titleEl.classList.contains('lab-title')) {
       details.appendChild(titleEl);
     }
+    // Remove the canonical .callout-title element from the lab body since it
+    // is now in the collapsible summary (avoids visual duplication).
+    if (calloutTitleEl) {
+      calloutTitleEl.remove();
+    }
     // Remove internal heading since title is now in the collapsible summary
     if (removeInternalHeading && internalHeading) {
       internalHeading.remove();
@@ -224,14 +282,20 @@ document.addEventListener('DOMContentLoaded', function () {
     details.appendChild(lab);
   });
 
-  // 7. Make code output collapsible and collapsed by default.
+  // 7. Make code output collapsible and collapsed by default. Skip:
+  //  - outputs already inside a details (idempotency)
+  //  - outputs inside a library-shortcut callout (the entire shortcut
+  //    already collapses via step 9c, so a NESTED "Show output" toggle
+  //    looks like double-collapse / "show code in show code")
+  //  - very short outputs (<= 6 lines) where the toggle has no value
   document.querySelectorAll('.code-output').forEach(function (out) {
-    // Skip if already inside a details
     if (out.closest('details.output-collapse')) return;
+    if (out.closest('.callout.library-shortcut')) return;
 
     var lines = (out.textContent || '').split('\n');
     var lineCount = lines.length;
     while (lineCount > 0 && lines[lineCount - 1].trim() === '') lineCount--;
+    if (lineCount <= 6) return;
 
     var details = document.createElement('details');
     details.className = 'output-collapse';
@@ -247,8 +311,15 @@ document.addEventListener('DOMContentLoaded', function () {
 
   // 8. Make bibliography/references collapsible and collapsed by default.
   document.querySelectorAll('section.bibliography').forEach(function (bib) {
-    // Skip if already inside a details
+    // Skip if already inside any bibliography collapsible wrapper (either
+    // the JS-injected `.bib-collapse` from a prior run, OR the canonical
+    // server-side `<details class="bibliography-collapsible">` wrapper).
+    // The canonical wrapper provides its own `<summary>Further Reading</summary>`
+    // so a second JS-wrap would render "Further Reading" + the nested
+    // "References and Further Reading" header (the "double bibliography
+    // header" bug reported in section-27.1).
     if (bib.closest('details.bib-collapse')) return;
+    if (bib.closest('details.bibliography-collapsible')) return;
 
     // Find the heading: h2, h3, or .bibliography-title div. Book HTML uses
     // <h3>Bibliography and Further Reading</h3>; an earlier version only
@@ -309,6 +380,103 @@ document.addEventListener('DOMContentLoaded', function () {
     details.appendChild(pe);
   });
 
+  // 9b. Make research-frontier callouts collapsible and collapsed by default.
+  //     The frontier discussion is long-form open-questions content that
+  //     reads as an aside; collapsing keeps the section header-line clean.
+  document.querySelectorAll('.callout.research-frontier').forEach(function (rf) {
+    if (rf.closest('details.frontier-collapse')) return;
+
+    var titleEl = rf.querySelector('.callout-title');
+    var rfTitle = titleEl ? titleEl.textContent.trim() : 'Research Frontier';
+
+    var prefix = 'Research Frontier';
+    var topic = '';
+    var colonIdx = rfTitle.indexOf(':');
+    if (colonIdx > 0) {
+      prefix = rfTitle.substring(0, colonIdx).trim();
+      topic = rfTitle.substring(colonIdx + 1).trim();
+    } else if (rfTitle !== 'Research Frontier') {
+      topic = rfTitle;
+    }
+
+    var details = document.createElement('details');
+    details.className = 'frontier-collapse';
+
+    var summary = document.createElement('summary');
+    summary.className = 'frontier-collapse-summary';
+    var label = '<span class="frontier-collapse-icon">&#128300;</span> <strong>' + prefix + '</strong>';
+    if (topic) label += ': ' + topic;
+    summary.innerHTML = label;
+    details.appendChild(summary);
+
+    if (titleEl) titleEl.remove();
+
+    rf.parentNode.insertBefore(details, rf);
+    details.appendChild(rf);
+  });
+
+  // 9c. Make library-shortcut callouts' code blocks collapsible.
+  //     The code is reference material the reader looks up when they need
+  //     it; collapsing keeps the running prose compact. ONLY the inner
+  //     code blocks collapse; the prose "pip install" line and the
+  //     library-shortcut title stay visible.
+  //
+  //     Edge case (fixed 2026-05-18): some library-shortcuts contain
+  //     MULTIPLE code-block-wrappers. The earlier logic wrapped only
+  //     the first, leaving the second visible (visually "show code +
+  //     another code block"). We now wrap ALL code-block-wrappers
+  //     inside the library-shortcut together, in a single details that
+  //     spans from the first wrapper to the last sibling that is still
+  //     code-related (subsequent code-block-wrappers).
+  document.querySelectorAll('.callout.library-shortcut').forEach(function (ls) {
+    // Self-heal: previous book.js versions could add a redundant nested
+    // <details class="shortcut-code-collapse"> inside an existing
+    // <details class="code-collapsible">, producing TWO "Show code" buttons.
+    // If we detect that nested-pair state, unwrap the inner shortcut wrapper.
+    var existingCollapsible = ls.querySelector('details.code-collapsible');
+    if (existingCollapsible) {
+      var innerDup = existingCollapsible.querySelector('details.shortcut-code-collapse');
+      if (innerDup) {
+        var parent = innerDup.parentNode;
+        Array.prototype.slice.call(innerDup.childNodes).forEach(function (node) {
+          if (node.tagName !== 'SUMMARY') {
+            parent.insertBefore(node, innerDup);
+          }
+        });
+        innerDup.remove();
+      }
+      // Either way, don't add a new outer wrapper if collapsible already exists.
+      return;
+    }
+    // Skip if we've already wrapped at the top level (idempotency).
+    if (ls.querySelector('details.shortcut-code-collapse')) return;
+    var firstCb = ls.querySelector('.code-block-wrapper');
+    if (!firstCb) return;
+
+    // Collect all code-block-wrappers in document order inside this shortcut
+    var blocks = Array.prototype.slice.call(
+      ls.querySelectorAll('.code-block-wrapper')
+    );
+    if (blocks.length === 0) return;
+
+    var details = document.createElement('details');
+    details.className = 'shortcut-code-collapse';
+
+    var summary = document.createElement('summary');
+    summary.className = 'shortcut-code-collapse-summary';
+    var label = blocks.length === 1
+      ? '<span class="shortcut-code-icon">&#9881;</span> Show code'
+      : '<span class="shortcut-code-icon">&#9881;</span> Show code (' + blocks.length + ' blocks)';
+    summary.innerHTML = label;
+    details.appendChild(summary);
+
+    // Insert details before the first code block, then move all blocks into it
+    firstCb.parentNode.insertBefore(details, firstCb);
+    blocks.forEach(function (cb) {
+      details.appendChild(cb);
+    });
+  });
+
   // 10. Google-like search results (v6.37): Pagefind UI prefixes each result
   //     title with "[Part X › Ch Y]  Real Title" because we cannot inject HTML
   //     into result.meta.title (Pagefind UI escapes it). After Pagefind renders
@@ -356,6 +524,58 @@ document.addEventListener('DOMContentLoaded', function () {
   // default and reveals it when .search-open is set. We toggle the class
   // on click, focus the input on open, and bind ESC + outside-click to
   // close.
+  // Initialize PagefindUI on the header-search target if pagefind-ui.js
+  // has loaded. Without this, section/index pages show an empty
+  // <div id="search"> with no input. toc.html and the home index already
+  // have their own inline initializer; this is the catch-all for every
+  // other page that includes the header-search element.
+  var searchTarget = document.getElementById('search');
+  // When opened directly from disk via file://, browsers block pagefind's
+  // fetch() calls for the index files (cross-origin policy on local files).
+  // Detect that case and render a friendly message instead of an empty box.
+  if (searchTarget && location.protocol === 'file:'
+      && !searchTarget.dataset.pfInitialized) {
+    searchTarget.innerHTML =
+      '<div class="search-offline-note">'
+      + '<strong>Search needs a local web server.</strong><br>'
+      + 'Run <code>python -m http.server 8765</code> from the book folder, '
+      + 'then open <code>http://localhost:8765/toc.html</code>.'
+      + '</div>';
+    searchTarget.dataset.pfInitialized = 'offline';
+  }
+  if (searchTarget && window.PagefindUI && !searchTarget.dataset.pfInitialized) {
+    try {
+      new PagefindUI({
+        element: '#search',
+        showSubResults: true,
+        showImages: false,
+        resetStyles: false,
+        pageSize: 8,
+        autofocus: false,
+        translations: { placeholder: 'Search the book…' },
+        processResult: function (result) {
+          try {
+            var part = (result && result.meta && result.meta.part)
+              ? result.meta.part : '';
+            var chap = (result && result.meta && result.meta.chapter)
+              ? result.meta.chapter : '';
+            var partShort = part.split(':')[0].trim();
+            var chapShort = chap.split(':')[0].trim();
+            var crumb = [partShort, chapShort].filter(Boolean).join(' › ');
+            if (crumb && result.meta && result.meta.title
+                && result.meta.title.indexOf('[' + partShort) !== 0) {
+              result.meta.title = '[' + crumb + ']  ' + result.meta.title;
+            }
+          } catch (e) { /* fall through */ }
+          return result;
+        },
+      });
+      searchTarget.dataset.pfInitialized = '1';
+    } catch (err) {
+      // pagefind-ui.js failed to load; nothing to do.
+    }
+  }
+
   var searchWrap = document.querySelector('.header-search');
   if (searchWrap) {
     searchWrap.setAttribute('role', 'button');

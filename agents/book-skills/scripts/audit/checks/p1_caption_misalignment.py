@@ -60,9 +60,20 @@ def run(filepath, html, context):
             f"with no code block between them (lines {consecutive_captions[0]}-{consecutive_captions[-1]})"))
 
     # Check for caption before code (caption followed by PRE_OPEN without intervening PRE_CLOSE)
+    # BUT: skip when there's a preceding PRE_CLOSE / CODE_OUTPUT within 10 lines back. In that
+    # case the caption belongs to the previous block (canonical: code -> output -> caption -> code).
+    pre_close_lines = [ln for t, ln in events if t == "PRE_CLOSE"]
+    code_output_lines = [ln for t, ln in events if t == "CODE_OUTPUT"]
     for idx, (event_type, line_num) in enumerate(events):
         if event_type == "CAPTION":
-            # Look at next non-CODE_OUTPUT event
+            # If there's a recent PRE_CLOSE / CODE_OUTPUT before this caption,
+            # the caption attaches to that previous block; skip. Use a 40-line
+            # look-back because <div class="code-output"> can span 20-30 lines
+            # of program output between the PRE_CLOSE and the caption.
+            preceding = [pl for pl in pre_close_lines + code_output_lines if 0 < line_num - pl <= 40]
+            if preceding:
+                continue
+            # No preceding code block. Look forward for next non-CODE_OUTPUT event.
             for j in range(idx + 1, len(events)):
                 next_type, next_line = events[j]
                 if next_type == "CODE_OUTPUT":
@@ -72,22 +83,26 @@ def run(filepath, html, context):
                         f"Caption appears BEFORE code block at line {next_line} (should be after)"))
                 break
 
-    # Check for orphan captions (no PRE_CLOSE within 50 lines before)
+    # Check for orphan captions (no PRE_CLOSE within 100 lines before).
+    # 100 lines is the practical ceiling: a long agent-transcript output
+    # legitimately can span 60+ lines between </pre> and the caption.
     pre_close_lines = [ln for t, ln in events if t == "PRE_CLOSE"]
     code_output_lines = [ln for t, ln in events if t == "CODE_OUTPUT"]
     for event_type, line_num in events:
         if event_type == "CAPTION":
-            # Find nearest PRE_CLOSE or CODE_OUTPUT before this caption
+            # Find nearest PRE_CLOSE or CODE_OUTPUT at-or-before this caption.
+            # Use <= since </pre> and <div class="code-caption"> often live on
+            # the same line in compact-mode HTML (no newline between them).
             nearest = 0
             for pcl in pre_close_lines:
-                if pcl < line_num:
+                if pcl <= line_num:
                     nearest = max(nearest, pcl)
             for col in code_output_lines:
-                if col < line_num:
+                if col <= line_num:
                     nearest = max(nearest, col)
-            if nearest == 0 or (line_num - nearest) > 50:
+            if nearest == 0 or (line_num - nearest) > 100:
                 issues.append(Issue(PRIORITY, CHECK_ID, filepath, line_num,
-                    f"Orphan caption: no code block found within 50 lines before this caption"))
+                    f"Orphan caption: no code block found within 100 lines before this caption"))
 
     # Deduplicate (stacked captions already reported per-line)
     seen = set()

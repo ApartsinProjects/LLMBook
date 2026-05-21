@@ -61,7 +61,7 @@ Legend (per-chapter table): `OK` = present, `MISS` = missing, `EMPTY` = present 
 | 6 | 24 | Specialized Agents | OK | OK | OK | OK | OK | OK | OK |
 | 6 | 25 | Agent Safety, Production & Operations | OK | OK | OK | OK | OK | OK | OK |
 | 7 | 26 | Multimodal Generation | OK | OK | OK | OK | OK | OK | OK |
-| 7 | 27 | LLM Applications Across Industries | OK | OK | OK | OK | OK | OK | OK |
+| 7 | 27 | LLM LLM Applications Across Industries | OK | OK | OK | OK | OK | OK | OK |
 | 8 | 28 | LLM Evaluation & Quality Metrics | OK | OK | OK | OK | OK | OK | OK |
 | 8 | 29 | LLMOps & Deployment Engineering | OK | OK | OK | OK | OK | OK | OK |
 | 9 | 30 | Safety, Ethics & Regulation | OK | OK | OK | OK | OK | OK | OK |

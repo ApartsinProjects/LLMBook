@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-PWPHBQL2VL"></script>
+<script>
+window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', 'G-PWPHBQL2VL');
+</script>
+
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<meta content="Section 24.11: ROS 2 Integration. LLM agent connected to ROS 2 nodes via topics, services, and actions; rclpy patterns and timing." name="description"/>
+<title>Section 24.11: ROS 2 Integration</title>
+<link href="../../styles/book.css" rel="stylesheet"/>
+<link href="../../styles/pygments.css" rel="stylesheet"/>
+<link href="../../vendor/prism/prism-theme.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/prism/prism-bundle.min.js"></script>
+<script defer="" src="../../scripts/book.js"></script>
+<link href="../../pagefind/pagefind-ui.css" rel="stylesheet"/>
+<script defer="" src="../../pagefind/pagefind-ui.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
+
+<header class="chapter-header">
+<nav class="header-nav">
+<a class="book-title-link" href="../../index.html">Building Conversational AI with LLMs and Agents</a>
+<a class="toc-link" href="../../toc.html" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+</nav>
+<div class="header-search"><div id="search"></div></div>
+<div class="page-breadcrumb" data-pagefind-meta="chapter"><a href="../index.html">Part V: Multimodal LLMs</a><span class="bc-sep">›</span><a href="index.html">Chapter 24</a></div>
+<h1>ROS 2 Integration</h1><div class="page-current">Section 24.11</div>
+</header>
+<main class="content" id="main-content"><span class="pagefind-meta-injected" data-pagefind-meta="part:Part V: Multimodal LLMs" hidden=""></span><span class="pagefind-meta-injected" data-pagefind-meta="chapter:Chapter 24: VLA Models and LLM-Powered Robotics" hidden=""></span>
+<blockquote class="epigraph">
+<p>"ROS 2 is the cable that connects 'think' to 'move'. The cable is held together by topic names and good intentions."</p>
+<span class="agent-avatar-inline" style="background-color: #3498db;"><img alt="Pip" height="28" src="../../front-matter/images/agents/pip.png" width="28"/></span><cite>Pip, <span class="agent-desc">Topic-Subscriber AI Agent</span></cite>
+</blockquote>
+<div class="callout big-picture">
+<div class="callout-title">Big Picture</div>
+<p>Every concept in the previous four sections hits the road through ROS 2 (Robot Operating System 2), the de facto middleware for serious robotics in 2026. This section shows how an LLM agent (whether a planner, dispatcher, or VLA wrapper) actually talks to a real robot: which ROS 2 primitives matter (topics, services, actions), which Python patterns work, and where the timing model of ROS 2 collides with the request-response model of LLM APIs.</p>
+</div>
+<div class="prerequisites">
+<h3 id="prerequisites">Prerequisites</h3>
+<p>This section assumes Python familiarity and the single-robot VLA architecture from <a href="section-24.1.html">Section 24.1</a>. Familiarity with publish/subscribe messaging is useful but not strictly required. The LLM-tool-use pattern is covered in detail later in the book.</p>
+</div>
+
+
+<h2 id="24-11-1-the-three-ros-2-primitives">24.11.1 The Three ROS 2 Primitives</h2>
+<div class="callout fun-note">
+<div class="callout-title">Fun Fact</div>
+<p>ROS (the original) was created at Willow Garage in 2007 as the operating-system substrate for the PR2 robot. ROS 2 was a complete rewrite started in 2014 specifically because ROS 1's pub-sub middleware did not handle multi-robot, multi-machine deployments well; ROS 2 switched to DDS (the Data Distribution Service standard, originally from air-traffic control) for that exact reason. Every LLM-to-ROS-2 bridge in 2026 inherits an aviation-grade messaging substrate.</p>
+</div>
+<p>ROS 2 exposes three interaction patterns that an LLM agent must learn. <em>Topics</em> are publish-subscribe streams (camera frames, joint states, odometry); the agent subscribes and reads at the rate the publisher pushes. <em>Services</em> are synchronous request-reply (compute IK, query semantic map, get battery state); the agent calls and blocks for the response. <em>Actions</em> are long-running goal-oriented operations with feedback and cancellation (navigate to pose, follow trajectory, dock); the agent sends a goal and receives periodic feedback until completion or cancellation.</p>
+
+<figure>
+<table>
+<thead>
+<tr><th scope="col">Pattern</th><th scope="col">Direction</th><th scope="col">Duration</th><th scope="col">Cancellable</th><th scope="col">Typical use from LLM</th></tr>
+</thead>
+<tbody>
+<tr><td>Topic (pub/sub)</td><td>One-to-many, fire-and-forget</td><td>Continuous</td><td>n/a</td><td>Observe camera, joint state</td></tr>
+<tr><td>Service</td><td>Request/reply, synchronous</td><td>Milliseconds</td><td>No</td><td>Query, compute, get state</td></tr>
+<tr><td>Action</td><td>Goal with feedback stream</td><td>Seconds to minutes</td><td>Yes</td><td>Navigate, manipulate, dock</td></tr>
+</tbody>
+</table>
+<figcaption><strong>Table 24.11.1</strong>: The three ROS 2 interaction primitives and how an LLM agent uses each. Topics are read; services are called; actions are dispatched and monitored. Most LLM-emitted "tool calls" map to either a service or an action; topics are read in the agent's perception loop, not driven by tool calls.</figcaption>
+</figure>
+
+<h2 id="24-11-2-the-canonical-llm-to-ros-2-bridge">24.11.2 The Canonical LLM-to-ROS 2 Bridge</h2>
+<p>The 2026 reference pattern is an "ROS 2 agent" Python class that exposes high-level methods to the LLM (typically as function-calling tools) and translates each method into the appropriate ROS 2 primitive underneath. Below is a minimal but complete example using <code>rclpy</code>:</p>
+
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="kn">import</span><span class="w"> </span><span class="nn">rclpy</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">rclpy.node</span><span class="w"> </span><span class="kn">import</span> <span class="n">Node</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">rclpy.action</span><span class="w"> </span><span class="kn">import</span> <span class="n">ActionClient</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">geometry_msgs.msg</span><span class="w"> </span><span class="kn">import</span> <span class="n">PoseStamped</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">nav2_msgs.action</span><span class="w"> </span><span class="kn">import</span> <span class="n">NavigateToPose</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">sensor_msgs.msg</span><span class="w"> </span><span class="kn">import</span> <span class="n">Image</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">LlmRobotAgent</span><span class="p">(</span><span class="n">Node</span><span class="p">):</span>
+    <span class="sd">"""Bridges LLM tool calls into ROS 2 primitives on a Nav2-enabled robot."""</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="s2">"llm_agent"</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_latest_image</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_image_sub</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">create_subscription</span><span class="p">(</span>
+            <span class="n">Image</span><span class="p">,</span> <span class="s2">"/camera/image_raw"</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_image_cb</span><span class="p">,</span> <span class="mi">10</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_nav_client</span> <span class="o">=</span> <span class="n">ActionClient</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">NavigateToPose</span><span class="p">,</span> <span class="s2">"/navigate_to_pose"</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_image_cb</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">msg</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_latest_image</span> <span class="o">=</span> <span class="n">msg</span>
+
+    <span class="c1"># --- Tools exposed to the LLM ---</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_camera_image</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bytes</span><span class="p">:</span>
+        <span class="sd">"""Return the latest camera frame as raw bytes."""</span>
+        <span class="k">return</span> <span class="nb">bytes</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_latest_image</span><span class="o">.</span><span class="n">data</span><span class="p">)</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_latest_image</span> <span class="k">else</span> <span class="sa">b</span><span class="s2">""</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">go_to_pose</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">y</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">yaw</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+        <span class="sd">"""Navigate to (x, y, yaw) in the map frame. Returns success boolean."""</span>
+        <span class="n">goal</span> <span class="o">=</span> <span class="n">NavigateToPose</span><span class="o">.</span><span class="n">Goal</span><span class="p">()</span>
+        <span class="n">goal</span><span class="o">.</span><span class="n">pose</span><span class="o">.</span><span class="n">header</span><span class="o">.</span><span class="n">frame_id</span> <span class="o">=</span> <span class="s2">"map"</span>
+        <span class="n">goal</span><span class="o">.</span><span class="n">pose</span><span class="o">.</span><span class="n">pose</span><span class="o">.</span><span class="n">position</span><span class="o">.</span><span class="n">x</span> <span class="o">=</span> <span class="n">x</span>
+        <span class="n">goal</span><span class="o">.</span><span class="n">pose</span><span class="o">.</span><span class="n">pose</span><span class="o">.</span><span class="n">position</span><span class="o">.</span><span class="n">y</span> <span class="o">=</span> <span class="n">y</span>
+        <span class="n">goal</span><span class="o">.</span><span class="n">pose</span><span class="o">.</span><span class="n">pose</span><span class="o">.</span><span class="n">orientation</span><span class="o">.</span><span class="n">w</span> <span class="o">=</span> <span class="mf">1.0</span>  <span class="c1"># simplification; real code converts yaw</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_nav_client</span><span class="o">.</span><span class="n">wait_for_server</span><span class="p">()</span>
+        <span class="n">future</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_nav_client</span><span class="o">.</span><span class="n">send_goal_async</span><span class="p">(</span><span class="n">goal</span><span class="p">)</span>
+        <span class="n">rclpy</span><span class="o">.</span><span class="n">spin_until_future_complete</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">future</span><span class="p">)</span>
+        <span class="n">result_future</span> <span class="o">=</span> <span class="n">future</span><span class="o">.</span><span class="n">result</span><span class="p">()</span><span class="o">.</span><span class="n">get_result_async</span><span class="p">()</span>
+        <span class="n">rclpy</span><span class="o">.</span><span class="n">spin_until_future_complete</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">result_future</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">result_future</span><span class="o">.</span><span class="n">result</span><span class="p">()</span><span class="o">.</span><span class="n">status</span> <span class="o">==</span> <span class="mi">4</span>   <span class="c1"># STATUS_SUCCEEDED</span></code></pre>
+<div class="code-caption"><strong>Code Fragment 24.11.1:</strong> A minimal LLM-to-ROS-2 bridge. The image topic is read passively (subscriber callback); the navigation action is dispatched and waited on. The two tools <code>get_camera_image()</code> and <code>go_to_pose()</code> are what the LLM sees; the ROS 2 plumbing is hidden underneath.</div>
+</div>
+
+<h2 id="24-11-3-the-timing-impedance-mismatch">24.11.3 The Timing Impedance Mismatch</h2>
+<p>ROS 2 runs at fixed rates (camera at 30 Hz, joint state at 100 Hz, navigation actions over many seconds). LLM APIs respond in 1-5 seconds per call. The two timing models do not align. A naive bridge that blocks the entire ROS 2 executor while waiting for an LLM response stops publishing topics, which causes downstream nodes (Nav2, perception) to time out. The right pattern is to keep the LLM call <em>off</em> the ROS executor thread, typically via Python's <code>asyncio</code> or a background thread that posts the result back into the executor via a queue.</p>
+
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">threading</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">rclpy.executors</span><span class="w"> </span><span class="kn">import</span> <span class="n">MultiThreadedExecutor</span>
+
+<span class="c1"># Two threads: ROS spin thread, LLM call thread.</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">():</span>
+    <span class="n">rclpy</span><span class="o">.</span><span class="n">init</span><span class="p">()</span>
+    <span class="n">agent</span> <span class="o">=</span> <span class="n">LlmRobotAgent</span><span class="p">()</span>
+    <span class="n">executor</span> <span class="o">=</span> <span class="n">MultiThreadedExecutor</span><span class="p">(</span><span class="n">num_threads</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+    <span class="n">executor</span><span class="o">.</span><span class="n">add_node</span><span class="p">(</span><span class="n">agent</span><span class="p">)</span>
+
+    <span class="n">spin_thread</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Thread</span><span class="p">(</span><span class="n">target</span><span class="o">=</span><span class="n">executor</span><span class="o">.</span><span class="n">spin</span><span class="p">,</span> <span class="n">daemon</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="n">spin_thread</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+
+    <span class="k">while</span> <span class="n">rclpy</span><span class="o">.</span><span class="n">ok</span><span class="p">():</span>
+        <span class="n">scene_description</span> <span class="o">=</span> <span class="n">summarize</span><span class="p">(</span><span class="n">agent</span><span class="o">.</span><span class="n">get_camera_image</span><span class="p">())</span>
+        <span class="n">plan</span> <span class="o">=</span> <span class="n">call_llm</span><span class="p">(</span>                <span class="c1"># this blocks for ~3 seconds</span>
+            <span class="n">prompt</span><span class="o">=</span><span class="sa">f</span><span class="s2">"Goal: tidy the table. Scene: </span><span class="si">{</span><span class="n">scene_description</span><span class="si">}</span><span class="s2">"</span><span class="p">,</span>
+            <span class="n">tools</span><span class="o">=</span><span class="p">[</span><span class="n">agent</span><span class="o">.</span><span class="n">go_to_pose</span><span class="p">,</span> <span class="n">agent</span><span class="o">.</span><span class="n">pick_up</span><span class="p">,</span> <span class="n">agent</span><span class="o">.</span><span class="n">place</span><span class="p">],</span>
+        <span class="p">)</span>
+        <span class="k">for</span> <span class="n">call</span> <span class="ow">in</span> <span class="n">plan</span><span class="o">.</span><span class="n">tool_calls</span><span class="p">:</span>
+            <span class="n">tool</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">agent</span><span class="p">,</span> <span class="n">call</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+            <span class="n">tool</span><span class="p">(</span><span class="o">**</span><span class="n">call</span><span class="o">.</span><span class="n">args</span><span class="p">)</span></code></pre>
+<div class="code-caption"><strong>Code Fragment 24.11.2:</strong> Threading the LLM-ROS bridge correctly. The ROS executor spins in its own thread so topic callbacks keep firing; the main thread issues LLM calls and dispatches the resulting tool calls. Forgetting to separate these threads is the most common bug in academic LLM-on-ROS-2 demos.</div>
+</div>
+
+<div class="callout warning">
+<div class="callout-title">Warning: QoS profiles matter</div>
+<p>ROS 2 subscribers and publishers specify a "Quality of Service" (QoS) profile that controls reliability, durability, and history depth. The default profile (reliable, volatile, depth 10) works for most general topics but is wrong for camera images (which want best-effort, sensor-data profile) and for one-shot configuration topics (which want transient-local durability). An LLM agent that subscribes with the wrong QoS profile silently misses messages, which surfaces as "the model never sees the camera frames" without any error. The fix is to use the QoS profile that matches the publisher; <code>rclpy.qos.QoSPresetProfiles.SENSOR_DATA.value</code> for camera/IMU/LiDAR, <code>SYSTEM_DEFAULT</code> for most everything else.</p>
+</div>
+
+<h2 id="24-11-4-the-tool-calling-glue">24.11.4 The Tool-Calling Glue</h2>
+<p>Modern LLM tool calling (OpenAI function calling, Anthropic tool use, Gemini function calling) maps cleanly onto ROS 2 services and actions. Each LLM tool corresponds to one ROS 2 endpoint; the tool's JSON schema mirrors the request type's structure. The mapping is mechanical enough that several open-source libraries (rosa, rosbridge-llm, ros2_llm_agent) auto-generate the tool definitions from message <code>.msg</code> and <code>.action</code> files.</p>
+
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># Auto-generating tool definitions from a ROS 2 action.</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">nav2_msgs.action</span><span class="w"> </span><span class="kn">import</span> <span class="n">NavigateToPose</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">rclpy_llm</span><span class="w"> </span><span class="kn">import</span> <span class="n">action_to_tool</span>
+
+<span class="n">nav_tool</span> <span class="o">=</span> <span class="n">action_to_tool</span><span class="p">(</span><span class="n">NavigateToPose</span><span class="p">,</span> <span class="n">action_name</span><span class="o">=</span><span class="s2">"navigate_to_pose"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">nav_tool</span><span class="o">.</span><span class="n">openai_schema</span><span class="p">())</span>
+<span class="c1"># {</span>
+<span class="c1">#     "name": "navigate_to_pose",</span>
+<span class="c1">#     "description": "Navigate the robot to a target pose in a given frame.",</span>
+<span class="c1">#     "parameters": {</span>
+<span class="c1">#         "type": "object",</span>
+<span class="c1">#         "properties": {</span>
+<span class="c1">#             "x": {"type": "number", "description": "X position in frame_id"},</span>
+<span class="c1">#             "y": {"type": "number", "description": "Y position in frame_id"},</span>
+<span class="c1">#             "yaw": {"type": "number", "description": "Yaw angle in radians"},</span>
+<span class="c1">#             "frame_id": {"type": "string", "default": "map"},</span>
+<span class="c1">#         },</span>
+<span class="c1">#         "required": ["x", "y", "yaw"],</span>
+<span class="c1">#     },</span>
+<span class="c1"># }</span></code></pre>
+<div class="code-caption"><strong>Code Fragment 24.11.3:</strong> Auto-generating an OpenAI function-calling schema from a ROS 2 action definition. The mechanical mapping (message field to JSON property, comments to descriptions) means a robot with N actions exposes ~N LLM tools without per-tool boilerplate. This is the integration pattern that lets a hobbyist plug an LLM into an existing ROS 2 stack in an afternoon.</div>
+</div>
+
+<h2 id="24-11-5-handling-long-running-actions">24.11.5 Handling Long-Running Actions</h2>
+<p>Navigation actions take seconds; manipulation actions take longer. The LLM must not block on a 30-second action without producing intermediate feedback to the user. The pattern is to expose three tools per long-running action: <em>start</em>, <em>check status</em>, and <em>cancel</em>. The LLM starts the action, polls status periodically while emitting status updates to the user, and cancels if a new instruction arrives.</p>
+
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># Three-tool wrapper around a long-running ROS 2 action.</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">LongActionWrapper</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">action_client</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">client</span> <span class="o">=</span> <span class="n">action_client</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_active_goal_handle</span> <span class="o">=</span> <span class="kc">None</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">start</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">goal</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+        <span class="sd">"""Start the action. Returns a goal_id the LLM can poll on."""</span>
+        <span class="n">future</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">client</span><span class="o">.</span><span class="n">send_goal_async</span><span class="p">(</span><span class="n">goal</span><span class="p">)</span>
+        <span class="n">future</span><span class="o">.</span><span class="n">add_done_callback</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_store_handle</span><span class="p">)</span>
+        <span class="k">return</span> <span class="s2">"goal_</span><span class="si">{</span><span class="n">future</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">stamp</span><span class="o">.</span><span class="n">sec</span><span class="si">}</span><span class="s2">"</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">status</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">goal_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+        <span class="sd">"""Returns one of: pending, executing, succeeded, failed, canceled."""</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_active_goal_handle</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="s2">"pending"</span>
+        <span class="k">return</span> <span class="n">STATUS_MAP</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_active_goal_handle</span><span class="o">.</span><span class="n">status</span><span class="p">]</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">cancel</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">goal_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="sd">"""Cancel the in-progress action."""</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_active_goal_handle</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_active_goal_handle</span><span class="o">.</span><span class="n">cancel_goal_async</span><span class="p">()</span></code></pre>
+<div class="code-caption"><strong>Code Fragment 24.11.4:</strong> The start/status/cancel triplet for long-running actions. The LLM uses these three tools in a loop: start the action, poll status until succeeded or failed, optionally cancel if the user issues a new instruction. This is the same pattern as polling a long-running cloud job; the only difference is that the "job" is a physical action with real-world consequences.</div>
+</div>
+
+<div class="callout practical-example">
+<div class="callout-title">Real-World Scenario: "Cancel and re-plan"</div>
+<p>In a 2025 office-robot demo, the operator told the robot "go to the kitchen, then bring me coffee", but after 5 seconds added "actually, go to my desk first". The LLM agent's correct behavior is: detect the new instruction, call <code>cancel(current_goal_id)</code>, then start a new navigation goal to the desk. Getting this right requires the LLM to know which goal_ids are active and to cancel them before issuing a new conflicting action. Forgetting to cancel produced the famous "robot stuck oscillating between two locations" demo failure that circulated on Twitter that summer.</p>
+</div>
+
+<h2 id="24-11-6-debugging-the-bridge">24.11.6 Debugging the Bridge</h2>
+<p>Three diagnostic tools should be permanently mounted in any LLM-on-ROS-2 deployment. <code>ros2 topic echo</code> on the topics the LLM agent reads, to verify the data is flowing. <code>ros2 action info</code> on the actions the agent dispatches, to verify the action server is registered. A logger that records every LLM tool call with its arguments and the ROS 2 response, so post-mortems on incidents have a complete trace.</p>
+
+<div class="callout research-frontier">
+<div class="callout-title">Research Frontier: Beyond ROS 2: DDS, Zenoh, and the future</div>
+<p>ROS 2 itself is built on DDS (Data Distribution Service), which has its own performance characteristics that LLM agents inherit. Two emerging alternatives matter in 2026. (a) <em>Zenoh</em> (zenoh.io) replaces the DDS layer with a more efficient pub/sub protocol better suited to high-latency wireless links and large fleets. (b) <em>NVIDIA Isaac Sim</em>'s reference architecture uses gRPC streaming instead of DDS for the simulation-to-policy interface. The ROS 2 community's response is the Tier-1 Zenoh integration in Humble Hawksbill and successor releases, which lets you swap the DDS layer without changing application code. Expect the underlying middleware to look different by 2028, but the topic/service/action abstraction is stable.</p>
+</div>
+
+<h2 id="key-takeaway">Key Takeaway</h2>
+<div class="callout key-insight">
+<div class="callout-title">Key Insight</div>
+<p>ROS 2 exposes three primitives (topics, services, actions) that map cleanly to LLM tool calling. The bridge is mechanical enough to auto-generate; the timing mismatch (LLM at 0.2 Hz, ROS at 30 Hz) requires multi-threading the executor so topic callbacks never block on LLM calls. Long-running actions need a start/status/cancel triplet so the LLM can monitor and abort without freezing. QoS profiles, often overlooked, are the silent cause of "the model never sees the camera frame" bugs.</p>
+</div>
+
+<div class="callout self-check">
+<div class="callout-title">Self-Check</div>
+<div class="quiz-question"><strong>Q1:</strong> An LLM agent subscribes to <code>/camera/image_raw</code> with the default QoS profile and observes that only ~1 in 30 frames arrives. What is the likely cause, and which QoS profile should you use instead?</div>
+<details>
+<summary>Show Answer</summary>
+<div class="answer">The default subscriber QoS in ROS 2 is RELIABLE with KEEP_LAST(10), which means the middleware buffers ten frames and refuses to drop. A 30 Hz publisher overflows that buffer in a third of a second, and DDS then backpressures or skips frames depending on configuration; the LLM's slow consumption rate (one frame per few seconds) means it sees stale buffered frames or none at all. The correct profile for high-rate sensor data is <code>SensorDataQoS</code>, which is BEST_EFFORT with KEEP_LAST(5). The trade is that you drop frames the LLM cannot keep up with rather than queue them, so the agent always sees the freshest available frame.</div>
+</details>
+<div class="quiz-question"><strong>Q2:</strong> Sketch a deadlock scenario where the ROS 2 executor and the LLM call thread share the same Python interpreter and both try to acquire <code>self._lock</code>. How does the multi-threaded executor pattern from <strong>Code Fragment 24.11.2</strong> avoid this?</div>
+<details>
+<summary>Show Answer</summary>
+<div class="answer">A single-threaded executor runs all topic callbacks on one thread. The LLM-call thread holds <code>self._lock</code> while waiting for the synchronous API response (tens of seconds). A topic callback fires in the executor thread, tries to update shared state, blocks on <code>self._lock</code>, and the executor stalls; meanwhile the LLM response writes a tool call that publishes on the now-blocked publisher, which never executes, and the original LLM call appears to hang. The multi-threaded executor allocates a thread pool so the callback runs in a different worker while the LLM thread waits; <code>self._lock</code> still serializes shared-state updates, but the executor never blocks. The deadlock disappears because the two waiting paths no longer share a single OS thread.</div>
+</details>
+<div class="quiz-question"><strong>Q3:</strong> Your LLM agent calls <code>go_to_pose(0, 0, 0)</code> and the action server replies with status STATUS_ABORTED. List three ROS 2 diagnostic commands you would run to identify the cause.</div>
+<details>
+<summary>Show Answer</summary>
+<div class="answer">First, <code>ros2 action info /go_to_pose -t</code> to confirm the action server is alive and lists the expected goal/feedback/result types; abort with no server is silent and looks identical to a real abort. Second, <code>ros2 topic echo /tf</code> and <code>ros2 topic echo /odom</code> to confirm the robot has a valid pose estimate; a missing or jumping TF tree is the most common root cause of pose-action aborts. Third, <code>ros2 node info /go_to_pose_server</code> to inspect the action server's parameters and subscriptions, then check the server's log via <code>ros2 run rqt_console rqt_console</code> for the abort reason string, which servers typically publish but agents do not propagate. These three together resolve the majority of STATUS_ABORTED responses without touching application code.</div>
+</details>
+</div>
+
+<div class="callout whats-next">
+<div class="callout-title">What's Next</div>
+<p>Continue to <a href="section-24.12.html">Section 24.12: Comparing the Planners</a>.</p>
+</div>
+<p>With ROS 2 integration in hand you have a complete LLM-to-robot stack. <a href="section-24.12.html">Section 24.12</a> revisits SayCan, Code-as-Policies, VoxPoser, and the dispatcher pattern side by side, with a comparison matrix that maps each onto the deployment scenarios where it dominates.</p>
+
+
+<details class="bibliography-collapsible">
+<summary><strong>Further Reading</strong></summary>
+<section class="bibliography">
+<div class="bib-entry-card">
+<div class="bib-ref">Macenski, S., et al. (2022). Robot Operating System 2: Design, Architecture, and Uses in the Wild. "Science Robotics".</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Macenski, S., et al. (2020). The Marathon 2: A Navigation System (Nav2). "IROS 2020, <a href="https://arxiv.org/abs/2003.00368" rel="noopener" target="_blank">arXiv:2003.00368</a>".</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Open Source Robotics Foundation. (2024). ROS 2 Humble Hawksbill Documentation. "docs.ros.org".</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Object Management Group. (2015). Data Distribution Service for Real-Time Systems (DDS) Specification. "OMG".</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Corradi, A., et al. (2024). Zenoh: A New Pub/Sub Protocol for the IoT. "Eclipse Foundation".</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Ahn, M., et al. (2024). AutoRT: Embodied Foundation Models for Large Scale Orchestration of Robotic Agents. "<a href="https://arxiv.org/abs/2401.12963" rel="noopener" target="_blank">arXiv:2401.12963</a>".</div>
+</div>
+</section>
+</details>
+
+<nav class="chapter-nav">
+<a class="prev" href="section-24.10.html"><span class="nav-label">Previous</span><span class="nav-num">Section 24.10</span><span class="nav-title">Multi-Robot Dispatch via Shared LLM</span></a>
+<a class="up" href="index.html"><span class="nav-label">In Chapter</span><span class="nav-num">Chapter 24</span><span class="nav-title">VLA Models and LLM-Powered Robotics</span></a>
+<a class="next" href="section-24.12.html"><span class="nav-label">Next</span><span class="nav-num">Section 24.12</span><span class="nav-title">Comparing the Planners</span></a>
+</nav>
+<footer><p>Fifteenth Edition, 2026 · <a href="../../toc.html">Contents</a></p></footer>
+</main>
+</body>
+</html>

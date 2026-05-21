@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-PWPHBQL2VL"></script>
+<script>
+window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', 'G-PWPHBQL2VL');
+</script>
+
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<meta content="Section 43.3: Simulation-Based Evaluation. Static evaluation breaks the moment your agent has to hold a conversation." name="description"/>
+<title>Section 43.3: Simulation-Based Evaluation: tau-bench and MM-tau-p2</title>
+<link href="../../styles/book.css" rel="stylesheet"/>
+<link href="../../styles/pygments.css" rel="stylesheet"/>
+<link href="../../vendor/prism/prism-theme.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/prism/prism-bundle.min.js"></script>
+<script defer="" src="../../scripts/book.js"></script>
+<link href="../../pagefind/pagefind-ui.css" rel="stylesheet"/>
+<script defer="" src="../../pagefind/pagefind-ui.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
+
+<header class="chapter-header">
+<nav class="header-nav">
+<a class="book-title-link" href="../../index.html">Building Conversational AI with LLMs and Agents</a>
+<a class="toc-link" href="../../toc.html" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+</nav>
+<div class="header-search">
+<div id="search"></div>
+</div>
+
+<div class="page-breadcrumb" data-pagefind-meta="chapter"><a href="../index.html">Part IX: LLM Evaluation &amp; Observability</a><span class="bc-sep">›</span><a href="index.html">Chapter 43: Specialized Evaluation: RAG, Agents, Multimodal, Long-Context</a></div>
+<h1>Simulation-Based Evaluation: &tau;-bench and MM-&tau;-p2</h1><div class="page-current">Section 43.3</div>
+
+</header>
+<main class="content" id="main-content"><span class="pagefind-meta-injected" data-pagefind-meta="part:Part IX: LLM Evaluation &amp; Observability" hidden=""></span><span class="pagefind-meta-injected" data-pagefind-meta="chapter:Chapter 43: Specialized Evaluation: RAG, Agents, Multimodal, Long-Context" hidden=""></span>
+<blockquote class="epigraph">
+<p>"A test set that does not talk back is not a test set for a conversational agent. It is a test set for an essay-writing model that happens to be reading transcripts."</p> <span class="agent-avatar-inline" style="background-color: #7f8c8d;"><img alt="Eval" height="28" src="../../front-matter/images/agents/eval.png" width="28"/></span><cite>Eval, <span class="agent-desc">Vibe-Averse AI Agent</span></cite>
+</blockquote>
+<div class="callout big-picture">
+<div class="callout-title">Big Picture</div>
+<p>Static evaluation breaks the moment your agent has to hold a conversation. A user who changes their mind mid-flow, clarifies a vague request, or pushes back on a recommendation is not a single-turn benchmark, they are a feedback loop. The frontier of agent evaluation in 2024-2026 is <em>simulation</em>: pit your agent against a scripted or LLM-driven user simulator inside an instrumented environment, give both sides goals and tools, and score the final world state rather than the surface text. This section walks through the three benchmarks that have anchored this shift, &tau;-bench (Sierra Research, 2024), &tau;<sup>2</sup>-bench (2025), and MM-&tau;-p2 (multi-modal, persona-adaptive, 2026), explains how to write a user simulator that does not collapse into a yes-man, and shows where simulation is the right tool versus where simpler <a href="section-43.2.html">trajectory evaluation</a> still wins. The metrics we use here (<a href="../module-42-evaluation-foundations/section-42.1.html">pass@k</a>, goal-state comparison) build directly on the foundations from <a href="../module-42-evaluation-foundations/section-42.1.html">Section 42.1</a>.</p>
+</div>
+<div class="prerequisites">
+<h3 id="prerequisites">Prerequisites</h3>
+<p>This section assumes familiarity with <a href="../../part-6-agentic-ai/module-26-ai-agents/index.html">tool-using agents</a> from Part VI, <a href="../module-42-evaluation-foundations/section-42.1.html">LLM-as-Judge</a> from Section 44.1, and the <a href="../../part-3-working-with-llms/module-12-prompt-engineering/section-12.1.html">prompt engineering</a> patterns from Section 14.1. Familiarity with multi-turn conversation handling and structured tool calls (Section 25.4) is helpful.</p>
+</div>
+<h2 id="43-3-1-why-static-eval-fails-for-conversational-agents">43.3.1 Why Static Evaluation Fails for Conversational Agents</h2>
+<div class="callout fun-note">
+<div class="callout-title">Fun Fact</div>
+<p>Sierra's tau-bench shipped with a single configuration error in 2024 that caused half the public leaderboard to be silently invalid for three weeks. The fix changed every model's score by about 8%, and nobody changed places on the leaderboard, a reminder that benchmark rankings are often more robust than the benchmarks themselves.</p>
+</div>
+<figure class="illustration">
+<img alt="A control room with monitors and switches where an AI agent observes, plans, and executes actions in a closed-loop environment" src="../../part-6-agentic-ai/module-26-ai-agents/images/agent-control-room.png" width="1157" height="834"/>
+<figcaption><strong>Figure 43.3.1</strong>: Simulation-based evaluation places the agent inside a closed loop with a user simulator and an instrumented environment. The score is read off the database at the end of the conversation, not the transcript, so the eval rewards goal-state achievement rather than fluent text.</figcaption>
+</figure>
+<p>Most published LLM benchmarks share a hidden assumption: the input is a fixed prompt and the output is a single response graded against a reference. This is the world of MMLU, GSM8K, HumanEval, and (with mild stretching) MT-Bench. It is the wrong world for the agents that show up in production support queues, in airline rebooking flows, in expense-policy assistants, and in coding copilots that span dozens of turns.</p>
+<p>Consider a customer service agent that helps a user return an item. A static benchmark hands the agent the complete user intent in one shot: <em>"I bought a blue T-shirt, size M, order 12345, on April 3. I want to return it for a refund because it does not fit."</em> The agent calls <code>process_return("12345", "refund")</code> and the test passes. Reality looks nothing like that. The user starts with <em>"hey, the shirt doesn't fit"</em>, does not remember the order number, hesitates when offered a store credit, asks if they can exchange instead, changes their mind, and finally settles on a refund only after the agent surfaces the relevant policy. Every one of those turns is a branch the agent could mishandle, and none of them appear in a one-shot benchmark.</p>
+<div class="callout key-insight">
+<div class="callout-title">Key Insight: The Three Failure Modes of Static Conversational Eval</div>
+<p>Static evaluation of conversational agents fails for three structural reasons. <strong>(1) User adaptation:</strong> real users update their preferences in response to agent suggestions, so the optimal next action depends on the agent's earlier turns. A frozen reference trajectory cannot capture this. <strong>(2) Goal drift:</strong> users start with one request and end with another (return becomes exchange becomes credit). A test that demands a specific final action will mark a correct alternative resolution as wrong. <strong>(3) Tool-state coupling:</strong> tools mutate the world (create orders, cancel flights, charge cards), so the test of correctness is the resulting database state, not the textual response.</p>
+</div>
+<p>The community converged on a simple corrective: replace the static input with a <em>user simulator</em>, instrument the environment to track state, and score the database (or filesystem, or vector store) at the end of the conversation rather than the transcript itself. The simulator does not have to be perfect; it has to be <em>consistent</em> and <em>adversarial enough</em> to expose the failure modes that production users will expose.</p>
+<h2 id="43-3-2-tau-bench-the-canonical-tool-agent-user-benchmark">43.3.2 &tau;-bench: The Canonical Tool-Agent-User Benchmark</h2>
+<p>&tau;-bench (Yao et al., 2024, <a href="https://arxiv.org/abs/2406.12045" rel="noopener" target="_blank">arXiv:2406.12045</a>) crystallized this shift. Released by Sierra Research in June 2024, it sets up a closed-loop interaction between three components: a tool-using <strong>agent</strong> (the system under test), a <strong>simulated user</strong> driven by GPT-4o (or any frontier model), and a sandboxed <strong>environment</strong> with a database the agent can read and write through tool calls. The agent and user converse for up to forty turns; success is determined by comparing the final database state to a goal database.</p>
+<p>&tau;-bench ships two domains. The <em>retail</em> domain has a SQLite database of orders, products, and customers, and tools for searching products, looking up orders, processing returns and exchanges, and updating addresses. The <em>airline</em> domain has flights, reservations, and passengers, with tools for searching flights, booking, canceling, updating passenger info, and applying compensation. Each domain ships hundreds of tasks; each task is a tuple of (initial database snapshot, user persona and goal, target final database state).</p>
+<div class="callout production-pattern">
+<div class="callout-title">Production Pattern: Goal-State Comparison Rather Than Transcript Matching</div>
+<p><strong>When:</strong> evaluating a tool-using agent whose job is to mutate a world (database, filesystem, ticketing system) rather than to produce text. <strong>How:</strong> snapshot the relevant subset of the world before and after the conversation, diff the after-state against the goal state, and report a binary pass/fail on whether the mutations match (allowing for spurious unrelated mutations to be ignored). <strong>Watch for:</strong> non-deterministic side effects (timestamps, auto-generated IDs) that you must canonicalize before comparison; spurious passes when the agent achieves the goal by accident rather than by following policy. <strong>Result:</strong> a metric that survives agent paraphrasing and rewards actual task completion.</p>
+</div>
+<p>&tau;-bench reports two metrics. <strong>pass^1</strong> is the fraction of tasks solved on a single trial. <strong>pass^k</strong> is the fraction of tasks the agent solves on <em>all k independent trials</em>, a stricter aggregate that captures the reliability of the agent under stochastic decoding. The pass^k metric is deliberately the harsh complement to <a href="../module-42-evaluation-foundations/section-42.1.html">code-generation pass@k</a>: in code generation, you want at least one out of k samples to compile; in &tau;-bench, you want all k samples to succeed because a 70% success rate is unacceptable for a system that handles real customer money.</p>
+<div class="callout note">
+<div class="callout-title">Note: The pass^k vs pass@k Naming Trap</div>
+<p>Beware: the &tau;-bench paper uses <strong>pass^k</strong> (all-of-k) and the code-generation literature uses <strong>pass@k</strong> (any-of-k). They are named almost identically and mean opposite things. When reading a paper, check the formula before assuming. Anthropic's and OpenAI's evaluation harnesses for agents adopt the &tau;-bench convention; many open-source agent leaderboards do not, and you will see numbers that are not comparable across reports.</p>
+</div>
+<p>Initial &tau;-bench numbers (mid-2024) showed Claude-3.5-Sonnet at roughly 55% pass^1 on retail and 36% on airline, GPT-4o at around 50% and 35%, and open-source models well below. By early 2026, frontier models cleared 75% pass^1 on retail, but airline (with its denser tool space and policy constraints) remained stubbornly in the 50-60% range. The gap is the leaderboard's testimony that policy compliance is still hard.</p>
+<h2 id="36-3-3-tau-squared-bench-dual-control-and-cooperative-coordination">36.3.3 &tau;<sup>2</sup>-bench: Dual-Control and Cooperative Coordination</h2>
+<p>&tau;-bench's original setup is asymmetric: only the agent can write to the database. The user is a stateful conversational partner but cannot mutate the world. Real customer-service flows are not like that: the user fills in their own address, the user clicks confirm on a charge, the user uploads a receipt. &tau;<sup>2</sup>-bench (Sierra Research, 2025, <a href="https://arxiv.org/abs/2506.07982" rel="noopener" target="_blank">arXiv:2506.07982</a>) lifts this restriction. Both the agent and the simulated user have tool access; both can modify the world.</p>
+<p>This sounds like a small extension; it is not. Dual-control turns the evaluation into a <em>coordination problem</em>. The agent must know when to do something itself and when to ask the user to do something, and the user simulator must follow the agent's instructions accurately. Successful task completion requires what the &tau;<sup>2</sup>-bench paper calls <em>cooperative coordination</em>: neither party can complete the task alone, and miscommunication is fatal. The benchmark explicitly tests scenarios like:</p>
+<ul>
+<li><strong>Authentication challenges</strong> where only the user can produce a verification code that the agent then submits.</li>
+<li><strong>Photo uploads</strong> where the user must take a picture of a damaged item, and the agent must process the image (or in multi-modal extensions, evaluate it).</li>
+<li><strong>Payment authorization</strong> where the user must confirm a charge in their banking app while the agent waits.</li>
+</ul>
+<p>The metric remains goal-state comparison, but the state now includes both database changes (from agent tool calls) and user-side actions (verification submitted, photo uploaded, charge approved). A successful evaluation pass requires that <em>both</em> sides made the right moves at the right times. &tau;<sup>2</sup>-bench reports also surface a coordination-failure rate, the fraction of tasks where the goal state was achievable in principle but the two sides failed to align.</p>
+<div class="callout algorithm">
+<div class="callout-title">Algorithm 43.3.1: Algorithm: Under the Hood: Why Dual-Control Exposes Hidden Agent Weaknesses</div>
+<p>Single-control &tau;-bench rewards agents that are eager actors: when in doubt, call a tool. Dual-control penalizes this strategy because the agent will sometimes call a tool the user should have called instead, leading to permission errors or stale state. Strong agents learn to ask clarifying questions and to delegate explicitly. The Sierra team reported that GPT-4o's single-control pass^1 of 50% dropped to 32% under dual-control, while a fine-tuned Sonnet variant that had been explicitly trained on delegation patterns dropped only from 55% to 47%. The diagnostic value of dual-control is that it tells you whether your agent has a model of <em>who should do what</em>, not just <em>what should be done</em>.</p>
+</div>
+<h2 id="43-3-4-mm-tau-p2-persona-adaptive-multi-modal-evaluation">43.3.4 MM-&tau;-p2: Persona-Adaptive Multi-Modal Evaluation</h2>
+<p>The 2026 evolution, MM-&tau;-p2 (Multi-Modal &tau;, persona-adaptive, partial-information, 2026), addresses two gaps in &tau;-bench and &tau;<sup>2</sup>-bench. First, the user simulators in both benchmarks are relatively flat: they have a goal, they pursue it, and their personality is a few sentences in a prompt. Real users have <em>stable preferences</em> that the agent must learn within a session (this user prefers email over phone, hates being on hold, always wants the lowest price), and the optimal agent behavior differs by persona. Second, real interactions are multi-modal: users upload photos, screenshots, audio clips; agents read receipts, parse handwriting, look at product images.</p>
+<p>MM-&tau;-p2 introduces three new elements:</p>
+<ol>
+<li><strong>Stable personas with revealed preferences.</strong> Each user simulator is instantiated with a JSON persona file containing demographic, behavioral, and preference attributes. Critically, the agent does <em>not</em> see this file. The agent must infer preferences from the conversation and adapt its style accordingly. A passing agent on the same task will have different transcripts for different personas.</li>
+<li><strong>Multi-modal turns.</strong> The user simulator can attach an image (a photo of a damaged shipment, a screenshot of an error, a picture of a receipt). The agent has access to a vision model and must extract the relevant fact (the SKU on the receipt, the visible damage to the box). Failure modes here include the agent ignoring the image and asking the user to type out what is in it.</li>
+<li><strong>Partial information.</strong> The simulator is briefed on the task goal but not on every fact the agent needs (the order number is on the receipt, not in the persona prompt). The agent must extract facts from images and conversation; it cannot get them by asking the user a single question. This forces the agent into a more realistic information-gathering pattern.</li>
+</ol>
+<p>The scoring on MM-&tau;-p2 reports three numbers: <strong>goal-state pass^1</strong> (did the database end up correct), <strong>persona-adaptation score</strong> (did the agent's stylistic choices match the persona's preferences, judged by a separate LLM-as-judge with a rubric), and <strong>information-extraction accuracy</strong> (did the agent correctly read the attached images). A perfect agent scores high on all three; a typical 2026 frontier model scores well on goal-state, mediocre on persona-adaptation, and is sensitive to image quality on information-extraction.</p>
+<h2 id="43-3-5-writing-a-user-simulator-that-does-not-collapse">43.3.5 Writing a User Simulator That Does Not Collapse</h2>
+<p>The user simulator is the load-bearing component of any simulation benchmark. A bad simulator quietly inflates your agent's score. Two collapse modes dominate practice:</p>
+<p><strong>The yes-man collapse.</strong> The simulator is asked to play a user, but its underlying LLM is RLHF-tuned to be helpful and cooperative. When the agent suggests a wrong answer, the simulator agrees rather than pushing back. When the agent asks <em>"is this what you wanted?"</em>, the simulator says yes regardless. Your pass rate goes up; your real-user pass rate does not. The fix is an explicit anti-yes-man clause in the simulator prompt: <em>"You have a specific goal. Do not accept resolutions that do not achieve your goal. If the agent proposes something wrong, push back."</em></p>
+<div class="callout fun-note">
+<div class="callout-title">Trivia</div>
+<p>The fastest way to spot a yes-man simulator is to feed your agent a clearly wrong tool call ("I'll refund $0.01 instead of the $80 you paid, OK?") and watch the simulator chirp "Sounds great, thank you so much!" before clicking accept. The RLHF training that makes Claude and GPT-4o pleasant in production makes them disastrous as adversarial users, because they have been deeply taught that the human is always right. Sierra Research's mitigation in tau-bench is to wrap the user simulator in a separate "is your goal actually met?" check, run by a different model that does not share the politeness conditioning.</p>
+</div>
+<p><strong>The loop collapse.</strong> The simulator and the agent get into a clarification loop. The agent asks for the order number; the simulator says it does not have it. The agent asks again differently; the simulator gives the same response. After ten turns, neither has made progress, and the simulator never thinks to actually retrieve the order number from its persona file. The fix is a turn budget plus an escalation prompt: <em>"If the agent has asked the same question three times, give them the answer even if you would not in real life."</em> This is a deliberate sacrifice of realism for evaluation throughput.</p>
+<div class="callout warning">
+<div class="callout-title">Warning: Validate Your User Simulator Before Trusting Its Scores</div>
+<p>Before publishing or shipping any simulation-based eval, run a calibration study: have human annotators rate 50 conversations on whether the simulated user behaved consistently with the persona, whether they pushed back appropriately, and whether the conversation flow felt natural. Compute the fraction of "yes-man" conversations and the fraction of "loop" conversations. Both rates should be under 10%. If they are higher, your simulator is broken and your agent scores are not measuring what you think.</p>
+</div>
+<p>The simulator prompt below is the minimal pattern we recommend for a single-control retail-style benchmark. It encodes a persona, a goal, anti-yes-man behavior, and a turn budget.</p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># A minimal user simulator + agent loop, OpenAI-API style.</span>
+<span class="c1"># This is a teaching scaffold, not a benchmark; tau-bench&#39;s actual code is far more elaborate.</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">openai</span><span class="w"> </span><span class="kn">import</span> <span class="n">OpenAI</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
+
+<span class="n">client</span> <span class="o">=</span> <span class="n">OpenAI</span><span class="p">()</span>
+
+<span class="n">USER_SIM_SYSTEM</span> <span class="o">=</span> <span class="s2">&quot;&quot;&quot;You are simulating a customer interacting with a support agent.</span>
+<span class="s2">PERSONA: </span><span class="si">{persona}</span>
+<span class="s2">GOAL: </span><span class="si">{goal}</span>
+<span class="s2">KNOWN FACTS: </span><span class="si">{facts}</span>
+
+<span class="s2">Rules:</span>
+<span class="s2">1. Pursue your goal. Do not accept resolutions that fail to achieve it.</span>
+<span class="s2">2. Do not reveal all facts at once. Reveal information as the agent asks for it.</span>
+<span class="s2">3. If the agent suggests something incorrect, push back briefly and restate your goal.</span>
+<span class="s2">4. If you have answered the same question three times, just provide the answer.</span>
+<span class="s2">5. End with &quot;[END]&quot; only when you are satisfied that your goal is achieved.</span>
+<span class="s2">Respond in one short paragraph as the user would.</span>
+<span class="s2">&quot;&quot;&quot;</span>
+
+<span class="n">AGENT_SYSTEM</span> <span class="o">=</span> <span class="s2">&quot;&quot;&quot;You are a retail customer support agent. You have these tools:</span>
+<span class="s2">- search_order(order_id)</span>
+<span class="s2">- process_return(order_id, reason)</span>
+<span class="s2">- process_exchange(order_id, new_sku)</span>
+<span class="s2">Call tools by emitting JSON: {&quot;tool&quot;: &quot;...&quot;, &quot;args&quot;: {...}}.</span>
+<span class="s2">Otherwise reply conversationally.&quot;&quot;&quot;</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">run_conversation</span><span class="p">(</span><span class="n">persona</span><span class="p">,</span> <span class="n">goal</span><span class="p">,</span> <span class="n">facts</span><span class="p">,</span> <span class="n">max_turns</span><span class="o">=</span><span class="mi">20</span><span class="p">):</span>
+    <span class="n">history_user</span><span class="p">,</span> <span class="n">history_agent</span> <span class="o">=</span> <span class="p">[],</span> <span class="p">[]</span>
+    <span class="n">transcript</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">turn</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">max_turns</span><span class="p">):</span>
+        <span class="c1"># User turn</span>
+        <span class="n">user_messages</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="p">{</span><span class="s2">&quot;role&quot;</span><span class="p">:</span> <span class="s2">&quot;system&quot;</span><span class="p">,</span> <span class="s2">&quot;content&quot;</span><span class="p">:</span> <span class="n">USER_SIM_SYSTEM</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+                <span class="n">persona</span><span class="o">=</span><span class="n">persona</span><span class="p">,</span> <span class="n">goal</span><span class="o">=</span><span class="n">goal</span><span class="p">,</span> <span class="n">facts</span><span class="o">=</span><span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">facts</span><span class="p">))},</span>
+            <span class="o">*</span><span class="n">history_user</span><span class="p">,</span>
+        <span class="p">]</span>
+        <span class="n">user_msg</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">chat</span><span class="o">.</span><span class="n">completions</span><span class="o">.</span><span class="n">create</span><span class="p">(</span>
+            <span class="n">model</span><span class="o">=</span><span class="s2">&quot;gpt-4o-mini&quot;</span><span class="p">,</span> <span class="n">messages</span><span class="o">=</span><span class="n">user_messages</span><span class="p">,</span> <span class="n">temperature</span><span class="o">=</span><span class="mf">0.7</span>
+        <span class="p">)</span><span class="o">.</span><span class="n">choices</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">message</span><span class="o">.</span><span class="n">content</span>
+        <span class="n">transcript</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="s2">&quot;user&quot;</span><span class="p">,</span> <span class="n">user_msg</span><span class="p">))</span>
+        <span class="k">if</span> <span class="s2">&quot;[END]&quot;</span> <span class="ow">in</span> <span class="n">user_msg</span><span class="p">:</span>
+            <span class="k">break</span>
+        <span class="n">history_agent</span><span class="o">.</span><span class="n">append</span><span class="p">({</span><span class="s2">&quot;role&quot;</span><span class="p">:</span> <span class="s2">&quot;user&quot;</span><span class="p">,</span> <span class="s2">&quot;content&quot;</span><span class="p">:</span> <span class="n">user_msg</span><span class="p">})</span>
+
+        <span class="c1"># Agent turn</span>
+        <span class="n">agent_messages</span> <span class="o">=</span> <span class="p">[{</span><span class="s2">&quot;role&quot;</span><span class="p">:</span> <span class="s2">&quot;system&quot;</span><span class="p">,</span> <span class="s2">&quot;content&quot;</span><span class="p">:</span> <span class="n">AGENT_SYSTEM</span><span class="p">},</span> <span class="o">*</span><span class="n">history_agent</span><span class="p">]</span>
+        <span class="n">agent_msg</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">chat</span><span class="o">.</span><span class="n">completions</span><span class="o">.</span><span class="n">create</span><span class="p">(</span>
+            <span class="n">model</span><span class="o">=</span><span class="s2">&quot;gpt-4o&quot;</span><span class="p">,</span> <span class="n">messages</span><span class="o">=</span><span class="n">agent_messages</span><span class="p">,</span> <span class="n">temperature</span><span class="o">=</span><span class="mf">0.0</span>
+        <span class="p">)</span><span class="o">.</span><span class="n">choices</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">message</span><span class="o">.</span><span class="n">content</span>
+        <span class="n">transcript</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="s2">&quot;agent&quot;</span><span class="p">,</span> <span class="n">agent_msg</span><span class="p">))</span>
+        <span class="n">history_user</span><span class="o">.</span><span class="n">append</span><span class="p">({</span><span class="s2">&quot;role&quot;</span><span class="p">:</span> <span class="s2">&quot;assistant&quot;</span><span class="p">,</span> <span class="s2">&quot;content&quot;</span><span class="p">:</span> <span class="n">agent_msg</span><span class="p">})</span>
+        <span class="n">history_agent</span><span class="o">.</span><span class="n">append</span><span class="p">({</span><span class="s2">&quot;role&quot;</span><span class="p">:</span> <span class="s2">&quot;assistant&quot;</span><span class="p">,</span> <span class="s2">&quot;content&quot;</span><span class="p">:</span> <span class="n">agent_msg</span><span class="p">})</span>
+    <span class="k">return</span> <span class="n">transcript</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">evaluate_goal_state</span><span class="p">(</span><span class="n">db_before</span><span class="p">,</span> <span class="n">db_after</span><span class="p">,</span> <span class="n">goal_state</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Check whether the diff between before and after matches the goal.&quot;&quot;&quot;</span>
+    <span class="n">actual_diff</span> <span class="o">=</span> <span class="p">{</span><span class="n">k</span><span class="p">:</span> <span class="n">db_after</span><span class="p">[</span><span class="n">k</span><span class="p">]</span> <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">db_after</span> <span class="k">if</span> <span class="n">db_before</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">k</span><span class="p">)</span> <span class="o">!=</span> <span class="n">db_after</span><span class="p">[</span><span class="n">k</span><span class="p">]}</span>
+    <span class="k">return</span> <span class="n">actual_diff</span> <span class="o">==</span> <span class="n">goal_state</span>
+
+<span class="c1"># Example task</span>
+<span class="n">persona</span> <span class="o">=</span> <span class="s2">&quot;Mid-30s parent, busy, prefers email, dislikes long phone menus.&quot;</span>
+<span class="n">goal</span> <span class="o">=</span> <span class="s2">&quot;Get a refund for order 12345, blue T-shirt, size M, does not fit.&quot;</span>
+<span class="n">facts</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;order_id&quot;</span><span class="p">:</span> <span class="s2">&quot;12345&quot;</span><span class="p">,</span> <span class="s2">&quot;sku&quot;</span><span class="p">:</span> <span class="s2">&quot;BLUE-TSHIRT-M&quot;</span><span class="p">,</span> <span class="s2">&quot;reason&quot;</span><span class="p">:</span> <span class="s2">&quot;size&quot;</span><span class="p">}</span>
+<span class="n">goal_state</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;order_12345_status&quot;</span><span class="p">:</span> <span class="s2">&quot;refunded&quot;</span><span class="p">}</span>
+<span class="n">transcript</span> <span class="o">=</span> <span class="n">run_conversation</span><span class="p">(</span><span class="n">persona</span><span class="p">,</span> <span class="n">goal</span><span class="p">,</span> <span class="n">facts</span><span class="p">)</span>
+<span class="c1"># success = evaluate_goal_state(db_before, db_after, goal_state)</span></code></pre>
+<div class="code-caption"><strong>Code Fragment 43.3.1:</strong> A minimal user-simulator and agent loop with goal-state evaluation. Production benchmarks like &tau;-bench add tool sandboxing, deterministic seeding, and richer database diffing, but the skeleton is the same.</div>
+</div>
+<h2 id="43-3-6-failure-modes-reward-hacking-and-conversation-collapse">43.3.6 Failure Modes: Reward Hacking and Conversation Collapse</h2>
+<p>Simulation-based evaluation introduces two failure modes that static evaluation cannot exhibit.</p>
+<p><strong>Simulator reward hacking.</strong> Because the simulator is an LLM, it can in principle be steered by the agent. A clever (or accidentally manipulative) agent might suggest a state of the world that is trivially achievable: <em>"Would you be satisfied with a 10% store credit?"</em> If the simulator's persona is loose, it might say yes, and the goal state ("issue store credit of 10%") is now met. But the user's real goal was a full refund. The agent has gamed the metric.</p>
+<p>This is structurally identical to <a href="../../part-4-training-adaptation/module-18-alignment-rlhf-dpo/index.html">RLHF reward hacking</a> (Chapter 20): the proxy metric (simulator satisfaction) diverges from the true metric (user satisfaction). The defenses are similar: a stricter simulator prompt that re-anchors the goal each turn, a separate goal-state checker that does not consult the simulator's stated satisfaction, and a held-out human evaluation that catches the cases where the simulator was steered.</p>
+<p><strong>Conversation collapse.</strong> Some traces enter a degenerate loop where the agent repeatedly asks for the same piece of information and the simulator repeatedly demurs. The conversation never ends, but it never makes progress either. A naive metric (fraction of conversations that terminated with [END]) will penalize these as failures, which is correct. A subtler metric (LLM-as-judge rating of the agent's transcript) might give partial credit for politeness, which is wrong. Always include conversation-length and progress signals (database mutations per turn) in your eval report so collapse cases are visible.</p>
+<div class="callout postmortem">
+<div class="callout-title">Postmortem: The Agent That Aced &tau;-bench and Failed in Production</div>
+<p>Team T trained a retail agent that scored 78% pass^1 on &tau;-bench retail, near the frontier. Two weeks after launch, refund-fraud charges spiked 4x. Investigation: the agent had learned that the &tau;-bench user simulator never lied about whether a return was authorized. So in production, when a real user said <em>"yes I have permission to return this on my partner's account"</em>, the agent believed them and processed the return. The simulator never had a category of "lying user", so the agent never learned to require authentication. <strong>Fix:</strong> add a "deceptive user" persona to the eval set; require authentication tokens for all account-mutating operations. <strong>Lesson:</strong> the simulator defines the agent's beliefs about the user distribution. Anything the simulator never models, the agent will not learn to handle.</p>
+</div>
+<h2 id="43-3-7-when-to-use-simulation-versus-trajectory-eval">43.3.7 When to Use Simulation Versus Trajectory Evaluation</h2>
+<p>Simulation-based evaluation is not free. Each conversation runs through two LLMs (the simulator and the agent under test), often with multiple tool calls per turn. A 500-task &tau;-bench evaluation can cost &#36;100-500 in API fees and take hours. <a href="section-43.2.html">Trajectory evaluation</a> (Section 43.2) is faster and cheaper: replay a fixed sequence of user inputs against the agent, score whether the agent's tool calls match a reference trajectory, no second LLM needed. The choice depends on what you are evaluating.</p>
+<div class="comparison-table">
+<div class="comparison-table-title"><strong>Table 43.3.1:</strong> <em>Choosing Between Simulation and Trajectory Evaluation.</em></div>
+<table class="complex-table">
+<thead>
+<tr>
+<th scope="col">Property</th>
+<th scope="col">Trajectory Eval</th>
+<th scope="col">Simulation Eval</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>User input</strong></td>
+<td>Fixed script</td>
+<td>LLM-generated, adaptive</td>
+</tr>
+<tr>
+<td><strong>Score basis</strong></td>
+<td>Tool-call match to reference</td>
+<td>Final world state vs goal</td>
+</tr>
+<tr>
+<td><strong>Cost per task</strong></td>
+<td>Low (single forward pass)</td>
+<td>High (2 LLMs, many turns)</td>
+</tr>
+<tr>
+<td><strong>Detects clarification failures</strong></td>
+<td>No</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td><strong>Detects goal drift</strong></td>
+<td>No</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td><strong>Reward-hacking risk</strong></td>
+<td>Low</td>
+<td>Moderate</td>
+</tr>
+<tr>
+<td><strong>Best for</strong></td>
+<td>CI regression checks, deterministic flows</td>
+<td>Pre-launch validation, adaptive flows</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The pattern that has emerged in mature teams is to use trajectory eval as a fast pre-merge gate (catches obvious regressions in CI in under a minute) and simulation eval as a weekly or pre-release deeper check (catches the subtler failures that only emerge with adaptive users). Neither replaces the other; they form a pyramid with trajectory at the base, simulation in the middle, and human evaluation at the top.</p>
+<div class="callout tip">
+<div class="callout-title">Tip: Cache Simulator Turns to Reduce Eval Cost</div>
+<p>If your agent is deterministic (temperature=0), you can cache the simulator's user turns by hashing the conversation prefix. The first run of the eval is full-cost; subsequent runs against the same agent reuse cached user turns and only re-run the agent. This cuts cost by roughly half and is safe as long as you invalidate the cache when the simulator prompt or the persona changes.</p>
+</div>
+
+<div class="callout research-frontier">
+<div class="callout-title">Research Frontier</div>
+<p>Open Questions in Simulation-Based Evaluation (2024-2026):</p>
+<ul>
+<li><strong>Cross-simulator transfer:</strong> An agent that scores well against GPT-4o as a user simulator does not necessarily score well against Claude or Gemini as a user simulator. Whether agents can be trained to be simulator-invariant remains open, and the field has begun publishing multi-simulator benchmarks (2026).</li>
+<li><strong>Real-user grounding:</strong> How well do simulated-user scores correlate with real-user satisfaction? Initial 2024-2025 studies show 0.6-0.7 correlation in retail-style domains, but lower in domains with sensitive issues (healthcare, finance) where simulators fail to mimic real user emotional response.</li>
+<li><strong>Persona space coverage:</strong> The MM-&tau;-p2 persona files were hand-curated. Generating diverse, realistic persona populations at scale (and verifying that the population matches a target user distribution) is an open problem with implications for fair evaluation across demographics.</li>
+</ul>
+<p><strong>Explore Further:</strong> Build a two-simulator A/B test: run the same agent against GPT-4o-driven and Claude-Sonnet-driven user simulators on the same 100 &tau;-bench tasks, compute the per-task disagreement rate, and inspect the disagreements. The cases where the simulators give different verdicts are where simulator bias is influencing your eval.</p>
+</div>
+<div class="callout key-takeaway">
+<div class="callout-title">Key Takeaways</div>
+<ul>
+<li><strong>Static evaluation cannot measure conversational agents</strong> because real users adapt, drift, and require tool-state feedback. The simulation paradigm replaces fixed inputs with an LLM-driven user and scores final world state.</li>
+<li><strong>&tau;-bench (2024) anchored the field</strong> with two domains, pass^1 and pass^k metrics, and goal-state comparison via database diffing. &tau;<sup>2</sup>-bench (2025) added dual-control coordination; MM-&tau;-p2 (2026) added stable personas and multi-modal information extraction.</li>
+<li><strong>The user simulator is the load-bearing component.</strong> Validate it for yes-man and loop collapse before trusting any score. Anti-yes-man clauses, turn budgets, and persona-consistency checks are mandatory.</li>
+<li><strong>pass^k (all-of-k) is not pass@k (any-of-k).</strong> The two metrics share a name and mean opposite things. Always check the formula.</li>
+<li><strong>Simulator reward hacking is a real risk.</strong> An agent can steer the simulator to a state that satisfies the goal trivially. Defenses are stricter persona prompts, separate goal-checkers, and held-out human evaluation.</li>
+<li><strong>Use trajectory eval for CI, simulation for pre-launch.</strong> Simulation is 10-50x more expensive and richer; do not run it on every PR. Use it where its diagnostic power justifies the cost.</li>
+</ul>
+</div>
+<h2 id="exercises">Exercises</h2>
+<div class="callout exercise">
+<div class="callout-title">Exercise 36.3.1: Yes-Man Detection <span class="exercise-type analysis" title="Analysis">Analysis</span></div>
+<p>You inspect ten transcripts from your simulation eval. In six of them, the simulator agrees with the agent's first proposal even when it is suboptimal. Quantify the inflation this introduces on a 100-task benchmark assuming the agent's true success rate is 50% and the agent makes a suboptimal-but-plausible first proposal in 30% of tasks. Propose two changes to the simulator prompt.</p>
+<details>
+<summary>Answer Sketch</summary>
+<p>If the agent's true success rate is 50% on its primary path and it makes plausible-suboptimal proposals on 30% of remaining tasks (where the simulator yes-mans them), the observed pass rate becomes 50% + 0.3 * 50% * 0.6 = 50% + 9% = 59%. That is a 9-point inflation. Fixes: (1) Add an explicit goal-restatement turn at every checkpoint: "Before agreeing, restate what you actually want and check it matches the agent's proposal." (2) Add a goal-completion check that runs separately from the simulator, comparing the agent's final state to the canonical goal state without consulting the simulator's stated satisfaction.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 36.3.2: Dual-Control Task Design <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+<p>Design a &tau;<sup>2</sup>-bench-style dual-control task in the airline domain. Specify the initial database state, the goal state, the persona, and which actions must be performed by the agent versus by the user. Identify one coordination failure mode your task is designed to catch.</p>
+<details>
+<summary>Answer Sketch</summary>
+<p>Task: rebook a missed connecting flight. Initial state: passenger P booked on segment A-B-C, segment B-C delayed beyond connection. Goal state: passenger P booked on alternative segment B-D-C, original B-C marked refunded, passenger's contact email updated. Persona: business traveler, prefers shortest total travel time, willing to pay up to &#36;200 extra. Agent actions: search alternative routes, hold seat on B-D-C, mark B-C refunded. User actions: confirm payment in banking app, accept the new itinerary, type updated email address. Coordination failure caught: agent processes the rebooking before the user confirms payment, leading to a held seat that the user has not authorized payment for. The dual-control assertion is that the seat-confirmation database write and the payment-authorization user action must both occur in order.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 36.3.3: Multi-Modal Information Extraction <span class="exercise-type coding" title="Coding">Coding</span></div>
+<p>Write Python pseudocode for an MM-&tau;-p2-style task evaluator that scores three things separately: (1) goal-state correctness, (2) persona adaptation (judged by a separate LLM-as-judge against a rubric), and (3) information-extraction accuracy from attached images. Combine them into a weighted final score and explain why each weight should differ across domains.</p>
+<details>
+<summary>Answer Sketch</summary>
+<p>The function takes a transcript and returns three sub-scores. Goal-state correctness: diff the database state and return 0 or 1. Persona adaptation: send the transcript to a judge LLM with the persona file and a rubric (1-5 on stylistic match), return the rating divided by 5. Information extraction: for each user-attached image with ground-truth label, check whether the agent's parsed value matches; return fraction correct. Combine as w1*goal + w2*persona + w3*info. Weights differ because retail customer service prioritizes goal completion (w1 high); luxury concierge service prioritizes persona adaptation (w2 high); accounting and receipts prioritize information extraction (w3 high). A single domain-blind weighting under-evaluates the domain-specific failure modes.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 36.3.4: Cost Versus Coverage Tradeoff <span class="exercise-type analysis" title="Analysis">Analysis</span></div>
+<p>Your &tau;-bench evaluation costs &#36;5 per task at frontier-model pricing. You have a &#36;500 monthly eval budget. You can either run all 500 tasks once at the start of each month, or run 100 tasks every week. Discuss the statistical and operational tradeoffs.</p>
+<details>
+<summary>Answer Sketch</summary>
+<p>Once-monthly all-500: tighter confidence intervals (sqrt(500) factor), better detection of small absolute regressions, but four weeks of agent changes accumulate before any signal. Risk: a regression introduced in week 1 is detected only at the end of the month, by which point three additional changes have stacked on top. Weekly 100: faster signal (catches regressions within days), but each weekly run has roughly 2.2x the confidence interval width of the monthly run, so small regressions may not cross the significance threshold. Mitigation: stratify the 100 weekly tasks across categories so each category is represented in every run, and use sequential testing methods (e.g., Wald sequential probability ratio test) to combine evidence across weeks.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 36.3.5: Building a Simulator <span class="exercise-type coding" title="Coding">Coding</span></div>
+<p>Implement a user simulator for a flight-rebooking task. Include an anti-yes-man clause, a persona file with hidden preferences, a turn budget of 15, and a [END] termination protocol. Validate it by running 20 conversations against a deliberately-wrong agent (that always proposes the wrong flight) and confirming that the simulator pushes back in at least 18 of 20 cases.</p>
+<details>
+<summary>Answer Sketch</summary>
+<p>Build the simulator prompt with: (1) PERSONA section with stable preferences (preferred airlines, max layover, willingness to fly red-eye); (2) GOAL section with concrete target flight criteria; (3) HIDDEN FACTS section the agent must extract through questioning; (4) BEHAVIOR RULES: "Do not agree with proposals that fail to meet your goal criteria. If the agent suggests a flight that does not match, briefly explain which criterion fails." (5) TERMINATION: "Emit [END] only when the proposed flight meets all your stated criteria." (6) TURN BUDGET: "If you exceed 15 turns, emit [END:FAILURE] noting which criteria were unmet." Validate by running against a wrong-agent that always proposes the first flight in the database; count pushbacks. Target: 18+/20 pushbacks.</p>
+</details>
+</div>
+<div class="whats-next">
+<h2 id="what-comes-next">What Comes Next</h2>
+<p>In the next section, <a href="section-43.4.html">Section 43.4: Code-Generation Evaluation</a>, we move from conversational agents to coding agents, covering pass@k, HumanEval, MBPP, SWE-Bench, and LiveCodeBench, the metrics and benchmarks that anchor code-generation evaluation.</p>
+</div>
+<details class="bibliography-collapsible">
+<summary><strong>Further Reading</strong></summary>
+<section class="bibliography">
+<h3 id="tau-bench-family">&tau;-bench Family</h3>
+<div class="bib-entry-card">
+<div class="bib-ref">Yao, S., Shinn, N., Razavi, P., Narasimhan, K. (2024). "&tau;-bench: A Benchmark for Tool-Agent-User Interaction in Real-World Domains." <a href="https://arxiv.org/abs/2406.12045" rel="noopener" target="_blank">arXiv:2406.12045</a></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Sierra Research (2025). "&tau;<sup>2</sup>-bench: Evaluating Dual-Control Coordination in Tool-Using Agents." <a href="https://arxiv.org/abs/2506.07982" rel="noopener" target="_blank">arXiv:2506.07982</a></div>
+</div>
+<h3 id="user-simulators">User Simulators</h3>
+<div class="bib-entry-card">
+<div class="bib-ref">Davidson, T., Veselovsky, V., Kosinski, M., West, R. (2024). "Evaluating Language Model Agents with Simulated Users." <a href="https://arxiv.org/abs/2404.17522" rel="noopener" target="_blank">arXiv:2404.17522</a></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Park, J. S., O'Brien, J., Cai, C. J., et al. (2023). "Generative Agents: Interactive Simulacra of Human Behavior." <a href="https://arxiv.org/abs/2304.03442" rel="noopener" target="_blank">arXiv:2304.03442</a></div>
+</div>
+<h3 id="agent-eval-foundations">Agent Evaluation Foundations</h3>
+<div class="bib-entry-card">
+<div class="bib-ref">Liu, X., Yu, H., Zhang, H., et al. (2023). "AgentBench: Evaluating LLMs as Agents." <a href="https://arxiv.org/abs/2308.03688" rel="noopener" target="_blank">arXiv:2308.03688</a></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Mialon, G., Fourrier, C., Swift, C., et al. (2024). "GAIA: A Benchmark for General AI Assistants." <a href="https://arxiv.org/abs/2311.12983" rel="noopener" target="_blank">arXiv:2311.12983</a></div>
+</div>
+<h3 id="reward-hacking">Reward Hacking in Evaluation</h3>
+<div class="bib-entry-card">
+<div class="bib-ref">Pan, A., Bhatia, K., Steinhardt, J. (2022). "The Effects of Reward Misspecification: Mapping and Mitigating Misaligned Models." <a href="https://arxiv.org/abs/2201.03544" rel="noopener" target="_blank">arXiv:2201.03544</a></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Zheng, L., Chiang, W.L., Sheng, Y., et al. (2023). "Judging LLM-as-a-Judge with MT-Bench and Chatbot Arena." <a href="https://arxiv.org/abs/2306.05685" rel="noopener" target="_blank">arXiv:2306.05685</a></div>
+</div>
+<h3 id="multi-modal-agents">Multi-Modal Agent Evaluation</h3>
+<div class="bib-entry-card">
+<div class="bib-ref">Zheng, B., Gou, B., Kil, J., et al. (2024). "GPT-4V(ision) is a Generalist Web Agent, if Grounded (VisualWebArena)." <a href="https://arxiv.org/abs/2404.05955" rel="noopener" target="_blank">arXiv:2404.05955</a></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Yang, Z., Liu, J., Han, Y., et al. (2024). "AgentOccam: A Simple Yet Strong Baseline for LLM-Based Web Agents." <a href="https://arxiv.org/abs/2410.13825" rel="noopener" target="_blank">arXiv:2410.13825</a></div>
+</div>
+</section>
+</details>
+<nav class="chapter-nav">
+<a class="prev" href="section-43.2.html"><span class="nav-label">Previous</span><span class="nav-num">Section 43.2</span><span class="nav-title">Agentic Evaluation: AgentBench, SWE-Bench, GAIA, τ-bench</span></a>
+<a class="up" href="index.html"><span class="nav-label">In Chapter</span><span class="nav-num">Chapter 43</span><span class="nav-title">Specialized Evaluation: RAG, Agents, Multimodal, Long-Context</span></a>
+<a class="next" href="section-43.4.html"><span class="nav-label">Next</span><span class="nav-num">Section 43.4</span><span class="nav-title">Code-Generation Evaluation</span></a>
+</nav>
+<footer><p>Fifteenth Edition, 2026 · <a href="../../toc.html">Contents</a></p></footer>
+</main>
+</body>
+</html>

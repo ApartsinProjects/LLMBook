@@ -66,11 +66,11 @@ Items the `index-staleness-fix-report.md` claimed were resolved but that still a
 - "What Comes Next" still says: "Continue to Part VII: AI Applications" — Part 7 is now "Multimodal Generation" not "AI Applications". Pre-v10 issue.
 
 **`part-8-evaluation-production/index.html`**
-- "What Comes Next" still says: "Continue to Part IX: Safety and Strategy" — Part 9 is now "Safety, Security & Ethics" not "Safety and Strategy". Pre-v10 issue. Also the meta-description `<meta name="description">` says "Part VIII: Evaluation & Production" but `<title>` says "Evaluation and Production" — a minor inconsistency.
+- "What Comes Next" still says: "Continue to Part IX: Safety and Strategy" — Part 9 is now "LLM Safety, Security, and Ethics" not "Safety and Strategy". Pre-v10 issue. Also the meta-description `<meta name="description">` says "Part VIII: Evaluation & Production" but `<title>` says "Evaluation of LLM-Based Systems" — a minor inconsistency.
 
 **`part-9-safety-security-ethics/index.html`**
 - `<meta name="description">` still says "Part IX: Safety & Strategy" (old name; `<title>` is correct). Pre-v10.
-- "What Comes Next" prose says "Continue to Part X: Frontiers" but the href points to `../part-12-frontiers/index.html`. Both the label AND the target are wrong. After v10 the next part is Part 10 (Idea to Product). Should link to `../part-10-idea-to-product/index.html` labeled "Part X: Idea to Product".
+- "What Comes Next" prose says "Continue to Part X: Frontiers" but the href points to `../part-12-frontiers/index.html`. Both the label AND the target are wrong. After v10 the next part is Part 10 (Building LLM and Agent Products). Should link to `../part-10-idea-to-product/index.html` labeled "Part X: Building LLM and Agent Products".
 
 **`part-10-idea-to-product/index.html`**
 - "What Comes Next" prose implies the book ends with Part 10 ("you have completed the book's journey from foundations to frontiers to product. Explore the Appendices..."). But Parts 11 (Applications) and 12 (Frontiers) follow. The block should hand off to Part 11.
@@ -200,14 +200,14 @@ Items the `index-staleness-fix-report.md` claimed were resolved but that still a
 **`part-10-idea-to-product/module-48-shipping-deploying/index.html`**
 - Body line 41: "every skill from Part XI" — should be "Part X".
 - Body line 42: "...the build methodology from Chapter 45. It references production engineering from Chapter 35, evaluation from Chapter 34, and enterprise strategy from Chapter 31" — two issues: "Chapter 45 and the build methodology from Chapter 45" is a duplicate / typo (which one?), and "enterprise strategy from Chapter 31" is stale (Ch 31 dissolved).
-- Nav up nav-num says "Part XI" with title "From Idea to AI Product" — should be "Part X" / "Idea to Product".
+- Nav up nav-num says "Part XI" with title "From Idea to AI Product" — should be "Part X" / "Building LLM and Agent Products".
 
 **`part-11-applications-across-industries/module-51-legal-llms/index.html`**
 - Body line 137: "cited in section 36.3" — section 36.3 refers to OLD chapter 36 numbering; current chapter is 51, so should be section 51.3.
-- Nav prev/up nav-num "Part XII" with title "LLM Applications Across Industries" — should be "Part XI" with title "Applications Across Industries".
+- Nav prev/up nav-num "Part XII" with title "LLM LLM Applications Across Industries" — should be "Part XI" with title "LLM Applications Across Industries".
 
 **`part-11-applications-across-industries/module-52-finance-llms/index.html`**
-- Nav prev/up nav-num "Part XII" with title "LLM Applications Across Industries" — should be "Part XI" / "Applications Across Industries".
+- Nav prev/up nav-num "Part XII" with title "LLM LLM Applications Across Industries" — should be "Part XI" / "LLM Applications Across Industries".
 
 **`part-11-applications-across-industries/module-53-healthcare-llms/index.html`** — same nav-num "Part XII" / wrong title.
 

@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-PWPHBQL2VL"></script>
+<script>
+window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', 'G-PWPHBQL2VL');
+</script>
+
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<meta content="Section 57.1: LLM Compute Planning &amp; Infrastructure. Compute planning starts before any GPU is rented: it is a sizing exercise driven by your serving SLO, model size, and traffic." name="description"/>
+<title>Section 57.1: LLM Compute Planning &amp; Infrastructure</title>
+<link href="../../styles/book.css" rel="stylesheet"/>
+<link href="../../styles/pygments.css" rel="stylesheet"/>
+<script defer="" src="../../scripts/book.js"></script>
+<link href="../../pagefind/pagefind-ui.css" rel="stylesheet"/>
+<script defer="" src="../../pagefind/pagefind-ui.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
+
+<header class="chapter-header">
+<nav class="header-nav">
+<a class="book-title-link" href="../../index.html">Building Conversational AI with LLMs and Agents</a>
+<a class="toc-link" href="../../toc.html" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+</nav>
+<div class="header-search"><div id="search"></div></div>
+
+<div class="page-breadcrumb" data-pagefind-meta="chapter"><a href="../index.html">Part XII: LLM Systems at Scale</a><span class="bc-sep">›</span><a href="index.html">Chapter 57: Compute Planning &amp; Infrastructure</a></div>
+<h1>LLM Compute Planning &amp; Infrastructure</h1><div class="page-current">Section 57.1</div>
+
+</header>
+<main class="content" id="main-content"><span class="pagefind-meta-injected" data-pagefind-meta="part:Part XII: LLM Systems at Scale" hidden=""></span><span class="pagefind-meta-injected" data-pagefind-meta="chapter:Chapter 57: Compute Planning &amp; Infrastructure" hidden=""></span>
+<blockquote class="epigraph">
+<p>"Premature optimization is the root of all evil, but failing to plan capacity is the root of all outages."</p>
+<cite>Adapted from Donald Knuth, Structured Programming, 1974</cite>
+</blockquote>
+<div class="callout big-picture">
+<div class="callout-title">Big Picture</div>
+<p>Compute planning starts before any GPU is rented: it is a sizing exercise driven by your serving SLO, model size, and traffic. This section walks the decisions that turn a chosen model into a hardware bill of materials and a deployment plan that survives real load.</p>
+</div>
+<div class="prerequisites">
+<h3 id="prerequisites">Prerequisites</h3>
+<p>This section assumes familiarity with <a href="../../part-3-working-with-llms/module-11-llm-apis/section-11.1.html">LLM API patterns</a> from Section 11.1 and with latency-tail analysis from <a href="../../part-9-llm-evaluation-observability/module-44-online-eval-observability/section-44.3.html">Section 44.3</a>. The model-registry workflow is covered in detail later in the book.</p>
+</div>
+<p>Compute is the single largest variable cost in an LLM product. Get the planning wrong and you either burn the budget on idle GPUs or run out of capacity at the worst possible moment. This chapter shows how to size compute correctly: which GPUs match which workloads, when API calls are cheaper than self-hosting, how to forecast capacity for production traffic, and how to budget for the unpredictable cost spikes (long-context queries, agentic loops, model upgrades) that wreck plans built on average numbers.</p>
+<p>The chapter assumes you have made the build-vs-buy decision from Chapter 63 and are now sizing the "build" side. If you are pure-API, much of this chapter is reference material rather than action items; you still need to understand the GPU tier story to predict your API costs, because providers price relative to their underlying hardware. This section opens with the basic vocabulary and the three workload categories that drive everything else.</p>
+<h2 id="57-1-1-the-three-workload-categories">57.1.1 The three workload categories</h2>
+<div class="callout fun-note">
+<div class="callout-title">Fun Fact</div>
+<p>A 70-billion-parameter model in fp16 needs 140 GB just to load the weights, which means it does not fit on a single H100. Engineers usually discover this on a Friday afternoon, the day before a launch, and the resulting scramble to tensor-parallelize is responsible for a large fraction of all weekend overtime in modern AI startups.</p>
+</div>
+<p>Every LLM compute decision falls into one of three buckets. The categories matter because they have very different cost curves.</p>
+<div class="callout key-insight">
+<div class="callout-title">Key Insight: Aha Moment: Same Workload, 12x Cost Spread</div>
+<p>Take a single concrete task: process 10 million 2,000-token documents through Llama-3-70B for classification. Online inference on Together AI (sub-100ms latency target, on-demand H100s): roughly $4,800 at $0.88 per million tokens, completed in 9 hours. Batch inference on Anthropic's Message Batches API (24-hour SLA, no latency requirement): roughly $2,400 at half-price discount. Training-style scheduled batch on a reserved H100 cluster you own and amortize over 6 months: roughly $400 in incremental GPU-hours because the hardware was already paid for and ran during otherwise-idle nights. Same 20 billion tokens of work, three workload categories, 12x cost spread. The category you choose for a workload often matters more than the model you choose, and most teams discover this only after the third invoice.</p>
+</div>
+<ul>
+<li><strong>Training</strong>: pretraining or fine-tuning a model. Bursty, multi-hour-to-multi-day, throughput-bound. Hardware should be picked for FLOPs and memory-per-GPU. Idle cost is the dominant risk.</li>
+<li><strong>Inference (online)</strong>: serving production traffic with sub-second latency requirements. Steady-state, latency-bound, throughput per GPU varies with batch size. Hardware should be picked for memory bandwidth and prompt caching.</li>
+<li><strong>Inference (batch)</strong>: bulk processing where latency does not matter (overnight analytics, embedding generation, evaluation runs). Throughput-bound, often runs on spot or off-peak hardware. Costs can be 50-90% lower than online inference if you use the right discounts.</li>
+</ul>
+<h2 id="57-1-2-gpu-tiers-in-2026">57.1.2 GPU tiers in 2026</h2>
+<p>The 2026 GPU landscape is broader than 2024's. The tiers you actually need to know:</p>
+<ul>
+<li><strong>NVIDIA Blackwell B200 / B300</strong>: the new top tier, 180-192 GB HBM3e, ~8 TB/s bandwidth. ~&#36;5-&#36;8/hr in cloud markets through mid-2026. Used by the frontier labs for training; available for rental.</li>
+<li><strong>NVIDIA GB200 NVL72</strong>: the rack-scale Blackwell system pairing 72 B200 GPUs with 36 Grace CPUs over NVLink Switch fabric. Sold as a single coherent unit and used by frontier labs (OpenAI, Anthropic, Meta) for the largest training runs of 2025-2026. Available through select clouds (CoreWeave, Azure, AWS) at multi-rack pricing.</li>
+<li><strong>NVIDIA H100 / H200</strong>: the H100 (80 GB HBM3) was the 2023-25 workhorse; the H200 (141 GB HBM3e) is its memory-doubled successor. ~&#36;2-&#36;5/hr rental.</li>
+<li><strong>NVIDIA A100 (80 GB)</strong>: still widely available, still useful for inference of 70B models in 4-bit. ~&#36;1-&#36;2/hr.</li>
+<li><strong>NVIDIA L40S / RTX 6000 Ada</strong>: 48 GB; the right inference GPU for 7B to 13B fp16 or 70B at 4-bit. ~&#36;0.80-&#36;1.50/hr.</li>
+<li><strong>AMD MI355X</strong>: 288 GB HBM3e, ~6 TB/s. The largest-memory commodity GPU; pricing typically 70-80% of equivalent NVIDIA tier.</li>
+<li><strong>Google TPU v6 Trillium and v7</strong>: Google's accelerators for the JAX / TPU ecosystem. Trillium (TPU v6e, GA mid-2024) delivers approximately 4.7x the FP8 throughput of TPU v5e per chip; the v7 generation (Ironwood, 2025) extended this further. Available only through Google Cloud Vertex AI / Pathways.</li>
+<li><strong>Specialized accelerators</strong>: AWS Trainium 2 and Trainium 3 for Amazon-stack training, Groq LPU for very-low-latency inference, Cerebras WSE-3 (the wafer-scale chip with 900K cores), and Tenstorrent Blackhole for emerging non-CUDA workloads. These compete on specific axes (cost-per-token at scale for Trainium, sub-50ms latency for Groq, single-chip context for Cerebras) rather than on raw FLOPs.</li>
+<li><strong>Consumer GPUs (RTX 5090, 4090)</strong>: 24-32 GB. Right for development and small-volume inference.</li>
+</ul>
+<h2 id="57-1-3-comparing-the-gpu-options">57.1.3 Comparing the GPU options</h2>
+<div class="comparison-table">
+<div class="comparison-table-title"><strong>Table 57.1.1</strong>: <em>Production-relevant GPUs, mid-2026.</em></div>
+<table class="complex-table">
+<thead>
+<tr><th scope="col">GPU</th><th scope="col">Memory</th><th scope="col">Bandwidth</th><th scope="col">Cloud $/hr</th><th scope="col">Best workload</th></tr>
+</thead>
+<tr><td>NVIDIA B200</td><td>192 GB HBM3e</td><td>8 TB/s</td><td>&#36;5-&#36;8</td><td>Frontier training, big-model inference</td></tr>
+<tr><td>NVIDIA H200</td><td>141 GB HBM3e</td><td>4.8 TB/s</td><td>&#36;3-&#36;5</td><td>70B+ inference, mid-scale training</td></tr>
+<tr><td>NVIDIA H100</td><td>80 GB HBM3</td><td>3.3 TB/s</td><td>&#36;2-&#36;4</td><td>General-purpose 70B inference</td></tr>
+<tr><td>NVIDIA A100 80GB</td><td>80 GB HBM2e</td><td>2 TB/s</td><td>&#36;1-&#36;2</td><td>Cheap 70B 4-bit, dev / research</td></tr>
+<tr><td>NVIDIA L40S</td><td>48 GB GDDR6</td><td>0.86 TB/s</td><td>&#36;0.80-&#36;1.50</td><td>7B-13B fp16 inference</td></tr>
+<tr><td>AMD MI355X</td><td>288 GB HBM3e</td><td>6 TB/s</td><td>&#36;2-&#36;4</td><td>Largest-memory workloads</td></tr>
+</table>
+</div>
+<figure class="diagram">
+<img alt="Bar chart of memory bandwidth (TB/s) per cloud GPU in mid-2026: L40S at 0.86" src="images/diagram-gpu-bandwidth.svg" width="1400" height="820" aria-describedby="long-desc-45"/>
+<figcaption id="long-desc-45"><strong>Figure 57.1.1</strong>: Memory bandwidth per cloud GPU at mid-2026 prices. Bars are color-coded by the workload they fit best. For inference the bandwidth bar is what predicts speedup, not the FLOPs the spec sheet leads with. A100 80GB at 2, H100 at 3.3, H200 at 4.8, AMD MI355X at 6, NVIDIA B200 at 8. Bars are color-coded by their workload sweet spot: green for 7B-13B fp16 inference, gold for 70B inference, blue for largest-memory workloads.</figcaption>
+</figure>
+<div class="callout key-insight">
+<div class="callout-title">Key Insight: Memory bandwidth matters more than FLOPs for inference</div>
+<p>An H100 has roughly 2.5x the FLOPs of an A100 but only 1.6x the bandwidth. For inference, the bandwidth ratio is what predicts speedup, not the FLOPs ratio. The same logic flips on training: training is FLOPs-bound, and the H100 / B200's tensor-core advantage is what you are paying for. Match the GPU to the workload: bandwidth-heavy GPUs for inference, FLOPs-heavy GPUs for training. The <a href="https://horace.io/brrr_intro.html" rel="noopener" target="_blank">"Making Deep Learning Go Brrrr"</a> explainer remains the clearest walkthrough.</p>
+</div>
+<figure class="diagram">
+<svg role="img" aria-label="The 12x cost spread for the same 10M-document Llama-3-70B classification job" viewBox="-5 0 885 420" xmlns="http://www.w3.org/2000/svg" style="font-family:'Segoe UI',sans-serif;max-width:100%;height:auto;">
+<rect width="880" height="420" fill="#ffffff"/>
+<text x="440" y="22" font-size="14" font-weight="700" text-anchor="middle" fill="#1a1a2e">Same 20 billion tokens, three workload categories, 12x cost spread</text>
+<text x="440" y="40" font-size="11" font-style="italic" text-anchor="middle" fill="#5a4a3a">10M &#x00D7; 2000-token docs through Llama-3-70B</text>
+<g transform="translate(80,80)">
+<line x1="0" y1="270" x2="700" y2="270" stroke="#1a1a2e" stroke-width="1.5"/>
+<g font-size="9" fill="#5a4a3a" text-anchor="middle">
+<text x="0" y="290">$0</text><line x1="0" y1="266" x2="0" y2="270" stroke="#1a1a2e"/>
+<text x="116" y="290">$1k</text><line x1="116" y1="266" x2="116" y2="270" stroke="#1a1a2e"/>
+<text x="232" y="290">$2k</text><line x1="232" y1="266" x2="232" y2="270" stroke="#1a1a2e"/>
+<text x="348" y="290">$3k</text><line x1="348" y1="266" x2="348" y2="270" stroke="#1a1a2e"/>
+<text x="464" y="290">$4k</text><line x1="464" y1="266" x2="464" y2="270" stroke="#1a1a2e"/>
+<text x="580" y="290">$5k</text><line x1="580" y1="266" x2="580" y2="270" stroke="#1a1a2e"/>
+<text x="667" y="290">$5.8k</text><line x1="667" y1="266" x2="667" y2="270" stroke="#1a1a2e"/>
+</g>
+<text x="350" y="310" font-size="10" font-style="italic" text-anchor="middle" fill="#1a1a2e">Total job cost</text>
+<!-- Bar 1: Online Together AI -->
+<rect x="0" y="50" width="556" height="48" fill="#f8e3e3" stroke="#7a2a2a" stroke-width="2"/>
+<text x="278" y="68" font-size="11" font-weight="700" text-anchor="middle" fill="#7a2a2a">ONLINE inference (Together AI, on-demand H100)</text>
+<text x="278" y="84" font-size="9" text-anchor="middle" fill="#1a1a2e">$0.88 / 1M tokens, sub-100 ms target, 9-hour wallclock</text>
+<text x="568" y="80" font-size="13" font-weight="700" fill="#7a2a2a">$4,800</text>
+<text x="568" y="94" font-size="9" font-style="italic" fill="#7a2a2a">12.0&#x00D7;</text>
+<!-- Bar 2: Anthropic Batch -->
+<rect x="0" y="120" width="278" height="48" fill="#fef3e0" stroke="#a67c1a" stroke-width="2"/>
+<text x="139" y="138" font-size="11" font-weight="700" text-anchor="middle" fill="#a67c1a">BATCH (Anthropic Message Batches API)</text>
+<text x="139" y="154" font-size="9" text-anchor="middle" fill="#1a1a2e">50% discount, 24-hour SLA</text>
+<text x="290" y="150" font-size="13" font-weight="700" fill="#a67c1a">$2,400</text>
+<text x="290" y="164" font-size="9" font-style="italic" fill="#a67c1a">6.0&#x00D7;</text>
+<!-- Bar 3: Owned cluster -->
+<rect x="0" y="190" width="46" height="48" fill="#ecf6ee" stroke="#1f7a3a" stroke-width="2"/>
+<text x="100" y="208" font-size="11" font-weight="700" text-anchor="start" fill="#1f7a3a">SCHEDULED (owned H100 cluster, off-peak)</text>
+<text x="100" y="224" font-size="9" text-anchor="start" fill="#1a1a2e">amortized 6-month capex; incremental GPU-hours only</text>
+<text x="58" y="220" font-size="13" font-weight="700" fill="#1f7a3a">$400</text>
+<text x="58" y="234" font-size="9" font-style="italic" fill="#1f7a3a">1.0&#x00D7;</text>
+<!-- Annotation -->
+<g transform="translate(580,170)">
+<rect x="0" y="8" width="120" height="80" rx="4" fill="#1a1a2e"/>
+<text x="60" y="20" font-size="10" font-weight="700" text-anchor="middle" fill="#ffffff">The category</text>
+<text x="60" y="36" font-size="10" font-weight="700" text-anchor="middle" fill="#ffffff">often matters</text>
+<text x="60" y="52" font-size="10" font-weight="700" text-anchor="middle" fill="#ffffff">more than the</text>
+<text x="60" y="68" font-size="10" font-weight="700" text-anchor="middle" fill="#ffffff">model.</text>
+</g>
+</g>
+</svg>
+<figcaption><strong>Figure 57.1.2</strong>: Three ways to push the same 20 billion tokens through Llama-3-70B for a classification task, with a 12x cost spread. Online inference on Together AI's on-demand H100s at $0.88 per million tokens costs about $4,800 and completes in 9 hours; the Anthropic Message Batches API with its 24-hour SLA halves that to $2,400; running the workload as a scheduled job on a reserved H100 cluster amortized over six months drops the incremental GPU-hour cost to about $400. The classification quality is identical across all three. Most teams discover this only after the third invoice; the workload-category decision is what the section recommends locking in before any model choice.</figcaption>
+</figure>
+
+<h2 id="57-1-4-the-capacity-planning-timeline">57.1.4 The capacity-planning timeline</h2>
+<p>Production capacity planning needs a three-horizon view. The thirty-day horizon is "what does my next month look like": traffic forecast, expected model upgrades, planned campaigns. The ninety-day horizon is "what does my next quarter look like": growth trajectory, infrastructure-cost commitments, reserved-capacity discounts. The twelve-month horizon is "what does next year look like": new hardware generations (Blackwell Ultra, Rubin), pricing changes, multi-cloud strategy. Plan for all three; commit only on the thirty-day horizon, hedge on the ninety, and watch on the twelve.</p>
+<div class="callout warning">
+<div class="callout-title">Warning: long-context queries break average-based planning</div>
+<p>A 200K-token query costs 200x more compute than a 1K-token query. If your traffic distribution has a long tail of long-context requests (common in document QA, agent loops, code review), the average gives a useless capacity estimate. Plan against p95 and p99 token counts, not the mean. Token-count budgets per request are a useful guardrail; OpenAI Batch and Anthropic prompt-caching discounts can offset, but only if your traffic shape matches the discount terms.</p>
+</div>
+<div class="callout tip">
+<div class="callout-title">Tip: reserve capacity in 30-day chunks, not in one-year contracts</div>
+<p>Frontier-model providers offer aggressive discounts (30-60%) for reserved capacity commitments. The tempting move is to sign a one-year contract for cost certainty. The smarter move in 2026 is 30-day commits: model prices have dropped 50%+ year-over-year for the cheap tier (Gemini Flash, GPT-mini, Claude Haiku), and locking in last year's prices for a year is rarely the right bet. Most providers allow monthly commits without a multi-year contract.</p>
+</div>
+<h2 id="57-1-5-what-comes-next">57.1.5 What comes next</h2>
+<p>Section 57.2 takes up the sizing math itself: given a model, a target latency, and a target QPS, how many GPUs do you actually need? Sections 46.3 and 46.4 cover the cloud-provider comparison and the breakeven analysis between API and self-hosting that closes Chapter 57.</p>
+<div class="callout whats-next">
+<div class="callout-title">What's Next</div>
+<p>Sizing starts with planning, but the next operational question is how to integrate the compute plan with the rest of your enterprise: data flow, identity, change management. Continue to <a href="section-57.2.html">Section 57.2: Enterprise Integration Patterns for LLM Systems</a>.</p>
+</div>
+<details class="bibliography-collapsible">
+<summary><strong>Further Reading</strong></summary>
+<section class="bibliography">
+<h3 id="foundational">Foundational Papers</h3>
+<div class="bib-entry-card">
+<div class="bib-ref">Pope, R., Douglas, S., Chowdhery, A., et al. (2023). "Efficiently Scaling Transformer Inference." <em>MLSys 2023</em>. <a href="https://arxiv.org/abs/2211.05102" rel="noopener" target="_blank">arXiv:2211.05102</a>. <span class="bib-note">The most influential paper on inference sizing; introduces the Pareto frontier between latency, throughput, and cost.</span></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Kwon, W., Li, Z., Zhuang, S., et al. (2023). "Efficient Memory Management for Large Language Model Serving with PagedAttention" (vLLM). <em>SOSP 2023</em>. <a href="https://arxiv.org/abs/2309.06180" rel="noopener" target="_blank">arXiv:2309.06180</a>. <span class="bib-note">Introduces KV-cache paging; the architecture used by all modern inference servers and the basis for tier-by-tier sizing math.</span></div>
+</div>
+<h3 id="hardware">Hardware and Capacity</h3>
+<div class="bib-entry-card">
+<div class="bib-ref">Patterson, D., Gonzalez, J., Le, Q., et al. (2021). "Carbon Emissions and Large Neural Network Training." <a href="https://arxiv.org/abs/2104.10350" rel="noopener" target="_blank">arXiv:2104.10350</a>. <span class="bib-note">Methodology for quantifying compute and carbon cost of training runs; underlies any honest hardware-cost analysis.</span></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">NVIDIA (2024). "Blackwell Architecture Whitepaper." <a href="https://resources.nvidia.com/en-us-blackwell-architecture" rel="noopener" target="_blank">resources.nvidia.com/en-us-blackwell-architecture</a>. <span class="bib-note">Official spec for B200/B300; the 2026 top-tier hardware.</span></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">NVIDIA (2024). "Hopper Architecture Whitepaper (H100/H200)." <a href="https://resources.nvidia.com/en-us-tensor-core" rel="noopener" target="_blank">resources.nvidia.com/en-us-tensor-core</a>. <span class="bib-note">Reference for H100/H200 throughput and memory bandwidth used throughout sizing math.</span></div>
+</div>
+<h3 id="surveys">Surveys</h3>
+<div class="bib-entry-card">
+<div class="bib-ref">Miao, X., Oliaro, G., Zhang, Z., et al. (2023). "Towards Efficient Generative LLM Serving: A Survey." <a href="https://arxiv.org/abs/2312.15234" rel="noopener" target="_blank">arXiv:2312.15234</a>. <span class="bib-note">Catalogues efficient-serving techniques that govern capacity planning: continuous batching, paged attention, speculative decoding, quantization.</span></div>
+</div>
+</section>
+</details>
+<nav class="chapter-nav">
+<a class="prev" href="index.html"><span class="nav-label">Previous</span><span class="nav-num">Chapter 57</span><span class="nav-title">Compute Planning &amp; Infrastructure</span></a>
+<a class="up" href="index.html"><span class="nav-label">In Chapter</span><span class="nav-num">Chapter 57</span><span class="nav-title">Compute Planning &amp; Infrastructure</span></a>
+<a class="next" href="section-57.2.html"><span class="nav-label">Next</span><span class="nav-num">Section 57.2</span><span class="nav-title">Enterprise Integration Patterns for LLM Systems</span></a>
+</nav>
+<footer><p>Fifteenth Edition, 2026 · <a href="../../toc.html">Contents</a></p></footer>
+</main>
+</body>
+</html>

@@ -201,7 +201,7 @@ Currently: 1 comparison table, 1 `key-insight`, 1 `warning`, 1 `practical-exampl
 
 ---
 
-## 4. Part 10 — Idea to Product
+## 4. Part 10 — Building LLM and Agent Products
 
 ### section-42.1.html: Strategy & Use Case (intro)
 Currently: 1 comparison table (readiness pillars), 1 `key-insight`, 1 `practical-example`, 1 `warning`. Well-enriched.

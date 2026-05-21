@@ -24,6 +24,7 @@ REPORT_PATH = ROOT / "html-integrity-audit.md"
 SKIP_DIRS = {
     "node_modules", ".git", "KDP", "build", "temp_ebook", "temp_epub",
     "source_fix_backups", "pagefind", "templates", ".claude", "vendor",
+    ".book-update",  # preserved content for later re-homing
 }
 
 DROPPED_REFS_PATTERNS = [
@@ -36,21 +37,41 @@ DROPPED_REFS_PATTERNS = [
 ]
 
 # Prose references to dropped resources (text only, not in href attributes)
-# Appendix N/P prose drift: filter out the cases where the new appendix labels are correct.
-# Appendix N is now "Docker and Containers"; Appendix P is now "Reading Pathways".
+# Appendix letter assignments after the v14 consolidation:
+#   A = Mathematical Foundations
+#   B = ML Essentials
+#   B = Course Syllabi               (was C; renamed in Wave 9F)
+#   C = Reading Pathways             (was D; renamed in Wave 9F)
+#   E = Intermediate Projects        (was R)
+#   F = Capstone Project             (was S)
+#   G = War Stories for Discussion   (was T)
+# Original C-N (framework guides + ops) were consolidated into part-specific
+# Tools of the Trade chapters. O (Docker) was folded into Part 10 / Chapter 62.
 PROSE_DROPPED_PATTERNS = [
-    (re.compile(r"\bAppendix\s+N\b(?!\s*(?:[\.\-:,]|\s|<)*(?:Docker|Containers))", re.IGNORECASE), "'Appendix N' refers to non-Docker content"),
-    (re.compile(r"\bAppendix\s+P\b(?!\s*(?:[\.\-:,]|\s|<)*(?:Reading|Pathways))", re.IGNORECASE), "'Appendix P' refers to non-Pathways content"),
+    # Appendix-letter prose drift is detected only if the IMMEDIATE context
+    # (a short window before AND after) doesn't mention the expected topic.
+    # The original regex used only a lookahead, which missed legitimate forms
+    # like "war stories in Appendix G". Allow either direction.
+    # Appendix B is now Course Syllabi (Wave 9F: B (ML Essentials) dropped, C renamed to B)
+    (re.compile(r"\bAppendix\s+B\b(?!\s*(?:[\.\-:,\(]|\s|<)*(?:Course|Syllab))", re.IGNORECASE), "'Appendix B' refers to non-Course-Syllabi content"),
+    # Appendix C is now Reading Pathways (Wave 9F: D renamed to C)
+    (re.compile(r"\bAppendix\s+C\b(?!\s*(?:[\.\-:,\(]|\s|<)*(?:Reading|Pathway))", re.IGNORECASE), "'Appendix C' refers to non-Reading-Pathways content"),
+    # Appendices D, E, F, G no longer exist in v9 structure
+    (re.compile(r"\bAppendix\s+D\b", re.IGNORECASE), "'Appendix D' (no longer exists; renamed to C)"),
+    (re.compile(r"\bAppendix\s+E\b", re.IGNORECASE), "'Appendix E' (no longer exists; dropped in Wave 7)"),
+    (re.compile(r"\bAppendix\s+F\b", re.IGNORECASE), "'Appendix F' (no longer exists; dropped in Wave 7)"),
+    (re.compile(r"\bAppendix\s+G\b", re.IGNORECASE), "'Appendix G' (no longer exists; dropped in Wave 7)"),
     (re.compile(r"\bGlossary entry for\b", re.IGNORECASE), "'Glossary entry for ...' (glossary dropped)"),
     (re.compile(r"\bsee the [Gg]lossary\b", re.IGNORECASE), "'see the glossary' (glossary dropped)"),
     (re.compile(r"\bin the [Gg]lossary\b", re.IGNORECASE), "'in the glossary' (glossary dropped)"),
 ]
 
-# Tags / contexts where Appendix N/P mentions are expected and benign:
+# Tags / contexts where Appendix O/P/Q mentions are expected and benign:
 # - inside <span class="nav-num">, <span class="bc-current">, <span class="mod-num">, <span class="toc-chapter-num">
-# - in <title>, <h1> of the Appendix N/P pages themselves
+# - in <title>, <h1>, data-pagefind-meta of any appendix landing page
+# - inside aria-label attributes (toc-chapter-num)
 PROSE_BENIGN_NEAR_PATTERNS = re.compile(
-    r"""(?:nav-num|bc-current|mod-num|toc-chapter-num|aria-label\s*=\s*["']Appendix\s+[NP]|data-pagefind-meta="chapter:Appendix\s+[NP]|<title>[^<]*Appendix\s+[NP])""",
+    r"""(?:nav-num|bc-current|mod-num|toc-chapter-num|aria-label\s*=\s*["']Appendix\s+[A-Z]|data-pagefind-meta="(?:chapter|appendix):Appendix\s+[A-Z]|data-pagefind-meta="part:Appendix\s+[A-Z]|<title>[^<]*Appendix\s+[A-Z])""",
     re.IGNORECASE,
 )
 
@@ -307,8 +328,18 @@ def main() -> int:
 
                 # Validate targets exist
                 nav_line = line_of(content, nav_match.start())
+                # Identify book endpoints: very first section (Part I, Chapter 0, Section 0.1)
+                # and very last section (Part XIII, Chapter 86, Section 86.5).
+                # These legitimately have no prev / next within the linear chain.
+                rp = rel_path.replace("\\", "/")
+                is_first_section = rp.endswith("part-1-llm-building-blocks/module-00-ml-pytorch-foundations/section-0.1.html")
+                is_last_section = rp.endswith("part-16-llm-agentic-ai-research-frontiers/module-83-tools-of-the-trade/section-83.5.html")
                 for rel_key in ("prev", "up", "next"):
                     if rel_key not in nav_links:
+                        if rel_key == "prev" and is_first_section:
+                            continue  # first section has no prev
+                        if rel_key == "next" and is_last_section:
+                            continue  # last section has no next
                         p1.append(f"{rel_path}:{nav_line} - nav missing '{rel_key}' link")
                         continue
                     href = nav_links[rel_key]

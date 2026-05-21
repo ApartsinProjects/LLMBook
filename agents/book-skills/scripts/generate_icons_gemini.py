@@ -95,14 +95,15 @@ def load_api_key():
 # Imagen engine (predict endpoint)
 # ---------------------------------------------------------------------------
 
-def generate_image_imagen(api_key, model, prompt, output_path, ctx=None):
+def generate_image_imagen(api_key, model, prompt, output_path, ctx=None, aspect_ratio=None):
     """Generate a single image via Imagen predict API."""
     if ctx is None:
         ctx = ssl.create_default_context()
+    ar = aspect_ratio or ASPECT_RATIO
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:predict?key={api_key}"
     payload = json.dumps({
         "instances": [{"prompt": prompt}],
-        "parameters": {"sampleCount": 1, "aspectRatio": ASPECT_RATIO},
+        "parameters": {"sampleCount": 1, "aspectRatio": ar},
     }).encode("utf-8")
 
     req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
@@ -120,25 +121,29 @@ def generate_image_imagen(api_key, model, prompt, output_path, ctx=None):
 def batch_generate_imagen(api_key, model, tasks, max_workers=MAX_WORKERS):
     """Generate multiple images in parallel via Imagen predict API.
 
-    tasks: list of (name, prompt, output_path)
+    tasks: list of (name, prompt, output_path) or (name, prompt, output_path, aspect_ratio)
     Returns: list of (name, output_path, size_bytes, elapsed_s, error)
     """
     ctx = ssl.create_default_context()
     results = []
 
-    def worker(name, prompt, output_path):
+    def worker(name, prompt, output_path, aspect_ratio=None):
         t0 = time.time()
         try:
-            path, size = generate_image_imagen(api_key, model, prompt, output_path, ctx)
+            path, size = generate_image_imagen(api_key, model, prompt, output_path, ctx, aspect_ratio)
             return (name, path, size, time.time() - t0, None)
         except Exception as e:
             return (name, output_path, 0, time.time() - t0, str(e))
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
-        futures = {
-            pool.submit(worker, name, prompt, out): name
-            for name, prompt, out in tasks
-        }
+        futures = {}
+        for task in tasks:
+            if len(task) == 4:
+                name, prompt, out, ar = task
+            else:
+                name, prompt, out = task
+                ar = None
+            futures[pool.submit(worker, name, prompt, out, ar)] = name
         for future in concurrent.futures.as_completed(futures):
             results.append(future.result())
 
@@ -369,7 +374,13 @@ def main():
     if args.prompts:
         with open(args.prompts) as f:
             custom = json.load(f)
-        tasks = [(item["name"], item["prompt"], item.get("output", f"{args.output_dir}/callout-{item['name']}.png")) for item in custom]
+        tasks = []
+        for item in custom:
+            output_path = item.get("output", f"{args.output_dir}/callout-{item['name']}.png")
+            if "aspect_ratio" in item:
+                tasks.append((item["name"], item["prompt"], output_path, item["aspect_ratio"]))
+            else:
+                tasks.append((item["name"], item["prompt"], output_path))
     else:
         types_filter = set(args.types.split(",")) if args.types else None
         tasks = []

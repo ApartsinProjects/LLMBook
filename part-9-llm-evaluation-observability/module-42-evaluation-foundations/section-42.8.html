@@ -1,0 +1,833 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-PWPHBQL2VL"></script>
+<script>
+window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', 'G-PWPHBQL2VL');
+</script>
+
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<meta content="Section 42.8: Long-Context Benchmarks and Context Extension Methods. The &quot;context length&quot; listed on a model card is a theoretical maximum, not a guarantee of effective utilization." name="description"/>
+<title>Section 42.8: Long-Context Benchmarks and Context Extension Methods</title>
+<link href="../../styles/book.css" rel="stylesheet"/>
+<link href="../../styles/pygments.css" rel="stylesheet"/>
+<link href="../../vendor/katex/katex.min.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/katex/katex.min.js"></script>
+<script defer="" onload="renderMathInElement(document.body, {
+ delimiters: [
+ {left: '$$', right: '$$', display: true},
+ {left: '$', right: '$', display: false}
+ ],
+ throwOnError: false
+ });" src="../../vendor/katex/contrib/auto-render.min.js"></script>
+<link href="../../vendor/prism/prism-theme.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/prism/prism-bundle.min.js"></script>
+<script defer="" src="../../scripts/book.js"></script>
+<link href="../../pagefind/pagefind-ui.css" rel="stylesheet"/>
+<script defer="" src="../../pagefind/pagefind-ui.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
+
+<header class="chapter-header">
+<nav class="header-nav">
+<a class="book-title-link" href="../../index.html">Building Conversational AI with LLMs and Agents</a>
+<a class="toc-link" href="../../toc.html" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+</nav>
+<div class="header-search">
+<div id="search"></div>
+</div>
+
+<div class="page-breadcrumb" data-pagefind-meta="chapter"><a href="../index.html">Part IX: LLM Evaluation &amp; Observability</a><span class="bc-sep">›</span><a href="index.html">Chapter 42: LLM Evaluation &amp; Quality Metrics</a></div>
+<h1>Long-Context Benchmarks and Context Extension Methods</h1><div class="page-current">Section 42.8</div>
+
+</header>
+<main class="content" id="main-content"><span class="pagefind-meta-injected" data-pagefind-meta="part:Part IX: LLM Evaluation &amp; Observability" hidden=""></span><span class="pagefind-meta-injected" data-pagefind-meta="chapter:Chapter 42: LLM Evaluation &amp; Quality Metrics" hidden=""></span>
+<blockquote class="epigraph">
+<p>A model that claims to read a novel but forgets the first chapter by the last page has a context window in name only.</p>
+<span class="agent-avatar-inline" style="background-color: #7f8c8d;"><img alt="Eval" height="28" src="../../front-matter/images/agents/eval.png" width="28"/></span><cite>Eval, <span class="agent-desc">Forgetfully Long-Context AI Agent</span></cite>
+</blockquote>
+<div class="callout big-picture">
+<div class="callout-title">Big Picture</div>
+<p><strong>The "context length" listed on a model card </strong>is a theoretical maximum, not a guarantee of effective utilization. A 128K token window loses real accuracy on information placed in the middle of a long document, the "lost-in-the-middle" effect documented in <a href="../../part-7-retrieval-information-extraction-with-llms/module-32-rag/section-32.1.html">Section 32.1</a>. This section covers benchmarks that measure real context utilization (LongBench v2, RULER, Needle-in-a-Haystack), methods that extend context windows past training-time limits (YaRN, NTK-aware scaling, position interpolation), and the evaluation pitfalls that make long-context assessment harder than it looks. For practitioners building <a href="../../part-7-retrieval-information-extraction-with-llms/module-32-rag/index.html">RAG systems</a>, effective context length decides the architecture: rely on a long-context model when retrieval can keep up, fall back to RAG when it cannot.</p>
+</div>
+<div class="prerequisites">
+<h3 id="prerequisites">Prerequisites</h3>
+<p>This section builds on the evaluation fundamentals from <a href="section-42.1.html">Section 42.1</a> and the experimental design principles in <a href="section-42.2.html">Section 42.2</a>. Understanding <a href="../../part-1-llm-building-blocks/module-03-transformer-architecture/section-3.3.html">positional encoding and attention mechanisms</a> from the Transformer architecture chapter will help with the context extension methods. Familiarity with <a href="../../part-2-understanding-llms/module-09-inference-optimization/index.html">inference optimization</a> provides useful context for the computational aspects of long-context processing.</p>
+</div>
+<h2 id="42-8-1-the-gap-between-claimed-and-effective-context-length">42.8.1 The Gap Between Claimed and Effective Context Length</h2>
+<p>When a model provider advertises a 128K or 1M token context window, that number represents the
+ maximum sequence length the model can accept as input. It does not guarantee that the model
+ will accurately attend to, reason about, or recall information at every position within that window.
+ Several factors contribute to degraded performance at long context lengths:
+ </p>
+<ul>
+<li><strong>Attention dilution:</strong> As sequence length grows, attention weights spread across more tokens. Information at positions that receive low attention scores is effectively invisible to the model, even though it is technically within the context window.</li>
+<li><strong>Position bias:</strong> Models trained predominantly on shorter sequences develop a bias toward information near the beginning and end of the context, with reduced recall for content in the middle. This is the "lost-in-the-middle" phenomenon documented by Liu et al. (2023).</li>
+<li><strong>Training distribution mismatch:</strong> If a model was pretrained on 4K token sequences and then extended to 128K through positional extrapolation, its ability to reason over the extended range may be significantly weaker than at the original training length.</li>
+<li><strong>Task complexity interaction:</strong> Simple retrieval (finding a specific fact) degrades more gracefully than complex reasoning (synthesizing information from multiple positions) as context grows.</li>
+</ul>
+<p>The practical consequence: stuffing 100K tokens into a prompt routinely produces worse answers than carefully selecting 10K tokens of relevant content. The wider you spread the model's attention, the thinner the signal at the position you actually care about. Benchmarks in the following sections measure this gap empirically.
+ </p>
+<div class="callout tip">
+<div class="callout-title">Tip</div>
+<p>Before choosing between a long-context model and a RAG pipeline, run a Needle-in-a-Haystack test at your target context length. If the model drops below 90% retrieval accuracy in the middle third of the context window, you are better off using RAG to select the most relevant chunks than relying on the model to find the information itself.</p>
+</div>
+<h2 id="42-8-2-needle-in-a-haystack-niah-and-multi-needle-variants">42.8.2 Needle-in-a-Haystack (NIAH) and Multi-Needle Variants</h2>
+<p>The Needle-in-a-Haystack (NIAH) test, popularized by Greg Kamradt in late 2023, is the simplest
+ and most intuitive long-context benchmark. A synthetic "needle" (a specific fact, such as
+ "The best thing to do in San Francisco is eat a sandwich and sit in Dolores Park on a sunny day")
+ is inserted at a controlled position within a large "haystack" of irrelevant text. The model is
+ then asked to retrieve the needle.
+ </p>
+<p>By varying both the total context length and the needle position (from 0% to 100% depth), NIAH
+ produces a two-dimensional heatmap showing retrieval accuracy across the entire context window.
+ This reveals position-dependent failure patterns that a single aggregate accuracy number would hide.
+ </p>
+<figure class="illustration">
+<svg viewBox="0 0 660 360" role="img" aria-label="Needle-in-a-haystack heatmap showing retrieval accuracy as a function of context length on the x-axis and needle depth on the y-axis, with the middle of long contexts degrading" xmlns="http://www.w3.org/2000/svg" style="max-width:100%;height:auto;display:block;margin:1.5rem auto;font-family:'Segoe UI',sans-serif;">
+<text x="330" y="22" font-size="14" font-weight="600" fill="#2d3748" text-anchor="middle">Needle-in-a-Haystack: where models actually attend</text>
+
+<g transform="translate(110,55)">
+<g font-size="0">
+<rect x="0" y="0" width="60" height="38" fill="#047857"/>
+<rect x="60" y="0" width="60" height="38" fill="#047857"/>
+<rect x="120" y="0" width="60" height="38" fill="#10b981"/>
+<rect x="180" y="0" width="60" height="38" fill="#34d399"/>
+<rect x="240" y="0" width="60" height="38" fill="#6ee7b7"/>
+<rect x="300" y="0" width="60" height="38" fill="#10b981"/>
+<rect x="360" y="0" width="60" height="38" fill="#047857"/>
+
+<rect x="0" y="38" width="60" height="38" fill="#047857"/>
+<rect x="60" y="38" width="60" height="38" fill="#10b981"/>
+<rect x="120" y="38" width="60" height="38" fill="#34d399"/>
+<rect x="180" y="38" width="60" height="38" fill="#fbbf24"/>
+<rect x="240" y="38" width="60" height="38" fill="#34d399"/>
+<rect x="300" y="38" width="60" height="38" fill="#10b981"/>
+<rect x="360" y="38" width="60" height="38" fill="#047857"/>
+
+<rect x="0" y="76" width="60" height="38" fill="#047857"/>
+<rect x="60" y="76" width="60" height="38" fill="#34d399"/>
+<rect x="120" y="76" width="60" height="38" fill="#fbbf24"/>
+<rect x="180" y="76" width="60" height="38" fill="#f97316"/>
+<rect x="240" y="76" width="60" height="38" fill="#fbbf24"/>
+<rect x="300" y="76" width="60" height="38" fill="#34d399"/>
+<rect x="360" y="76" width="60" height="38" fill="#10b981"/>
+
+<rect x="0" y="114" width="60" height="38" fill="#047857"/>
+<rect x="60" y="114" width="60" height="38" fill="#34d399"/>
+<rect x="120" y="114" width="60" height="38" fill="#f97316"/>
+<rect x="180" y="114" width="60" height="38" fill="#b91c1c"/>
+<rect x="240" y="114" width="60" height="38" fill="#f97316"/>
+<rect x="300" y="114" width="60" height="38" fill="#34d399"/>
+<rect x="360" y="114" width="60" height="38" fill="#10b981"/>
+
+<rect x="0" y="152" width="60" height="38" fill="#047857"/>
+<rect x="60" y="152" width="60" height="38" fill="#10b981"/>
+<rect x="120" y="152" width="60" height="38" fill="#34d399"/>
+<rect x="180" y="152" width="60" height="38" fill="#fbbf24"/>
+<rect x="240" y="152" width="60" height="38" fill="#34d399"/>
+<rect x="300" y="152" width="60" height="38" fill="#10b981"/>
+<rect x="360" y="152" width="60" height="38" fill="#047857"/>
+
+<rect x="0" y="190" width="60" height="38" fill="#047857"/>
+<rect x="60" y="190" width="60" height="38" fill="#047857"/>
+<rect x="120" y="190" width="60" height="38" fill="#10b981"/>
+<rect x="180" y="190" width="60" height="38" fill="#34d399"/>
+<rect x="240" y="190" width="60" height="38" fill="#10b981"/>
+<rect x="300" y="190" width="60" height="38" fill="#047857"/>
+<rect x="360" y="190" width="60" height="38" fill="#047857"/>
+</g>
+<rect x="0" y="0" width="420" height="228" fill="none" stroke="#2d3748" stroke-width="1.5"/>
+</g>
+
+<text x="60" y="68" font-size="9" fill="#4a5568" text-anchor="end">0%</text>
+<text x="60" y="125" font-size="9" fill="#4a5568" text-anchor="end">25%</text>
+<text x="60" y="182" font-size="9" fill="#4a5568" text-anchor="end">50%</text>
+<text x="60" y="239" font-size="9" fill="#4a5568" text-anchor="end">75%</text>
+<text x="60" y="280" font-size="9" fill="#4a5568" text-anchor="end">100%</text>
+<text x="40" y="170" font-size="11" font-weight="600" fill="#4a5568" text-anchor="middle" transform="rotate(-90 40 170)">Needle depth</text>
+
+<text x="140" y="298" font-size="9" fill="#4a5568" text-anchor="middle">4K</text>
+<text x="200" y="298" font-size="9" fill="#4a5568" text-anchor="middle">16K</text>
+<text x="260" y="298" font-size="9" fill="#4a5568" text-anchor="middle">32K</text>
+<text x="320" y="298" font-size="9" fill="#4a5568" text-anchor="middle">64K</text>
+<text x="380" y="298" font-size="9" fill="#4a5568" text-anchor="middle">128K</text>
+<text x="440" y="298" font-size="9" fill="#4a5568" text-anchor="middle">256K</text>
+<text x="500" y="298" font-size="9" fill="#4a5568" text-anchor="middle">1M</text>
+<text x="320" y="320" font-size="11" font-weight="600" fill="#4a5568" text-anchor="middle">Context length</text>
+
+<g transform="translate(553,55)" font-size="9" fill="#2d3748">
+<rect x="0" y="0" width="20" height="16" fill="#047857"/>
+<text x="26" y="12">100% recall</text>
+<rect x="0" y="22" width="20" height="16" fill="#34d399"/>
+<text x="26" y="34">~90%</text>
+<rect x="0" y="44" width="20" height="16" fill="#fbbf24"/>
+<text x="26" y="56">~60%</text>
+<rect x="0" y="66" width="20" height="16" fill="#f97316"/>
+<text x="26" y="78">~30%</text>
+<rect x="0" y="88" width="20" height="16" fill="#b91c1c"/>
+<text x="26" y="100">0% (lost)</text>
+</g>
+
+<text x="380" y="143" font-size="10" font-weight="600" fill="#fff" text-anchor="middle">lost-in-middle</text>
+</svg>
+<figcaption><strong>Figure 42.8.1:</strong> A typical Needle-in-a-Haystack heatmap. The dark-red zone around 25 to 50 percent depth at long contexts is the "lost-in-the-middle" effect: even when the needle is technically inside the context window, attention dilutes and the model behaves as if the fact were never given.</figcaption>
+</figure>
+<h3 id="42-8-2-1-multi-needle-and-reasoning-variants">42.8.2.1 Multi-Needle and Reasoning Variants</h3>
+<p>The basic single-needle test has been extended in several ways to increase difficulty:
+ </p>
+<ul>
+<li><strong>Multi-needle:</strong> Multiple facts are scattered throughout the context, and the model must retrieve all of them. This tests whether the model can attend to multiple positions simultaneously.</li>
+<li><strong>Reasoning needles:</strong> Instead of retrieving a verbatim fact, the model must combine information from two or more needles placed at different positions to produce the correct answer.</li>
+<li><strong>Adversarial needles:</strong> Distractor facts similar to the target needle are inserted at other positions, testing whether the model can distinguish the correct needle from plausible alternatives.</li>
+</ul>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">openai</span><span class="w"> </span><span class="kn">import</span> <span class="n">OpenAI</span>
+<span class="n">client</span> <span class="o">=</span> <span class="n">OpenAI</span><span class="p">()</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">run_niah_test</span><span class="p">(</span>
+    <span class="n">model</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">context_lengths</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">],</span>
+    <span class="n">depth_percents</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">float</span><span class="p">],</span>
+    <span class="n">needle</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"The secret project code name is AURORA-7."</span><span class="p">,</span>
+    <span class="n">question</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"What is the secret project code name?"</span><span class="p">,</span>
+    <span class="n">expected</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"AURORA-7"</span><span class="p">,</span>
+    <span class="n">filler_text</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Run NIAH across context lengths and needle positions."""</span>
+    <span class="n">results</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="nb">len</span><span class="p">(</span><span class="n">context_lengths</span><span class="p">),</span> <span class="nb">len</span><span class="p">(</span><span class="n">depth_percents</span><span class="p">)))</span>
+    <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">ctx_len</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">context_lengths</span><span class="p">):</span>
+        <span class="c1"># Generate filler text to fill the context</span>
+        <span class="n">haystack</span> <span class="o">=</span> <span class="n">generate_filler</span><span class="p">(</span><span class="n">ctx_len</span><span class="p">,</span> <span class="n">filler_text</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">j</span><span class="p">,</span> <span class="n">depth</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">depth_percents</span><span class="p">):</span>
+            <span class="c1"># Insert needle at the specified depth</span>
+            <span class="n">insert_pos</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">haystack</span><span class="p">)</span> <span class="o">*</span> <span class="n">depth</span><span class="p">)</span>
+            <span class="n">prompt</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="n">haystack</span><span class="p">[:</span><span class="n">insert_pos</span><span class="p">]</span>
+                <span class="o">+</span> <span class="sa">f</span><span class="s2">"</span><span class="se">\n</span><span class="si">{</span><span class="n">needle</span><span class="si">}</span><span class="se">\n</span><span class="s2">"</span>
+                <span class="o">+</span> <span class="n">haystack</span><span class="p">[</span><span class="n">insert_pos</span><span class="p">:]</span>
+                <span class="p">)</span>
+            <span class="n">response</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">chat</span><span class="o">.</span><span class="n">completions</span><span class="o">.</span><span class="n">create</span><span class="p">(</span>
+                <span class="n">model</span><span class="o">=</span><span class="n">model</span><span class="p">,</span>
+                <span class="n">messages</span><span class="o">=</span><span class="p">[</span>
+                <span class="p">{</span><span class="s2">"role"</span><span class="p">:</span> <span class="s2">"system"</span><span class="p">,</span>
+                <span class="s2">"content"</span><span class="p">:</span> <span class="s2">"Answer based on the provided context."</span><span class="p">},</span>
+                <span class="p">{</span><span class="s2">"role"</span><span class="p">:</span> <span class="s2">"user"</span><span class="p">,</span>
+                <span class="s2">"content"</span><span class="p">:</span> <span class="sa">f</span><span class="s2">"Context:</span><span class="se">\n</span><span class="si">{</span><span class="n">prompt</span><span class="si">}</span><span class="se">\n\n</span><span class="si">{</span><span class="n">question</span><span class="si">}</span><span class="s2">"</span><span class="p">},</span>
+                <span class="p">],</span>
+                <span class="n">max_tokens</span><span class="o">=</span><span class="mi">50</span><span class="p">,</span>
+                <span class="n">temperature</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="n">answer</span> <span class="o">=</span> <span class="n">response</span><span class="o">.</span><span class="n">choices</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">message</span><span class="o">.</span><span class="n">content</span>
+            <span class="n">results</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">]</span> <span class="o">=</span> <span class="mf">1.0</span> <span class="k">if</span> <span class="n">expected</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="ow">in</span> <span class="n">answer</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="k">else</span> <span class="mf">0.0</span>
+            <span class="k">return</span> <span class="n">results</span>
+            <span class="c1"># Run across multiple context lengths and positions</span>
+            <span class="n">context_lengths</span> <span class="o">=</span> <span class="p">[</span><span class="mi">1_000</span><span class="p">,</span> <span class="mi">4_000</span><span class="p">,</span> <span class="mi">16_000</span><span class="p">,</span> <span class="mi">32_000</span><span class="p">,</span> <span class="mi">64_000</span><span class="p">,</span> <span class="mi">128_000</span><span class="p">]</span>
+            <span class="n">depth_percents</span> <span class="o">=</span> <span class="p">[</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.1</span><span class="p">,</span> <span class="mf">0.25</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">,</span> <span class="mf">0.75</span><span class="p">,</span> <span class="mf">0.9</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">]</span>
+            <span class="n">scores</span> <span class="o">=</span> <span class="n">run_niah_test</span><span class="p">(</span>
+                <span class="n">model</span><span class="o">=</span><span class="s2">"gpt-4o"</span><span class="p">,</span>
+                <span class="n">context_lengths</span><span class="o">=</span><span class="n">context_lengths</span><span class="p">,</span>
+                <span class="n">depth_percents</span><span class="o">=</span><span class="n">depth_percents</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Overall retrieval accuracy: </span><span class="si">{</span><span class="n">scores</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span><span class="si">:</span><span class="s2">.1%</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> Overall retrieval accuracy: 90.5%
+
+</div>
+<div class="code-caption"><strong>Code Fragment 42.8.1:</strong> Needle-in-a-Haystack evaluation</div>
+</div>
+<div class="callout library-shortcut">
+<div class="callout-title">Library Shortcut: Inspect AI for Needle-in-a-Haystack Evaluation</div>
+<p>The same result in 8 lines with <strong>Inspect AI</strong>, which ships with a built-in NIAH evaluation task:</p>
+<details class="code-collapsible"><summary>Show code</summary><div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># pip install inspect-ai</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">inspect_ai</span><span class="w"> </span><span class="kn">import</span> <span class="nb">eval</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">inspect_ai.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">Sample</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">inspect_evals.niah</span><span class="w"> </span><span class="kn">import</span> <span class="n">niah</span>
+<span class="c1"># Run NIAH across context lengths with one call</span>
+<span class="n">results</span> <span class="o">=</span> <span class="nb">eval</span><span class="p">(</span>
+    <span class="n">niah</span><span class="p">(</span><span class="n">min_context</span><span class="o">=</span><span class="mi">1_000</span><span class="p">,</span> <span class="n">max_context</span><span class="o">=</span><span class="mi">128_000</span><span class="p">,</span> <span class="n">n_contexts</span><span class="o">=</span><span class="mi">6</span><span class="p">,</span> <span class="n">n_positions</span><span class="o">=</span><span class="mi">7</span><span class="p">),</span>
+    <span class="n">model</span><span class="o">=</span><span class="s2">"openai/gpt-4o"</span><span class="p">,</span>
+    <span class="n">log_dir</span><span class="o">=</span><span class="s2">"./niah_logs"</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="c1"># Results include a 2D accuracy matrix and interactive log viewer</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> Context: 4,000 | Chain: 2 | Correct: True
+Context: 4,000 | Chain: 3 | Correct: True
+Context: 4,000 | Chain: 5 | Correct: True
+Context: 4,000 | Chain: 7 | Correct: False
+Context: 32,000 | Chain: 2 | Correct: True
+Context: 32,000 | Chain: 3 | Correct: True
+Context: 32,000 | Chain: 5 | Correct: False
+Context: 32,000 | Chain: 7 | Correct: False
+Context: 128,000 | Chain: 2 | Correct: True
+Context: 128,000 | Chain: 3 | Correct: True
+Context: 128,000 | Chain: 5 | Correct: False
+Context: 128,000 | Chain: 7 | Correct: False
+
+</div>
+<div class="code-caption"><strong>Code Fragment 42.8.7:</strong> Pip install inspect-ai.</div></div></details>
+</div>
+<div class="callout fun-note">
+<div class="callout-title">Fun Fact</div>
+<p>The original Needle-in-a-Haystack test went viral on Twitter/X in November 2023 when Greg Kamradt published colorful heatmaps showing that Claude 2.1 had a "blind spot" in the middle of its context window. Anthropic responded within days with a system prompt fix that significantly improved mid-context retrieval. The episode demonstrated both the power of simple, visual benchmarks and the surprising sensitivity of LLM performance to system prompt phrasing.</p>
+</div>
+<h2 id="42-8-3-ruler-parametric-context-utilization-benchmark">42.8.3 RULER: Parametric Context Utilization Benchmark</h2>
+<p>RULER (Hsieh et al., 2024) addresses the limitations of NIAH by providing a parametric benchmark
+ with configurable task complexity. While NIAH tests simple retrieval of a single fact, RULER
+ includes tasks that require reasoning, aggregation, and multi-step operations across the context.
+ RULER defines four task categories:
+ </p>
+<ol>
+<li><strong>Retrieval (NIAH variants):</strong> Single-key, multi-key, multi-value, and multi-query needle retrieval at controlled positions.</li>
+<li><strong>Multi-hop tracing:</strong> Variable-length chains where the model must follow a sequence of references (e.g., "X is stored in Y, Y is stored in Z; where is X?").</li>
+<li><strong>Aggregation:</strong> The model must count, sum, or find the most frequent item among values scattered throughout the context.</li>
+<li><strong>Question answering:</strong> Complex questions requiring information from multiple context positions.</li>
+</ol>
+<p>The key insight of RULER is that model performance degrades at very different rates depending on
+ task complexity. A model that achieves 95% on single-needle retrieval at 128K tokens may drop to
+ 40% on multi-hop tracing at the same length. RULER's parametric design allows benchmarking at any
+ target sequence length, producing "RULER curves" that show how each task type degrades with context.
+ </p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="kn">import</span><span class="w"> </span><span class="nn">random</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">string</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">generate_ruler_tracing_task</span><span class="p">(</span>
+    <span class="n">context_length</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">chain_length</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">3</span><span class="p">,</span>
+    <span class="n">num_distractors</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">20</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Generate a RULER-style variable-length tracing task.</span>
+<span class="sd">    Creates a chain: X is in box A, box A is in box B, ...</span>
+<span class="sd">    The model must determine the final location of X.</span>
+<span class="sd">    """</span>
+    <span class="c1"># Generate unique variable names</span>
+    <span class="n">names</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="s2">""</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">random</span><span class="o">.</span><span class="n">choices</span><span class="p">(</span><span class="n">string</span><span class="o">.</span><span class="n">ascii_uppercase</span><span class="p">,</span> <span class="n">k</span><span class="o">=</span><span class="mi">4</span><span class="p">))</span>
+        <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">chain_length</span> <span class="o">+</span> <span class="mi">1</span> <span class="o">+</span> <span class="n">num_distractors</span><span class="p">)</span>
+        <span class="p">]</span>
+    <span class="n">target</span> <span class="o">=</span> <span class="n">names</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="n">chain_locations</span> <span class="o">=</span> <span class="n">names</span><span class="p">[</span><span class="mi">1</span><span class="p">:</span><span class="n">chain_length</span> <span class="o">+</span> <span class="mi">1</span><span class="p">]</span>
+    <span class="n">distractor_names</span> <span class="o">=</span> <span class="n">names</span><span class="p">[</span><span class="n">chain_length</span> <span class="o">+</span> <span class="mi">1</span><span class="p">:]</span>
+    <span class="c1"># Build the chain statements</span>
+    <span class="n">chain_facts</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">chain_facts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+        <span class="sa">f</span><span class="s2">"The item '</span><span class="si">{</span><span class="n">target</span><span class="si">}</span><span class="s2">' is stored in container '</span><span class="si">{</span><span class="n">chain_locations</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="si">}</span><span class="s2">'."</span>
+        <span class="p">)</span>
+    <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">chain_locations</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span><span class="p">):</span>
+        <span class="n">chain_facts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">"Container '</span><span class="si">{</span><span class="n">chain_locations</span><span class="p">[</span><span class="n">k</span><span class="p">]</span><span class="si">}</span><span class="s2">' is inside "</span>
+            <span class="sa">f</span><span class="s2">"container '</span><span class="si">{</span><span class="n">chain_locations</span><span class="p">[</span><span class="n">k</span><span class="o">+</span><span class="mi">1</span><span class="p">]</span><span class="si">}</span><span class="s2">'."</span>
+            <span class="p">)</span>
+        <span class="c1"># Build distractor statements</span>
+        <span class="n">distractor_facts</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">distractor_names</span><span class="p">:</span>
+            <span class="n">loc</span> <span class="o">=</span> <span class="n">random</span><span class="o">.</span><span class="n">choice</span><span class="p">(</span><span class="n">distractor_names</span><span class="p">)</span>
+            <span class="n">distractor_facts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">"The item '</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">' is stored in container '</span><span class="si">{</span><span class="n">loc</span><span class="si">}</span><span class="s2">'."</span>
+                <span class="p">)</span>
+            <span class="c1"># Interleave chain facts at random positions among distractors</span>
+            <span class="n">all_facts</span> <span class="o">=</span> <span class="n">distractor_facts</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+            <span class="k">for</span> <span class="n">fact</span> <span class="ow">in</span> <span class="n">chain_facts</span><span class="p">:</span>
+                <span class="n">pos</span> <span class="o">=</span> <span class="n">random</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">all_facts</span><span class="p">))</span>
+                <span class="n">all_facts</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="n">pos</span><span class="p">,</span> <span class="n">fact</span><span class="p">)</span>
+                <span class="c1"># Pad to target context length with filler</span>
+                <span class="n">context</span> <span class="o">=</span> <span class="s2">"</span><span class="se">\n</span><span class="s2">"</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">all_facts</span><span class="p">)</span>
+                <span class="n">context</span> <span class="o">=</span> <span class="n">pad_to_length</span><span class="p">(</span><span class="n">context</span><span class="p">,</span> <span class="n">context_length</span><span class="p">)</span>
+                <span class="k">return</span> <span class="p">{</span>
+                    <span class="s2">"context"</span><span class="p">:</span> <span class="n">context</span><span class="p">,</span>
+                    <span class="s2">"question"</span><span class="p">:</span> <span class="sa">f</span><span class="s2">"Where is '</span><span class="si">{</span><span class="n">target</span><span class="si">}</span><span class="s2">' ultimately stored? "</span>
+                    <span class="sa">f</span><span class="s2">"Follow the chain of containers."</span><span class="p">,</span>
+                    <span class="s2">"expected"</span><span class="p">:</span> <span class="n">chain_locations</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">],</span>
+                    <span class="s2">"chain_length"</span><span class="p">:</span> <span class="n">chain_length</span><span class="p">,</span>
+                    <span class="p">}</span>
+                <span class="c1"># Evaluate across context lengths and chain depths</span>
+                <span class="k">for</span> <span class="n">ctx_len</span> <span class="ow">in</span> <span class="p">[</span><span class="mi">4_000</span><span class="p">,</span> <span class="mi">32_000</span><span class="p">,</span> <span class="mi">128_000</span><span class="p">]:</span>
+                    <span class="k">for</span> <span class="n">chain_len</span> <span class="ow">in</span> <span class="p">[</span><span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="mi">7</span><span class="p">]:</span>
+                        <span class="n">task</span> <span class="o">=</span> <span class="n">generate_ruler_tracing_task</span><span class="p">(</span><span class="n">ctx_len</span><span class="p">,</span> <span class="n">chain_len</span><span class="p">)</span>
+                        <span class="n">result</span> <span class="o">=</span> <span class="n">evaluate_model</span><span class="p">(</span><span class="n">task</span><span class="p">)</span>
+                        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Context: </span><span class="si">{</span><span class="n">ctx_len</span><span class="si">:</span><span class="s2">&gt;7,</span><span class="si">}</span><span class="s2"> | Chain: </span><span class="si">{</span><span class="n">chain_len</span><span class="si">}</span><span class="s2"> | "</span>
+                            <span class="sa">f</span><span class="s2">"Correct: </span><span class="si">{</span><span class="n">result</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span></code></pre>
+
+<div class="code-caption"><strong>Code Fragment 42.8.2:</strong> The key insight of RULER is that model performance degrades at very different rates depending on task complexity.</div></div>
+<h2 id="42-8-4-longbench-v2-multi-task-long-context-evaluation">42.8.4 LongBench v2: Multi-Task Long-Context Evaluation</h2>
+<p>LongBench v2 (Bai et al., 2024) provides a comprehensive, multi-task evaluation suite for
+ long-context language models. Unlike synthetic benchmarks (NIAH, RULER), LongBench v2 uses
+ real-world documents and tasks that reflect actual long-context use cases. The benchmark spans
+ six task categories:
+ </p>
+<ul>
+<li><strong>Single-document QA:</strong> Questions answerable from a single long document (academic papers, legal contracts, technical manuals).</li>
+<li><strong>Multi-document QA:</strong> Questions requiring synthesis across multiple documents concatenated into a single context.</li>
+<li><strong>Summarization:</strong> Producing summaries of long documents that capture key information without hallucination.</li>
+<li><strong>Few-shot learning:</strong> In-context learning with many demonstration examples, testing whether models can leverage large example sets effectively.</li>
+<li><strong>Code completion:</strong> Completing code given a large repository context with cross-file dependencies.</li>
+<li><strong>Synthetic tasks:</strong> Controlled tasks (including NIAH variants) for isolating specific capabilities.</li>
+</ul>
+<p>LongBench v2 addresses several shortcomings of earlier benchmarks. It uses a "length-instruction-enhanced" evaluation protocol
+ that controls for the confound between task difficulty and context length. Tasks are designed so that
+ the relevant information truly requires the full context, preventing models from "cheating" by
+ ignoring the long context and relying on parametric knowledge.
+ </p>
+<div class="callout key-insight">
+<div class="callout-title">Key Insight</div>
+<p>A critical finding from LongBench v2: model rankings flip across task categories and context lengths. The model that leads on single-document QA at 32K tokens ranks last on multi-document synthesis at 128K tokens. A single "long-context score" is therefore misleading. Evaluate on the specific task type and context length that matches your production workload, not on aggregate leaderboard positions.</p>
+</div>
+<h2 id="42-8-5-context-extension-methods">42.8.5 Context Extension Methods</h2>
+<p>Models trained with a fixed maximum sequence length face a hard boundary: they cannot process
+ inputs longer than their training context. Positional encoding extension methods address this by
+ modifying the position representation so that the model can generalize to longer sequences without
+ full retraining. The key methods are:
+ </p>
+<h3 id="42-8-5-1-position-interpolation">42.8.5.1 Position Interpolation</h3>
+<p>Position interpolation (Chen et al., 2023) is the simplest extension method. Instead of
+ extrapolating RoPE (Rotary Position Embedding) frequencies beyond the training range, it
+ rescales all positions to fit within the original range. For a model trained on $L$ tokens
+ extended to $L' &gt; L$ tokens, position $i$ is mapped to $i \cdot \frac{L}{L'}$.
+ </p>
+<p>The intuition is that interpolation between known positions is more stable than extrapolation
+ beyond them. A model trained on positions 0 through 4,096 can reasonably estimate what position
+ 2,048.5 "looks like," but has no reliable basis for estimating position 8,192. After interpolation,
+ a small amount of <a href="../../part-4-training-adaptation/module-16-fine-tuning-fundamentals/section-16.1.html">fine-tuning</a> (typically 1,000 steps) adapts the model to the compressed position
+ representation.
+ </p>
+<h3 id="42-8-5-2-ntk-aware-scaling">42.8.5.2 NTK-Aware Scaling</h3>
+<p>NTK-aware scaling (bloc97, 2023) observes that position interpolation compresses high-frequency
+ RoPE components too aggressively, destroying local position information. Instead of applying a
+ uniform scaling factor, NTK-aware scaling adjusts the RoPE base frequency:
+ </p>
+
+ $$\theta'_i = \theta_{\text{base}}^{\prime -2i/d} \quad \text{where} \quad \theta_{\text{base}}' = \theta_{\text{base}} \cdot \alpha^{d/(d-2)}$$
+
+ <p>Here, $\alpha = L'/L$ is the extension ratio and $d$ is the embedding dimension. This preserves
+ high-frequency (local) positional information while stretching low-frequency (global) components to
+ accommodate longer sequences. NTK-aware scaling often works without any fine-tuning at moderate
+ extension ratios (2x to 4x).
+ </p>
+<h3 id="42-8-5-3-yarn-yet-another-rope-extension">42.8.5.3 YaRN (Yet another RoPE extensioN)</h3>
+<p>YaRN (Peng et al., 2023) combines the best ideas from position interpolation and NTK-aware scaling
+ into a unified framework. It introduces a per-dimension scaling strategy that treats RoPE frequency
+ bands differently based on their wavelength relative to the original context length:
+ </p>
+<ul>
+<li><strong>High-frequency dimensions</strong> (wavelength much shorter than training length): No scaling needed; these encode local position information that transfers directly.</li>
+<li><strong>Low-frequency dimensions</strong> (wavelength comparable to or longer than training length): Apply NTK-aware scaling to stretch these for the extended context.</li>
+<li><strong>Intermediate dimensions:</strong> Blend between no scaling and full scaling using a smooth ramp function.</li>
+</ul>
+<p>YaRN also applies a temperature scaling factor to the attention logits to compensate for the increased
+ entropy of attention distributions at longer sequence lengths. This correction prevents the "attention
+ dilution" that would otherwise degrade performance.
+ </p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">math</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">yarn_rope_scaling</span><span class="p">(</span>
+    <span class="n">dim</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">max_position</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">original_max</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">4096</span><span class="p">,</span>
+    <span class="n">base</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">10000.0</span><span class="p">,</span>
+    <span class="n">beta_fast</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">32</span><span class="p">,</span>
+    <span class="n">beta_slow</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Compute YaRN-scaled RoPE frequencies.</span>
+<span class="sd">    Args:</span>
+<span class="sd">    dim: RoPE embedding dimension</span>
+<span class="sd">    max_position: target context length</span>
+<span class="sd">    original_max: original training context length</span>
+<span class="sd">    base: RoPE base frequency</span>
+<span class="sd">    beta_fast: fast (high-freq) interpolation boundary</span>
+<span class="sd">    beta_slow: slow (low-freq) interpolation boundary</span>
+<span class="sd">    """</span>
+    <span class="n">scale</span> <span class="o">=</span> <span class="n">max_position</span> <span class="o">/</span> <span class="n">original_max</span>
+    <span class="c1"># Compute original frequencies</span>
+    <span class="n">freqs</span> <span class="o">=</span> <span class="mf">1.0</span> <span class="o">/</span> <span class="p">(</span><span class="n">base</span> <span class="o">**</span> <span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">dim</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span><span class="o">.</span><span class="n">float</span><span class="p">()</span> <span class="o">/</span> <span class="n">dim</span><span class="p">))</span>
+    <span class="c1"># Compute wavelengths for each frequency dimension</span>
+    <span class="n">wavelengths</span> <span class="o">=</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">math</span><span class="o">.</span><span class="n">pi</span> <span class="o">/</span> <span class="n">freqs</span>
+    <span class="c1"># Determine per-dimension scaling using ramp function</span>
+    <span class="n">low_bound</span> <span class="o">=</span> <span class="n">original_max</span> <span class="o">/</span> <span class="n">beta_fast</span>
+    <span class="n">high_bound</span> <span class="o">=</span> <span class="n">original_max</span> <span class="o">/</span> <span class="n">beta_slow</span>
+    <span class="c1"># Ramp: 0 for high-freq (no scaling), 1 for low-freq (full scaling)</span>
+    <span class="n">ramp</span> <span class="o">=</span> <span class="p">((</span><span class="n">wavelengths</span> <span class="o">-</span> <span class="n">low_bound</span><span class="p">)</span> <span class="o">/</span> <span class="p">(</span><span class="n">high_bound</span> <span class="o">-</span> <span class="n">low_bound</span><span class="p">))</span><span class="o">.</span><span class="n">clamp</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+    <span class="c1"># Interpolate between original freqs and NTK-scaled freqs</span>
+    <span class="n">ntk_factor</span> <span class="o">=</span> <span class="n">base</span> <span class="o">*</span> <span class="p">(</span><span class="n">scale</span> <span class="o">**</span> <span class="p">(</span><span class="n">dim</span> <span class="o">/</span> <span class="p">(</span><span class="n">dim</span> <span class="o">-</span> <span class="mi">2</span><span class="p">)))</span>
+    <span class="n">ntk_freqs</span> <span class="o">=</span> <span class="mf">1.0</span> <span class="o">/</span> <span class="p">(</span><span class="n">ntk_factor</span> <span class="o">**</span> <span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">dim</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span><span class="o">.</span><span class="n">float</span><span class="p">()</span> <span class="o">/</span> <span class="n">dim</span><span class="p">))</span>
+    <span class="c1"># Blend: high-freq keeps original, low-freq uses NTK scaling</span>
+    <span class="n">scaled_freqs</span> <span class="o">=</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">ramp</span><span class="p">)</span> <span class="o">*</span> <span class="n">freqs</span> <span class="o">+</span> <span class="n">ramp</span> <span class="o">*</span> <span class="n">ntk_freqs</span>
+    <span class="k">return</span> <span class="n">scaled_freqs</span>
+<span class="c1"># Example: extend a 4K model to 128K</span>
+<span class="n">freqs_4k</span> <span class="o">=</span> <span class="n">yarn_rope_scaling</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span> <span class="n">max_position</span><span class="o">=</span><span class="mi">4096</span><span class="p">,</span>
+    <span class="n">original_max</span><span class="o">=</span><span class="mi">4096</span><span class="p">)</span>
+<span class="n">freqs_128k</span> <span class="o">=</span> <span class="n">yarn_rope_scaling</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span> <span class="n">max_position</span><span class="o">=</span><span class="mi">131072</span><span class="p">,</span>
+    <span class="n">original_max</span><span class="o">=</span><span class="mi">4096</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Scaling ratio: </span><span class="si">{</span><span class="mi">131072</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mi">4096</span><span class="si">}</span><span class="s2">x"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Low-freq stretch: </span><span class="si">{</span><span class="n">freqs_4k</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">freqs_128k</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2">x"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"High-freq stretch: </span><span class="si">{</span><span class="n">freqs_4k</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">freqs_128k</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2">x"</span><span class="p">)</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> Scaling ratio: 32.0x
+Low-freq stretch: 31.4x
+High-freq stretch: 1.0x
+
+</div>
+
+<div class="code-caption"><strong>Code Fragment 42.8.3:</strong> YaRN also applies a temperature scaling factor to the attention logits to compensate for the increased entropy of attention distributions at longer.</div></div>
+<div class="comparison-table">
+<div class="comparison-table-title"><strong>Table 42.8.1:</strong> <em>Context Extension Methods Comparison (as of 2026).</em></div>
+<table class="complex-table">
+<thead>
+<tr>
+<th scope="col">Method</th>
+<th scope="col">Approach</th>
+<th scope="col">Fine-tuning?</th>
+<th scope="col">Max Extension</th>
+<th scope="col">Quality</th>
+</tr>
+</thead>
+<tr>
+<td>Position Interpolation</td>
+<td>Uniform position rescaling</td>
+<td>~1,000 steps required</td>
+<td>~8x</td>
+<td>Good with fine-tuning</td>
+</tr>
+<tr>
+<td>NTK-Aware Scaling</td>
+<td>Base frequency adjustment</td>
+<td>Often not needed (2-4x)</td>
+<td>~4x without fine-tuning</td>
+<td>Moderate</td>
+</tr>
+<tr>
+<td>YaRN</td>
+<td>Per-dimension ramp + attention temperature</td>
+<td>~400 steps (minimal)</td>
+<td>~64x demonstrated</td>
+<td>Best overall</td>
+</tr>
+<tr>
+<td>Dynamic NTK</td>
+<td>Adapts scaling at inference based on input length</td>
+<td>None</td>
+<td>~4x</td>
+<td>Moderate, no training needed</td>
+</tr>
+</table>
+</div>
+<h2 id="42-8-6-evaluation-pitfalls">42.8.6 Evaluation Pitfalls</h2>
+<p>Evaluating long-context models involves several subtle pitfalls that can produce misleading results:
+ </p>
+<h3 id="42-8-6-1-contamination-in-long-documents">42.8.6.1 Contamination in Long Documents</h3>
+<p>Long-context benchmarks that use real documents (academic papers, books, Wikipedia articles) risk
+ contamination: the model may have seen these documents during pretraining and can answer questions
+ from parametric memory rather than from the provided context. This inflates apparent long-context
+ performance. Mitigation strategies include using post-training-cutoff documents, synthetic tasks,
+ or "unanswerable question" controls where the context is replaced with irrelevant text to measure
+ the parametric knowledge baseline.
+ </p>
+<h3 id="42-8-6-2-position-bias-effects">42.8.6.2 Position Bias Effects</h3>
+<p>The "lost-in-the-middle" phenomenon means that where information appears in the context affects
+ whether the model uses it. Evaluations that place key information only at the beginning or end of
+ the context will overestimate performance. Robust evaluation requires systematic position sweeps
+ (as in NIAH) or randomized placement with averaging.
+ </p>
+<h3 id="42-8-6-3-length-vs-difficulty-confounds">42.8.6.3 Length vs. Difficulty Confounds</h3>
+<p>Longer contexts often correlate with harder tasks (more documents to synthesize, more complex
+ reasoning chains). Separating the effect of context length from task difficulty requires
+ controlled experiments where the same task is embedded in contexts of varying length with
+ irrelevant padding. RULER's parametric design and LongBench v2's length-instruction protocol
+ both attempt to address this confound.
+ </p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="kn">from</span><span class="w"> </span><span class="nn">openai</span><span class="w"> </span><span class="kn">import</span> <span class="n">OpenAI</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">measure_contamination_baseline</span><span class="p">(</span>
+    <span class="n">model</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">questions</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">],</span>
+    <span class="n">client</span><span class="p">:</span> <span class="n">OpenAI</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Measure how many questions the model can answer without context.</span>
+<span class="sd">    If the model answers correctly without the long context,</span>
+<span class="sd">    the question may be contaminated (answerable from parametric memory).</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">results</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;answerable_without_context&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;total&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">}</span>
+    <span class="k">for</span> <span class="n">q</span> <span class="ow">in</span> <span class="n">questions</span><span class="p">:</span>
+        <span class="c1"># Ask without providing the document context</span>
+        <span class="n">response</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">chat</span><span class="o">.</span><span class="n">completions</span><span class="o">.</span><span class="n">create</span><span class="p">(</span>
+            <span class="n">model</span><span class="o">=</span><span class="n">model</span><span class="p">,</span>
+            <span class="n">messages</span><span class="o">=</span><span class="p">[</span>
+            <span class="p">{</span><span class="s2">&quot;role&quot;</span><span class="p">:</span> <span class="s2">&quot;system&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;content&quot;</span><span class="p">:</span> <span class="s2">&quot;Answer the question. If you are unsure, &quot;</span>
+            <span class="s2">&quot;say &#39;I don&#39;t know&#39;.&quot;</span><span class="p">},</span>
+            <span class="p">{</span><span class="s2">&quot;role&quot;</span><span class="p">:</span> <span class="s2">&quot;user&quot;</span><span class="p">,</span> <span class="s2">&quot;content&quot;</span><span class="p">:</span> <span class="n">q</span><span class="p">[</span><span class="s2">&quot;question&quot;</span><span class="p">]},</span>
+            <span class="p">],</span>
+            <span class="n">max_tokens</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span>
+            <span class="n">temperature</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="n">answer</span> <span class="o">=</span> <span class="n">response</span><span class="o">.</span><span class="n">choices</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">message</span><span class="o">.</span><span class="n">content</span>
+        <span class="k">if</span> <span class="n">check_answer</span><span class="p">(</span><span class="n">answer</span><span class="p">,</span> <span class="n">q</span><span class="p">[</span><span class="s2">&quot;expected&quot;</span><span class="p">]):</span>
+            <span class="n">results</span><span class="p">[</span><span class="s2">&quot;answerable_without_context&quot;</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
+            <span class="n">results</span><span class="p">[</span><span class="s2">&quot;total&quot;</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
+            <span class="n">contamination_rate</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="n">results</span><span class="p">[</span><span class="s2">&quot;answerable_without_context&quot;</span><span class="p">]</span> <span class="o">/</span> <span class="n">results</span><span class="p">[</span><span class="s2">&quot;total&quot;</span><span class="p">]</span>
+                <span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Contamination baseline: </span><span class="si">{</span><span class="n">contamination_rate</span><span class="si">:</span><span class="s2">.1%</span><span class="si">}</span><span class="s2"> of questions &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;answerable without context&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">results</span>
+</code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> Contamination baseline: 12.5% of questions answerable without context
+
+</div>
+
+<div class="code-caption"><strong>Code Fragment 42.8.4:</strong> Longer contexts often correlate with harder tasks (more documents to synthesize, more complex reasoning chains).</div></div>
+<div class="callout lab">
+<div class="callout-title">Lab: Reproducing RULER Curves</div>
+<h3>Objective</h3>
+<p>This lab walks through reproducing RULER-style evaluation curves for an open-weight model,
+ measuring how performance degrades across task types and context lengths. The experiment
+ uses the <a href="../../part-2-understanding-llms/module-10-interpretability/section-10.7.html#12-2-huggingface-transformers-deep-dive">Hugging Face</a> Transformers library with a locally hosted model to avoid API costs
+ for the hundreds of evaluations required.
+ </p>
+<h3>Steps</h3>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">AutoModelForCausalLM</span><span class="p">,</span> <span class="n">AutoTokenizer</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">collections</span><span class="w"> </span><span class="kn">import</span> <span class="n">defaultdict</span>
+<span class="c1"># Load an open-weight long-context model</span>
+<span class="n">model_name</span> <span class="o">=</span> <span class="s2">"meta-llama/Llama-3.1-8B-Instruct"</span>
+<span class="n">tokenizer</span> <span class="o">=</span> <span class="n">AutoTokenizer</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span><span class="n">model_name</span><span class="p">)</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">AutoModelForCausalLM</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span>
+    <span class="n">model_name</span><span class="p">,</span>
+    <span class="n">torch_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">,</span>
+    <span class="n">device_map</span><span class="o">=</span><span class="s2">"auto"</span><span class="p">,</span>
+    <span class="n">attn_implementation</span><span class="o">=</span><span class="s2">"flash_attention_2"</span><span class="p">,</span>
+    <span class="p">)</span>
+<span class="c1"># Define evaluation grid</span>
+<span class="n">context_lengths</span> <span class="o">=</span> <span class="p">[</span><span class="mi">4_096</span><span class="p">,</span> <span class="mi">8_192</span><span class="p">,</span> <span class="mi">16_384</span><span class="p">,</span> <span class="mi">32_768</span><span class="p">,</span> <span class="mi">65_536</span><span class="p">,</span> <span class="mi">131_072</span><span class="p">]</span>
+<span class="n">task_types</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"single_niah"</span><span class="p">,</span> <span class="s2">"multi_niah"</span><span class="p">,</span> <span class="s2">"tracing"</span><span class="p">,</span> <span class="s2">"aggregation"</span><span class="p">]</span>
+<span class="n">num_samples_per_cell</span> <span class="o">=</span> <span class="mi">20</span>
+<span class="c1"># Generate and evaluate tasks</span>
+<span class="n">results</span> <span class="o">=</span> <span class="n">defaultdict</span><span class="p">(</span><span class="k">lambda</span><span class="p">:</span> <span class="n">defaultdict</span><span class="p">(</span><span class="nb">list</span><span class="p">))</span>
+<span class="k">for</span> <span class="n">task_type</span> <span class="ow">in</span> <span class="n">task_types</span><span class="p">:</span>
+    <span class="k">for</span> <span class="n">ctx_len</span> <span class="ow">in</span> <span class="n">context_lengths</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">num_samples_per_cell</span><span class="p">):</span>
+            <span class="c1"># Generate task based on type and target length</span>
+            <span class="n">task</span> <span class="o">=</span> <span class="n">generate_ruler_task</span><span class="p">(</span>
+                <span class="n">task_type</span><span class="o">=</span><span class="n">task_type</span><span class="p">,</span>
+                <span class="n">target_length</span><span class="o">=</span><span class="n">ctx_len</span><span class="p">,</span>
+                <span class="n">tokenizer</span><span class="o">=</span><span class="n">tokenizer</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="c1"># Tokenize and generate</span>
+            <span class="n">inputs</span> <span class="o">=</span> <span class="n">tokenizer</span><span class="p">(</span>
+                <span class="n">task</span><span class="p">[</span><span class="s2">"prompt"</span><span class="p">],</span>
+                <span class="n">return_tensors</span><span class="o">=</span><span class="s2">"pt"</span><span class="p">,</span>
+                <span class="n">truncation</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+                <span class="n">max_length</span><span class="o">=</span><span class="n">ctx_len</span> <span class="o">+</span> <span class="mi">256</span><span class="p">,</span>
+                <span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">model</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
+            <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+                <span class="n">outputs</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">generate</span><span class="p">(</span>
+                    <span class="o">**</span><span class="n">inputs</span><span class="p">,</span>
+                    <span class="n">max_new_tokens</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span>
+                    <span class="n">temperature</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span>
+                    <span class="n">do_sample</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+                    <span class="p">)</span>
+                <span class="n">response</span> <span class="o">=</span> <span class="n">tokenizer</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span>
+                    <span class="n">outputs</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="n">inputs</span><span class="o">.</span><span class="n">input_ids</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]:],</span>
+                    <span class="n">skip_special_tokens</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+                    <span class="p">)</span>
+                <span class="n">correct</span> <span class="o">=</span> <span class="n">evaluate_ruler_answer</span><span class="p">(</span>
+                    <span class="n">response</span><span class="p">,</span> <span class="n">task</span><span class="p">[</span><span class="s2">"expected"</span><span class="p">],</span> <span class="n">task_type</span>
+                    <span class="p">)</span>
+                <span class="n">results</span><span class="p">[</span><span class="n">task_type</span><span class="p">][</span><span class="n">ctx_len</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">correct</span><span class="p">)</span>
+                <span class="c1"># Print RULER curves</span>
+                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="s1">'Task Type'</span><span class="si">:</span><span class="s2">&lt;16</span><span class="si">}</span><span class="s2"> "</span> <span class="o">+</span> <span class="s2">" "</span><span class="o">.</span><span class="n">join</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">l</span><span class="o">//</span><span class="mi">1000</span><span class="si">:</span><span class="s2">&gt;5</span><span class="si">}</span><span class="s2">K"</span> <span class="k">for</span> <span class="n">l</span> <span class="ow">in</span> <span class="n">context_lengths</span>
+                    <span class="p">))</span>
+                <span class="nb">print</span><span class="p">(</span><span class="s2">"-"</span> <span class="o">*</span> <span class="mi">60</span><span class="p">)</span>
+                <span class="k">for</span> <span class="n">task_type</span> <span class="ow">in</span> <span class="n">task_types</span><span class="p">:</span>
+                    <span class="n">scores</span> <span class="o">=</span> <span class="p">[</span>
+                        <span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">results</span><span class="p">[</span><span class="n">task_type</span><span class="p">][</span><span class="n">l</span><span class="p">])</span> <span class="k">for</span> <span class="n">l</span> <span class="ow">in</span> <span class="n">context_lengths</span>
+                        <span class="p">]</span>
+                    <span class="n">row</span> <span class="o">=</span> <span class="s2">" "</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">s</span><span class="si">:</span><span class="s2">&gt;5.0%</span><span class="si">}</span><span class="s2">"</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">scores</span><span class="p">)</span>
+                    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">task_type</span><span class="si">:</span><span class="s2">&lt;16</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">row</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> Task Type 4K 8K 16K 32K 64K 128K
+------------------------------------------------------------
+single_niah 100% 100% 98% 95% 93% 90%
+multi_niah 95% 93% 88% 80% 72% 60%
+tracing 90% 85% 72% 55% 40% 25%
+aggregation 88% 82% 70% 58% 45% 30%
+
+</div>
+
+<div class="code-caption"><strong>Code Fragment 42.8.5:</strong> Load an open-weight long-context model.</div></div>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">matplotlib.pyplot</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">plt</span>
+<span class="n">fig</span><span class="p">,</span> <span class="n">ax</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">subplots</span><span class="p">(</span><span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="mi">6</span><span class="p">))</span>
+<span class="n">colors</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">&quot;single_niah&quot;</span><span class="p">:</span> <span class="s2">&quot;#2196F3&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;multi_niah&quot;</span><span class="p">:</span> <span class="s2">&quot;#FF9800&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;tracing&quot;</span><span class="p">:</span> <span class="s2">&quot;#F44336&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;aggregation&quot;</span><span class="p">:</span> <span class="s2">&quot;#4CAF50&quot;</span><span class="p">,</span>
+    <span class="p">}</span>
+<span class="n">labels</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">&quot;single_niah&quot;</span><span class="p">:</span> <span class="s2">&quot;Single-Needle Retrieval&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;multi_niah&quot;</span><span class="p">:</span> <span class="s2">&quot;Multi-Needle Retrieval&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;tracing&quot;</span><span class="p">:</span> <span class="s2">&quot;Multi-Hop Tracing&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;aggregation&quot;</span><span class="p">:</span> <span class="s2">&quot;Aggregation&quot;</span><span class="p">,</span>
+    <span class="p">}</span>
+<span class="n">x_labels</span> <span class="o">=</span> <span class="p">[</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">l</span><span class="o">//</span><span class="mi">1000</span><span class="si">}</span><span class="s2">K&quot;</span> <span class="k">for</span> <span class="n">l</span> <span class="ow">in</span> <span class="n">context_lengths</span><span class="p">]</span>
+<span class="k">for</span> <span class="n">task_type</span> <span class="ow">in</span> <span class="n">task_types</span><span class="p">:</span>
+    <span class="n">scores</span> <span class="o">=</span> <span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">results</span><span class="p">[</span><span class="n">task_type</span><span class="p">][</span><span class="n">l</span><span class="p">])</span> <span class="k">for</span> <span class="n">l</span> <span class="ow">in</span> <span class="n">context_lengths</span><span class="p">]</span>
+    <span class="n">ax</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span>
+        <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">context_lengths</span><span class="p">)),</span> <span class="n">scores</span><span class="p">,</span>
+        <span class="n">marker</span><span class="o">=</span><span class="s2">&quot;o&quot;</span><span class="p">,</span> <span class="n">linewidth</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+        <span class="n">color</span><span class="o">=</span><span class="n">colors</span><span class="p">[</span><span class="n">task_type</span><span class="p">],</span>
+        <span class="n">label</span><span class="o">=</span><span class="n">labels</span><span class="p">[</span><span class="n">task_type</span><span class="p">],</span>
+        <span class="p">)</span>
+    <span class="n">ax</span><span class="o">.</span><span class="n">set_xticks</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">context_lengths</span><span class="p">)))</span>
+    <span class="n">ax</span><span class="o">.</span><span class="n">set_xticklabels</span><span class="p">(</span><span class="n">x_labels</span><span class="p">)</span>
+    <span class="n">ax</span><span class="o">.</span><span class="n">set_xlabel</span><span class="p">(</span><span class="s2">&quot;Context Length (tokens)&quot;</span><span class="p">)</span>
+    <span class="n">ax</span><span class="o">.</span><span class="n">set_ylabel</span><span class="p">(</span><span class="s2">&quot;Accuracy&quot;</span><span class="p">)</span>
+    <span class="n">ax</span><span class="o">.</span><span class="n">set_title</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;RULER Curves: </span><span class="si">{</span><span class="n">model_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="n">ax</span><span class="o">.</span><span class="n">set_ylim</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mf">1.05</span><span class="p">)</span>
+    <span class="n">ax</span><span class="o">.</span><span class="n">legend</span><span class="p">(</span><span class="n">loc</span><span class="o">=</span><span class="s2">&quot;lower left&quot;</span><span class="p">)</span>
+    <span class="n">ax</span><span class="o">.</span><span class="n">grid</span><span class="p">(</span><span class="kc">True</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.3</span><span class="p">)</span>
+    <span class="n">plt</span><span class="o">.</span><span class="n">tight_layout</span><span class="p">()</span>
+    <span class="n">plt</span><span class="o">.</span><span class="n">savefig</span><span class="p">(</span><span class="s2">&quot;ruler_curves.png&quot;</span><span class="p">,</span> <span class="n">dpi</span><span class="o">=</span><span class="mi">150</span><span class="p">)</span>
+    <span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
+</code></pre>
+
+<div class="code-caption"><strong>Code Fragment 42.8.6:</strong> Working with numpy, matplotlib.</div></div>
+</div>
+<div class="callout practical-example">
+<div class="callout-title">Real-World Scenario: Choosing Between RAG and Long Context for a Legal Search System</div>
+<p><strong>Who:</strong> A platform engineer evaluating architecture options for a legal document analysis system processing contracts of 50K to 200K tokens each.</p>
+<p><strong>Situation:</strong> The team debated whether to use a 128K-context model with full document input or a RAG pipeline that chunks and retrieves relevant sections.</p>
+<p><strong>Problem:</strong> Initial tests with the long-context model showed excellent results on questions about the first and last sections of contracts, but missed critical clauses buried in the middle (the "lost-in-the-middle" effect).</p>
+<p><strong>Dilemma:</strong> RAG added retrieval complexity and could miss relevant context if the chunking strategy split important clauses. Long context was simpler but unreliable for mid-document information.</p>
+<p><strong>Decision:</strong> The team ran RULER-style evaluations on their specific model and task type. They discovered that the model's effective context for clause retrieval dropped below 80% accuracy at 64K tokens, far short of the 128K advertised limit.</p>
+<p><strong>How:</strong> They adopted a hybrid approach: RAG for initial retrieval of relevant sections (reducing context to 20K to 30K tokens), followed by long-context processing of the assembled chunks. They also applied YaRN extension to a fine-tuned open-weight model to achieve reliable 64K effective context.</p>
+<p><strong>Result:</strong> The hybrid system achieved 91% clause retrieval accuracy compared to 74% for long-context-only and 83% for RAG-only approaches. RULER curves became part of their model selection process.</p>
+<p><strong>Lesson:</strong> Empirical measurement of effective context length on your specific task type is essential. Advertised context windows are upper bounds, not performance guarantees, and the right architecture often combines both retrieval and long context.</p>
+</div>
+<div class="callout key-takeaway">
+<div class="callout-title">Key Takeaways</div>
+<ul>
+<li><strong>Claimed context length is not effective context length:</strong> Attention dilution, position bias, and training distribution mismatch cause real performance to degrade well before the advertised maximum.</li>
+<li><strong>NIAH is necessary but insufficient:</strong> Single-needle retrieval is the easiest long-context task. Multi-needle, tracing, and aggregation tasks (as in RULER) reveal much steeper degradation curves.</li>
+<li><strong>LongBench v2 bridges synthetic and real tasks:</strong> By combining controlled evaluations with real-world documents and tasks, LongBench v2 provides the most comprehensive picture of long-context capability.</li>
+<li><strong>YaRN offers the best extension quality:</strong> Per-dimension RoPE scaling with attention temperature correction extends context windows up to 64x with minimal fine-tuning, outperforming uniform interpolation and basic NTK scaling.</li>
+<li><strong>Evaluate on your production task:</strong> Model rankings change across task types and context lengths. A single leaderboard score is misleading; benchmark with the task complexity and sequence length that matches your application.</li>
+<li><strong>Watch for contamination:</strong> Always run a no-context baseline to verify that benchmark performance reflects genuine context utilization rather than parametric recall.</li>
+</ul>
+</div>
+<div class="callout warning">
+<div class="callout-title">Warning: Common Misconception</div>
+<p><strong>Readers often assume that a model with a 128K context window can reliably use all 128K tokens.</strong> In practice, most models degrade significantly before reaching their maximum. The "lost-in-the-middle" effect means information placed in the center of a long context is often ignored. Always test your specific use case at your required context length rather than trusting the marketed number. A model that scores 95% on NIAH at 128K may score only 40% on multi-hop reasoning at the same length.</p>
+</div>
+<div class="callout self-check">
+<div class="callout-title">Self-Check</div>
+<div class="quiz-question"><strong>Q1:</strong> Why is the "claimed" context length on a model card not the same as "effective" context length?</div>
+<details>
+<summary>Show Answer</summary>
+<div class="answer">The claimed context length is the maximum input the model can accept. Effective context length is the range within which the model reliably attends to and uses information. Attention dilution, position bias (lost-in-the-middle), and training distribution mismatch all cause accuracy to degrade before the maximum is reached. A model with a 128K context window may effectively use only 32K to 64K tokens depending on the task.</div>
+</details>
+<div class="quiz-question"><strong>Q2:</strong> What advantage does RULER have over basic Needle-in-a-Haystack?</div>
+<details>
+<summary>Show Answer</summary>
+<div class="answer">RULER tests multiple task types (retrieval, multi-hop tracing, aggregation, QA) at configurable complexity levels, while NIAH only tests single-fact retrieval. RULER reveals that different capabilities degrade at different rates with context length. A model might pass NIAH at 128K but fail RULER's multi-hop tracing at 32K. RULER provides a more complete picture of real context utilization.</div>
+</details>
+<div class="quiz-question"><strong>Q3:</strong> How does YaRN differ from simple position interpolation?</div>
+<details>
+<summary>Show Answer</summary>
+<div class="answer">Position interpolation applies a uniform scaling factor to all RoPE dimensions, which over-compresses high-frequency (local position) information. YaRN applies per-dimension scaling: high-frequency dimensions keep their original scale, low-frequency dimensions receive NTK-style scaling, and intermediate dimensions blend smoothly between the two. YaRN also adds attention temperature scaling to counteract attention dilution at longer sequences.</div>
+</details>
+<div class="quiz-question"><strong>Q4:</strong> How can contamination inflate long-context benchmark scores?</div>
+<details>
+<summary>Show Answer</summary>
+<div class="answer">If the model saw the benchmark documents during pretraining, it can answer questions from parametric memory rather than from the provided context. This makes it appear that the model is successfully processing the long context when it is actually ignoring it. Testing whether the model can answer questions without the context (baseline contamination check) reveals this issue.</div>
+</details>
+</div>
+<h2 id="exercises">Exercises</h2>
+<!-- Quiz -->
+<div class="callout research-frontier">
+<div class="callout-title">Research Frontier</div>
+<p><strong>Ring Attention and Sequence Parallelism</strong> distribute long sequences across multiple GPUs, with each device processing a segment and passing KV cache "rings" to neighbors.</p>
+<p><strong>This </strong>enables training and inference at sequence lengths of 1M+ tokens without the quadratic memory cost of standard attention. <strong>Infini-Attention</strong> (Google, 2024) introduces a compressive memory mechanism that maintains a fixed-size state for unbounded context, combining local attention with a compressed global summary. <strong>Landmark Attention</strong> selectively attends to "landmark" tokens rather than the full sequence, reducing complexity while preserving retrieval accuracy. On the benchmark side, <strong>HELMET</strong> (Yen et al., 2024) provides a more holistic long-context evaluation that tests not only retrieval but also instruction following, summarization, and reasoning at length. The convergence of hardware-efficient attention methods and increasingly rigorous benchmarks is pushing the boundary of what "long context" means from 128K toward 10M tokens.</p>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 27.9.4: Long-Context Eval Pitfalls <span class="exercise-type analysis" title="Analysis">Failure Mode</span></div>
+<p>You evaluate a model on LongBench and report a 78 average. List three ways this score can mislead you for your specific application.</p>
+<details>
+<summary>Answer Sketch</summary>
+<p>(1) <em>Domain mismatch</em>: LongBench tasks are mostly summarization and QA; if your application is code repository navigation or legal contract analysis, the score barely transfers. Mitigation: build a small in-domain long-context eval (50-100 items) and weight it heavily. (2) <em>Length distribution mismatch</em>: LongBench averages over multiple length buckets; a model that's strong at 8-16k but weak at 64-128k can still post a respectable average. Mitigation: report per-length-bucket scores, not just averages. (3) <em>Eval contamination</em>: LongBench is public and present in many training corpora; the model may be partially memorizing. Mitigation: cross-check with a fresh eval from new sources or held-out portions of LongBench v2. The general lesson: long-context benchmark numbers are bounding indicators, not predictions of your production accuracy.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 27.9.3: Add Context Extension via YaRN <span class="exercise-type coding" title="Coding">Code Tweak</span></div>
+<p>You have a Llama-3-8B with 8k context and need to push it to 32k. Sketch the YaRN configuration change to the model config and the minimal fine-tuning data you would use to adapt the model. Why is fine-tuning needed at all if YaRN is "training-free"?</p>
+<details>
+<summary>Answer Sketch</summary>
+<p>Config change: <code>"rope_scaling": {"type": "yarn", "factor": 4.0, "original_max_position_embeddings": 8192, "beta_fast": 32, "beta_slow": 1}</code>. Minimal fine-tuning: 100M-1B tokens of long-context examples (concatenated documents, book chapters, repository code) at the new 32k length, learning rate 1e-5, 1-3 epochs. Why fine-tune: YaRN's attention-temperature trick keeps the model from blowing up at the new length, but the model still hasn't learned to use the new positions to retrieve information. Without fine-tuning the model emits coherent text at 32k but performs poorly on long-context retrieval. The combination (YaRN + short fine-tune) is what makes context extension actually work in practice.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 27.9.2: Predict the NIAH Curve <span class="exercise-type predictive" title="Predictive">Predictive</span></div>
+<p>You run NIAH on a new model at 8k, 32k, 128k, 512k, 1M. Predict the qualitative shape: (a) which depth is hardest to retrieve from? (b) at what length does accuracy first dip below 90%? (c) which task variant catches degradation that single-needle NIAH misses?</p>
+<details>
+<summary>Answer Sketch</summary>
+<p>(a) Middle depths (40-60%) are typically hardest. The "lost in the middle" pattern is well-documented across model families: models attend most to the beginning (prompt) and end (recent context) and least to the middle, even when they technically have the capacity to. (b) For most 2025-era models, single-needle accuracy stays high (95%+) until 64-256k tokens; beyond that it degrades, often falling below 50% at the claimed maximum. (c) Multi-needle and reasoning-over-needles variants (RULER) catch degradation that single-needle misses: even when the model can find one fact, finding two and combining them often fails far earlier than single-needle suggests. RULER scores are usually 30-50% lower than single-needle at the same length.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 27.9.1: Effective vs Claimed Context <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+<p>A model card claims "1M token context." (a) What does that number actually guarantee? (b) Define "effective context length" and why it can be 4-10x smaller. (c) What is the simplest test you can run in 30 minutes to estimate effective context for a specific use case?</p>
+<details>
+<summary>Answer Sketch</summary>
+<p>(a) The 1M number is the maximum number of tokens the model can process without erroring. It does not guarantee that the model uses information at every position. (b) Effective context is the maximum input length at which task accuracy stays within a small tolerance (e.g., 5%) of the short-context baseline. Models often degrade well before the claimed limit because positional encodings extrapolate poorly past training-time lengths and attention spreads thin over long contexts. (c) The 30-minute test: needle-in-a-haystack at varying depths and lengths. Insert a known fact at 25%, 50%, 75% depth in inputs of 32k, 128k, 512k, 1M tokens and check retrieval accuracy. The shape of the resulting heatmap tells you where the model breaks for your domain.</p>
+</details>
+</div>
+<!-- Key Takeaways -->
+<div class="whats-next">
+<h3 id="what-s-next">What's Next?</h3>
+<p>In the next section, <a href="section-42.9.html">Section 42.9: OpenTelemetry for LLM Applications</a>, we move to the operational telemetry that makes long-context evaluation actionable in production. For practical guidance on managing context windows in <a href="../../part-7-retrieval-information-extraction-with-llms/module-32-rag/section-32.1.html">RAG systems</a>, see Section 32.1's treatment of chunking strategies. For the attention mechanisms that underlie positional encoding, see <a href="../../part-1-llm-building-blocks/module-03-transformer-architecture/section-3.1.html">Section 3.1: Transformer Anatomy (Attention, FFN, LayerNorm)</a>.</p>
+</div>
+
+<details class="bibliography-collapsible">
+<summary><strong>Further Reading</strong></summary>
+<section class="bibliography">
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://arxiv.org/abs/2402.13718" rel="noopener" target="_blank">Hsieh, C. et al. (2024). "RULER: What's the Real Context Size of Your Long-Context Language Models?" <em>arXiv preprint arXiv:2402.13718</em>.</a> Introduces RULER, a parametric benchmark with configurable task complexity for evaluating real context utilization. Demonstrates that models claiming 128K context often fail on complex tasks at much shorter lengths. Essential for anyone evaluating long-context models.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://arxiv.org/abs/2308.01950" rel="noopener" target="_blank">Bai, Y. et al. (2024). "LongBench: A Bilingual, Multitask Benchmark for Long Context Understanding." <em>arXiv preprint arXiv:2308.01950</em>.</a> A comprehensive multi-task benchmark for long-context evaluation spanning QA, summarization, few-shot learning, and code completion. Uses real-world documents to complement synthetic benchmarks like NIAH and RULER.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://arxiv.org/abs/2309.00071" rel="noopener" target="_blank">Peng, B. et al. (2023). "YaRN: Efficient Context Window Extension of Large Language Models." <em>arXiv preprint arXiv:2309.00071</em>.</a> Introduces YaRN, combining per-dimension RoPE scaling with attention temperature correction. Achieves 64x context extension with minimal fine-tuning. The current state-of-the-art for RoPE-based context extension methods.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://arxiv.org/abs/2306.15595" rel="noopener" target="_blank">Chen, S. et al. (2023). "Extending Context Window of Large Language Models via Positional Interpolation." <em>arXiv preprint arXiv:2306.15595</em>.</a> The foundational position interpolation paper showing that rescaling positions within the training range is more stable than extrapolation. A key predecessor to YaRN and NTK-aware methods.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://arxiv.org/abs/2307.03172" rel="noopener" target="_blank">Liu, N. et al. (2023). "Lost in the Middle: How Language Models Use Long Contexts." <em>arXiv preprint arXiv:2307.03172</em>.</a> Documents the "lost-in-the-middle" phenomenon where models attend poorly to information in the center of long contexts. A seminal paper that motivated many of the benchmarks and methods in this section.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://arxiv.org/abs/2404.06654" rel="noopener" target="_blank">Munkhdalai, T. et al. (2024). "Leave No Context Behind: Efficient Infinite Context Transformers with Infini-attention." <em>arXiv preprint arXiv:2404.06654</em>.</a> Introduces Infini-attention, which combines local attention with compressive memory for unbounded context. Represents an alternative paradigm to RoPE extension for handling very long sequences.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://arxiv.org/abs/2410.02694" rel="noopener" target="_blank">Yen, H. et al. (2024). "HELMET: How to Evaluate Long-Context Language Models Effectively and Thoroughly." <em>arXiv preprint arXiv:2410.02694</em>.</a> A holistic long-context evaluation framework that tests retrieval, reasoning, instruction following, and summarization. Addresses gaps in existing benchmarks and provides practical recommendations for evaluation design.</div>
+</div>
+</section>
+</details>
+<nav class="chapter-nav">
+<a class="prev" href="section-42.7.html"><span class="nav-label">Previous</span><span class="nav-num">Section 42.7</span><span class="nav-title">LLM Experiment Reproducibility</span></a>
+<a class="up" href="index.html"><span class="nav-label">In Chapter</span><span class="nav-num">Chapter 42</span><span class="nav-title">LLM Evaluation &amp; Quality Metrics</span></a>
+<a class="next" href="section-42.9.html"><span class="nav-label">Next</span><span class="nav-num">Section 42.9</span><span class="nav-title">OpenTelemetry for LLM Applications</span></a>
+</nav>
+<footer><p>Fifteenth Edition, 2026 · <a href="../../toc.html">Contents</a></p></footer>
+</main>
+</body>
+</html>

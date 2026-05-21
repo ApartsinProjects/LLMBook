@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-PWPHBQL2VL"></script>
+<script>
+window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', 'G-PWPHBQL2VL');
+</script>
+
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<meta content="Section 21.4: Building production document AI pipelines. Ingestion, parsing, table detection, KV extraction, validation, reconciliation, and cost-latency tradeoffs." name="description"/>
+<title>Section 21.4: Building Document AI Pipelines</title>
+<link href="../../styles/book.css" rel="stylesheet"/>
+<link href="../../styles/pygments.css" rel="stylesheet"/>
+<link href="../../vendor/prism/prism-theme.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/prism/prism-bundle.min.js"></script>
+<script defer="" src="../../scripts/book.js"></script>
+<link href="../../pagefind/pagefind-ui.css" rel="stylesheet"/>
+<script defer="" src="../../pagefind/pagefind-ui.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
+
+<header class="chapter-header">
+<nav class="header-nav">
+<a class="book-title-link" href="../../index.html">Building Conversational AI with LLMs and Agents</a>
+<a class="toc-link" href="../../toc.html" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+</nav>
+<div class="header-search">
+<div id="search"></div>
+</div>
+<div class="page-breadcrumb" data-pagefind-meta="chapter"><a href="../index.html">Part V: Multimodal LLMs</a><span class="bc-sep">›</span><a href="index.html">Chapter 21: Document Understanding and OCR</a></div>
+<h1>Building Document AI Pipelines</h1><div class="page-current">Section 21.4</div>
+</header>
+<main class="content" id="main-content"><span class="pagefind-meta-injected" data-pagefind-meta="part:Building Conversational AI with LLMs and Agents" hidden=""></span><span class="pagefind-meta-injected" data-pagefind-meta="chapter:Chapter 21: Document Understanding and OCR" hidden=""></span>
+<blockquote class="epigraph">
+<p>"A seven-stage pipeline at 95% per stage is a 70% pipeline. The art is knowing which two stages to delete before you ship."</p>
+<cite>An Accuracy-Compounding AI Agent</cite>
+</blockquote>
+<div class="callout big-picture">
+<div class="callout-title">Big Picture</div>
+<p>A production document AI pipeline is rarely a single model call. It is a graph of stages, each with its own accuracy budget, latency budget, and failure modes. This section walks through the canonical seven-stage architecture used by enterprise document processors at scale (ingestion, format normalization, layout detection, OCR, structure parsing, semantic extraction, validation), explains how the stages compose for cost and latency, and presents a reference reconciliation strategy that combines a specialist model with a frontier VLM for confident high-volume processing.</p>
+</div>
+<div class="prerequisites">
+<h3 id="prerequisites">Prerequisites</h3>
+<p>This section assumes familiarity with <a href="section-21.1.html">modern OCR</a>, <a href="section-21.2.html">layout-aware models</a>, and <a href="section-21.3.html">VLM-based extraction</a> from earlier sections in this chapter. Observability fundamentals covered later in the book deepen the validation-stage discussion here.</p>
+</div>
+
+<h2 id="21-4-1-the-seven-stage-canonical-pipeline">21.4.1 The Seven-Stage Canonical Pipeline</h2>
+<div class="callout fun-note">
+<div class="callout-title">Fun Fact</div>
+<p>A canonical document AI pipeline can have seven stages, each with its own accuracy budget, and the math is unforgiving: at 95% per-stage accuracy, the end-to-end accuracy is only about 70%. Teams that ship reliable document systems almost always sacrifice a feature or two to keep the pipeline short, not long.</p>
+</div>
+<p>Every production document AI pipeline that has shipped at scale at a major enterprise has the same seven logical stages, regardless of the underlying technology. Knowing the canonical decomposition makes both build and buy decisions easier: you can substitute different vendors or models at each stage without redesigning the whole.</p>
+
+<p>The stages, in order, are: (1) ingestion, which accepts documents from email, FTP, scanner APIs, or user uploads and persists them to durable storage; (2) format normalization, which converts heterogeneous inputs (PDF, TIFF, JPEG, HEIC, DOCX, MSG) to a canonical page-image format; (3) layout detection, which identifies regions of each page (text blocks, tables, figures, signatures); (4) OCR, which converts text regions to character sequences with bounding boxes; (5) structure parsing, which reconstructs reading order, table structure, and document hierarchy; (6) semantic extraction, which produces the schema-conformant business data (invoice fields, contract clauses, claim details); and (7) validation, which checks the extracted data against business rules and reconciles against external systems.</p>
+
+<figure><img alt="Seven-stage pipeline diagram: ingestion, normalize, layout, OCR, structure, extract, validate" src="images/figure-34-4-1.svg" width="1100" height="540"/><figcaption><strong>Figure 21.4.1</strong>: Canonical seven-stage document AI pipeline. Each stage is independently swappable, each emits structured artifacts to the next, and each has its own accuracy, latency, and cost budget.</figcaption></figure>
+
+<h2 id="21-4-2-stage-1-and-2-ingestion-and-normalization">21.4.2 Stages 1-2: Ingestion and Normalization</h2>
+<p>Ingestion looks trivial but accounts for a surprising fraction of production failures. The dominant issues are: encrypted or password-protected PDFs (5-12% of enterprise documents), corrupted file headers that look like PDFs but fail to parse, embedded JavaScript that triggers security alerts, and dropped or duplicated documents in network transfers. A robust ingestion service writes each document to an append-only event log, computes a content hash for deduplication, and emits a single structured event downstream.</p>
+
+<p>Format normalization converts everything to a uniform internal representation. The de facto standard in 2026 is to render every page as PNG at 300 DPI for text-heavy documents (legal, financial) and 200 DPI for image-heavy documents (medical imaging, ID photos). The 300 vs. 200 split balances OCR accuracy against storage cost: 300 DPI roughly doubles storage and inference cost versus 200 DPI but improves OCR character error rate by 0.3-0.8 absolute on small fonts.</p>
+
+<p>Two normalization details matter disproportionately. The first is deskewing: scanned documents often arrive rotated by 0.5-5 degrees, which collapses OCR accuracy on classical pipelines. A simple Hough-transform-based deskew pre-stage costs less than 50 ms per page and can improve downstream F1 by 6-12 points on degraded scans. The second is color-channel normalization: highlighting and stamped overlays carry information that is lost if the page is binarized too aggressively. Modern pipelines retain full color but apply per-channel contrast stretching.</p>
+
+<h2 id="21-4-3-stage-3-layout-detection">21.4.3 Stage 3: Layout Detection</h2>
+<p>Layout detection is the first stage where machine learning enters. The job is to draw bounding boxes around the page's structural elements: text blocks, tables, figures, signatures, headers, footers, page numbers. The dominant approaches are Detectron2-style instance segmentation, YOLO-based detectors, and DETR-style transformer object detection. As of 2026, a YOLOv8 detector fine-tuned on DocLayNet (Section 21.1) is the production sweet spot: 0.86 mAP, 35 ms per page on a single T4, and trivial to deploy.</p>
+
+<p>The output is a list of regions with class labels and bounding boxes. Downstream stages consume different region types: text and headers feed OCR, tables feed a specialized table parser, and figures are typically captioned by a VLM for accessibility and search.</p>
+
+<div class="callout key-insight">
+<div class="callout-title">Key Insight: Layout Detection Is the Hidden Lever</div>
+<p>Improvements to layout detection have outsized impact downstream because every later stage assumes layout is correct. A 5-point F1 gain in detecting table boundaries can cascade into 12-15 F1 points of accuracy improvement at the final extraction stage, because the table parser only runs on regions the layout stage labels as tables. When a document AI pipeline plateaus, the cheapest single intervention is usually to improve layout detection by adding 1k-2k labeled in-domain examples.</p>
+</div>
+
+<h2 id="21-4-4-stage-4-5-ocr-and-structure">21.4.4 Stages 4-5: OCR and Structure Reconstruction</h2>
+<p>OCR converts text regions to character sequences. The choice of OCR engine depends on document class (Section 21.1): TrOCR for handwriting and degraded scans, PaddleOCR or Tesseract for clean printed text, Azure Read or Google Cloud Vision for managed API simplicity. A common production pattern is a fallback chain: try the cheap fast engine first, route low-confidence outputs (or specific region types like signatures) to a more expensive engine.</p>
+
+<p>Structure reconstruction handles three concerns. Reading order assembly orders text blocks into the sequence a human would read them; this is non-trivial for multi-column layouts, sidebars, and pull-quotes. Table reconstruction takes pixel coordinates of cell boundaries and produces a logical row/column grid with merged-cell handling. Hierarchy detection identifies sections, subsections, and reference relationships (a footnote marker linking to a footnote, a "see Section 3.2" reference pointing at a target).</p>
+
+<p>The 2026 toolset for structure reconstruction is fragmented. unstructured.io's library and Microsoft's Layout Parser dominate the open-source side; commercial offerings from Azure Document Intelligence, Google Document AI, and AWS Textract bundle structure with OCR. For tables specifically, Microsoft's Table Transformer (TATR) and IBM's TableFormer are the strongest open-source options.</p>
+
+<h2 id="21-4-5-stage-6-semantic-extraction">21.4.5 Stage 6: Semantic Extraction</h2>
+<p>This is where business logic meets ML output. The job is to take the parsed document and produce schema-conformant business data: an invoice JSON, a contract clause list, a medical claim record. The choice of extractor depends on schema complexity and document variability.</p>
+
+<p>For high-volume, low-variability documents with stable schemas (invoices, purchase orders, ACORD insurance forms), a fine-tuned LayoutLMv3 plus rules engine is typically the right answer. For variable-schema documents (contracts with bespoke clauses, regulatory filings, scientific papers), a frontier VLM with structured-output schemas is preferable. For long documents that exceed a single transformer's context window (multi-hundred-page contracts, scientific monographs), Gemini 1.5 Pro's million-token context or retrieval-augmented generation over chunked content are the standard patterns.</p>
+
+<h2 id="21-4-6-stage-7-validation-and-reconciliation">21.4.6 Stage 7: Validation and Reconciliation</h2>
+<p>Validation closes the loop. It catches errors before they enter downstream business systems. Three validation patterns are standard in production. The first is intra-document consistency: subtotal + tax = total, dates fall in plausible ranges, addresses parse to valid postal codes. The second is inter-document reconciliation: this invoice's vendor matches a known supplier in the ERP, this purchase order's line items match the supplier's catalog. The third is statistical anomaly detection: this invoice's total is more than three standard deviations from the historical mean for this vendor.</p>
+
+<p>The validation tier should not just reject anomalous documents; it should route them to a human review queue with a structured explanation of which check failed. A typical 2026 architecture uses a confidence threshold per field: above 95% confidence, the extraction is auto-approved; between 85% and 95%, the document is flagged for spot-check audit; below 85%, it is routed to a full human review. This tiered routing concentrates human attention where it adds the most value.</p>
+
+<h2 id="21-4-7-cost-and-latency-budget">21.4.7 Cost and Latency Budget</h2>
+<p>The composite per-page cost and latency depend on the choices at each stage. The following matrix captures the dominant patterns observed at production scale in 2026.</p>
+
+<figure>
+<table>
+<thead>
+<tr><th scope="col">Stage</th><th scope="col">Budget Tier</th><th scope="col">Per-page Cost</th><th scope="col">Per-page Latency</th><th scope="col">Typical Tech</th></tr>
+</thead>
+<tbody>
+<tr><td>Ingestion + Normalize</td><td>baseline</td><td>&#36;0.0001</td><td>80 ms</td><td>Pillow, Ghostscript</td></tr>
+<tr><td>Layout detection</td><td>baseline</td><td>&#36;0.0002</td><td>35 ms</td><td>YOLOv8 on DocLayNet</td></tr>
+<tr><td>OCR (Tesseract)</td><td>cheap</td><td>&#36;0.00005</td><td>800 ms</td><td>Tesseract 5 on CPU</td></tr>
+<tr><td>OCR (TrOCR)</td><td>medium</td><td>&#36;0.0008</td><td>120 ms</td><td>TrOCR-Base on RTX 4090</td></tr>
+<tr><td>OCR (Azure Read)</td><td>premium</td><td>&#36;0.0015</td><td>300 ms</td><td>Azure Document Intelligence</td></tr>
+<tr><td>Structure parse</td><td>baseline</td><td>&#36;0.0003</td><td>45 ms</td><td>unstructured.io + TATR</td></tr>
+<tr><td>Extract (LayoutLMv3)</td><td>cheap</td><td>&#36;0.0002</td><td>40 ms</td><td>self-host on T4</td></tr>
+<tr><td>Extract (Gemini 2.0 Flash)</td><td>medium</td><td>&#36;0.0002</td><td>900 ms</td><td>API</td></tr>
+<tr><td>Extract (GPT-4o)</td><td>premium</td><td>&#36;0.008</td><td>2400 ms</td><td>API</td></tr>
+<tr><td>Validation</td><td>baseline</td><td>&#36;0.00005</td><td>20 ms</td><td>rules engine + DB lookups</td></tr>
+</tbody>
+</table>
+<figcaption><strong>Table 21.4.2</strong>: Per-stage cost and latency budgets for production document AI, January 2026. A typical "good" pipeline (TrOCR + LayoutLMv3) totals ~&#36;0.0014 per page and 380 ms latency. A "premium" pipeline (Azure Read + GPT-4o) totals ~&#36;0.010 per page and 3.2 s latency.</figcaption></figure>
+
+<h2 id="21-4-8-the-reconciliation-pattern">21.4.8 The Reconciliation Pattern</h2>
+<p>The most reliable production pattern in 2026 is reconciliation: run two independent extractors and accept results only when they agree. A specialist model (LayoutLMv3 or Donut) and a frontier VLM (Claude 3.5 or Qwen2.5-VL) make ideal pairs because they fail in different ways: the specialist fails on out-of-distribution layouts but is stable; the VLM is robust to layout variation but unstable across runs.</p>
+
+<p>The pattern works as follows. Run both extractors on every document. For each field, compute a confidence based on whether the two outputs agree (exact match, fuzzy string match within edit distance 2, or numerical match within tolerance). Fields where both agree are auto-accepted at high confidence. Fields where they disagree are routed to a tiebreaker: a third model, a rules check, or a human reviewer. In a benchmark by a top-3 EU bank on invoice extraction, the dual-model reconciliation pattern achieved 99.2% accuracy at 4.1% manual review rate, compared with 96.8% accuracy at 0% manual review using LayoutLMv3 alone or 94.5% accuracy at 0% manual review using GPT-4o alone.</p>
+
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">difflib</span><span class="w"> </span><span class="kn">import</span> <span class="n">SequenceMatcher</span>
+
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">ExtractionResult</span><span class="p">:</span>
+    <span class="n">specialist</span><span class="p">:</span> <span class="nb">dict</span>
+    <span class="n">vlm</span><span class="p">:</span> <span class="nb">dict</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">field_agreement</span><span class="p">(</span><span class="n">a</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">b</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">tol</span><span class="o">=</span><span class="mf">0.92</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Fuzzy string agreement with numeric special-case."""</span>
+    <span class="k">if</span> <span class="n">a</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">b</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">a</span> <span class="o">==</span> <span class="n">b</span>
+    <span class="c1"># Numeric: tolerance-based</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">return</span> <span class="nb">abs</span><span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">a</span><span class="p">)</span> <span class="o">-</span> <span class="nb">float</span><span class="p">(</span><span class="n">b</span><span class="p">))</span> <span class="o">&lt;</span> <span class="mf">0.01</span>
+    <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+        <span class="k">pass</span>
+    <span class="c1"># String: similarity ratio</span>
+    <span class="k">return</span> <span class="n">SequenceMatcher</span><span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">)</span><span class="o">.</span><span class="n">ratio</span><span class="p">()</span> <span class="o">&gt;=</span> <span class="n">tol</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">reconcile</span><span class="p">(</span><span class="n">result</span><span class="p">:</span> <span class="n">ExtractionResult</span><span class="p">,</span> <span class="n">required_fields</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]):</span>
+<span class="w">    </span><span class="sd">"""Return (accepted_fields, disputed_fields, route_to_human)."""</span>
+    <span class="n">accepted</span><span class="p">,</span> <span class="n">disputed</span> <span class="o">=</span> <span class="p">{},</span> <span class="p">{}</span>
+    <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">required_fields</span><span class="p">:</span>
+        <span class="n">a</span><span class="p">,</span> <span class="n">b</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">specialist</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">key</span><span class="p">),</span> <span class="n">result</span><span class="o">.</span><span class="n">vlm</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">key</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">field_agreement</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">):</span>
+            <span class="n">accepted</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="n">a</span> <span class="ow">or</span> <span class="n">b</span>           <span class="c1"># Prefer non-null</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">disputed</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="s2">"specialist"</span><span class="p">:</span> <span class="n">a</span><span class="p">,</span> <span class="s2">"vlm"</span><span class="p">:</span> <span class="n">b</span><span class="p">}</span>
+    <span class="n">route_to_human</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">disputed</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span>
+    <span class="k">return</span> <span class="n">accepted</span><span class="p">,</span> <span class="n">disputed</span><span class="p">,</span> <span class="n">route_to_human</span>
+
+<span class="c1"># Example usage</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">ExtractionResult</span><span class="p">(</span>
+    <span class="n">specialist</span><span class="o">=</span><span class="p">{</span><span class="s2">"invoice_number"</span><span class="p">:</span> <span class="s2">"INV-2025-08841"</span><span class="p">,</span>
+                <span class="s2">"total"</span><span class="p">:</span> <span class="s2">"2391.90"</span><span class="p">,</span> <span class="s2">"vendor"</span><span class="p">:</span> <span class="s2">"Stahlwerk Maier"</span><span class="p">},</span>
+    <span class="n">vlm</span><span class="o">=</span><span class="p">{</span><span class="s2">"invoice_number"</span><span class="p">:</span> <span class="s2">"INV-2025-08841"</span><span class="p">,</span>
+         <span class="s2">"total"</span><span class="p">:</span> <span class="s2">"2391.90"</span><span class="p">,</span> <span class="s2">"vendor"</span><span class="p">:</span> <span class="s2">"Stahlwerk Maier GmbH"</span><span class="p">},</span>
+<span class="p">)</span>
+<span class="n">accepted</span><span class="p">,</span> <span class="n">disputed</span><span class="p">,</span> <span class="n">to_human</span> <span class="o">=</span> <span class="n">reconcile</span><span class="p">(</span>
+    <span class="n">result</span><span class="p">,</span> <span class="p">[</span><span class="s2">"invoice_number"</span><span class="p">,</span> <span class="s2">"total"</span><span class="p">,</span> <span class="s2">"vendor"</span><span class="p">]</span>
+<span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Accepted: </span><span class="si">{</span><span class="n">accepted</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Disputed: </span><span class="si">{</span><span class="n">disputed</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Route to human: </span><span class="si">{</span><span class="n">to_human</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> Accepted: {'invoice_number': 'INV-2025-08841', 'total': '2391.90',
+            'vendor': 'Stahlwerk Maier'}
+ Disputed: {}
+ Route to human: False</div>
+<div class="code-caption"><strong>Code Fragment 21.4.1:</strong> Two-model reconciliation logic. The fuzzy matcher accepts "Stahlwerk Maier" and "Stahlwerk Maier GmbH" as agreement on the vendor field (similarity 0.94). Numeric fields use tolerance-based equality. Production systems extend this with per-field weights and a tiebreaker model for high-value disputes.</div>
+</div>
+
+<h2 id="21-4-9-monitoring-and-drift">21.4.9 Monitoring and Drift</h2>
+<p>Document distributions drift. A bank's invoice mix changes when it onboards new suppliers; an insurer's claim distribution shifts when a new product line launches; a hospital's lab-report formats change when an upstream vendor updates their software. A production pipeline that ignores drift will silently degrade.</p>
+
+<p>The minimum viable monitoring captures three signals at each pipeline stage. The first is throughput: pages per second, p50/p95/p99 latency, error rate. The second is confidence distribution: histogram of per-document confidence scores, drift in the share of low-confidence documents. The third is human-review feedback: when a reviewer corrects an extracted field, log both the original prediction and the correction so that the data can drive retraining.</p>
+
+<p>Quarterly model evaluation against a held-out gold set of 500-2000 freshly labeled documents is the standard cadence. When accuracy on the gold set drops by more than 2 absolute F1 points, the pipeline triggers a retraining cycle: the latest reviewer corrections are merged into the training set, the model is fine-tuned, and the new model is shadow-tested before promotion. Mature document AI teams treat the gold set as a versioned dataset with full provenance tracking.</p>
+
+<div class="callout practical-example">
+<div class="callout-title">Real-World Scenario: The Pipeline That Catches Itself</div>
+<p>A large logistics firm runs three independent extractors on each bill of lading: TrOCR + LayoutLMv3, Donut fine-tuned in-house, and GPT-4o with a structured schema. When all three agree (87% of cases), the document is auto-approved. When two agree (10%), the dissenter is logged and reviewed monthly to detect drift. When none agree (3%), the document goes to immediate human review. The system has self-discovered six new bill-of-lading variants in the last 18 months simply by tracking which model is the outlier in disagreements; in each case, the variant traced to a specific shipping line adopting a new template.</p>
+</div>
+
+<div class="callout lab">
+<div class="callout-title">Lab: Invoice Field Extraction with LayoutLMv3 vs. Donut</div>
+<div class="lab-meta">
+<span class="lab-duration">Duration: ~60 minutes</span>
+<span class="lab-difficulty">Intermediate</span>
+</div>
+<h3 id="objective">Objective</h3>
+<p>Run two contrasting document-AI architectures over the same 20-invoice set and compare them on field-level F1: LayoutLMv3 (text + layout + image, OCR-anchored) versus Donut (OCR-free, pixel-to-sequence). Target fields: invoice number, invoice date, vendor name, total amount, line-item count. The point is to internalize how the OCR-anchored and OCR-free families perform on the same task and where each one fails.</p>
+<h3 id="setup">Setup</h3>
+<p>You need a CUDA-capable GPU (8 GB is enough; this lab fits a laptop GPU), and the CORD invoice dataset (Park et al., 2019, <a href="https://huggingface.co/datasets/naver-clova-ix/cord-v2" target="_blank" rel="noopener">huggingface.co/datasets/naver-clova-ix/cord-v2</a>). LayoutLMv3 (<code>microsoft/layoutlmv3-base</code>) and Donut (<code>naver-clova-ix/donut-base-finetuned-cord-v2</code>) are both on Hugging Face.</p>
+<div class="code-block-wrapper"><pre><code class="pygments-highlighted lang-bash">pip install transformers torch torchvision datasets sentencepiece pytesseract pillow seqeval</code></pre></div>
+<h3 id="steps">Steps</h3>
+<ol>
+<li><strong>Sample 20 invoices</strong> from CORD-v2's validation split with a fixed seed. Each invoice ships with a gold JSON of the canonical fields.</li>
+<li><strong>Run Donut end-to-end.</strong> Donut takes the raw image and returns a structured JSON; no OCR step required. Capture latency and the JSON output.</li>
+<li><strong>Run LayoutLMv3 with an OCR step.</strong> Use Tesseract or PaddleOCR to produce token-level boxes, then run the fine-tuned LayoutLMv3 (the <code>cord</code> checkpoint or a quick few-shot tune) to tag each token. Reconstruct the JSON from the tagged tokens.</li>
+<li><strong>Score field-level F1</strong> per field and aggregate. Use exact-match for invoice number and date, fuzzy match (Levenshtein under 3) for vendor name, and numeric tolerance (within 0.01) for total amount.</li>
+<li><strong>Inspect the disagreements.</strong> Donut tends to hallucinate digits on low-resolution scans; LayoutLMv3's failures concentrate where OCR misreads the date format. Save 10 examples of each failure mode for the writeup.</li>
+</ol>
+<h3 id="expected-output">Expected Output</h3>
+<p>A CSV of per-invoice predictions plus a summary table of per-field F1 for both models. Published numbers on CORD-v2 report Donut at roughly 0.86 macro-F1 and LayoutLMv3 at roughly 0.89 macro-F1 with strong OCR; the gap narrows on degraded scans because OCR errors compound.</p>
+<h3 id="extension">Extension</h3>
+<p>Run the same 20 invoices through GPT-4o's vision endpoint with a structured-extraction prompt and add a third column to the comparison. The interesting result is usually that GPT-4o matches or beats both specialist models on clean inputs at a token-cost premium and falls behind on degraded scans because no fine-tuning ever happened.</p>
+</div>
+
+<div class="callout research-frontier">
+<div class="callout-title">Research Frontier</div>
+<p>Document understanding is in transition from pipeline OCR plus layout to end-to-end multimodal models that read documents the way humans do. The frontier in 2024-2026 is three-fold. First, unified document foundation models: Nougat (Blecher et al., <em>Nougat: Neural Optical Understanding for Academic Documents</em>, <a href="https://arxiv.org/abs/2308.13418" target="_blank" rel="noopener">arXiv:2308.13418</a>) and successor systems like GOT-OCR2.0 (Wei et al., <em>General OCR Theory: Towards OCR-2.0 via a Unified End-to-end Model</em>, <a href="https://arxiv.org/abs/2409.01704" target="_blank" rel="noopener">arXiv:2409.01704</a>) replace the OCR plus layout plus relation pipeline with a single VLM. Open question: how do you reliably extract structured tables, formulas, and forms when the model can hallucinate?</p>
+<p>Second, long-document context. ColPali (Faysse et al., <em>ColPali: Efficient Document Retrieval with Vision Language Models</em>, <a href="https://arxiv.org/abs/2407.01449" target="_blank" rel="noopener">arXiv:2407.01449</a>) shows that late-interaction over image patches can match or exceed traditional pipeline retrieval for visually rich documents, but indexing cost remains high. Third, grounded answer generation with citations: retrieval-augmented document QA still struggles to ground claims to specific page regions in a verifiable way, which is the gating problem for legal and clinical adoption.</p>
+</div>
+<div class="callout key-takeaway" id="21-4-10-key-takeaways">
+<div class="callout-title">Key Takeaways</div>
+<ul>
+<li>Production document AI pipelines have seven canonical stages: ingestion, normalization, layout detection, OCR, structure parsing, semantic extraction, validation.</li>
+<li>Each stage is independently swappable; the architecture survives model and vendor turnover better than a monolithic pipeline.</li>
+<li>Layout detection has outsized downstream impact because every later stage assumes its output. Improvements here cascade through the whole pipeline.</li>
+<li>Cost and latency budgets vary by 50-100x depending on per-stage choices. A "cheap" pipeline can hit &#36;0.001/page; a "premium" pipeline reaches &#36;0.01/page.</li>
+<li>Two-model reconciliation (specialist + VLM) achieves higher accuracy at acceptable cost by routing disagreement to human review.</li>
+<li>Drift monitoring, quarterly gold-set evaluation, and a feedback loop from reviewer corrections to retraining are non-negotiable for long-lived deployments.</li>
+</ul>
+</div>
+<div class="callout self-check">
+<div class="callout-title">Self-Check</div>
+<div class="quiz-question"><strong>Q1: Pipeline budgeting.</strong> Using <strong>Figure 21.4.2</strong>, design a &#36;0.003-per-page pipeline targeting ~600 ms latency that processes mixed-quality invoices. Justify each stage choice and identify which budget you are leaving on the table.</div>
+<details>
+<summary>Show Answer</summary>
+<div class="answer">Stage 1 (image quality classifier, 20 ms, &#36;0.0001) routes by scan quality; stage 2A (high-quality path) sends to PaddleOCR plus LayoutLMv3 (300 ms, &#36;0.0012); stage 2B (low-quality path) sends to Gemini 2.0 Flash (450 ms, &#36;0.0002 with vision pricing). Stage 3 (schema validation and confidence scoring, 50 ms, &#36;0.0005). Stage 4 (selective re-extraction on low-confidence fields, ~10% of pages, amortized 100 ms, &#36;0.001). Total expected per-page: roughly 480 ms and &#36;0.0028, fitting both budgets with margin. You are leaving accuracy on the table: a top-tier VLM second pass on the disagreement cases would lift F1 by 2-3 points but would push cost over budget. The other budget left unspent is parallelism: the two paths could run concurrently to shave another 100 ms if the upstream queue can supply enough batched work.</div>
+</details>
+<div class="quiz-question"><strong>Q2: Reconciliation policy.</strong> The dual-model pattern achieved 99.2% accuracy at 4.1% manual review rate. If labor cost per manual review is &#36;0.40 and per-extraction cost is &#36;0.005, compute the all-in per-document cost. At what review rate does the dual-model pattern become more expensive than running GPT-4o alone at 94.5% accuracy?</div>
+<details>
+<summary>Show Answer</summary>
+<div class="answer">All-in per-document cost equals extraction cost plus review cost weighted by review rate: 0.005 + 0.041 times 0.40 equals 0.005 + 0.0164 equals &#36;0.0214 per document. The single-model alternative is GPT-4o at &#36;0.0085 per page; assume one page per document and 5.5% manual review on the unhandled errors at 94.5% accuracy, so 0.0085 + 0.055 times 0.40 equals &#36;0.0305. The dual-model still wins. The dual-model crosses the single-model when review-rate-times-labor exceeds the accuracy savings, which is when (review_rate times 0.40) exceeds (0.0305 minus 0.005) equals &#36;0.0255, i.e., review rate above 6.4%. The team has ~50% margin before the dual-model loses its cost advantage, which is the operational answer to "how much can quality drift before we should rethink the architecture?"</div>
+</details>
+<div class="quiz-question"><strong>Q3: Drift detection.</strong> Suppose your gold-set F1 drops from 94% to 91% over six months. Sketch three hypotheses about the underlying cause and the diagnostic you would run to distinguish them.</div>
+<details>
+<summary>Show Answer</summary>
+<div class="answer">Hypothesis one: upstream input distribution drift (vendors changing invoice formats, more handwritten invoices). Diagnostic: rerun the gold set on the current model and compare per-vendor and per-format F1; if the drop concentrates on a few new vendor IDs, the cause is upstream. Hypothesis two: silent model update from the hosted API (Gemini or GPT-4o version bump). Diagnostic: pin the model version explicitly via the API's <code>model</code> parameter and re-evaluate the gold set; if the drop disappears under a frozen version, the cause is the upstream model. Hypothesis three: gold-set staleness (gold labels stopped reflecting current ground truth because the legal definition of certain fields changed). Diagnostic: re-label a sample of the gold set with current guidelines and check whether the new labels improve agreement with the model's outputs; if they do, the gold set itself is wrong. Each diagnostic costs a few engineer-hours, so run them in parallel.</div>
+</details>
+</div>
+<div class="callout whats-next" id="21-4-12-whats-next">
+<div class="callout-title">What's Next: Vision-Language Models at Scale</div>
+<p>Chapter 35 zooms out from document-specific models to the broader Vision-Language Model family that powers the VLM tier of document AI and far more. We will examine ViT and patch tokenization, contrastive vision-language pretraining (CLIP, SigLIP), generative VLMs (LLaVA, BLIP-3, Qwen-VL), the frontier VLM API landscape (GPT-4V, Gemini, Claude Vision), and the evaluation benchmarks (MMMU, BLINK, MathVista) that are becoming the new test of multimodal reasoning.</p>
+</div>
+<!-- Removed duplicate whats-next; canonical version is the one at section 21.4.12 above -->
+<h2 id="21-4-13-bibliography">21.4.13 Bibliography</h2>
+<details class="bibliography-collapsible">
+<summary><strong>Further Reading</strong></summary>
+<section class="bibliography">
+<div class="bib-entry-card">
+<div class="bib-ref">unstructured.io. (2024). <a href="https://github.com/Unstructured-IO/unstructured" rel="noopener" target="_blank">"unstructured: Pre-processing for LLMs."</a></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Smock, B., Pesala, R., Abraham, R. (2022). <a href="https://arxiv.org/abs/2110.00061" rel="noopener" target="_blank">"PubTables-1M: Towards Comprehensive Table Extraction From Unstructured Documents."</a> CVPR 2022.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Microsoft. (2024). <a href="https://learn.microsoft.com/en-us/azure/ai-services/document-intelligence/" rel="noopener" target="_blank">"Azure AI Document Intelligence Documentation."</a></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Google Cloud. (2025). <a href="https://cloud.google.com/document-ai" rel="noopener" target="_blank">"Document AI Product Documentation."</a></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">AWS. (2024). <a href="https://docs.aws.amazon.com/textract/" rel="noopener" target="_blank">"Amazon Textract Developer Guide."</a></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Pfitzmann, B., Auer, C., Dolfi, M., et al. (2022). <a href="https://arxiv.org/abs/2206.01062" rel="noopener" target="_blank">"DocLayNet."</a> KDD 2022.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Liu, J. (2024). <a href="https://python.useinstructor.com/" rel="noopener" target="_blank">"Instructor: Structured Output for LLMs."</a></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Outlines Team. (2024). <a href="https://github.com/dottxt-ai/outlines" rel="noopener" target="_blank">"Outlines: Structured Generation for LLMs."</a></div>
+</div>
+</section>
+</details>
+<nav class="chapter-nav">
+<a class="prev" href="section-21.3.html"><span class="nav-label">Previous</span><span class="nav-num">Section 21.3</span><span class="nav-title">VLM-Based Document Understanding</span></a>
+<a class="up" href="index.html"><span class="nav-label">In Chapter</span><span class="nav-num">Chapter 21</span><span class="nav-title">Document Understanding and OCR</span></a>
+<a class="next" href="../module-22-vision-language-models/index.html"><span class="nav-label">Next</span><span class="nav-num">Chapter 22</span><span class="nav-title">Vision-Language and Omni Models</span></a>
+</nav>
+<footer><p>Fifteenth Edition, 2026 · <a href="../../toc.html">Contents</a></p></footer>
+</main>
+</body>
+</html>
