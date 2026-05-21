@@ -58,6 +58,13 @@ CSS_VALUE_REPLACEMENTS = [
     # transition / transform / filter / animation: replace value with "none"
     (re.compile(r'(?:^|;|\{)\s*(transition|transform|filter|backdrop-filter|-webkit-backdrop-filter|animation)\s*:[^;}]+(?=[;}])', re.IGNORECASE),
      lambda m: m.group(0).split(':')[0].rstrip() + ': none'),
+    # Inline-SVG data: URIs as background[-image]: Kindle's KFX/Mobi media
+    # scanner tries to FETCH them as files and fails (W14010 "media file not
+    # found" / W14224 "invalid datauri"). Drop the whole declaration -- keep
+    # only the leading separator. (These are decorative callout icons already
+    # hidden via epub_overrides; the website keeps them in styles/book.css.)
+    (re.compile(r'(?P<sep>^|;|\{)\s*background(?:-image)?\s*:\s*url\(\s*["\']?data:image/svg\+xml[^)]*\)\s*(?=[;}])', re.IGNORECASE),
+     lambda m: m.group('sep')),
 ]
 
 # HTML transforms: <details>/<summary> -> div with bold title (Kindle disclosure unsupported)

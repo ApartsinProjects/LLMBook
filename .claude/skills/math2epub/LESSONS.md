@@ -202,6 +202,67 @@ Pending: implement (c) first, re-render `math-compare-prose.epub`, screenshot, c
 
 ---
 
+## L13. Automated KaTeX->PNG pipeline beats MathML-only AND manual-HTML for a 300-equation Kindle EPUB (2026-05-21)
+
+**Context**: The LLMBook EPUB shipped math as KaTeX `output:'mathml'`. A reader reported
+every display equation rendering as a vertical stack of single atoms in **Thorium**
+(`L=-` / `1` / `n` / `Sigma` ... each on its own line).
+
+**Root cause (confirmed in headless Chromium = Thorium's engine)**: `epub_overrides.css`
+forced `display: inline !important` on `math, mrow, mi, mn, mo, mtext, semantics` (plus
+`math[display=block] *` and `math *{overflow:hidden}`). That overrides the browser's
+native MathML layout: `<mfrac>`/`<msub>` keep `display: block math` while siblings are
+forced inline, so the row stacks. Diagnostic: the built chapter as-is gave a **171px**
+math-block; deleting those overrides gave **45px** (correct single line). Lesson:
+**never force `display` on MathML token elements** -- style only `.katex`/`.math-block`
+wrappers, never the `m*` elements.
+
+**Strategic verdict (web research, 2026)**: MathML on Kindle is gated on Enhanced
+Typesetting, which any single disqualifier silently turns off (notably **>25 SVGs**,
+inline-block tables, fixed layout, >300 HTML files, >30MB/file). Publishers report
+"renders in Kindle Previewer 3 but breaks on devices." MathML-only is the *least*
+reliable choice; **PNG is the de-facto STEM-on-Kindle standard**.
+
+**What shipped (automated, NOT matplotlib)**: matplotlib mathtext can't handle
+`\mathcal`, `\begin{aligned}`, `\operatorname`, etc., and the book's LaTeX is already
+KaTeX-validated -- so render with **KaTeX + Playwright/Chromium** (same engine as the
+website -> pixel-identical math). Pipeline wired into html2pub:
+  1. `math_render.py` stamps `data-tex` + `data-mathdisplay` on each katex wrapper.
+  2. Build writes `.book-update/math-manifest.json` (293 complex/display eqs; ~890 simple
+     inline stay `<sub>/<sup>` via `simplify_inline_mathml` -- those reflow/scale/match
+     body weight, so DON'T PNG them).
+  3. `scripts/build_math_png_cache.py`: renders every entry in ONE Playwright page
+     (`katex.render(...,{output:'html'})` via `page.evaluate`, data as a JS arg so it's
+     never HTML-embedded -> no `</script>`/escaping breakage), `device_scale_factor=3`,
+     white bg, `.katex-display{display:inline-block;margin:0}` so `element.screenshot()`
+     is tight, then pngquant. Key = `sha1(rewritten_tex|display)` -> content-addressed +
+     incremental. **Gotcha**: element ids must NOT start with a digit (CSS `#<hex>` is
+     invalid) -- prefix them (`#eq_<key>`).
+  4. `builder.py replace_mathml_with_png()` (after the post_process hook, where `images`
+     exists) swaps remaining MathML for `<img>`, **adding PNG bytes straight into
+     `images.bundled_bytes`** (bypasses `_reencode`, which would JPEG-ify a white-bg PNG
+     and blur strokes). The img loop is guarded to skip `../img/` srcs.
+  5. `html2pub.toml [math] png_cache = ".book-update/math-png-cache"` enables it; empty
+     keeps MathML. Two-pass: build (manifest) -> cache script -> build (inject).
+
+**Sizing (critical)**: render at 3x, set explicit logical `width`/`height` attrs = px/3.
+Kindle honors the width/height *attributes* but **ignores CSS `max-width`/`max-height`
+on `<img>`**. Cap display equations to ~560 CSS px (no CSS max-width to lean on). CSS:
+`img.math-png-display{display:block;margin:1em auto;max-width:100%}`,
+`img.math-png-inline{vertical-align:middle}`. Alt = de-LaTeX'd source, <=140 chars.
+
+**Result**: 0 `<math>` left, 293 deduped PNGs (~2.7MB), book 35.5MB, EPUBCheck 0 errors,
+equations render pixel-perfect in Chromium/Thorium (= every reader incl. Kindle). This
+supersedes the SKILL.md "PNG = last resort, manual" stance **for large auto-built
+books**: KaTeX+Playwright makes PNG fully automated and high-fidelity. Keep simple inline
+as `<sub>/<sup>` (best of both).
+
+**Accessibility option (not shipped)**: per DAISY 2024+, do NOT put `alttext`/`altimg`/
+aria on `<math>`; keep the visible PNG (`<img alt>`) and optionally a TeX/MathML sibling
+in `<details>` or `semantics><annotation>` (Kindle ET supports `<annotation>`).
+
+---
+
 ## Open questions (revisit later)
 
 - Does Kindle iOS app handle SVG `<use>` shadow DOM the same as KPV3? Unknown.

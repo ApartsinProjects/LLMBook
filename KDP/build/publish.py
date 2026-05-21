@@ -69,7 +69,7 @@ def fail(msg: str) -> None:
 def run(cmd: list[str], log_path: Path | None = None, env: dict | None = None) -> tuple[int, str]:
     """Run a subprocess; capture combined output. Tee to log file if given."""
     print(f"  $ {' '.join(cmd)}")
-    proc = subprocess.run(cmd, cwd=str(PROJECT_ROOT), capture_output=True, text=True, encoding="utf-8", env=env)
+    proc = subprocess.run(cmd, cwd=str(PROJECT_ROOT), capture_output=True, text=True, encoding="utf-8", errors="replace", env=env)
     out = (proc.stdout or "") + (proc.stderr or "")
     if log_path:
         log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -506,13 +506,16 @@ def step_optimize() -> int:
 
     log = LOG_DIR / f"optimize_{ts()}.log"
     # Quality-conscious settings: optimizer defaults (jpg=70 / png=0.6) lose
-    # too much fidelity on diagrams and photos. 80/0.85 keeps the file looking
-    # right while still saving ~35% over the unoptimized build.
+    # too much fidelity on diagrams and photos. png=0.85 keeps diagrams crisp.
+    # jpg=72 MATCHES html2pub's source encode (html2pub.toml jpeg_quality): the
+    # source JPEGs are already q72, so re-encoding at a higher q (the old 80)
+    # only inflated file size with zero visual gain. Matching at 72 stores them
+    # efficiently at the same visual quality and keeps the book under 40 MB.
     rc, out = run([
         "node", str(opt_js),
         "-i", str(epub),
         "-o", str(optimized),
-        "--jpg-quality", "80",
+        "--jpg-quality", "72",
         "--png-quality", "0.85",
         "--lang", "en",
         "--clean",

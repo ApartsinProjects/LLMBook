@@ -65,6 +65,11 @@ class MathSpec:
     render: str = "off"   # "katex" | "off"
     katex_path: str = ""  # node_modules root containing 'katex'
     node_exe: str = "node"
+    # Optional: project-relative dir of pre-rendered math PNGs. When set, a
+    # build step swaps complex/display MathML for <img> (Kindle MathML is
+    # unreliable). Cache is keyed by sha1(tex|display); see
+    # scripts/build_math_png_cache.py. Empty = keep MathML.
+    png_cache: str = ""
 
 
 @dataclass
@@ -171,6 +176,7 @@ def load(project_dir: Path | str) -> Config:
         render=mdata.get("render", "off"),
         katex_path=mdata.get("katex_path", ""),
         node_exe=mdata.get("node_exe", "node"),
+        png_cache=mdata.get("png_cache", ""),
     )
 
     idata = data.get("images", {})

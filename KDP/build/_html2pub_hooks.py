@@ -490,6 +490,64 @@ def simplify_inline_mathml(soup: BeautifulSoup) -> int:
     return n
 
 
+def number_headings(soup: BeautifulSoup, src_rel: str) -> int:
+    """Prepend the authored chapter/section number to the chapter <h1>.
+
+    The EPUB nav (ToC) is built from each chapter's <h1>, but the source keeps
+    the number out of <h1> -- it lives in separate <div class="page-breadcrumb">
+    ("... Chapter 0", "... Appendix A") and <div class="page-current">
+    ("Section 0.1", "Section A.1") elements. Result: the EPUB ToC shows bare
+    titles with no numbers. This prepends the number so BOTH the ToC and the
+    chapter heading read e.g. "0.1  What Every LLM Engineer Needs..." /
+    "Chapter 0: ML and PyTorch Foundations" / "Appendix A: Mathematical
+    Foundations". Website is unaffected (EPUB-build hook only).
+
+    Part indexes already carry "Part I: ..." in <h1>, so they're skipped.
+    """
+    from bs4 import NavigableString
+    h1 = soup.find("h1")
+    if h1 is None:
+        return 0
+    cur = h1.get_text(strip=True)
+    if not cur:
+        return 0
+    # Already numbered ("Part I: ...", or a re-run that left "0.1 ..."/"A.1 ...").
+    # NOT a bare leading digit -- titles like "3D Generation" must be numbered.
+    if re.match(r"^(Part|Chapter|Appendix|Section)\b", cur) or re.match(r"^[A-Za-z]?\d+\.\d", cur):
+        return 0
+
+    label = None
+    sep = "  "
+    # Sections (regular + appendix): page-current "Section 0.1" / "Section A.1".
+    pc = soup.find(class_="page-current")
+    if pc:
+        m = re.search(r"Section\s+([\w.]+)", pc.get_text())
+        if m:
+            label = m.group(1).rstrip(".")
+            sep = " "  # en space between number and title
+    if label is None:
+        # Index pages: breadcrumb last segment "Chapter N" / "Appendix X".
+        bc = soup.find(class_="page-breadcrumb")
+        if bc:
+            txt = bc.get_text(" ", strip=True)
+            m = re.search(r"(Chapter\s+\d+|Appendix\s+[A-Z])\s*$", txt)
+            if m:
+                label = m.group(1)
+                sep = ": "
+    if not label:
+        return 0
+    # Merge the number INTO the first text node (not a separate node): the EPUB
+    # nav title comes from h1.get_text(strip=True), which strips each node's
+    # whitespace before concatenating -- a separate "0.1 " node would lose its
+    # trailing space, giving "0.1What...". Merging keeps the space.
+    first_text = h1.find(string=True)
+    if first_text is not None:
+        first_text.replace_with(NavigableString(label + sep + str(first_text)))
+    else:
+        h1.insert(0, NavigableString(label + sep))
+    return 1
+
+
 def fix_math_alignment(soup: BeautifulSoup) -> int:
     """Post-process MathML output: strip TeX annotation (would leak as
     fallback text on non-MathML readers), add katex-rendered class, and
@@ -696,13 +754,17 @@ def fix_img_for_kindle(soup: BeautifulSoup) -> int:
         if img.has_attr("style"):
             del img["style"]
             n += 1
-        # Replace entity-encoded characters in alt attribute
+        # Sanitize alt: any char bs4 entity-encodes inside an attribute value
+        # (&amp; &lt; &gt; &quot;) makes Kindle's Enhanced-Mobi parser fail with
+        # E21018 ("Enhanced Mobi building failure ... Content: <img>"), aborting
+        # the whole KFX conversion. Replace those chars with Unicode/word forms
+        # that serialize literally. (Confirmed via KPV qualitychecks 2026-05-21.)
         alt = img.get("alt")
         if alt:
-            # Replace `->` with Unicode arrow (it gets entity-encoded
-            # back to `-&gt;` when soup writes XHTML, which trips KPV).
-            # Use Unicode → which doesn't need escaping.
-            new_alt = alt.replace("->", "→")
+            new_alt = (alt.replace("->", "→").replace("<-", "←")
+                       .replace("&", " and ").replace('"', "”")
+                       .replace("<", " less than ").replace(">", " greater than "))
+            new_alt = re.sub(r"\s+", " ", new_alt).strip()
             if new_alt != alt:
                 img["alt"] = new_alt
                 n += 1
@@ -774,6 +836,9 @@ def post_process(soup: BeautifulSoup, src_rel: str, cfg) -> None:
         slim_wisdom_council(soup)
     # v14.2: template substitution first (so downstream hooks see resolved text)
     templatize_metadata(soup, cfg)
+    # Prepend chapter/section numbers to <h1> so the EPUB nav (ToC) and chapter
+    # headings are numbered (source keeps numbers in breadcrumb/page-current).
+    number_headings(soup, src_rel)
     syntax_highlight(soup)
     normalize_code_block_content(soup)
     # v13.15: strip leading/trailing blank lines from code blocks (was

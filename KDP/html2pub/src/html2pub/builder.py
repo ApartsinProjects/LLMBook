@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import io
+import json
 import re
 import uuid
 from pathlib import Path
@@ -118,6 +119,9 @@ def build(cfg: Config) -> Path:
     n_links_dropped = 0
     n_imgs_seen = 0
     n_math_rendered = 0
+    n_math_png = 0
+    math_manifest: dict = {}
+    math_png_cache_dir = (cfg.project_root / cfg.math.png_cache) if cfg.math.png_cache else None
 
     # Resolve post_process_html plugin ONCE before the loop (hard-fail if missing)
     _post_name = cfg.raw.get("plugins", {}).get("post_process_html")
@@ -161,6 +165,13 @@ def build(cfg: Config) -> Path:
                 # (one bad chapter shouldn't abort the whole book).
                 print(f"  [warn] post_process failed for {src_rel}: {_e}")
 
+        # Swap remaining MathML for pre-rendered PNGs (Kindle MathML is gated on
+        # Enhanced Typesetting + unreliable). Runs after the hook so simple
+        # inline math is already <sub>/<sup>; only complex/display remain.
+        if math_png_cache_dir is not None:
+            n_math_png += math_render.replace_mathml_with_png(
+                soup, images, math_png_cache_dir, math_manifest)
+
         title = _extract_title(soup, fallback=src_rel)
         chapter_map[src_rel]["title"] = title
 
@@ -190,6 +201,10 @@ def build(cfg: Config) -> Path:
             n_imgs_seen += 1
             src = img.get("src", "")
             if not src or src.startswith(("http://", "https://", "data:")):
+                continue
+            # Math PNGs were already bundled (bytes added directly) and carry
+            # their final EPUB-relative src; don't re-resolve/re-encode them.
+            if src.startswith("../img/"):
                 continue
             target = _resolve_relative(src_rel, src)
             bundled = images.add(target)
@@ -240,6 +255,14 @@ def build(cfg: Config) -> Path:
     print(f"[html2pub] images: {n_imgs_seen} seen, {len(images.bundled_bytes)} bundled, {len(images.skipped)} skipped{cache_str}")
     if n_math_rendered:
         print(f"[html2pub] math: {n_math_rendered} expressions rendered via KaTeX")
+    if math_png_cache_dir is not None:
+        manifest_path = cfg.project_root / ".book-update" / "math-manifest.json"
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        manifest_path.write_text(json.dumps(math_manifest, indent=0), encoding="utf-8")
+        n_missing = len(math_manifest) - n_math_png
+        print(f"[html2pub] math-png: {n_math_png} swapped to PNG, "
+              f"{n_missing} awaiting cache (manifest: {len(math_manifest)} eqs -> "
+              f"{manifest_path.relative_to(cfg.project_root)})")
 
     # ---- Assemble EPUB
     print("[html2pub] assembling EPUB...")

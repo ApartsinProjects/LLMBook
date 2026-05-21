@@ -16,6 +16,13 @@ from html2pub.config import MathSpec
 
 RENDER_SCRIPT = Path(__file__).parent / "render_math.js"
 
+# Math-PNG sizing. PNGs are rendered at this device-pixel scale (must match
+# scripts/build_math_png_cache.py SCALE) for crispness; the build divides by it
+# to set logical width/height. MAX_W caps display equations to a typical Kindle
+# content width (CSS px) so they don't overflow the right edge.
+MATH_PNG_SCALE = 3
+MATH_PNG_MAX_W = 560
+
 # TeX-source rewrites applied BEFORE KaTeX rendering. Three purposes:
 #   1. Schema-valid MathML output (avoids epubcheck RSC-005 errors where
 #      KaTeX emits an `<mo>` inside `<msub>` for `\text{...}` subscripts).
@@ -141,6 +148,7 @@ def render(soup: BeautifulSoup, math_cfg: MathSpec) -> int:
         return 0
 
     by_id = {r["id"]: r["html"] for r in rendered}
+    items_by_id = {it["id"]: it for it in items}
     n = 0
     for i, (kind, el) in enumerate(targets):
         mid = str(i) if kind == "element" else el.get("data-math-id", "")
@@ -161,10 +169,123 @@ def render(soup: BeautifulSoup, math_cfg: MathSpec) -> int:
         # `.katex .msupsub` etc. Without it, sub/superscripts collapse to
         # the baseline and \mathcal/\mathfrak font selection silently fails.
         cls = ["katex", "katex-rendered"]
-        if kind == "element" and "math-block" in (el.get("class") or []):
+        is_display = kind == "element" and "math-block" in (el.get("class") or [])
+        if is_display:
             cls.append("katex-display")
         new_el["class"] = cls
+        # Stamp the source TeX + display flag so a later build step can swap
+        # MathML for a pre-rendered PNG (Kindle's MathML support is gated on
+        # Enhanced Typesetting and unreliable across apps). data-tex carries
+        # the exact rewritten TeX used as the math-png cache key + img alt.
+        item = items_by_id.get(mid)
+        if item is not None:
+            new_el["data-tex"] = item["tex"]
+            new_el["data-mathdisplay"] = "1" if item.get("display") else "0"
         el.replace_with(new_el)
+        n += 1
+    return n
+
+
+def math_key(tex: str, display: bool) -> str:
+    """Stable cache key for a (rewritten-tex, display) pair."""
+    import hashlib
+    h = hashlib.sha1((tex + "|" + ("1" if display else "0")).encode("utf-8"))
+    return h.hexdigest()[:16]
+
+
+_ALT_WORDS = {
+    "sum": "sum", "prod": "product", "int": "integral", "frac": "",
+    "sqrt": "sqrt", "cdot": "*", "times": "x", "div": "/", "pm": "+/-",
+    "leq": "lte", "geq": "gte", "neq": "!=", "approx": "~", "to": "to",
+    "rightarrow": "to", "leftarrow": "from", "gets": "from", "mapsto": "to",
+    "infty": "infinity",
+    "partial": "d", "nabla": "grad", "alpha": "alpha", "beta": "beta",
+    "gamma": "gamma", "delta": "delta", "epsilon": "epsilon", "theta": "theta",
+    "lambda": "lambda", "mu": "mu", "sigma": "sigma", "pi": "pi", "phi": "phi",
+    "omega": "omega", "in": "in", "log": "log", "exp": "exp", "min": "min",
+    "max": "max", "hat": "", "bar": "", "tilde": "", "vec": "", "mathbb": "",
+    "mathcal": "", "mathrm": "", "mathbf": "", "text": "", "left": "",
+    "right": "", "bigl": "", "bigr": "", "Bigl": "", "Bigr": "", "mid": "|",
+}
+
+
+def _tex_to_alt(tex: str) -> str:
+    """Short, human-ish alt text from TeX (<=140 chars per KDP guidance)."""
+    import re as _r
+    t = tex.replace("\\\\", " ; ")
+    t = _r.sub(r"\\(begin|end)\{[a-zA-Z*]+\}", " ", t)
+    # \frac{a}{b} -> a/b  (one level; nested fracs degrade gracefully)
+    for _ in range(3):
+        t = _r.sub(r"\\frac\s*\{([^{}]*)\}\s*\{([^{}]*)\}", r"(\1)/(\2)", t)
+    # map known commands to words/symbols, drop the rest's backslash
+    t = _r.sub(r"\\([a-zA-Z]+)", lambda m: _ALT_WORDS.get(m.group(1), m.group(1)), t)
+    t = t.replace("{", "").replace("}", "").replace("\\", "")
+    # Hard-strip characters that bs4 entity-encodes inside an attribute value
+    # (&lt; &gt; &amp; &quot;). Kindle's Enhanced-Mobi parser FAILS (E21018) on
+    # entity-encoded chars in attributes, so the alt must contain none.
+    t = (t.replace("&", " and ").replace('"', " ")
+          .replace("<", " lt ").replace(">", " gt "))
+    t = _r.sub(r"\s+", " ", t).strip()
+    if len(t) > 138:
+        t = t[:135] + "..."
+    return t or "equation"
+
+
+def replace_mathml_with_png(soup: BeautifulSoup, images, cache_dir, manifest: dict) -> int:
+    """Swap every remaining MathML wrapper (span/div.katex with data-tex) for a
+    pre-rendered PNG <img>. Records every (key -> tex/display) into `manifest`
+    so the cache builder knows what to render. If the cache PNG already exists,
+    its bytes are bundled directly into `images` (kept as PNG, no JPEG
+    re-encode) and the wrapper is replaced; otherwise the MathML is left in
+    place (graceful fallback until the cache is built).
+
+    Runs AFTER the project's simplify_inline_mathml hook, so simple inline math
+    is already <sub>/<sup> and only complex/display equations remain.
+    """
+    from pathlib import Path as _P
+    cache_dir = _P(cache_dir)
+    n = 0
+    for el in soup.find_all(["span", "div"], attrs={"data-tex": True}):
+        cls = el.get("class") or []
+        if "katex" not in cls:
+            continue
+        tex = el.get("data-tex") or ""
+        if not tex:
+            continue
+        display = el.get("data-mathdisplay") == "1"
+        key = math_key(tex, display)
+        manifest[key] = {"tex": tex, "display": display}
+        png = cache_dir / f"{key}.png"
+        if not png.exists():
+            continue  # cache not built yet -> keep MathML fallback
+        bundled = f"img/math_{key}.png"
+        if bundled not in images.bundled_bytes:
+            images.bundled_bytes[bundled] = png.read_bytes()
+            images.bundled_mime[bundled] = "image/png"
+            images.path_to_bundle[f"__math__{key}"] = bundled
+        img = soup.new_tag("img")
+        img["src"] = "../" + bundled
+        img["alt"] = _tex_to_alt(tex)
+        img["class"] = ["math-png-display"] if display else ["math-png-inline"]
+        # Size: PNGs are rendered at MATH_PNG_SCALE x device pixels for
+        # crispness. Set explicit logical width/height (px / scale) so the
+        # equation displays at text-matching size (Kindle honors the width/
+        # height HTML attributes but ignores CSS max-width/height on <img>).
+        # Cap display equations to a typical Kindle content width to avoid
+        # right-edge overflow (no CSS max-width to rely on).
+        try:
+            from PIL import Image as _Img
+            with _Img.open(png) as _im:
+                pw, ph = _im.size
+            lw, lh = pw / MATH_PNG_SCALE, ph / MATH_PNG_SCALE
+            if display and lw > MATH_PNG_MAX_W:
+                lh = lh * (MATH_PNG_MAX_W / lw)
+                lw = MATH_PNG_MAX_W
+            img["width"] = str(max(1, round(lw)))
+            img["height"] = str(max(1, round(lh)))
+        except Exception:
+            pass
+        el.replace_with(img)
         n += 1
     return n
 
