@@ -4,12 +4,18 @@ Publishing pipeline orchestrator.
 Single entry point that does the full HTML -> validated EPUB flow.
 Designed for repeated runs as the source HTML evolves.
 
+Validation chain: structural_check -> EPUBCheck -> (optimize) -> post-optimize
+EPUBCheck -> Kindle Previewer KFX conversion + qualitychecks (the Kindle
+converter is stricter than EPUBCheck; see step_kpv). Each gate sets a non-zero
+exit on real errors but is non-fatal when its tool is not installed.
+
 Usage:
-    python KDP/build/publish.py                # full build + validation
-    python KDP/build/publish.py --quick        # smaller images, faster
-    python KDP/build/publish.py --validate-only  # skip rebuild
+    python KDP/build/publish.py                # full build + validation (incl. KPV KFX gate)
+    python KDP/build/publish.py --quick        # smaller images, faster (skips KPV)
+    python KDP/build/publish.py --validate-only  # skip rebuild; run validators incl. KPV
     python KDP/build/publish.py --clean        # delete output then rebuild
     python KDP/build/publish.py --no-epubcheck # skip Java epubcheck even if installed
+    python KDP/build/publish.py --no-kpv       # skip the Kindle Previewer KFX gate (~2-4 min)
     python KDP/build/publish.py --regen-spine  # re-walk source tree before building
 
 Exit codes:
@@ -615,8 +621,8 @@ def step_summary(start_t: float, build_log: Path | None) -> None:
 
     print()
     print("Next steps:")
-    print("  1. Review KDP/validation/structural_report.txt")
-    print("  2. (Optional) Run Kindle Previewer locally to spot-check rendering")
+    print("  1. Review KDP/validation/structural_report.txt and KDP/output/kpv-out/Summary_Log.csv")
+    print("  2. (Optional) Run Kindle Previewer GUI (--preview) to spot-check rendering")
     print("  3. Follow KDP/PUBLISHING_GUIDE.md to upload to KDP")
 
 
@@ -625,6 +631,125 @@ def step_summary(start_t: float, build_log: Path | None) -> None:
 
 def ts() -> str:
     return datetime.now().strftime("%Y%m%d-%H%M%S")
+
+
+# --------------------------------------------------------------------- KPV KFX validation
+
+
+def step_quality_audit(epub: Path) -> int:
+    """Deep reader-facing quality audit (scripts/audit_epub_quality.py).
+
+    Catches problems EPUBCheck + KPV qualitychecks pass clean but that still
+    look wrong on a Kindle: broken internal links / fragments, missing alt text,
+    manifest/spine mismatches, duplicate ids, heading-level skips, and Kindle
+    regression guards (lowercase camelCase SVG attrs, empty math placeholders).
+    Fails (non-zero) only on ERROR-level findings; warnings are reported.
+    """
+    step("Deep EPUB quality audit (links / alt / manifest / regressions)")
+    script = PROJECT_ROOT / "scripts" / "audit_epub_quality.py"
+    if not script.exists():
+        warn("scripts/audit_epub_quality.py not found; skipping")
+        return 0
+    rc, out = run([PYTHON, str(script), str(epub)])
+    for line in out.splitlines()[-16:]:
+        print(f"  {line}")
+    if rc != 0:
+        fail("quality audit found ERROR-level issues")
+    else:
+        ok("quality audit passed (0 errors)")
+    return rc
+
+
+def step_kpv(epub: Path) -> int:
+    """Headless Kindle KFX conversion + qualitychecks via Kindle Previewer 3.
+
+    KPV's KFX/Mobi converter is significantly STRICTER than EPUBCheck and
+    catches errors EPUBCheck passes clean (e.g. E21018 entity-in-attribute,
+    E25001 bad image). This gate converts the FINAL optimized EPUB and parses
+    the qualitychecks report.
+
+    CRITICAL CLI form (wrong order silently no-ops, exit 0, no output):
+        "Kindle Previewer 3.exe" <input.epub> -convert -output <FOLDER> -qualitychecks
+    Input path FIRST; `-convert` is a bare command; `-output` is a FOLDER.
+    Run the exe directly (NOT through a bash/MSYS shim, or the KPR_NCD worker
+    hangs) and kill stale workers first. Outputs land under <FOLDER>/:
+    KPF/<name>.kpf, Logs/<name>_log.csv, Summary_Log.csv. Gate on
+    Summary_Log.csv Conversion Status + Error Count.
+
+    Non-fatal when KPV is absent / times out / emits no report (warn + skip),
+    matching the epubcheck step. Returns 1 only on a real conversion failure.
+    """
+    import csv
+    step("Kindle KFX validation (Kindle Previewer -convert -qualitychecks)")
+    kp = find_kindle_previewer()
+    if kp is None:
+        warn("Kindle Previewer 3 not detected; skipping KFX qualitychecks.")
+        print("  Download: https://kdp.amazon.com/en_US/help/topic/G202131170")
+        return 0
+    out_dir = OUTPUT_DIR / "kpv-out"
+    try:
+        if out_dir.exists():
+            shutil.rmtree(out_dir, ignore_errors=True)
+        out_dir.mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        warn(f"could not prepare KPV output dir: {e}")
+        return 0
+    # KPV is single-instance: if a prior "Kindle Previewer 3.exe" GUI is still
+    # running (common after a previous run was interrupted), launching it again
+    # just focuses the existing window and the new -convert silently HANGS with no
+    # output. So kill BOTH the GUI and its KPR_NCD.exe worker before launching.
+    if sys.platform.startswith("win"):
+        for image in ("KPR_NCD.exe", "Kindle Previewer 3.exe"):
+            try:
+                subprocess.run(["taskkill", "/F", "/IM", image], capture_output=True)
+            except Exception:
+                pass
+        time.sleep(2)  # let the processes fully exit before relaunch
+    print(f"  Kindle Previewer: {kp}")
+    cmd = [str(kp), str(epub), "-convert", "-output", str(out_dir), "-qualitychecks"]
+    print(f"  $ {' '.join(cmd)}")
+    t0 = time.time()
+    try:
+        subprocess.run(cmd, cwd=str(PROJECT_ROOT), capture_output=True, text=True,
+                       encoding="utf-8", errors="replace", timeout=2400)
+    except subprocess.TimeoutExpired:
+        warn("Kindle Previewer timed out (2400s); skipping KFX gate")
+        return 0
+    except Exception as e:
+        warn(f"Kindle Previewer invocation failed: {e}")
+        return 0
+    print(f"  (KPV finished in {time.time() - t0:.0f}s)")
+    summary = out_dir / "Summary_Log.csv"
+    if not summary.exists():
+        warn("KPV produced no Summary_Log.csv (CLI/version mismatch?); skipping gate")
+        return 0
+    status = et = "?"
+    errc = qic = None
+    try:
+        for row in csv.DictReader(summary.open(encoding="utf-8-sig", newline="")):
+            status = row.get("Conversion Status", status)
+            et = row.get("Enhanced Typesetting Status", et)
+            try:
+                errc = int((row.get("Error Count") or "0").strip())
+            except ValueError:
+                pass
+            try:
+                qic = int((row.get("Quality Issue Count") or "0").strip())
+            except ValueError:
+                pass
+    except Exception as e:
+        warn(f"could not parse Summary_Log.csv: {e}")
+        return 0
+    print(f"  conversion status:    {status}")
+    print(f"  error count:          {errc}")
+    print(f"  quality issue count:  {qic}")
+    print(f"  enhanced typesetting: {et}")
+    rel = out_dir.relative_to(PROJECT_ROOT)
+    if str(status).strip().lower().startswith("success") and (errc in (0, None)):
+        ok(f"KPV KFX qualitychecks PASSED -> {rel}")
+        return 0
+    warn(f"KPV reported issues -> see {rel}/Logs/*.csv")
+    return 1
 
 
 # --------------------------------------------------------------------- main
@@ -643,6 +768,11 @@ def main(argv: list[str] | None = None) -> int:
                         "for interactive preview (Paperwhite, Oasis, Scribe, Fire, iOS, Android, Web Reader).")
     p.add_argument("--no-sample-pdf", action="store_true",
                    help="Skip regenerating the sample chapter PDF for the landing page.")
+    p.add_argument("--no-kpv", action="store_true",
+                   help="Skip the Kindle Previewer KFX conversion + qualitychecks gate "
+                        "(headless; stricter than epubcheck; ~2-4 min). Auto-skipped in --quick.")
+    p.add_argument("--no-audit", action="store_true",
+                   help="Skip the deep EPUB quality audit (scripts/audit_epub_quality.py).")
     args = p.parse_args(argv)
 
     start_t = time.time()
@@ -699,6 +829,26 @@ def main(argv: list[str] | None = None) -> int:
                 if rc != 0:
                     warn("Optimized EPUB failed epubcheck; raw EPUB preserved at output/*.raw.epub")
                     final_rc = rc
+
+    # Deep quality audit (internal links, alt text, manifest/spine consistency,
+    # SVG/math regression guards) - catches reader-facing issues EPUBCheck and
+    # KPV pass clean. Runs on the FINAL EPUB; cheap (~3s).
+    audit_epub = OUTPUT_DIR / "building-conversational-ai-llms-agents.epub"
+    if audit_epub.exists() and not args.no_audit:
+        rc = step_quality_audit(audit_epub)
+        if rc != 0:
+            final_rc = rc
+
+    # Kindle KFX validation gate: Kindle Previewer's converter is stricter than
+    # EPUBCheck and catches Kindle-only failures (E21018, E25001, ...). Runs on
+    # the FINAL (optimized) EPUB. Slow (~2-4 min); auto-skipped in --quick (not
+    # for submission) and skippable via --no-kpv.
+    if not args.no_kpv and not args.quick:
+        kpv_epub = OUTPUT_DIR / "building-conversational-ai-llms-agents.epub"
+        if kpv_epub.exists():
+            rc = step_kpv(kpv_epub)
+            if rc != 0:
+                final_rc = rc
 
     # Archive a per-edition snapshot of the optimized EPUB so old
     # editions remain available for diffs / rollback. Reads the edition

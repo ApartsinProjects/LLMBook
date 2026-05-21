@@ -208,6 +208,28 @@ def strip_code_block_whitespace(soup: BeautifulSoup) -> int:
                     last.replace_with(NavigableString(stripped))
                 n += 1
 
+    # Bare <pre> output blocks (no nested <code>) leak the same leading/trailing
+    # blank line. Code-OUTPUT is authored as `<pre>\n...content...\n</pre>`, so the
+    # first/last direct child is a "\n..."/"...\n" NavigableString that the <code>
+    # loop above never sees. Strip those too (handles CRLF as well as LF).
+    for pre in soup.find_all('pre'):
+        if pre.find('code') is not None:
+            continue
+        kids = list(pre.children)
+        if kids and isinstance(kids[0], NavigableString):
+            s = str(kids[0]); stripped = s.lstrip(' \t\n\r')
+            if stripped != s:
+                (kids[0].extract() if not stripped
+                 else kids[0].replace_with(NavigableString(stripped)))
+                n += 1
+        kids = list(pre.children)
+        if kids and isinstance(kids[-1], NavigableString):
+            s = str(kids[-1]); stripped = s.rstrip(' \t\n\r')
+            if stripped != s:
+                (kids[-1].extract() if not stripped
+                 else kids[-1].replace_with(NavigableString(stripped)))
+                n += 1
+
     return n
 
 

@@ -70,6 +70,12 @@ class MathSpec:
     # unreliable). Cache is keyed by sha1(tex|display); see
     # scripts/build_math_png_cache.py. Empty = keep MathML.
     png_cache: str = ""
+    # Bundle katex.min.css + its woff2 fonts into the EPUB and <link> them from
+    # every chapter. Needed only if any live KaTeX/MathML survives to the EPUB.
+    # When math is fully pre-rendered to PNG (png_cache set), no chapter has a
+    # `.katex`/`<math>` node, so the CSS + 24 fonts are dead weight (~2 MB and
+    # 24 @font-face rules); set false to drop them.
+    bundle_css: bool = True
 
 
 @dataclass
@@ -177,6 +183,7 @@ def load(project_dir: Path | str) -> Config:
         katex_path=mdata.get("katex_path", ""),
         node_exe=mdata.get("node_exe", "node"),
         png_cache=mdata.get("png_cache", ""),
+        bundle_css=mdata.get("bundle_css", True),
     )
 
     idata = data.get("images", {})

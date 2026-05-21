@@ -230,6 +230,13 @@ def build(cfg: Config) -> Path:
             r'<\1\2></\1>',
             body_inner,
         )
+        # XHTML safety net: SVG's attribute is camelCase `viewBox`. lxml's HTML
+        # parser lowercases it to `viewbox`, which XHTML/Kindle silently ignore,
+        # collapsing the diagram to stacked text. The project hook normally
+        # restores it, but guarantee it here too (in case a per-chapter
+        # post_process raised before that hook ran). Scoped to <svg> open tags,
+        # so escaped `&lt;svg ...` inside code samples is left untouched.
+        body_inner = re.sub(r'(<svg\b[^>]*?)viewbox=', r'\1viewBox=', body_inner)
 
         xhtml = (
             '<?xml version="1.0" encoding="UTF-8"?>\n'
@@ -338,8 +345,11 @@ def build(cfg: Config) -> Path:
             ))
             stylesheet_links.append("../styles/blitz.css")
 
-    # KaTeX CSS + fonts (if math is on)
-    if cfg.math.render == "katex" and cfg.math.katex_path:
+    # KaTeX CSS + fonts (if math is on AND any live KaTeX survives to the EPUB).
+    # When math is fully pre-rendered to PNG, no chapter references `.katex`, so
+    # bundling the CSS + 24 woff2 fonts is dead weight; cfg.math.bundle_css=False
+    # drops them.
+    if cfg.math.render == "katex" and cfg.math.katex_path and cfg.math.bundle_css:
         katex_css = Path(cfg.math.katex_path) / "katex" / "dist" / "katex.min.css"
         if katex_css.exists():
             css_text = katex_css.read_text(encoding="utf-8")

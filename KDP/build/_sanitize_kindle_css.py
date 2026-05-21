@@ -72,6 +72,42 @@ DETAILS_OPEN_RE = re.compile(r'<details(?:\s+[^>]*)?>', re.IGNORECASE)
 DETAILS_CLOSE_RE = re.compile(r'</details>', re.IGNORECASE)
 SUMMARY_RE = re.compile(r'<summary(?:\s+[^>]*)?>(.*?)</summary>', re.IGNORECASE | re.DOTALL)
 
+# SVG uses camelCase attribute names. ebooklib re-parses every chapter through
+# lxml's HTML mode when it writes the EPUB, which lowercases them (viewBox ->
+# viewbox, refX -> refx, markerWidth -> markerwidth, ...). XHTML/Kindle then
+# silently ignore the misnamed attributes: a lowercased `viewbox` collapses the
+# whole diagram to unpositioned <text> ("not rendered" / cascading text), and
+# lowercased marker attrs drop every arrowhead. Restore the canonical casing.
+# Scoped to <svg>...</svg> blocks so escaped `&lt;svg ...` inside code samples
+# (and any prose) is never touched.
+SVG_CAMEL_ATTRS = {
+    "viewbox": "viewBox", "preserveaspectratio": "preserveAspectRatio",
+    "refx": "refX", "refy": "refY",
+    "markerwidth": "markerWidth", "markerheight": "markerHeight", "markerunits": "markerUnits",
+    "gradientunits": "gradientUnits", "gradienttransform": "gradientTransform", "spreadmethod": "spreadMethod",
+    "patternunits": "patternUnits", "patterntransform": "patternTransform", "patterncontentunits": "patternContentUnits",
+    "clippathunits": "clipPathUnits", "maskunits": "maskUnits", "maskcontentunits": "maskContentUnits",
+    "stddeviation": "stdDeviation", "basefrequency": "baseFrequency", "numoctaves": "numOctaves",
+    "startoffset": "startOffset", "textlength": "textLength", "lengthadjust": "lengthAdjust", "pathlength": "pathLength",
+}
+_SVG_BLOCK_RE = re.compile(r"<svg\b.*?</svg>", re.IGNORECASE | re.DOTALL)
+_SVG_ATTR_RE = re.compile(r"(\s)(" + "|".join(SVG_CAMEL_ATTRS) + r")=", re.IGNORECASE)
+
+
+def _fix_svg_camelcase(text: str) -> tuple[str, int]:
+    """Restore camelCase SVG attribute names inside every <svg> block."""
+    total = 0
+
+    def fix_block(bm: "re.Match") -> str:
+        nonlocal total
+        def fix_attr(am: "re.Match") -> str:
+            nonlocal total
+            total += 1
+            return am.group(1) + SVG_CAMEL_ATTRS[am.group(2).lower()] + "="
+        return _SVG_ATTR_RE.sub(fix_attr, bm.group(0))
+
+    return _SVG_BLOCK_RE.sub(fix_block, text), total
+
 
 def _sanitize_text(text: str, is_css: bool) -> tuple[str, int]:
     """Replace Kindle-unsupported CSS with safe neutral values."""
@@ -93,7 +129,8 @@ def _sanitize_text(text: str, is_css: bool) -> tuple[str, int]:
         text, n_sum = SUMMARY_RE.subn(r'<p class="details-title"><strong>\1</strong></p>', text)
         text, n_dop = DETAILS_OPEN_RE.subn('<div class="details-shim">', text)
         text, n_dcl = DETAILS_CLOSE_RE.subn('</div>', text)
-        n += n_sum + n_dop + n_dcl
+        text, n_vb = _fix_svg_camelcase(text)
+        n += n_sum + n_dop + n_dcl + n_vb
     return text, n
 
 

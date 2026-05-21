@@ -1058,3 +1058,77 @@ nav title comes from `h1.get_text(strip=True)`, which strips each node's whitesp
 before concatenating, giving "0.1Title". Also don't skip titles by a bare leading
 digit (e.g. "3D Generation" must still get its number); only skip real "X.Y "/"Part "
 prefixes.
+
+---
+
+## L-SVG-CASE. ebooklib lowercases ALL camelCase SVG attributes on write (2026-05-21)
+
+Symptom: every inline-SVG diagram "not rendered" in Kindle -- the diagram collapses
+to a vertical stack of unpositioned `<text>` labels (looks like raw text), and all
+arrowheads disappear. EPUBCheck passes (0 errors) and the diagrams look perfect in
+Chromium, so it's easy to misdiagnose as an Enhanced-Typesetting/KF8 problem. It is
+NOT: it's malformed SVG.
+
+Root cause: SVG attribute names are camelCase (`viewBox`, `refX`, `refY`,
+`markerWidth`, `markerHeight`, `markerUnits`, `preserveAspectRatio`, `gradientUnits`,
+`stdDeviation`, ...). XHTML/XML is case-SENSITIVE, so a lowercased `viewbox` is simply
+an unknown attribute and the SVG has no coordinate system (collapses); lowercased
+marker attrs drop every arrowhead. The html2pub `fix_svg_viewbox` post_process hook
+DOES restore `viewBox` in the BeautifulSoup tree, and `str(soup)` preserves it -- but
+**ebooklib re-parses each chapter's XHTML through lxml's HTML mode when it writes the
+EPUB**, and lxml-HTML lowercases every attribute name. So the hook's fix is silently
+undone in BOTH the raw and optimized EPUB (raw.epub already shows lowercase).
+
+Diagnosis trick: `zipfile`-scan the built EPUB's xhtml for `viewbox=` vs `viewBox=`.
+Our book: 408 `viewbox=` / 0 `viewBox=` after build, despite the hook running (proven
+because OTHER hook effects -- numbered `<h1>`, stripped `<img style>` -- WERE present).
+
+Fix: do it on the FINAL EPUB bytes, after ebooklib, in the ZIP-rewrite sanitizer
+(`_sanitize_kindle_css.py`). Scope to `<svg>...</svg>` blocks (so escaped
+`&lt;svg viewbox=` inside code samples is untouched) and restore the canonical casing
+for the whole camelCase attribute set, not just viewBox:
+```python
+SVG_CAMEL_ATTRS = {"viewbox":"viewBox","refx":"refX","refy":"refY",
+  "markerwidth":"markerWidth","markerheight":"markerHeight","markerunits":"markerUnits",
+  "preserveaspectratio":"preserveAspectRatio","gradientunits":"gradientUnits",
+  "gradienttransform":"gradientTransform","stddeviation":"stdDeviation", ...}
+# for each <svg..</svg> block: re.sub(r'(\s)(name)=', camelCase, block)
+```
+Lesson: any HTML attribute whose canonical form is camelCase (SVG, and MathML's
+`definitionURL`) cannot survive an lxml-HTML round-trip. Fix it as a string pass on
+the final serialized bytes, never in the parsed tree.
+
+---
+
+## L-DEEP-AUDIT. Validators pass clean; reader-facing issues remain (2026-05-21)
+
+EPUBCheck (0 errors) AND Kindle Previewer qualitychecks (0 errors, 0 quality
+issues) can BOTH pass while real problems ship. Add a deep audit
+(`scripts/audit_epub_quality.py` + `scripts/deep_scan_epub.py`) over the FINAL
+EPUB. Two generalizable issues it caught that no validator did:
+
+1. **Code-OUTPUT blocks leak a blank first/last line.** Output is authored as
+   `<div class="code-output">...<pre>\n{...}\n</pre></div>` - a BARE `<pre>` with
+   no nested `<code>`. The `strip_code_block_whitespace` hook only walked
+   `<code>` elements, so 40 output blocks rendered with a visible blank line top
+   and bottom. Fix: also strip leading/trailing whitespace NavigableString
+   children of `<pre>` that contain no `<code>` (handle `\r\n` too - 1602 pre
+   blocks had CRLF).
+
+2. **Prerequisites box caused an h1->h3 heading skip (379x).** Every section is
+   `<h1>title</h1> ... <h3 id="prerequisites">Prerequisites</h3> ... <h2>first
+   subsection</h2>` - the prereqs h3 appears before the first h2 => h1->h3 skip
+   (accessibility/structure warning). Fix: promote the prereqs heading to `<h2>`
+   (it's the page's first top-level section) and change `.prereqs h3` /
+   `.prerequisites h3` CSS selectors -> `h2`. 0 skips after.
+
+Audit false positives worth pre-filtering so "0 warnings" stays meaningful:
+- CODE-LONG (line >88 chars) is benign when `pre{white-space:pre-wrap}` wraps it.
+- TABLE-WIDE (>=5 cols) is benign when already in `.table-wide-wrap`/`.complex-table`.
+- INLINE-STY on SVG-internal elements (`<stop stop-color>`, `<rect fill>`) is
+  valid SVG, not CSS Kindle strips - skip anything with an `<svg>` ancestor.
+- empty `<td>` is a legitimate blank cell.
+
+Wire the audit into publish.py as a gate (`step_quality_audit`, fails on
+ERROR-level only). DAISY ACE is a good additional accessibility checker if you
+install `@daisy/ace`.
