@@ -73,9 +73,12 @@ def main():
     ap.add_argument('--kind', choices=['COMIC', 'MENTAL-MAP', 'all'], default='all')
     ap.add_argument('--sleep', type=float, default=1.5)
     ap.add_argument('--dry-run', action='store_true')
+    ap.add_argument('--manifest', default=None,
+                    help='manifest jsonl (default .book-update/comic-manifest.jsonl)')
     args = ap.parse_args()
 
-    rows = [json.loads(l) for l in MANIFEST.open(encoding='utf-8') if l.strip()]
+    manifest = Path(args.manifest) if args.manifest else MANIFEST
+    rows = [json.loads(l) for l in manifest.open(encoding='utf-8') if l.strip()]
     if args.kind != 'all':
         rows = [r for r in rows if r['kind'] == args.kind]
     rows = [r for r in rows if r.get('section_exists')]
