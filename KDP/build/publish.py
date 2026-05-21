@@ -255,7 +255,9 @@ def step_clean() -> None:
 
 
 def step_regen_spine() -> int:
-    step("Regenerating spine manifest")
+    # LEGACY: spine_manifest.json feeds the old build_epub.py only. The active
+    # html2pub builder uses `spine = "auto"`, so this manifest is informational.
+    step("Regenerating spine manifest (legacy build_epub.py only)")
     rc, out = run([PYTHON, str(BUILD_DIR / "generate_spine.py")])
     if rc != 0:
         fail("spine generation failed")
@@ -632,7 +634,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--validate-only", action="store_true", help="Skip build; only run validators")
     p.add_argument("--no-epubcheck", action="store_true", help="Skip Java epubcheck even if available")
     p.add_argument("--no-optimize", action="store_true", help="Skip the epub-optimizer minification step")
-    p.add_argument("--regen-spine", action="store_true", help="Re-walk source tree to regenerate spine_manifest.json")
+    p.add_argument("--regen-spine", action="store_true", help="Re-walk source tree to regenerate the legacy spine_manifest.json (not used by html2pub; build_epub.py only)")
     p.add_argument("--preview", action="store_true",
                    help="After build+validate, launch Kindle Previewer 3 GUI with the EPUB loaded "
                         "for interactive preview (Paperwhite, Oasis, Scribe, Fire, iOS, Android, Web Reader).")
@@ -653,7 +655,12 @@ def main(argv: list[str] | None = None) -> int:
         step_clean()
 
     if not args.validate_only:
-        if args.regen_spine or not (BUILD_DIR / "spine_manifest.json").exists():
+        # NOTE: the canonical builder (html2pub) discovers the spine itself via
+        # `spine = "auto"` in html2pub.toml and does NOT read spine_manifest.json.
+        # generate_spine.py / spine_manifest.json are legacy (build_epub.py only).
+        # So only regenerate the manifest when explicitly asked, instead of
+        # auto-firing whenever the legacy file is absent.
+        if args.regen_spine:
             rc = step_regen_spine()
             if rc != 0:
                 return rc
