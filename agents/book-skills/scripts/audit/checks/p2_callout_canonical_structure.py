@@ -23,13 +23,13 @@ DESCRIPTION = "Callout structure deviates from canonical (<div class=\"callout T
 
 Issue = namedtuple("Issue", ["priority", "check_id", "filepath", "line", "message"])
 
-# 22 canonical callout types (confirmed from book.css ::before icon definitions)
+# 23 canonical callout types (confirmed from book.css ::before icon definitions)
 CANONICAL_TYPES = {
     "algorithm", "big-picture", "cross-ref", "exercise", "fun-note", "key-insight",
     "key-takeaway", "lab", "library-shortcut", "looking-back", "note",
     "numeric-example", "postmortem", "practical-example",
     "production-pattern", "research-frontier", "self-check",
-    "tip", "warning", "whats-next",
+    "tip", "under-the-hood", "warning", "whats-next",
 }
 
 CALLOUT_RE = re.compile(r'<div\s+class="callout(?:\s+([a-z-]+))?"', re.I)

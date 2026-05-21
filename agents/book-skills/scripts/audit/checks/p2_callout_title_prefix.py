@@ -76,6 +76,7 @@ CANONICAL_PREFIXES = {
                    # callout color and icon already convey the type.
                    ],
     "whats-next": ["what's next", "what comes next", "whats next", "next:"],
+    "under-the-hood": ["under the hood"],
 }
 
 # Some callout types DON'T require the canonical-prefix start — the callout's
