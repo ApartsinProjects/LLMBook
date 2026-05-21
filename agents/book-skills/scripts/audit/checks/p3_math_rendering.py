@@ -467,8 +467,12 @@ def check_unclosed_delimiter(html):
         if stripped.startswith('<script') or stripped.startswith('</script'):
             continue
 
+        # The book wraps currency dollars as <span>&#36;</span> (or <span>$</span>)
+        # so KaTeX does not pair them into inline math. These are literal currency,
+        # not delimiters, so strip them before any $ counting.
+        cleaned_line = re.sub(r'<span>(?:&#36;|\$)</span>', '', line_text)
         # Remove $$ (display math) first, then count remaining $
-        no_display = line_text.replace('$$', '')
+        no_display = cleaned_line.replace('$$', '')
 
         # Remove matched inline math $...$ pairs (non-greedy)
         no_matched = re.sub(r'\$[^$]+\$', '', no_display)
