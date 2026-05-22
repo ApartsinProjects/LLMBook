@@ -1132,3 +1132,59 @@ Audit false positives worth pre-filtering so "0 warnings" stays meaningful:
 Wire the audit into publish.py as a gate (`step_quality_audit`, fails on
 ERROR-level only). DAISY ACE is a good additional accessibility checker if you
 install `@daisy/ace`.
+
+---
+
+## L-KPV-WEDGED. A stale Kindle Previewer GUI wedges the next run AND returns FALSE results (2026-05-22)
+
+Kindle Previewer 3 is SINGLE-INSTANCE. If a `Kindle Previewer 3.exe` GUI window is
+already open (common after any prior run was interrupted or the GUI was opened
+manually), a new `-convert` just FOCUSES the existing window and silently HANGS:
+no console output, no KPF, the caller blocks forever.
+
+Worse than hanging, a wedged KPV returns FALSE qualitychecks. We chased a phantom
+`Enhanced Typesetting: Not Supported` for hours; every "Not Supported" came from
+runs that finished in ~48s. A REAL conversion of this 558-chapter / ~890-image book
+takes ~20-23 min and emits a ~170 MB KPF. Once the GUI was killed and KPV ran clean
+(1375-1390s), it reported ET `Supported`. Rules:
+
+  * Kill BOTH the worker AND the GUI before every `-convert`, then pause ~2s:
+      `taskkill /F /IM KPR_NCD.exe` and `taskkill /F /IM "Kindle Previewer 3.exe"`
+      (PowerShell: `Get-Process "Kindle Previewer 3",KPR_NCD | Stop-Process -Force`)
+    (`kill_stale_workers()` in scripts/kpv_convert.py and `step_kpv()` in publish.py
+    now do both.)
+  * TRUST a verdict only if the run took a plausible duration (many minutes for a
+    big book) AND a KPF + QualityReport.csv were produced. A suspiciously fast run
+    is wedged: ignore its ET/error result and re-run clean.
+  * Never launch KPV from Git Bash/MSYS (no real console -> KPR_NCD hangs); run the
+    exe from PowerShell/subprocess.
+
+## L-KDP-SUBMIT. KDP web-upload + submission gotchas (2026-05-22)
+
+Shipping the validated file to KDP surfaced issues the build can't catch:
+
+1. **"Updating a reflowable eBook with a fixed format eBook is not supported."**
+   Uploading a KPF to UPDATE a title first published from a reflowable EPUB fails:
+   KDP treats the KPF *container* as a different (fixed-layout) format family, even
+   though the KPF is internally reflowable (it had ET `Supported`, and ET exists
+   only for reflowable books). No switch inside the KPF changes this.
+   FIX: update reflowable books with the **EPUB**, not the KPF. The EPUB still gets
+   Enhanced Typesetting via KDP's own conversion (same engine that said Supported).
+
+2. **Stuck upload PROGRESS BAR** (transfer never finishes) is client-side, not the
+   file. #1 cause = ad-blocker / privacy extensions killing the chunked upload
+   (confirmed: it uploaded the instant the ad-blocker was disabled). Fix: Chrome
+   Incognito (extensions off), no VPN/proxy, wired. Size is a red herring (KDP limit
+   ~650 MB; 35 MB is trivial). Reducing size does NOT fix a browser-caused stall.
+
+3. **Conversion is SERVER-SIDE**: refreshing/closing the browser does not interrupt
+   it (only refresh AFTER the transfer bar hits 100%). Refresh is actually the way
+   to reveal a status that didn't update live.
+
+4. **Do NOT delete + recreate** the title to dodge an upload error: it loses the
+   ASIN/reviews/rank, doesn't fix a browser/network stall, and recreating from a KPF
+   registers the book as FIXED-format (wrong for a text book).
+
+5. ebooklib stamps `rendition:layout=reflowable` + `rendition:orientation/spread=auto`
+   into the OPF. `layout=reflowable` is correct/explicit; the others are benign. Their
+   presence does NOT make it a fixed-layout book.

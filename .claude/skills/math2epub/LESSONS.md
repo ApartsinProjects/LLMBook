@@ -268,3 +268,24 @@ in `<details>` or `semantics><annotation>` (Kindle ET supports `<annotation>`).
 - Does Kindle iOS app handle SVG `<use>` shadow DOM the same as KPV3? Unknown.
 - Does `htmlAndMathml` with `aria-hidden` on the visual span improve accessibility while still rendering visually? Possibly, but increases markup size 3x. Not worth it for math-heavy books.
 - Can we use AVIF or WebP instead of PNG for smaller files? Kindle support is spotty. PNG is the safe default.
+
+---
+
+## L14. KaTeX errors render as SILENT empty boxes; scan for them (2026-05-22)
+
+render_math.js uses `throwOnError:false`, so a TeX parse error becomes a
+`<span class="katex-error">` (class is `katex-error`, NOT `katex`). The builder's
+render() looks for class `katex` and, for `$$..$$` text-node placeholders, DROPS
+anything that isn't -> the equation ships as an EMPTY box (no error; EPUBCheck and
+KPV both pass). Six such equations shipped before we caught them. Error modes:
+  * `\texttt{\text{WORD}}` -> the \text->\mathrm pre-pass makes \mathrm run inside
+    text mode (illegal in KaTeX). Use `\texttt{WORD}` (no nested \text).
+  * underscore inside `\text{...}` e.g. `\text{(gCO_2/kWh)}` -> "_ in text mode".
+    Use `\mathrm{(gCO_2/kWh)}`.
+  * stray inner `$` in a numeric range: `$0.4$-$0.6$` -> the inner `$` breaks it.
+    Use one span: `$0.4\text{-}0.6$`.
+  * HTML entities decode before KaTeX (get_text/str), so `&lt;`/`&gt;` become `<`/`>`
+    and a bare `&` breaks KaTeX (alignment char).
+DETECT all of them: extract every `$..$`/`$$..$$`/.math span the SAME way the
+builder does, run the SAME render_math.js, flag any output containing
+`katex-error`. See scripts/diag_katex_errors.py (0/1198 fail after fixes).

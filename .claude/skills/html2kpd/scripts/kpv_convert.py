@@ -49,13 +49,20 @@ def find_kpv() -> Path | None:
 
 
 def kill_stale_workers() -> None:
-    """A KPR_NCD.exe ghost from a prior bad launch can wedge the next run."""
+    """Kindle Previewer is SINGLE-INSTANCE. If a prior "Kindle Previewer 3.exe"
+    GUI is still running, a new -convert just focuses the existing window and
+    HANGS with no output (and a wedged run returns stale/false results - e.g. a
+    fast ~48s "conversion" that reports Enhanced Typesetting "Not Supported"
+    when a real ~20+ min conversion would report "Supported"). So kill BOTH the
+    GUI and its KPR_NCD.exe worker before launching, and pause for them to exit.
+    """
     if os.name == 'nt':
-        try:
-            subprocess.run(['taskkill', '/F', '/IM', 'KPR_NCD.exe'],
-                           capture_output=True)
-        except Exception:
-            pass
+        for image in ('KPR_NCD.exe', 'Kindle Previewer 3.exe'):
+            try:
+                subprocess.run(['taskkill', '/F', '/IM', image], capture_output=True)
+            except Exception:
+                pass
+        time.sleep(2)
 
 
 def _read_csv_rows(path: Path) -> list[dict]:
