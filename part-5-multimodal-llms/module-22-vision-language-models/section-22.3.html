@@ -61,6 +61,13 @@ gtag('config', 'G-PWPHBQL2VL');
 <p>This section assumes familiarity with <a href="section-22.2.html">CLIP and SigLIP</a> from Section 22.2 and with <a href="../../part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.1.html">LLM pretraining</a> from Section 6.1. Familiarity with <a href="../../part-4-training-adaptation/module-16-fine-tuning-fundamentals/section-16.2.html">instruction tuning</a> from Section 16.2 helps when reading the LLaVA training-recipe walkthrough.</p>
 </div>
 
+<div class="callout note">
+<div class="callout-title">Historical roots: VisualBERT and the R-CNN region-feature lineage</div>
+<p>Before the patch-token VLMs of this section, the dominant recipe for "transformer + image" was very different. <strong>VisualBERT</strong> (Li et al., 2019) and its contemporaries (LXMERT, ViLBERT, VL-BERT, UNITER) did not feed raw image patches to the transformer. Instead they ran the image through a pretrained <em>object detector</em> first (typically Faster R-CNN with a ResNet-101 backbone, pretrained on Visual Genome) and used the top 36 region-of-interest bounding-box features as image tokens. Each region was represented by a 2048-dimensional vector pooled from the detector's last convolutional layer, then linearly projected to 768 dimensions to match BERT's hidden size. The image, in other words, was tokenized through the <em>output</em> of a separate trained detector, not through a learned patch embedding.</p>
+<p>Training combined two losses: <strong>masked language modeling</strong> (predict masked text tokens given image regions plus surrounding text, exactly as in BERT) and <strong>Sentence-Image Alignment (SIA)</strong> (a binary classifier on the pooled <code>[CLS]</code> token that predicts whether the caption and image actually match, with negatives sampled from other examples in the batch). Fine-tuning for Visual Question Answering treated the task as <em>closed-vocabulary classification</em>: a vocabulary of about 3,000 answer phrases ("yes", "no", "two", "blue", "umbrella", etc.) was extracted from VQA training data, and a multi-class classifier head on the joint [CLS] embedding picked one. The same recipe extended to <strong>open-ended VQA</strong> by triplet scoring: for each candidate answer in a set, embed (image regions, question, candidate) jointly and apply a binary classifier head to score "is this candidate the right answer?"; the highest-scoring candidate wins.</p>
+<p>This region-feature lineage was state-of-the-art from 2019 through early 2021 and is the reason any modern VLM paper still benchmarks against VQAv2 and GQA: those datasets were built for region-feature VLMs. The pattern was displaced by patch-token VLMs (the LLaVA / BLIP-2 / Qwen-VL line above) for three reasons. First, the detector itself was a bottleneck: any concept absent from Visual Genome's 1600 object classes (a UI button, a chart axis label, an unusual logo) was invisible to the downstream language model. Second, the two-stage pipeline (detector then transformer) could not be jointly fine-tuned without backpropagating through a slow detector. Third, patch tokens trained contrastively (CLIP, SigLIP) carry richer semantics than detector-pooled regions, especially for text-in-image and dense scene understanding. By 2022 the field had quietly switched, and by 2024 VisualBERT-style models had vanished from leaderboards. Knowing the pre-CLIP lineage matters because the closed-vocabulary VQA benchmarks (and their unusual "pick one of 3K phrases" answer space) are inherited from that era. Reference: Li, L. H., et al., "VisualBERT: A Simple and Performant Baseline for Vision and Language," <a href="https://arxiv.org/abs/1908.03557" rel="noopener" target="_blank">arXiv:1908.03557</a> (2019).</p>
+</div>
+
 <h2 id="22-3-1-the-vision-encoder-llm-connector-pattern">22.3.1 The Vision Encoder + LLM Connector Pattern</h2>
 <p>Every generative VLM in 2026 follows the same three-stage data flow. The first stage is the vision encoder: a frozen (or lightly fine-tuned) CLIP or SigLIP ViT consumes the image and produces a sequence of visual tokens (typically 256-1024 tokens, depending on resolution and patch size). The second stage is the connector: a small learned module (parameters ranging from 1M to 200M) projects the visual tokens into the LLM's input embedding space. The third stage is the language model: a pretrained decoder-only transformer (Llama, Qwen, Mistral, Phi, etc.) that consumes the projected visual tokens prepended to the user's text prompt and generates a textual response.</p>
 
@@ -82,6 +89,11 @@ gtag('config', 'G-PWPHBQL2VL');
 
 <h2 id="22-3-4-blip-2-and-the-q-former">22.3.4 BLIP-2 and the Q-Former</h2>
 <p>BLIP-2 (Li et al., Salesforce, 2023) and its successor BLIP-3 (xGen-MM, 2024) take a different approach to the connector. Instead of projecting every visual token independently, the Q-Former (Querying Transformer) introduces a fixed-size set of learned query tokens (typically 32) that attend to the variable-length visual token sequence and produce a fixed-length output. The output is then projected into the LLM's embedding space.</p>
+
+<div class="callout key-insight">
+<div class="callout-title">Cross-attention in one line: queries ask, keys and values supply</div>
+<p>The Q-Former is the first time in this chapter that a model uses <em>cross-attention</em> between two distinct streams (queries from one source, keys/values from another), so it is worth restating the mechanism in plain language. In any attention block, the <strong>query</strong> vector says <em>what this token wants to know</em>; the <strong>keys</strong> say <em>what each candidate token is offering</em>; and the <strong>values</strong> are <em>what gets actually copied back</em> once the query has decided which keys to attend to. In self-attention these three streams are derived from the same token sequence (every token simultaneously asks, offers, and supplies). In <em>cross</em>-attention the streams come from different places: in the Q-Former, the 32 learnable query vectors say "I want to know about objects, colors, layout, text", the frozen ViT patch embeddings supply "here is what each spatial region contains", and the values flow back to update the queries. The Q-Former's job, then, is to learn 32 questions that, when asked of any image, extract a sufficient summary for downstream language generation.</p>
+</div>
 
 <p>The Q-Former is a small transformer (about 188M parameters) with cross-attention from the query tokens to the visual tokens. It is trained in two stages: first with a vision-language understanding objective (image-text matching, image-text contrastive, image-grounded text generation) to align the queries with semantic content, then with a vision-to-language generation objective to produce LLM-compatible outputs.</p>
 
@@ -168,6 +180,45 @@ gtag('config', 'G-PWPHBQL2VL');
 </figure>
 
 <p>The Q-Former has two advantages over the LLaVA MLP. First, it produces a fixed (small) number of visual tokens regardless of input size, which keeps the LLM's context window predictable. Second, the query tokens learn to attend to semantically important regions, providing a learned form of attention pooling. The disadvantage is added complexity and a separate pretraining phase that LLaVA does not need.</p>
+
+<div class="callout library-shortcut">
+<div class="callout-title">Library shortcut: BLIP-2 for captioning and multi-turn chat</div>
+<p>The Hugging Face <code>Blip2ForConditionalGeneration</code> wraps the full ViT + Q-Former + LLM stack behind the same <code>AutoProcessor</code> interface used by every VLM in this section. For pure captioning, no text prompt is needed; for multi-turn chat over an image, the chat history is concatenated as plain text in the prompt.</p>
+<pre><code class="language-python">import torch
+from PIL import Image
+from transformers import AutoProcessor, Blip2ForConditionalGeneration
+
+model_id = "Salesforce/blip2-opt-2.7b"   # ViT-g + Q-Former + OPT-2.7B
+processor = AutoProcessor.from_pretrained(model_id)
+model = Blip2ForConditionalGeneration.from_pretrained(
+    model_id, torch_dtype=torch.float16, device_map="auto",
+).eval()
+
+image = Image.open("street.jpg").convert("RGB")
+
+# Task 1: captioning (no text prompt)
+caption_in = processor(images=image, return_tensors="pt").to(model.device, torch.float16)
+caption = processor.decode(
+    model.generate(**caption_in, max_new_tokens=40)[0],
+    skip_special_tokens=True,
+).strip()
+print("CAPTION:", caption)
+# CAPTION: a city street with cars and people walking under streetlights
+
+# Task 2: multi-turn chat over the same image (history baked into the prompt)
+history = "Question: what is the weather like? Answer: it appears rainy. "
+question = "Question: how many people can you see? Answer:"
+chat_in = processor(images=image, text=history + question, return_tensors="pt").to(
+    model.device, torch.float16,
+)
+answer = processor.decode(
+    model.generate(**chat_in, max_new_tokens=20)[0],
+    skip_special_tokens=True,
+).split("Answer:")[-1].strip()
+print("ANSWER:", answer)
+# ANSWER: three people are visible on the sidewalk</code></pre>
+<p class="figure-caption"><strong>Code Fragment 22.3.2</strong>: BLIP-2 inference for two tasks. Captioning needs only the image; multi-turn chat is implemented by concatenating prior turns into the text prompt, exactly the soft-prompt pattern Section 22.3.4 describes (image-derived tokens are prepended automatically by the processor). For larger backbones swap <code>blip2-opt-2.7b</code> for <code>blip2-flan-t5-xl</code> or <code>Salesforce/xgen-mm-phi3-mini-instruct-r-v1</code> (BLIP-3).</p>
+</div>
 
 <p>BLIP-3 (xGen-MM, Salesforce, August 2024) updated the Q-Former design with sigmoid-loss alignment (inspired by SigLIP) and integration with much larger LLMs (Llama-2-7B and Llama-3-8B). On the MMMU benchmark, BLIP-3 reaches 41.1 versus 36.4 for LLaVA-NeXT-7B, demonstrating that the Q-Former approach still has accuracy headroom when paired with strong LLMs.</p>
 
@@ -362,6 +413,12 @@ gtag('config', 'G-PWPHBQL2VL');
 </div>
 <div class="bib-entry-card">
 <div class="bib-ref">Tong, S., Brown, E., Wu, P., et al. (2024). <a href="https://arxiv.org/abs/2406.16860" rel="noopener" target="_blank">"Cambrian-1: A Fully Open, Vision-Centric Exploration of Multimodal LLMs."</a></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Li, L. H., Yatskar, M., Yin, D., Hsieh, C.-J., Chang, K.-W. (2019). <a href="https://arxiv.org/abs/1908.03557" rel="noopener" target="_blank">"VisualBERT: A Simple and Performant Baseline for Vision and Language."</a> The region-feature VLM line, with MLM + Sentence-Image Alignment training and closed-vocabulary VQA heads, that patch-token VLMs displaced.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Anderson, P., He, X., Buehler, C., et al. (2018). <a href="https://arxiv.org/abs/1707.07998" rel="noopener" target="_blank">"Bottom-Up and Top-Down Attention for Image Captioning and Visual Question Answering."</a> The R-CNN region-feature extraction pipeline that fed the entire pre-CLIP VLM ecosystem (LXMERT, ViLBERT, UNITER, VisualBERT).</div>
 </div>
 </section>
 </details>

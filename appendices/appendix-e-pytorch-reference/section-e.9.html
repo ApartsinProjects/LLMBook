@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-PWPHBQL2VL"></script>
+<script>
+window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', 'G-PWPHBQL2VL');
+</script>
+
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<meta content="Section E.9: Debugging Recipes. NaN/Inf hunting, OOM diagnosis, shape mismatches, common autograd errors, and reproducibility." name="description"/>
+<title>Section E.9: Debugging Recipes | Building Conversational AI with LLMs and Agents</title>
+<link href="../../styles/book.css" rel="stylesheet"/>
+<link href="../../styles/pygments.css" rel="stylesheet"/>
+<link href="../../vendor/katex/katex.min.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/katex/katex.min.js"></script>
+<script defer="" onload="renderMathInElement(document.body, {
+            delimiters: [
+                {left: '$$', right: '$$', display: true},
+                {left: '$', right: '$', display: false}
+            ],
+            throwOnError: false
+        });" src="../../vendor/katex/contrib/auto-render.min.js"></script>
+<link href="../../vendor/prism/prism-theme.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/prism/prism-bundle.min.js"></script>
+<script defer="" src="../../scripts/book.js"></script>
+<link href="../../pagefind/pagefind-ui.css" rel="stylesheet"/>
+<script defer="" src="../../pagefind/pagefind-ui.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
+
+<header class="chapter-header">
+<nav class="header-nav">
+<a class="book-title-link" href="../../index.html">Building Conversational AI with LLMs and Agents</a>
+<a class="toc-link" href="../../toc.html" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+</nav>
+<div class="header-search">
+<div id="search"></div>
+</div>
+
+<div class="page-breadcrumb" data-pagefind-meta="chapter"><a href="../index.html">Appendices</a><span class="bc-sep">›</span><a href="index.html">Appendix E: PyTorch Reference</a></div>
+<h1>Debugging Recipes</h1><div class="page-current">Section E.9</div>
+
+</header>
+<main class="content" id="main-content"><span class="pagefind-meta-injected" data-pagefind-meta="part:Building Conversational AI with LLMs and Agents" hidden=""></span><span class="pagefind-meta-injected" data-pagefind-meta="chapter:Appendix E: PyTorch Reference" hidden=""></span>
+
+<p>Deep learning code fails in characteristic ways. Tensors have the wrong shape. Gradients turn into NaN. Training runs OOM at unexpected moments. Models give different results on every run despite a fixed seed. This section catalogs the five most common categories of PyTorch failures, the diagnostics that localize each, and the patterns that resolve them. The goal is to turn cryptic stack traces into a small number of well-rehearsed playbooks.</p>
+
+<h2 id="nan">Recipe: Hunting NaN and Inf</h2>
+
+<p>A NaN in the loss is the most demoralizing failure mode because it propagates instantly: one NaN in a forward pass becomes NaN logits, NaN loss, NaN gradients, and NaN parameters. The next iteration's forward pass produces all NaNs from those parameters, and recovery is impossible. The fix is to localize the source.</p>
+
+<p><strong>Step 1: Confirm it is happening.</strong> Insert <code>assert torch.isfinite(loss).all()</code> after the loss computation and <code>assert all(torch.isfinite(p.grad).all() for p in model.parameters() if p.grad is not None)</code> after backward. The earliest assertion that fires identifies which side of the optimizer the NaN appeared on.</p>
+
+<p><strong>Step 2: Localize within the forward pass.</strong> Register forward hooks (Section E.2) on every layer that record <code>output.isfinite().all()</code>. The first layer to produce a non-finite output is the culprit.</p>
+
+<p><strong>Step 3: Use anomaly detection for the backward pass.</strong> Wrap the training step in <code>with torch.autograd.detect_anomaly():</code> and the framework will record forward-pass stack traces and replay them whenever a non-finite gradient is produced, identifying the precise operation. The overhead is large; use only during debugging.</p>
+
+<div class="code-block-wrapper">
+<pre><code class="language-python">import torch
+
+def attach_nan_hooks(model):
+    """Print the first layer whose forward output contains NaN/Inf."""
+    def make_hook(name):
+        def hook(module, inputs, output):
+            t = output if torch.is_tensor(output) else output[0]
+            if not torch.isfinite(t).all():
+                bad = (~torch.isfinite(t)).sum().item()
+                raise RuntimeError(
+                    f"Non-finite values in `{name}`: {bad} entries, "
+                    f"min={t.min()}, max={t.max()}"
+                )
+        return hook
+    handles = []
+    for name, module in model.named_modules():
+        if len(list(module.children())) == 0:        # leaf modules only
+            handles.append(module.register_forward_hook(make_hook(name)))
+    return handles
+
+handles = attach_nan_hooks(model)
+try:
+    loss = compute_loss(model(features), labels)   # raises if NaN appears
+finally:
+    for h in handles:
+        h.remove()
+</code></pre>
+<div class="code-output"><span class="output-label"><strong>Output (on failure):</strong></span> RuntimeError: Non-finite values in `transformer.h.5.attn`: 12 entries, ...</div>
+<div class="code-caption"><strong>Code Fragment E.9.1:</strong> Forward-pass NaN/Inf detector. Raises with the exact layer name as soon as a non-finite output is produced, narrowing the search from "somewhere in the model" to "this specific layer."</div>
+</div>
+
+<p>The most common root causes of NaN in transformers are: a learning rate too high (especially without warmup; cosine into 0 is safer than linear into 0), missing gradient clipping (a single large batch can push gradients to infinity), softmax over very large logits (FP16 overflow; switch to bfloat16 or scale the inputs), a log over zero (numerical guard with <code>x + epsilon</code>), and a square root over a negative number (also a numerical guard).</p>
+
+<h2 id="oom">Recipe: Diagnosing OOM</h2>
+
+<p>OOM means "tried to allocate more GPU memory than is free." The diagnostic question is: <em>what</em> is using the memory? The order of investigation is: (1) confirm batch size and sequence length; (2) check whether the OOM is on the first iteration (sizing problem) or later (leak); (3) capture a memory snapshot (Section E.8) and visualize it.</p>
+
+<p>Once the culprit is identified, the standard mitigations are: lower batch size and use gradient accumulation to keep the effective batch size; enable activation checkpointing (significant memory reduction at the cost of an extra forward per backward); switch optimizer to a low-memory variant (<code>bitsandbytes.optim.AdamW8bit</code> stores Adam's momentum in 8-bit); shard the model with FSDP (Section E.7); offload to CPU memory with <code>torch.cuda.amp.GradScaler</code> or DeepSpeed's CPU-offload back end; reduce sequence length or pad to bucket boundaries.</p>
+
+<div class="callout warning">
+<div class="callout-title">Warning: torch.cuda.empty_cache Is Not What You Think</div>
+<p><code>torch.cuda.empty_cache()</code> returns cached but unallocated blocks to the system; it does <em>not</em> free memory that is currently in use by tensors. Sprinkling it through a training loop almost never helps and can slow training because the allocator has to re-request memory. The correct response to OOM is to find what is holding the memory, not to call <code>empty_cache</code>. The one useful place to call it is between training and evaluation if the eval workload has a fundamentally different memory profile and the cached blocks would not be reused.</p>
+</div>
+
+<h2 id="shapes">Recipe: Shape Mismatches</h2>
+
+<p>Shape errors are the most common runtime failures. The error message reports the expected and actual shapes; the trick is to find where each shape came from. The fastest tool is to print the shape of every tensor at every layer boundary; print statements are crude but unbeatably fast for shape debugging.</p>
+
+<p>A more durable approach is to annotate tensor shapes with named dimensions in comments (or with the <code>einops</code> library, which makes the convention machine-checked). The pattern <code># x: (B, L, D)</code> alongside every tensor declaration trains the eye to spot mismatches at code-review time. For more advanced static-shape checking, the <code>torchtyping</code> library lets shape constraints be expressed in type annotations and verified at runtime.</p>
+
+<div class="code-block-wrapper">
+<pre><code class="language-python">import torch
+from einops import rearrange
+
+# Bad: a chain of reshape/transpose that is hard to read.
+x = x.view(B, L, H, D).transpose(1, 2).reshape(B * H, L, D)
+
+# Good: einops makes the rearrangement explicit and self-documenting.
+x = rearrange(x, "b l (h d) -&gt; (b h) l d", h=H)
+
+# Even better: assert what you expect.
+assert x.shape == (B * H, L, D), f"Got {x.shape}, expected {(B * H, L, D)}"
+</code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> (no stdout when shapes match; assertion error if they do not)</div>
+<div class="code-caption"><strong>Code Fragment E.9.2:</strong> Shape-safe tensor reshaping with <code>einops</code> and explicit assertions. The pattern reads as the math, fails loudly when wrong, and survives refactoring.</div>
+</div>
+
+<h2 id="autograd-errors">Recipe: Common Autograd Errors</h2>
+
+<p>Two autograd-related errors dominate beginner experience and a third is less common but harder to fix.</p>
+
+<dl>
+<dt><code>RuntimeError: leaf variable that requires grad has been used in an in-place operation</code></dt>
+<dd>Some code mutated a parameter (or a tensor with <code>requires_grad=True</code>) in place. The fix is to use the out-of-place variant or, if mutation is intentional (optimizer step), wrap the mutation in <code>with torch.no_grad():</code>. Optimizer implementations use this pattern; user code rarely needs it.</dd>
+
+<dt><code>RuntimeError: one of the variables needed for gradient computation has been modified by an inplace operation</code></dt>
+<dd>An intermediate tensor that backward needs was overwritten by an in-place op (typically a <code>+=</code> or <code>.relu_()</code>). The fix is to switch to out-of-place; the slight memory increase is far better than a broken backward pass. Use anomaly detection to identify the exact operation if the trace is not obvious.</dd>
+
+<dt><code>RuntimeError: Trying to backward through the graph a second time</code></dt>
+<dd>A second <code>backward</code> call on the same loss without <code>retain_graph=True</code>. Either intentional (in which case pass <code>retain_graph=True</code>) or unintentional (a stale graph reference, often from a hook closure holding the output). Investigate which one applies before adding <code>retain_graph</code> reflexively; the latter usually indicates a memory leak.</dd>
+</dl>
+
+<h2 id="reproducibility">Recipe: Reproducibility</h2>
+
+<p>"Run the same code twice, get the same numbers" is harder than it looks. PyTorch has at least four independent sources of randomness: Python's <code>random</code>, NumPy's <code>random</code>, PyTorch's CPU generator, and PyTorch's CUDA generator(s), one per device. Several CUDA kernels also use non-deterministic algorithms by default. The full reproducibility recipe is therefore a small ritual.</p>
+
+<div class="code-block-wrapper">
+<pre><code class="language-python">import os, random, numpy as np, torch
+
+def set_reproducible(seed=42):
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    # cuDNN: pick deterministic algorithms.
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    # PyTorch: error if a non-deterministic op is required.
+    torch.use_deterministic_algorithms(True, warn_only=True)
+    # Some ops need a CUBLAS workspace config for determinism.
+    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+
+set_reproducible(42)
+</code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> (no stdout; subsequent random operations are seeded)</div>
+<div class="code-caption"><strong>Code Fragment E.9.3:</strong> Full reproducibility setup. Achieves bit-for-bit reproduction at a performance cost (deterministic cuDNN algorithms are typically slower than the autotuned non-deterministic ones).</div>
+</div>
+
+<div class="callout warning">
+<div class="callout-title">Warning: Reproducibility Has a Cost</div>
+<p>Deterministic mode forces PyTorch to pick the deterministic implementation of every operation, which is often slower (sometimes much slower) than the default. <code>torch.backends.cudnn.benchmark = False</code> disables the autotuner that finds the fastest kernel for the current shape. The combination can halve throughput. Reserve determinism for debugging and for the rare research project where exact reproduction matters; production training does not need it. Even with all of the above, results may still differ across GPU models (a 4090 and an A100 use different kernels) or across PyTorch versions; cross-hardware reproducibility is essentially impossible.</p>
+</div>
+
+<h2 id="general">General Debugging Discipline</h2>
+
+<p>A handful of habits pay back many times over.</p>
+
+<ol>
+<li><strong>Overfit a single batch.</strong> A correctly implemented model should be able to drive the loss to near zero on a single repeated batch within a hundred steps. If it cannot, the bug is in the model or the optimizer, not the data or the training loop.</li>
+<li><strong>Train on a tiny subset before scaling.</strong> Reducing the dataset to 100 samples lets a full training run complete in seconds; many bugs (wrong loss, wrong target shape, label miscoding) reveal themselves immediately.</li>
+<li><strong>Log the gradient norm.</strong> A norm that rises without bound is divergence in progress; a norm that collapses to near zero is a model that has stopped learning. Both deserve investigation before training continues for hours.</li>
+<li><strong>Save a checkpoint at step zero.</strong> If a debugging session reveals the bug is in the model construction, the step-zero checkpoint is the ground truth to compare against.</li>
+<li><strong>Read the error message twice.</strong> PyTorch's error messages are often unusually informative (especially shape mismatches and CUDA errors); a careful read is faster than reaching for the debugger.</li>
+</ol>
+
+<div class="callout key-takeaway">
+<div class="callout-title">Key Takeaway</div>
+<p>Most PyTorch failures fall into five buckets: NaN/Inf, OOM, shape mismatch, autograd error, and non-reproducibility. Each has a corresponding playbook: forward hooks plus anomaly detection for NaNs; memory snapshot plus activation checkpointing for OOM; einops plus assertions for shapes; reading the error message and switching to out-of-place ops for autograd errors; the full deterministic ritual for reproducibility. The discipline that pays back fastest is to overfit a single batch on a tiny dataset before scaling up; many bugs reveal themselves in the first minute of that exercise.</p>
+</div>
+
+<details class="bibliography-collapsible">
+<summary><strong>Further Reading</strong></summary>
+<section class="bibliography">
+<h3 id="debug-refs">Debugging References</h3>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://pytorch.org/docs/stable/notes/randomness.html" rel="noopener" target="_blank">PyTorch Notes: Reproducibility.</a> The authoritative reference for the full reproducibility ritual, including a table of non-deterministic operations and the environment variables that force CUBLAS determinism.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://pytorch.org/docs/stable/notes/cuda.html" rel="noopener" target="_blank">PyTorch Notes: CUDA Semantics.</a> Memory allocator behavior, asynchronous execution, and the subtle interactions that produce confusing CUDA errors. Required reading for anyone diagnosing CUDA-side bugs.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://einops.rocks/" rel="noopener" target="_blank">Rogozhnikov, A. (2020). "einops: clear and reliable tensor operations."</a> The library and its accompanying tutorial. The single biggest improvement most PyTorch codebases can make to shape-related readability.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://karpathy.github.io/2019/04/25/recipe/" rel="noopener" target="_blank">Karpathy, A. (2019). "A Recipe for Training Neural Networks."</a> The canonical blog post on the disciplined process of training a neural network. The "overfit a single batch" rule comes from here; the rest of the post is equally worth reading.</div>
+</div>
+</section>
+</details>
+
+<nav class="chapter-nav">
+<a class="prev" href="section-e.8.html"><span class="nav-label">Previous</span><span class="nav-num">Section E.8</span><span class="nav-title">Performance: Compile, Profile, Snapshot</span></a>
+<a class="up" href="index.html"><span class="nav-label">In Appendix</span><span class="nav-num">Appendix E</span><span class="nav-title">PyTorch Reference</span></a>
+<a class="next" href="section-e.10.html"><span class="nav-label">Next</span><span class="nav-num">Section E.10</span><span class="nav-title">Saving, Loading, and Deployment</span></a>
+</nav>
+<footer><p>Fifteenth Edition, 2026 · <a href="../../toc.html">Contents</a></p></footer>
+</main>
+</body>
+</html>

@@ -328,6 +328,91 @@ gtag('config', 'G-PWPHBQL2VL');
 <div class="callout-title">Tip: Save Checkpoints Frequently</div>
 <p>Save a checkpoint at least every epoch, and keep the best 3 by validation loss. Fine-tuning runs are short but the optimal stopping point is hard to predict. Having checkpoints lets you recover the best model without re-running.</p>
 </div>
+<h2 id="16-5-4-canonical-sentence-embedding-recipes">16.5.4 Canonical Sentence-Embedding Recipes</h2>
+<p>The contrastive framing above is generic. In practice, four named recipes dominate the literature and most practitioners' tool belts. Each solves a different data-availability problem, and together they form the menu a team picks from when adapting embeddings to a new domain.</p>
+<h3 id="16-5-4-1-sbert-siamese-bi-encoder-with-nli">16.5.4.1 SBERT: Siamese Bi-Encoder Trained on NLI</h3>
+<p><strong>Sentence-BERT (SBERT)</strong> (Reimers and Gurevych, 2019) is the original recipe and still the conceptual backbone of the entire <code>sentence-transformers</code> library. The architecture is a <strong>siamese bi-encoder</strong>: two BERT towers with <em>tied weights</em> (they are literally the same network, called twice), each producing a pooled sentence embedding via mean-over-tokens. The two embeddings are then compared with cosine similarity.</p>
+<p>The training trick is to bootstrap sentence semantics from a labeled corpus that was not designed for embeddings at all: <strong>NLI (Natural Language Inference)</strong> datasets (SNLI and MultiNLI), which annotate sentence pairs as <em>entailment</em>, <em>contradiction</em>, or <em>neutral</em>. SBERT treats entailment pairs as positives, contradiction pairs as hard negatives, and trains with a classification head (predicting the NLI label from the two embeddings) or a triplet loss. Why this works is itself the punchline of the SBERT paper: NLI is a proxy task that forces the model to compress sentence meaning into a single vector before comparison, exactly what an embedding model must do at retrieval time.</p>
+<div class="callout key-insight">
+<div class="callout-title">Key Insight: Bi-Encoder vs. Cross-Encoder</div>
+<p>The SBERT paper's contribution was less the loss and more the architecture. Plain BERT is a <em>cross-encoder</em>: it scores a pair by passing both sentences through the network jointly (concatenated with [SEP]), so $N$ documents and $M$ queries require $N \times M$ forward passes. SBERT is a <em>bi-encoder</em>: each sentence is encoded once and the comparison is a cheap cosine, so $N + M$ forward passes suffice. The bi-encoder is what makes vector search practical at billion-document scale; the cross-encoder is still the gold standard for accuracy and is the right tool when you can afford to re-rank a small candidate list.</p>
+</div>
+<h3 id="16-5-4-2-semi-supervised-gold-to-silver-bootstrapping">16.5.4.2 Semi-Supervised Gold-to-Silver Bootstrapping</h3>
+<p>Most domain teams have at most a few thousand human-labeled similarity pairs and millions of unlabeled domain sentences. The <strong>gold-to-silver bootstrapping</strong> recipe turns the unlabeled mountain into training data using a high-quality but slow cross-encoder as the labeler.</p>
+<ol>
+<li><strong>Train (or download) a gold cross-encoder.</strong> A cross-encoder fine-tuned on STSB or domain pairs gives accurate similarity scores but is too slow to deploy at retrieval time.</li>
+<li><strong>Generate a balanced silver candidate pool.</strong> For each unlabeled sentence, retrieve $k$ nearest neighbours in an existing embedding space, then deliberately balance the sampling so the candidate pool covers the full similarity spectrum (very similar, mildly similar, dissimilar). Naive nearest-neighbour sampling alone over-represents the head and starves the contrastive loss of variety.</li>
+<li><strong>Label the silver pool with the gold cross-encoder.</strong> The cross-encoder runs once, offline, producing scalar similarity scores for every candidate pair.</li>
+<li><strong>Train the deployable bi-encoder on the silver dataset.</strong> Use any contrastive loss (CosineSimilarity, MultipleNegativesRanking, triplet). The fast SBERT-style student inherits the slow cross-encoder's domain knowledge without inheriting its inference cost.</li>
+</ol>
+<p>This pattern is essentially knowledge distillation applied to retrieval. The balanced-NN sampling step is the underappreciated trick: it is the difference between a silver corpus that meaningfully teaches the student and one that simply confirms what the off-the-shelf embedder already knew.</p>
+<h3 id="16-5-4-3-sdae-unsupervised-denoising">16.5.4.3 SDAE: Unsupervised Sentence Denoising</h3>
+<p>When no labels exist at all, the <strong>Sequential Denoising Autoencoder (SDAE)</strong> (Hill et al., 2016) provides a fully unsupervised signal. The recipe is a textbook autoencoder for sentences:</p>
+<ol>
+<li>Corrupt the input sentence by deleting, swapping, or masking a fraction of tokens.</li>
+<li>Pass the corrupted sentence through an encoder that produces a single sentence embedding.</li>
+<li>Train a decoder (often a small transformer) to reconstruct the original sentence from the embedding alone.</li>
+</ol>
+<p>For the decoder to succeed, the embedding has to hold the full semantic content of the sentence. SDAE thus learns a representation that is sufficient for reconstruction, which tends to be a good general-purpose embedding even without any pair-similarity supervision. SDAE is most useful as a domain pretraining step on raw domain text, after which a small amount of labeled data unlocks contrastive fine-tuning.</p>
+<h3 id="16-5-4-4-simcse-dropout-as-augmentation">16.5.4.4 SimCSE: Dropout as Data Augmentation</h3>
+<p><strong>SimCSE</strong> (Gao et al., 2021) reduces unsupervised sentence-embedding training to one delightful trick: feed the <em>same sentence twice</em> through a transformer with dropout enabled, treat the two slightly different output embeddings as a positive pair, and use all other sentences in the batch as negatives. That is the entire algorithm.</p>
+<p>Dropout, which randomly zeros out a small fraction of activations on each forward pass, supplies just enough noise to produce two views of the same sentence that share semantics but differ in fine-grained detail. The contrastive loss pulls those views together while pushing the in-batch negatives apart. SimCSE matched or beat the supervised SBERT models on STSB despite using zero labels, which is why it has become the default unsupervised baseline whenever a new sentence-embedding paper is proposed. The supervised variant of SimCSE plugs in NLI pairs and was state of the art for several years.</p>
+<div class="code-block-wrapper">
+<pre><code class="lang-python"># SimCSE: the simplest unsupervised sentence embedding recipe in existence.
+# Two forward passes of the same sentence under dropout give a positive pair.
+from sentence_transformers import SentenceTransformer, losses, InputExample
+from torch.utils.data import DataLoader
+
+model = SentenceTransformer("bert-base-uncased")  # dropout=0.1 stays enabled at train time
+
+# Each example is the *same sentence twice*: the dropout masks differ, the text doesn't.
+train_examples = [
+    InputExample(texts=[sent, sent]) for sent in unlabeled_domain_sentences
+]
+loader = DataLoader(train_examples, batch_size=64, shuffle=True)
+
+# MultipleNegativesRankingLoss treats other in-batch sentences as negatives.
+loss = losses.MultipleNegativesRankingLoss(model)
+model.fit(train_objectives=[(loader, loss)], epochs=1, output_path="./simcse-domain")
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 16.5.5:</strong> SimCSE in eight lines. The model is asked to recognize that its own dropout-corrupted view of a sentence matches the original; nothing else is needed.</div>
+</div>
+<h3 id="16-5-4-5-which-recipe-when">16.5.4.5 Which Recipe When?</h3>
+<div class="comparison-table">
+<div class="comparison-table-title"><strong>Table 16.5.3</strong>: <em>Sentence-Embedding Recipe Selector.</em></div>
+<table>
+<thead>
+<tr><th scope="col">Recipe</th><th scope="col">Labels Needed</th><th scope="col">Best For</th><th scope="col">Watch Out For</th></tr>
+</thead>
+<tr><td>SBERT (NLI)</td><td>NLI-style entailment / contradiction</td><td>General-purpose English embeddings</td><td>Domain shift if your text is far from NLI</td></tr>
+<tr><td>Gold-to-Silver Bootstrap</td><td>Small gold set + lots of unlabeled domain text</td><td>Domain adaptation with limited labels</td><td>Cross-encoder labeling cost; balance the silver pool</td></tr>
+<tr><td>SDAE</td><td>None</td><td>Pure-text domains (legal, medical) with no labels at all</td><td>Decoder training cost; weaker than contrastive at the end</td></tr>
+<tr><td>SimCSE (unsupervised)</td><td>None</td><td>Quick unsupervised baseline; works surprisingly well</td><td>Tune batch size; small batches starve the in-batch negatives</td></tr>
+<tr><td>SimCSE (supervised)</td><td>NLI pairs</td><td>State-of-the-art with NLI labels</td><td>Same NLI domain caveat as SBERT</td></tr>
+</table>
+</div>
+<h2 id="16-5-5-evaluating-embeddings-stsb-and-mteb">16.5.5 Evaluating Embeddings: STSB and MTEB</h2>
+<p>Two benchmarks dominate sentence-embedding evaluation, and both should appear in every embedding fine-tuning project's report.</p>
+<h3 id="16-5-5-1-stsb-semantic-textual-similarity-benchmark">16.5.5.1 STSB: Semantic Textual Similarity Benchmark</h3>
+<p>STSB pairs English sentences with a human-assigned similarity score from 1 (unrelated) to 5 (semantically equivalent). The score is a <strong>Mean Opinion Score (MOS)</strong>: each pair was rated by five annotators and the score is their average. The headline metric is <strong>Spearman rank correlation</strong> between the model's cosine similarities and the human MOS scores. Spearman, not Pearson, is the right choice: retrieval cares about ranking, and Spearman measures rank agreement directly. A Spearman of 0.85 is roughly the ceiling humans agree with each other, so models reporting 0.86 on STSB are essentially at the inter-annotator-agreement noise floor.</p>
+<h3 id="16-5-5-2-mteb-massive-text-embedding-benchmark">16.5.5.2 MTEB: Massive Text Embedding Benchmark</h3>
+<p><strong>MTEB</strong> (Muennighoff et al., 2023) is the embedding equivalent of GLUE: a single leaderboard that aggregates 58 datasets across 8 task families (retrieval, reranking, clustering, classification, pair classification, semantic textual similarity, summarization, bitext mining) covering 112 languages. The MTEB score is the average across the 8 task families, computed per-language for multilingual models. Crucially, STSB lives <em>inside</em> MTEB as one of many tasks, which means the MTEB top-line score implicitly includes STSB performance and a great deal more.</p>
+<p>For practitioners, the practical advice is simple: report MTEB if the team is releasing a general-purpose embedding model, report a domain-specific Recall@k or NDCG@k on a held-out test set if the team is fine-tuning for a single application, and use STSB Spearman as the quickest possible sanity check that a fresh fine-tune did not silently collapse the embedding space. The MTEB leaderboard at HuggingFace is also the right place to pick a starting checkpoint: BGE, GTE, and E5 families all publish their MTEB scores so a team can choose the strongest base for their planned fine-tune.</p>
+<div class="callout library-shortcut">
+<div class="callout-title">Library Shortcut: Running MTEB on a Fine-Tuned Model</div>
+<details class="code-collapsible"><summary>Show code</summary><div class="code-block-wrapper">
+<pre><code class="lang-python"># pip install mteb
+from mteb import MTEB
+from sentence_transformers import SentenceTransformer
+
+model = SentenceTransformer("./medical-embeddings")  # your fine-tuned model
+evaluation = MTEB(tasks=["STSBenchmark", "TwentyNewsgroupsClustering", "AmazonPolarityClassification"])
+results = evaluation.run(model, output_folder="./mteb-results")
+print({task: round(r["test"]["main_score"], 3) for task, r in results.items()})
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 16.5.6:</strong> MTEB ships an evaluation harness that runs any <code>SentenceTransformer</code>-compatible model across the full benchmark. Subset to the tasks closest to your application to get a fast, domain-relevant signal.</div>
+</div></details>
+</div>
 
 <div class="callout practical-example">
 <div class="callout-title">Real-World Scenario: Fine-Tuning Embeddings for Patent Prior Art Search</div>
@@ -427,6 +512,9 @@ gtag('config', 'G-PWPHBQL2VL');
 </div>
 <div class="bib-entry-card">
 <div class="bib-ref"><a href="https://arxiv.org/abs/2104.08821" rel="noopener" target="_blank">Gao, T. et al. (2021). <em>SimCSE: Simple Contrastive Learning of Sentence Embeddings</em>. EMNLP 2021.</a> Introduces a remarkably simple contrastive approach that uses <a href="../../part-1-llm-building-blocks/module-00-ml-pytorch-foundations/section-0.2.html">dropout</a> as the only data augmentation, producing state-of-the-art embeddings. SimCSE demonstrates that effective contrastive learning does not require complex augmentation strategies. Valuable for understanding the design principles behind modern embedding training.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://arxiv.org/abs/1602.03483" rel="noopener" target="_blank">Hill, F., Cho, K., &amp; Korhonen, A. (2016). <em>Learning Distributed Representations of Sentences from Unlabelled Data</em>. NAACL 2016.</a> The SDAE paper. Introduces sequential denoising autoencoders for unsupervised sentence embeddings; the corrupt-then-reconstruct recipe in Section 16.5.4.3 follows this paper's setup directly. Useful for teams without any labeled similarity data who still need a domain-adapted embedding starting point.</div>
 </div>
 <div class="bib-entry-card">
 <div class="bib-ref"><a href="https://arxiv.org/abs/2212.03533" rel="noopener" target="_blank">Wang, L. et al. (2024). <em>Text Embeddings by Weakly-Supervised Contrastive Pretraining</em>.</a> Presents E5, a family of embedding models trained with weakly-supervised contrastive learning on large-scale text pairs. The paper demonstrates how to scale embedding training beyond manually curated datasets. Relevant for teams considering large-scale embedding pretraining data before domain-specific fine-tuning.</div>

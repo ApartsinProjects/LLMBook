@@ -112,6 +112,14 @@ gtag('config', 'G-PWPHBQL2VL');
  vector similarity is computed. Common metadata fields include document type, creation date, author,
  department, language, and topic tags. This filtering can be combined with vector search for
  efficient hybrid retrieval.</p>
+<h3 id="32-2-1-3-raptor-recursive-tree-retrieval">32.2.1.3 RAPTOR: Recursive Cluster-and-Summarize Trees</h3>
+<p>Naive hierarchical indexing assumes the corpus already exposes a clean document outline (book chapter, then section, then paragraph). Many real corpora do not. A pile of support tickets, a dump of research papers, or a podcast transcript archive has no built-in hierarchy at all. <strong>RAPTOR</strong> (Recursive Abstractive Processing for Tree-Organized Retrieval, Sarthi et al., ICLR 2024) builds the hierarchy automatically by recursively clustering and summarizing the chunks themselves.</p>
+<p>The construction algorithm is a tight three-step loop. First, embed every leaf chunk with a sentence-embedding model. Second, cluster those embeddings (RAPTOR uses soft Gaussian mixture clustering over UMAP-reduced embeddings, so a chunk can belong to multiple parent topics). Third, for each cluster, call an LLM to write a short summary of the chunks inside, then treat that summary as a new node and re-embed it. Repeat: cluster the summary embeddings, summarize again, embed again, until the top of the tree contains only a handful of nodes that cover the entire corpus.</p>
+<p>At retrieval time, RAPTOR offers two traversal modes. <strong>Tree traversal</strong> starts at the root, picks the top branches whose summary is most similar to the query, and descends layer by layer until reaching leaf chunks. <strong>Collapsed-tree retrieval</strong> ignores the hierarchy at query time and treats every node (leaf and summary) as a flat candidate pool, retrieving the top-$k$ by cosine similarity. The collapsed variant turns out to win in most benchmarks because it lets the retriever mix abstract summary nodes with concrete leaf chunks in a single context, which is exactly what multi-hop questions need. RAPTOR reports a 20% absolute improvement on the QuALITY long-document QA benchmark over the strongest flat-chunk baseline.</p>
+<div class="callout key-insight">
+<div class="callout-title">Key insight</div>
+<p>RAPTOR generalizes the LlamaIndex-style "summary of summaries" pattern into a principled algorithm: the corpus is now a tree of <em>generated</em> abstractions, not just the documents the author wrote. The cost is one extra LLM call per cluster at indexing time; the benefit is that questions like "what are the overarching themes across these 1,000 papers" become answerable without loading every paper into context.</p>
+</div>
 <h2 id="32-2-2-evaluation-and-common-failure-modes">32.2.2 Evaluation and Common Failure Modes</h2>
 <p>Evaluating a RAG system requires measuring both retrieval quality and generation quality independently.
  The RAG triad framework assesses three dimensions: <strong>context relevance</strong> (did we retrieve
@@ -126,6 +134,7 @@ gtag('config', 'G-PWPHBQL2VL');
 <li><strong>Abstention failure:</strong> The model generates a confident answer instead of admitting the context is insufficient to answer the question.</li>
 <li><strong>Context overflow:</strong> Too many retrieved chunks exceed the token budget, causing truncation or performance degradation.</li>
 </ul>
+<p>The RAG triad above is the <em>intrinsic</em> evaluation track: every metric scores the system against the retrieved context rather than against a gold answer, which means no labeled test set is required. The complementary <em>extrinsic</em> track scores generated answers against human-written reference answers using the classical NLG metrics covered in depth in <a href="../../part-9-llm-evaluation-observability/module-42-evaluation-foundations/section-42.1.html">Section 42.1</a>. <strong>BLEU</strong> (Papineni et al., 2002) and <strong>ROUGE</strong> (Lin, 2004) compare n-gram overlap between candidate and reference and were originally designed for machine translation and summarization respectively; <strong>BERTScore</strong> (Zhang et al., 2020) replaces the n-gram match with cosine similarity over contextual embeddings and correlates better with human judgments for free-form answers. For RAG specifically, BLEU and ROUGE are too rigid (the same correct answer can be phrased many ways), so practitioners default to either BERTScore for surface-form similarity or LLM-as-judge correctness scores from RAGAS or ARES (Section 32.4.8.2) for semantic correctness. The intrinsic-vs-extrinsic split matters because they fail in different ways: an unfaithful answer scores high on BLEU if it happens to share n-grams with the reference, and a faithful answer scores low if it phrases the truth differently.</p>
 <div class="callout note">
 <div class="callout-title">Note</div>
 <p>Tools like RAGAS (Retrieval Augmented Generation Assessment), TruLens, and DeepEval provide automated metrics for evaluating RAG pipelines. RAGAS computes faithfulness, answer relevance, and context precision scores using <a href="../../part-9-llm-evaluation-observability/module-42-evaluation-foundations/section-42.1.html">LLM-as-judge</a> approaches. For production systems, a combination of automated metrics and <a href="../../part-9-llm-evaluation-observability/module-42-evaluation-foundations/section-42.3.html">human evaluation</a> on a golden test set provides the most reliable quality signal.</p>
@@ -162,6 +171,14 @@ gtag('config', 'G-PWPHBQL2VL');
  </p>
 <p>Google's Gemini team has documented a <strong>context caching</strong> approach that offers a middle ground. Frequently accessed documents are cached in the model's context at a reduced per-token rate, allowing repeated queries against the same corpus without re-processing the full context each time. This reduces the cost disadvantage of long-context approaches while preserving their holistic understanding advantage. However, caching is currently limited to a single session and does not solve the freshness or access control challenges.
  </p>
+<h3 id="32-2-3-4-cag-cache-augmented-generation">32.2.3.4 Cache-Augmented Generation (CAG)</h3>
+<p>The academic name for the same middle-ground pattern is <strong>Cache-Augmented Generation (CAG)</strong>. The recipe is: take the documents you would have retrieved, run them through the model once at indexing time, and persist the resulting KV cache to disk. At query time, the LLM loads that pre-computed cache, attends to it, and generates an answer without ever rerunning the (expensive) prefill over those documents. Conceptually, the documents have been baked into "soft tokens" that live in the attention key-value store rather than in the prompt.</p>
+<p>CAG is a sensible production sweet spot for corpora that are small enough to fit in the context window of the chosen model (typically a few hundred thousand tokens), change rarely, and serve high query volume. Examples include the public API reference for a SaaS product, the engineering wiki for a single team, or a regulatory rulebook. The retrieval step disappears entirely (so no chunker, no embedder, no vector index to operate), latency drops because prefill is skipped, and you keep the LLM's holistic reasoning over the full corpus. The cost is that any document update invalidates the cache and forces a full re-prefill, so CAG is the wrong pattern for fast-moving knowledge bases (where RAG wins) or for multi-tenant access control (where per-user prompt slicing is harder than per-user retrieval filtering).</p>
+<p>Gemini context caching, Anthropic prompt caching, and OpenAI's response-cache hints are the three production realizations of CAG you will meet most often. Each charges a discounted per-token rate (typically 10% to 25% of the input price) for cached tokens, which is exactly the economic mechanism that makes CAG viable. Think of CAG as the third corner of a triangle with RAG and naive long-context: RAG retrieves and prefills a small context per query, long-context prefills a large context per query, CAG prefills a large context once and reuses it for many queries.</p>
+<div class="callout tip">
+<div class="callout-title">Tip</div>
+<p>If your corpus is under 200K tokens, updated weekly, and serves more than ten queries per minute, prototype the CAG variant before the RAG variant. The infrastructure savings (no vector DB, no chunking, no embedding service) often outweigh the slightly higher per-query token cost, and you avoid an entire category of retrieval-failure bugs.</p>
+</div>
 <div class="callout key-insight">
 <div class="callout-title">Key Insight</div>
 <p><strong>RAG and long context </strong>are complementary, not competing, paradigms. RAG excels at efficient, cost-effective retrieval from massive, dynamic knowledge bases with access controls. Long context excels at holistic reasoning over moderate-sized document sets. The best production systems use RAG to select relevant material and long context to reason deeply over it. As context windows continue to grow and costs decline, the boundary between these approaches will shift, but the fundamental advantages of retrieval (cost, latency, freshness, privacy) ensure RAG remains a core architectural pattern.</p>
@@ -174,6 +191,7 @@ gtag('config', 'G-PWPHBQL2VL');
 <th scope="col">Dimension</th>
 <th scope="col">RAG</th>
 <th scope="col">Long Context</th>
+<th scope="col">CAG</th>
 <th scope="col">Hybrid</th>
 </tr>
 </thead>
@@ -182,24 +200,28 @@ gtag('config', 'G-PWPHBQL2VL');
 <td><strong>Cost per query</strong></td>
 <td>Low (small context)</td>
 <td>High (full corpus)</td>
+<td>Low (cached prefill)</td>
 <td>Medium</td>
 </tr>
 <tr>
 <td><strong>Latency</strong></td>
 <td>Fast (sub-second)</td>
 <td>Slow (seconds)</td>
+<td>Fast (prefill skipped)</td>
 <td>Moderate</td>
 </tr>
 <tr>
 <td><strong>Freshness</strong></td>
 <td>Real-time updates</td>
 <td>Static per request</td>
+<td>Cache invalidation on edit</td>
 <td>Real-time</td>
 </tr>
 <tr>
 <td><strong>Access control</strong></td>
 <td>Natural enforcement</td>
 <td>Complex to implement</td>
+<td>Hard (one cache per tenant)</td>
 <td>Natural enforcement</td>
 </tr>
 <tr>
@@ -207,10 +229,12 @@ gtag('config', 'G-PWPHBQL2VL');
 <td>Limited by chunking</td>
 <td>Strong</td>
 <td>Strong</td>
+<td>Strong</td>
 </tr>
 <tr>
 <td><strong>Corpus scale</strong></td>
 <td>Unlimited</td>
+<td>Limited by window</td>
 <td>Limited by window</td>
 <td>Unlimited</td>
 </tr>
@@ -629,6 +653,9 @@ Sources: ['Remote Work', 'Vacation Policy']
 </div>
 <div class="bib-entry-card">
 <div class="bib-ref"><a href="https://docs.llamaindex.ai/en/stable/" rel="noopener" target="_blank">LlamaIndex: Build RAG Applications.</a> Comprehensive documentation for the LlamaIndex framework with a focus on data ingestion and indexing. Offers advanced features like query engines and response synthesizers. Recommended for complex RAG architectures.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://arxiv.org/abs/2401.18059" rel="noopener" target="_blank">Sarthi, P. et al. (2024). "RAPTOR: Recursive Abstractive Processing for Tree-Organized Retrieval." <em>ICLR 2024</em>.</a> Introduces the recursive embed-cluster-summarize tree construction algorithm and the tree-traversal vs. collapsed-tree retrieval modes referenced in Section 32.2.1.3. Required reading if the corpus has no built-in hierarchy.</div>
 </div>
 </section>
 </details>

@@ -54,6 +54,10 @@ gtag('config', 'G-PWPHBQL2VL');
 <img alt="The advanced-RAG treasure hunt continues: the adventurer now rewrites the map, drafts a hypothetical landmark (HyDE), and reroutes around dead ends, evoking query transformation, contextual retrieval, and self-corrective RAG." src="images/advanced-rag-treasure-hunt-section2.png" width="1200" height="876"/>
 <figcaption><strong>Figure 35.2.1</strong>: Advanced RAG is a treasure hunt where each retrieval step gets you closer to the answer. Query rewriting, re-ranking, and iterative refinement are your map and compass.</figcaption>
 </figure>
+<div class="callout key-insight">
+<div class="callout-title">Key insight: six families of advanced RAG</div>
+<p>The advanced-RAG literature sprawls, but every technique in this chapter slots into one of six families. <strong>(1) Indirect embeddings</strong> change what gets embedded on either side: HyDE (Section 35.2.1.1) embeds a hypothetical answer at query time, HyPE (Section 35.2.1.4) embeds hypothetical questions at indexing time. <strong>(2) Context compression</strong> shrinks what reaches the generator: Anthropic contextual retrieval (Section 35.2.2), LangChain compression filters (Code Fragment 35.2.3). <strong>(3) Fusion</strong> merges multiple retrieval signals: hybrid dense+sparse (Section 35.1), MMR diversification (Section 35.2.1.5), RAG-Fusion with RRF (Section 35.2.1.6), Fusion-in-Decoder (Section 35.2.1.7). <strong>(4) Self-validation</strong> wraps the loop in a corrective pass: CRAG (Section 35.2.3.1), Self-RAG (Section 35.2.3.2). <strong>(5) Generator fine-tuning</strong> trains the LLM to handle imperfect retrieval: RAFT (Section 35.2.3.3). <strong>(6) Cache-augmented generation</strong> replaces retrieval with cached prefill: CAG (Section 32.2.3.4). Most production systems mix one technique from each of the first three families, then add a self-validation pass only when accuracy demands it.</p>
+</div>
 <h2 id="35-2-1-query-transformation">35.2.1 Query Transformation</h2>
 <div class="callout fun-note">
 <div class="callout-title">Fun Fact</div>
@@ -147,6 +151,38 @@ gtag('config', 'G-PWPHBQL2VL');
 </svg>
 <div class="diagram-caption"><strong>Figure 35.2.2</strong>: Three query transformation strategies, each addressing different causes of retrieval failure.</div>
 </div>
+<h3 id="35-2-1-4-hype-hypothetical-prompt-embeddings">35.2.1.4 HyPE: Hypothetical Prompt Embeddings</h3>
+<p><strong>HyPE</strong> (Hypothetical Prompt Embeddings) is the dual of HyDE. Where HyDE generates a hypothetical answer at query time and embeds it, HyPE generates hypothetical <em>questions</em> at indexing time. For every chunk in the corpus, an LLM is asked to write three to five questions whose answer is contained in that chunk. Those generated questions are embedded and stored alongside (or instead of) the original chunk embeddings. At query time the user question is embedded once and matched directly against the question index, which puts query and index in the same linguistic register.</p>
+<p>The tradeoff with HyDE is symmetric. HyDE shifts the LLM cost to query time (one extra LLM call per query) and keeps the index cheap. HyPE shifts the cost to indexing time (several LLM calls per chunk) and pays nothing at query time. HyPE wins when the corpus is small and stable and queries are frequent (an FAQ that serves millions of users per day); HyDE wins when the corpus is large and changes constantly and queries are rare. Both can be combined: index each chunk with both its raw embedding and three HyPE embeddings, then at query time run a HyDE pass and retrieve top-$k$ across the union.</p>
+<h3 id="35-2-1-5-mmr-maximal-marginal-relevance">35.2.1.5 MMR: Diversifying the Top-K</h3>
+<p>Pure top-$k$ retrieval often returns the same idea written five different ways. If the corpus contains five near-duplicate chunks of a popular API page, vanilla cosine retrieval will hand the generator all five and waste the context budget. <strong>Maximal Marginal Relevance (MMR)</strong> fixes this by re-ranking the candidate pool to balance relevance to the query with dissimilarity from already-selected results:</p>
+<p>$$ \text{MMR} = \arg\max_{d_i \in C \setminus S} \left[ \lambda \cdot \text{sim}(d_i, q) - (1 - \lambda) \cdot \max_{d_j \in S} \text{sim}(d_i, d_j) \right] $$</p>
+<p>where $C$ is the candidate set, $S$ is the already-selected set, $q$ is the query, and $\lambda \in [0, 1]$ trades off relevance ($\lambda = 1$ recovers vanilla cosine) against diversity ($\lambda = 0$ picks the most spread-out chunks regardless of relevance). A typical production setting is $\lambda = 0.5$, applied to a candidate pool that is 3 to 5 times larger than the desired top-$k$.</p>
+<div class="callout library-shortcut">
+<div class="callout-title">Library Shortcut: MMR retrieval in LangChain</div>
+<p>LangChain exposes MMR as a one-line switch on any vector store:</p>
+<div class="code-block-wrapper">
+<pre><code class="language-python">from langchain_chroma import Chroma
+
+retriever = Chroma(
+    collection_name="docs",
+    embedding_function=embeddings,
+).as_retriever(
+    search_type="mmr",
+    search_kwargs={"k": 5, "fetch_k": 25, "lambda_mult": 0.5},
+)
+docs = retriever.invoke("How does the KV cache work?")</code></pre>
+<div class="code-caption"><strong>Code Fragment 35.2.2</strong>: <code>fetch_k</code> is the candidate pool size, <code>k</code> is how many MMR keeps, and <code>lambda_mult</code> is the relevance/diversity dial. Switching <code>search_type</code> from <code>"similarity"</code> to <code>"mmr"</code> is usually a 5% to 10% improvement on multi-faceted queries with no other changes.</div>
+</div>
+</div>
+<h3 id="35-2-1-6-rag-fusion-multi-query-with-rrf">35.2.1.6 RAG-Fusion: Multi-Query + RRF</h3>
+<p><strong>RAG-Fusion</strong> (Raudaschl, 2023) is the canonical name for the recipe that combines LLM multi-query expansion (Section 35.2.1.2) with Reciprocal Rank Fusion (RRF; see Section 36.2.1). The pipeline is: ask the LLM for $n$ paraphrases of the user question, run a vector search for each paraphrase, and merge the $n$ ranked lists into a single ranking using $\text{RRF}(d) = \sum_i \frac{1}{k + \text{rank}_i(d)}$ with $k = 60$. The Code Fragment 35.2.1 implementation above dedupes by document id; RAG-Fusion replaces that dedupe step with RRF so that documents appearing high in several paraphrase rankings are promoted relative to documents that appear in just one. LangChain's <code>MultiQueryRetriever</code> is the off-the-shelf wrapper for the front half (paraphrase generation plus per-query retrieval); pair it with the RRF helper from <code>langchain.retrievers.ensemble</code> to get the full RAG-Fusion pattern in under twenty lines.</p>
+<h3 id="35-2-1-7-fid-fusion-in-decoder">35.2.1.7 Fusion-in-Decoder (FiD)</h3>
+<p>Every fusion technique above merges retrieval <em>rankings</em>. <strong>Fusion-in-Decoder</strong> (Izacard &amp; Grave, 2021) merges retrieval <em>contexts</em> inside the generator itself, and it is worth knowing as the third option in the fusion taxonomy. The architecture uses an encoder-decoder model (originally T5): the encoder processes each retrieved passage independently and produces a separate token stream per passage, and the decoder cross-attends over the concatenation of all encoded passages when generating the answer. Because the encoder pass scales linearly with the number of passages (each one sees only its own context), FiD can fuse dozens or hundreds of retrieved documents without the quadratic-attention blow-up of stuffing them all into a single decoder-only prompt.</p>
+<p>FiD is the dominant pattern in open-domain QA leaderboards because it lets the model reason across many short passages without a context-length limit. It is less common in production conversational systems for two reasons: it requires an encoder-decoder backbone (most production LLMs are decoder-only), and it costs a separate forward pass per passage. The three fusion patterns map onto a clean taxonomy: <strong>input fusion</strong> (stuff all passages into one prompt; this is naive RAG), <strong>output fusion</strong> (RRF over per-passage rankings; this is RAG-Fusion), <strong>intermediate fusion</strong> (cross-attend over per-passage encodings; this is FiD).</p>
+<h3 id="35-2-1-8-memory-augmented-rag">35.2.1.8 Memory-Augmented RAG</h3>
+<p>Production assistants need to remember the conversation, not just the corpus. <strong>Memory-augmented RAG</strong> maintains a second retrieval index built from the conversation history itself and retrieves from both indexes when answering a new turn. The dialog index typically lives in a separate vector store keyed by session and rotates older turns into a longer-term summary store (covered in <a href="../module-37-conversational-memory/index.html">Chapter 37</a>). At query time the system retrieves the top-$k$ chunks from the corpus index plus the top-$m$ turns or summaries from the dialog index, concatenates them with provenance labels ("[wiki]" vs "[earlier in this chat]"), and hands the merged context to the generator.</p>
+<p>The Knowledge Storage Spectrum table in <a href="../module-32-rag/section-32.1.html">Section 32.1</a> already lists agent memory as a first-class storage tier; memory-augmented RAG is the retrieval pattern that connects that tier to the corpus tier. Two practical gotchas: the dialog index needs strict per-session access control (treat it as PII) and the dialog retriever should weight recency more aggressively than the corpus retriever because conversational context decays in relevance much faster than reference documentation.</p>
 <h2 id="35-2-2-contextual-retrieval">35.2.2 Contextual Retrieval</h2>
 <p>Standard chunking strips away the surrounding context that gives a chunk its meaning. A chunk
  reading "The company reported 15% growth" is ambiguous without knowing which company, which
@@ -157,6 +193,24 @@ gtag('config', 'G-PWPHBQL2VL');
 <div class="callout note">
 <div class="callout-title">Note</div>
 <p>Anthropic's experiments showed that contextual retrieval reduced retrieval failure rates by 49% compared to standard chunking, and by 67% when combined with BM25 hybrid search. The contextual prefix is typically 50 to 100 tokens describing the document title, section heading, and the chunk's role within the broader document. This prefix is included when embedding but can be omitted when presenting the chunk to the LLM for generation.</p>
+</div>
+<p>The complementary pattern compresses chunks at <em>query time</em> instead of enriching them at indexing time. LangChain calls this the <strong>ContextualCompressionRetriever</strong>: a base retriever returns ten candidate chunks, then a chain of compressors prunes the pool down to what is actually useful. The two most common compressors are <code>LLMChainExtractor</code> (cheap LLM extracts the relevant sentences from each chunk and discards the rest) and <code>EmbeddingsFilter</code> (drops chunks whose embedding similarity to the query is below a threshold). Stack them with <code>DocumentCompressorPipeline</code> for a two-stage filter:</p>
+<div class="code-block-wrapper">
+<pre><code class="language-python">from langchain.retrievers import ContextualCompressionRetriever
+from langchain.retrievers.document_compressors import (
+    DocumentCompressorPipeline, EmbeddingsFilter, LLMChainExtractor,
+)
+
+pipeline = DocumentCompressorPipeline(transformers=[
+    EmbeddingsFilter(embeddings=embeddings, similarity_threshold=0.65),
+    LLMChainExtractor.from_llm(llm),
+])
+compression_retriever = ContextualCompressionRetriever(
+    base_compressor=pipeline,
+    base_retriever=vectorstore.as_retriever(search_kwargs={"k": 20}),
+)
+docs = compression_retriever.invoke("What changed in v3.2?")</code></pre>
+<div class="code-caption"><strong>Code Fragment 35.2.3</strong>: A two-stage compression pipeline. The cheap <code>EmbeddingsFilter</code> first cuts the candidate pool from 20 to ~8 chunks, then <code>LLMChainExtractor</code> distills each surviving chunk down to the sentences that actually mention v3.2. Net effect: tighter prompts and a measurable reduction in lost-in-the-middle errors.</div>
 </div>
 <h2 id="35-2-3-self-corrective-rag">35.2.3 Self-Corrective RAG</h2>
 <p>Standard RAG blindly trusts the retrieval results and generates from whatever context is provided.
@@ -233,6 +287,33 @@ gtag('config', 'G-PWPHBQL2VL');
  response is supported by the evidence, and whether the response is useful. These self-assessments
  allow the model to adaptively decide when to retrieve, which passages to use, and when to regenerate.
  </p>
+<h3 id="35-2-3-3-raft-retrieval-augmented-fine-tuning">35.2.3.3 RAFT: Retrieval-Augmented Fine-Tuning</h3>
+<p>Every technique up to this point modifies retrieval or prompting and leaves the generator untouched. <strong>RAFT</strong> (Retrieval-Augmented Fine-Tuning, Zhang et al., 2024) goes the other way: it fine-tunes the generator to behave well in the presence of imperfect retrieval. The training recipe encodes three priors that production RAG needs and a frozen instruction-tuned model lacks.</p>
+<p>The first prior is <strong>QA-from-docs generation</strong>. For each chunk in the training corpus, an LLM generates question-answer pairs whose answers are grounded in that specific chunk. This produces a dataset of (question, gold chunk, gold answer) triples without manual labeling. The second prior is <strong>distractor mixing</strong>: each training example bundles the gold chunk together with several distractor chunks retrieved from elsewhere in the corpus, and the model learns to ignore the distractors when generating the answer. Critically, a fraction of the training examples (typically 20%) drop the gold chunk entirely and provide only distractors, teaching the model to abstain or to fall back on parametric knowledge when retrieval has failed. The third prior is <strong>chain-of-thought answers</strong>: the gold answer is rewritten to quote the supporting span from the gold chunk verbatim and then derive the final answer through a short reasoning chain. The fine-tuned model thus learns to read, cite, and reason rather than to pattern-match the longest retrieved string.</p>
+<p>A typical RAFT training prompt looks like the following, with <code>##begin_quote##</code> markers wrapping the spans the model is expected to lift from the gold chunk:</p>
+<div class="code-block-wrapper">
+<pre><code class="language-python"># RAFT-style training example
+{
+    "instruction": "Answer the question using the provided documents.",
+    "documents": [
+        {"id": 0, "text": "...gold passage about the topic..."},   # the gold doc
+        {"id": 1, "text": "...irrelevant distractor..."},
+        {"id": 2, "text": "...irrelevant distractor..."},
+    ],
+    "question": "Who first proposed the algorithm?",
+    "cot_answer": (
+        "##begin_quote##The algorithm was first proposed by Smith in 1998"
+        "##end_quote## Therefore the answer is Smith."
+    ),
+    "answer": "Smith",
+}</code></pre>
+<div class="code-caption"><strong>Code Fragment 35.2.4</strong>: A RAFT training record. The model is trained to lift the supporting span from the gold document inside <code>##begin_quote##</code> markers and then derive the final answer, which both anchors generation in retrieved evidence and creates an audit trail for downstream NLI verification (Section 32.5.3).</div>
+</div>
+<p>LlamaIndex ships a <a href="https://docs.llamaindex.ai/en/stable/examples/cookbooks/raft_dataset/" rel="noopener" target="_blank">RAFT dataset builder</a> that consumes a directory of documents and emits the training records above, ready for a QLoRA fine-tune of a 7B or 8B base model. In the original paper, a Llama 2 7B fine-tuned with RAFT matched or beat GPT-3.5 on domain-specific QA benchmarks (PubMed, HuggingFace docs, Gorilla API) at a tiny fraction of the inference cost. The technique is the natural complement to all the retrieval-side tricks earlier in this section: query rewriting, hybrid retrieval, and reranking raise the quality of the retrieved context, and RAFT teaches the generator to use that context responsibly.</p>
+<div class="callout cross-ref">
+<div class="callout-title">See also</div>
+<p>RAFT is a fine-tuning recipe; the underlying machinery (LoRA, QLoRA, instruction tuning datasets) is covered in <a href="../../part-4-fine-tuning-llms/module-16-parameter-efficient-fine-tuning/index.html">Chapter 16</a>. The distractor-aware training data pairs naturally with the NLI-based faithfulness verification described in <a href="../module-32-rag/section-32.5.html">Section 32.5.3</a>: RAFT teaches the model to quote its sources, and the NLI verifier then checks that the quoted spans actually support the final claim.</p>
+</div>
 <h2 id="35-2-4-fusion-retrieval-and-multi-modal-rag">35.2.4 Fusion Retrieval and Multi-Modal RAG</h2>
 <p>Fusion retrieval goes beyond combining dense and sparse signals. RAG Fusion (Raudaschl, 2023)
  generates multiple search queries, retrieves results for each, and applies RRF across all result
@@ -303,6 +384,42 @@ gtag('config', 'G-PWPHBQL2VL');
 <td>Blind trust in bad retrieval</td>
 <td>+1 to 3 LLM calls</td>
 <td>Safety-critical applications</td>
+</tr>
+<tr>
+<td>HyPE</td>
+<td>Query/document linguistic mismatch</td>
+<td>Ingestion-time LLM cost</td>
+<td>Stable, high-traffic FAQs</td>
+</tr>
+<tr>
+<td>MMR</td>
+<td>Redundant top-k chunks</td>
+<td>Negligible (one-line switch)</td>
+<td>Multi-faceted queries with duplicate sources</td>
+</tr>
+<tr>
+<td>RAG-Fusion</td>
+<td>Single-query brittleness</td>
+<td>+1 LLM call + N retrievals + RRF</td>
+<td>Open-ended exploratory questions</td>
+</tr>
+<tr>
+<td>Fusion-in-Decoder</td>
+<td>Long-tail QA across many passages</td>
+<td>N encoder passes per query</td>
+<td>Open-domain QA with encoder-decoder models</td>
+</tr>
+<tr>
+<td>RAFT</td>
+<td>Generator trusts distractors</td>
+<td>One-time fine-tune; zero at query time</td>
+<td>Narrow-domain QA with stable corpus</td>
+</tr>
+<tr>
+<td>CAG</td>
+<td>RAG infrastructure overhead</td>
+<td>One-time prefill; cached afterwards</td>
+<td>Small, stable, high-traffic corpora</td>
 </tr>
 </table>
 </div>
@@ -794,6 +911,18 @@ Managing dependencies: base=1.00 exp=1.00 rr=1.00
 </div>
 <div class="bib-entry-card">
 <div class="bib-ref"><a href="https://huggingface.co/cross-encoder" rel="noopener" target="_blank">Cross-Encoder Models on Hugging Face.</a> A collection of pretrained cross-encoder models for semantic similarity and re-ranking. Provides ready-to-use models that integrate easily into RAG systems. Ideal for practitioners who want to add re-ranking quickly.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://arxiv.org/abs/2403.10131" rel="noopener" target="_blank">Zhang, T. et al. (2024). "RAFT: Adapting Language Model to Domain Specific RAG." <em>arXiv preprint</em>.</a> Introduces distractor-aware fine-tuning with chain-of-thought answers used in Section 35.2.3.3. Combine with the LlamaIndex RAFT dataset cookbook for an end-to-end training pipeline.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Carbonell, J. &amp; Goldstein, J. (1998). "The Use of MMR, Diversity-Based Reranking for Reordering Documents and Producing Summaries." <em>SIGIR 1998</em>. <a href="https://dl.acm.org/doi/10.1145/290941.291025" rel="noopener" target="_blank">DOI</a>. The original Maximal Marginal Relevance paper behind Section 35.2.1.5 and the LangChain <code>search_type="mmr"</code> switch.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://towardsdatascience.com/forget-rag-the-future-is-rag-fusion-1147298d8ad1" rel="noopener" target="_blank">Raudaschl, A. (2023). "Forget RAG, the Future is RAG-Fusion."</a> Coined the RAG-Fusion name for the multi-query + RRF pattern in Section 35.2.1.6. Includes the original LangChain reference implementation.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://arxiv.org/abs/2007.01282" rel="noopener" target="_blank">Izacard, G. &amp; Grave, E. (2021). "Leveraging Passage Retrieval with Generative Models for Open Domain Question Answering" (Fusion-in-Decoder). <em>EACL 2021</em>.</a> The encoder-decoder architecture behind Section 35.2.1.7 that cross-attends over per-passage encodings instead of concatenating all passages into a single prompt.</div>
 </div>
 </section>
 </details>

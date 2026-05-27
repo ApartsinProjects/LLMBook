@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-PWPHBQL2VL"></script>
+<script>
+window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', 'G-PWPHBQL2VL');
+</script>
+
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<meta content="Section 20.0.3: Audio and Speech Transformer Architectures. Waveform versus spectrogram inputs, the Audio Spectrogram Transformer (AST), Conformer, Whisper as encoder-decoder, and Connectionist Temporal Classification (CTC) for alignment-free ASR." name="description"/>
+<title>Section 20.0.3: Audio and Speech Transformer Architectures</title>
+<link href="../../styles/book.css" rel="stylesheet"/>
+<link href="../../styles/pygments.css" rel="stylesheet"/>
+<link href="../../vendor/prism/prism-theme.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/prism/prism-bundle.min.js"></script>
+<script defer="" src="../../scripts/book.js"></script>
+<link href="../../pagefind/pagefind-ui.css" rel="stylesheet"/>
+<script defer="" src="../../pagefind/pagefind-ui.js"></script>
+<link href="../../vendor/katex/katex.min.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/katex/katex.min.js"></script>
+<script defer="" onload="renderMathInElement(document.body, {
+ delimiters: [
+ {left: '$$', right: '$$', display: true},
+ {left: '$', right: '$', display: false}
+ ],
+ throwOnError: false
+ });" src="../../vendor/katex/contrib/auto-render.min.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
+
+<header class="chapter-header">
+<nav class="header-nav">
+<a class="book-title-link" href="../../index.html">Building Conversational AI with LLMs and Agents</a>
+<a class="toc-link" href="../../toc.html" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+</nav>
+<div class="header-search">
+<div id="search"></div>
+</div>
+<div class="page-breadcrumb" data-pagefind-meta="chapter"><a href="../index.html">Part V: Multimodal LLMs</a><span class="bc-sep">&rsaquo;</span><a href="index.html">Chapter 20: Audio, Music, and Video Generation</a></div>
+<h1>Audio and Speech Transformer Architectures</h1><div class="page-current">Section 20.0.3</div>
+</header>
+<main class="content" id="main-content"><span class="pagefind-meta-injected" data-pagefind-meta="part:Part V: Multimodal LLMs" hidden=""></span><span class="pagefind-meta-injected" data-pagefind-meta="chapter:Chapter 20: Audio, Music, and Video Generation" hidden=""></span>
+
+<blockquote class="epigraph">
+<p>"Take ViT, feed it spectrograms instead of cat photos, and you have an audio classifier. Take BERT, feed it speech instead of sentences, and you have an ASR encoder. Half of audio AI is borrowing the right vision or NLP architecture."</p>
+<span class="agent-avatar-inline" style="background-color: #f39c12;"><img alt="Echo" height="28" src="../../front-matter/images/agents/echo.png" width="28"/></span><cite>Echo, <span class="agent-desc">Pitch-Perfect AI Agent</span></cite>
+</blockquote>
+
+<div class="callout big-picture">
+<div class="callout-title">Big Picture</div>
+<p>The transformer architectures that power modern audio AI did not emerge in isolation; they are direct ports of architectures from vision (ViT &rarr; AST) and NLP (BERT &rarr; wav2vec 2.0 / HuBERT, T5 &rarr; Whisper). Two input strategies dominate (raw waveform with a convolutional stem, or log-mel spectrogram treated as an image), three transformer roles cover the field (encoder-only for classification and representation, decoder for autoregressive codec LMs, encoder-decoder for ASR), and one specialized loss (Connectionist Temporal Classification, CTC) lets encoder-only models train on misaligned sequence-to-sequence data. This section installs that taxonomy and walks the reader through the four architectures (AST, Conformer, Whisper, and the generic CTC head on top of wav2vec 2.0 / HuBERT) that show up everywhere in the rest of the chapter.</p>
+</div>
+
+<h2 id="20-0-3-1-transformer-role-recap">20.0.3.1 Transformer Role Recap for Audio</h2>
+<p>The three canonical transformer roles transfer directly from text to audio. An <strong>encoder-only</strong> transformer maps an input sequence to a sequence of contextual embeddings, with one embedding per input position; the output can be pooled into a classification head (audio event detection, intent classification, language identification) or used as a frozen feature extractor for downstream tasks. AST, wav2vec 2.0, HuBERT, WavLM, BEATs, and the audio encoder inside CLAP all live here. A <strong>decoder-only</strong> transformer autoregresses tokens; in audio that means predicting the next codec token given previous tokens (Bark, MusicGen, VALL-E, AudioLM, Moshi). An <strong>encoder-decoder</strong> transformer encodes the input (a spectrogram) into a sequence of contextual embeddings, then a separate decoder autoregresses an output sequence (text transcript) attending to the encoder via cross-attention. Whisper, SpeechT5, and Voicebox use this role; the same role serves the SeamlessM4T speech-to-speech translator.</p>
+
+<p>One useful coarse taxonomy is <em>modality-specific</em> versus <em>multimodal</em>. Modality-specific models like Whisper or AST process audio in, text or label out. Multimodal models like CLAP or Moshi share a single trunk across speech, text, or both. This section focuses on the modality-specific case; Section 20.0.5 covers CLAP, and Sections 20.1 to 20.5 cover the multimodal speech LMs.</p>
+
+<h2 id="20-0-3-2-input-strategies">20.0.3.2 Two Input Strategies: Waveform vs Spectrogram</h2>
+<p>Every audio transformer in the book picks one of two input formats, and the choice shapes the rest of the architecture.</p>
+
+<h3>Waveform Input with a Convolutional Stem</h3>
+<p>wav2vec 2.0 and HuBERT consume raw 16 kHz waveforms. A small convolutional <strong>feature encoder</strong> (typically seven 1D conv layers with strides 5, 2, 2, 2, 2, 2, 2) progressively downsamples the signal and produces a 512-dimensional embedding per 25 ms frame, giving a 50 Hz output rate (320x total downsampling from 16 kHz). The waveform is first normalized to zero mean and unit variance across the input clip. Each conv layer uses GELU activation and layer normalization. The output is then projected to the transformer's hidden dimension and consumed by a standard BERT-style transformer encoder stack.</p>
+
+<p>This route preserves the model's ability to learn its own time-frequency representation. Wav2vec 2.0's feature encoder has been shown by post-hoc analysis to develop something like a mel filterbank in its lower layers and phonetic features in its upper layers, all without being told what either of those things are.</p>
+
+<h3>Spectrogram Input as an Image</h3>
+<p>Whisper, AST, and Conformer skip the waveform entirely and consume a precomputed log-mel spectrogram. The motivation is sequence length: a 30-second clip at 16 kHz is 480,000 samples, which no transformer of practical size can attend over. The standard 80-bin log-mel at 100 Hz reduces this to a $(80, 3000)$ tensor, a 160x compression, which combined with a small convolutional projection (Whisper uses two Conv1D + GELU layers with stride 2 in the second one, halving the length again to 1500) gives a manageable transformer input length.</p>
+
+<p>AST takes the analogy with vision literally. Just as the Vision Transformer (ViT) splits an image into 16 by 16 patches, AST splits the 80 by T log-mel spectrogram into 16 by 16 overlapping patches (with stride 10 in both axes), linearly projects each patch to a 768-dim embedding, adds learned positional embeddings, prepends a <code>[CLS]</code> token, and runs the sequence through a standard ViT encoder. A linear head on top of the <code>[CLS]</code> token then predicts the audio class. The whole AST recipe is literally "ViT on spectrograms" with no architectural changes beyond the input projection. Reader who already knows ViT (Chapter 22) can use AST without learning anything new about the model itself.</p>
+
+<div class="callout key-insight">
+<div class="callout-title">Key Insight: Spectrogram Output Avoids Phase Invention</div>
+<p>The same logic that motivates spectrogram <em>input</em> motivates spectrogram <em>output</em> for generation. A waveform sample needs phase information that the model would have to predict sample by sample (and 24 kHz audio means generating 24,000 phase values per second, far more than any transformer can stably do). Spectrograms are phaseless: each STFT bin is a complex number, but neural TTS models emit only the magnitude, leaving phase reconstruction to a deterministic post-processor (Griffin-Lim) or a neural vocoder (HiFi-GAN, MelGAN). SpeechT5, Tacotron 2, and every diffusion TTS model emit a log-mel and let the vocoder handle the rest; Section 20.1 covers this in detail. The takeaway: outputting spectrograms is the standard recipe, outputting waveforms is the special case that codec LMs (Bark, VALL-E, MusicGen) take only because they delegate the waveform reconstruction to the codec decoder.</p>
+</div>
+
+<h2 id="20-0-3-3-ast">20.0.3.3 AST: Audio Spectrogram Transformer</h2>
+<p>Gong, Chung, and Glass introduced AST (Gong et al., 2021) as the first pure-transformer audio classifier (no convolutional backbone). The recipe in five steps: (1) compute the 128-bin log-mel spectrogram of the input clip (10 ms hop, 25 ms window, like Whisper but with 128 mel bins instead of 80); (2) split the spectrogram into 16 by 16 patches with stride 10 in both time and frequency (so patches overlap by 6 pixels); (3) linearly project each patch to a 768-dim embedding and add a learned positional embedding; (4) prepend a <code>[CLS]</code> token; (5) run through a 12-layer transformer encoder and predict the class from the final <code>[CLS]</code> embedding.</p>
+
+<p>AST is trained on AudioSet (Gemmeke et al., 2017), the 527-class audio event benchmark with about 2 million 10-second clips from YouTube. Class examples range from <em>Speech</em>, <em>Music</em>, <em>Singing</em>, <em>Animal</em>, <em>Tools</em>, <em>Engine</em>, <em>Natural sounds</em> at the coarse top level down to fine-grained classes like <em>Glass</em>, <em>Smoke detector beep</em>, <em>Wind chime</em>, and <em>Cap gun</em>. The released checkpoint <code>MIT/ast-finetuned-audioset-10-10-0.4593</code> achieves mean average precision of 0.459 on AudioSet's evaluation split (the suffix in the model name is the mAP rounded to four decimals).</p>
+
+<p>Subsequent specialized checkpoints fine-tune the same backbone for narrow tasks: <code>MIT/ast-finetuned-speech-commands-v2</code> for keyword spotting, plus various community fine-tunes for ESC-50 environmental sound classification, music genre, and so on. Section 20.0.5 walks through how to use these via the HuggingFace pipeline.</p>
+
+<h2 id="20-0-3-4-conformer">20.0.3.4 Conformer: Convolution Plus Attention</h2>
+<p>Gulati et al.'s Conformer (Gulati et al., 2020) remains the dominant architecture for production ASR systems (Google's on-device ASR, Microsoft Azure speech, the Whisper-X family of fine-tunes all use Conformer variants). The motivation is that pure-attention transformers handle global context well but underperform on local acoustic patterns (formant trajectories, phonetic transitions) where small-receptive-field convolutions excel. The Conformer block interleaves both:</p>
+<ol>
+<li>A feed-forward network at half-step weight (Macaron-style structure: feed-forward, then attention, then feed-forward).</li>
+<li>A multi-head self-attention block with relative positional encoding.</li>
+<li>A <strong>convolution module</strong>: a pointwise convolution that expands to twice the hidden dim, a GLU activation, a depthwise 1D convolution with a kernel size around 31 (long enough to span a phoneme), a batch normalization, and a swish activation, then a pointwise convolution back to the hidden dim.</li>
+<li>A second feed-forward at half-step weight.</li>
+<li>Layer normalization, with residual connections around each sub-block.</li>
+</ol>
+<p>The Conformer encoder typically ships in three sizes (S/M/L, 10M/30M/118M parameters) and feeds either a CTC head, an attention-based decoder, or a hybrid RNN-T (transducer) head. ESPnet, NVIDIA NeMo, and SpeechBrain all ship Conformer recipes. Whisper itself does not use a Conformer (it uses a plain transformer with conv stem), but its successors and most production ASR models do.</p>
+
+<h2 id="20-0-3-5-whisper">20.0.3.5 Whisper: The Encoder-Decoder Reference</h2>
+<p>OpenAI's Whisper (Radford et al., 2022) is the canonical encoder-decoder ASR transformer. Trained on 680,000 hours of multilingual web audio (compared to wav2vec 2.0's 60,000 hours of English-only LibriSpeech), it ships in five sizes from <code>tiny</code> (39M parameters) to <code>large-v3</code> (1.55B parameters), with multilingual coverage of 96 languages plus translation to English.</p>
+
+<p>The architecture has two halves. The <strong>encoder</strong> consumes an 80-bin log-mel spectrogram of shape $(80, 3000)$ for a 30-second clip, projects it through two Conv1D + GELU layers (the second has stride 2, halving the temporal dimension to 1500), adds sinusoidal positional embeddings, and runs the sequence through a stack of transformer encoder blocks (4 layers for tiny, 32 layers for large-v3). The output is a sequence of 1500 contextual embeddings.</p>
+
+<p>The <strong>decoder</strong> is a standard transformer decoder with learned positional embeddings, masked self-attention over previously generated text tokens, and cross-attention to the encoder output. Generation is autoregressive, starting from a sequence of <strong>special control tokens</strong> that select the task: <code>&lt;|startoftranscript|&gt;</code> begins decoding, then a language tag (e.g., <code>&lt;|en|&gt;</code>, <code>&lt;|fr|&gt;</code>, <code>&lt;|de|&gt;</code>, <code>&lt;|he|&gt;</code>), then a task tag (<code>&lt;|transcribe|&gt;</code> for same-language transcription or <code>&lt;|translate|&gt;</code> for translation to English), then optionally a timestamp token or <code>&lt;|notimestamps|&gt;</code>, then the text tokens, ending with <code>&lt;|endoftext|&gt;</code>. A separate <code>&lt;|nospeech|&gt;</code> branch handles voice activity detection (the model emits this token when the audio contains no speech).</p>
+
+<figure class="diagram">
+<svg role="img" aria-label="Whisper multitask training format as a directed graph of control tokens" viewBox="0 0 860 360" xmlns="http://www.w3.org/2000/svg" style="font-family:'Segoe UI',sans-serif;max-width:100%;height:auto;">
+<rect width="860" height="360" fill="#fafafa"/>
+<text x="430" y="22" font-size="14" font-weight="700" text-anchor="middle" fill="#1a1a2e">Whisper multitask training format (directed graph of special tokens)</text>
+<text x="430" y="40" font-size="10" font-style="italic" text-anchor="middle" fill="#5a4a3a">One vocabulary, multiple tasks, controlled by which tokens the decoder is fed</text>
+<defs>
+<marker id="whArr" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#666"/></marker>
+</defs>
+<g font-size="10">
+<rect x="20" y="140" width="120" height="42" rx="6" fill="#bbdefb" stroke="#1976d2" stroke-width="1.4"/>
+<text x="80" y="158" text-anchor="middle" font-weight="700" fill="#0d47a1">SOT</text>
+<text x="80" y="172" text-anchor="middle" font-size="9" fill="#1976d2">startoftranscript</text>
+<line x1="140" y1="161" x2="170" y2="100" stroke="#666" stroke-width="1.5" marker-end="url(#whArr)"/>
+<line x1="140" y1="161" x2="170" y2="161" stroke="#666" stroke-width="1.5" marker-end="url(#whArr)"/>
+<line x1="140" y1="161" x2="170" y2="245" stroke="#666" stroke-width="1.5" marker-end="url(#whArr)"/>
+<rect x="170" y="80" width="120" height="42" rx="6" fill="#fff3e0" stroke="#ef6c00" stroke-width="1.4"/>
+<text x="230" y="98" text-anchor="middle" font-weight="700" fill="#e65100">Lang tag</text>
+<text x="230" y="112" text-anchor="middle" font-size="9" fill="#ef6c00">&lt;|en|&gt; &lt;|fr|&gt; ...</text>
+<rect x="170" y="140" width="120" height="42" rx="6" fill="#fff3e0" stroke="#ef6c00" stroke-width="1.4"/>
+<text x="230" y="158" text-anchor="middle" font-weight="700" fill="#e65100">Lang tag</text>
+<text x="230" y="172" text-anchor="middle" font-size="9" fill="#ef6c00">(translate path)</text>
+<rect x="170" y="230" width="120" height="42" rx="6" fill="#ffcdd2" stroke="#c62828" stroke-width="1.4"/>
+<text x="230" y="248" text-anchor="middle" font-weight="700" fill="#b71c1c">no-speech</text>
+<text x="230" y="262" text-anchor="middle" font-size="9" fill="#c62828">VAD branch</text>
+<line x1="290" y1="100" x2="320" y2="100" stroke="#666" stroke-width="1.5" marker-end="url(#whArr)"/>
+<line x1="290" y1="161" x2="320" y2="161" stroke="#666" stroke-width="1.5" marker-end="url(#whArr)"/>
+<rect x="320" y="80" width="120" height="42" rx="6" fill="#c8e6c9" stroke="#2e7d32" stroke-width="1.4"/>
+<text x="380" y="98" text-anchor="middle" font-weight="700" fill="#1b5e20">transcribe</text>
+<text x="380" y="112" text-anchor="middle" font-size="9" fill="#2e7d32">X &rarr; X</text>
+<rect x="320" y="140" width="120" height="42" rx="6" fill="#c8e6c9" stroke="#2e7d32" stroke-width="1.4"/>
+<text x="380" y="158" text-anchor="middle" font-weight="700" fill="#1b5e20">translate</text>
+<text x="380" y="172" text-anchor="middle" font-size="9" fill="#2e7d32">X &rarr; English</text>
+<line x1="440" y1="100" x2="470" y2="62" stroke="#666" stroke-width="1.5" marker-end="url(#whArr)"/>
+<line x1="440" y1="100" x2="470" y2="120" stroke="#666" stroke-width="1.5" marker-end="url(#whArr)"/>
+<line x1="440" y1="161" x2="470" y2="161" stroke="#666" stroke-width="1.5" marker-end="url(#whArr)"/>
+<rect x="470" y="40" width="140" height="42" rx="6" fill="#e1bee7" stroke="#6a1b9a" stroke-width="1.4"/>
+<text x="540" y="58" text-anchor="middle" font-weight="700" fill="#4a148c">timestamps</text>
+<text x="540" y="72" text-anchor="middle" font-size="9" fill="#6a1b9a">&lt;|t_begin|&gt; ... &lt;|t_end|&gt;</text>
+<rect x="470" y="100" width="140" height="42" rx="6" fill="#e1bee7" stroke="#6a1b9a" stroke-width="1.4"/>
+<text x="540" y="118" text-anchor="middle" font-weight="700" fill="#4a148c">no-timestamps</text>
+<text x="540" y="132" text-anchor="middle" font-size="9" fill="#6a1b9a">&lt;|notimestamps|&gt;</text>
+<rect x="470" y="140" width="140" height="42" rx="6" fill="#e1bee7" stroke="#6a1b9a" stroke-width="1.4"/>
+<text x="540" y="158" text-anchor="middle" font-weight="700" fill="#4a148c">text-only out</text>
+<text x="540" y="172" text-anchor="middle" font-size="9" fill="#6a1b9a">English translation</text>
+<line x1="610" y1="62" x2="640" y2="62" stroke="#666" stroke-width="1.5" marker-end="url(#whArr)"/>
+<line x1="610" y1="120" x2="640" y2="120" stroke="#666" stroke-width="1.5" marker-end="url(#whArr)"/>
+<line x1="610" y1="161" x2="640" y2="161" stroke="#666" stroke-width="1.5" marker-end="url(#whArr)"/>
+<rect x="640" y="40" width="180" height="42" rx="6" fill="#fff9c4" stroke="#f57f17" stroke-width="1.4"/>
+<text x="730" y="58" text-anchor="middle" font-weight="700" fill="#e65100">Text + timestamps</text>
+<text x="730" y="72" text-anchor="middle" font-size="9" fill="#f57f17">spans aligned to audio</text>
+<rect x="640" y="100" width="180" height="42" rx="6" fill="#fff9c4" stroke="#f57f17" stroke-width="1.4"/>
+<text x="730" y="118" text-anchor="middle" font-weight="700" fill="#e65100">Text only</text>
+<text x="730" y="132" text-anchor="middle" font-size="9" fill="#f57f17">no time annotations</text>
+<rect x="640" y="140" width="180" height="42" rx="6" fill="#fff9c4" stroke="#f57f17" stroke-width="1.4"/>
+<text x="730" y="158" text-anchor="middle" font-weight="700" fill="#e65100">English text</text>
+<text x="730" y="172" text-anchor="middle" font-size="9" fill="#f57f17">translation output</text>
+<text x="430" y="310" text-anchor="middle" font-size="11" font-weight="700" fill="#1a1a2e">All paths terminate with &lt;|endoftext|&gt;</text>
+<text x="430" y="328" text-anchor="middle" font-size="9.5" fill="#5a4a3a">A single 32k vocabulary covers text, control tokens, and timestamp tokens (1500 of them, one per 20 ms frame).</text>
+</g>
+</svg>
+<figcaption><strong>Figure 20.0.3.1</strong>: Whisper's multitask training format, drawn as a directed graph of special control tokens. The decoder always starts from <code>&lt;|startoftranscript|&gt;</code> (SOT) and branches based on which token is generated next. The same parameter set serves transcription, translation, voice activity detection, and timestamped output, controlled entirely by which token sequence is fed to the decoder. This is what makes Whisper a multitask model in the same sense that T5 is multitask: one set of weights, many tasks selected at inference.</figcaption>
+</figure>
+
+<p>Training uses standard token-level cross-entropy on (audio, transcript) pairs with the appropriate control tokens prefixed. Evaluation reports <strong>Word Error Rate</strong> (WER):</p>
+<div class="math-block">$$\mathrm{WER} = \frac{S + I + D}{N},$$</div>
+<p>where $S$ is the number of substitutions, $I$ insertions, $D$ deletions in the predicted transcript relative to the ground truth of length $N$ words. The Wagner-Fischer dynamic-programming algorithm computes the minimum-edit alignment in $O(NM)$ time. Whisper large-v3 achieves single-digit WER on most English benchmarks and remains competitive on most of the 96 supported languages, though performance degrades for very low-resource languages.</p>
+
+<div class="callout library-shortcut">
+<div class="callout-title">Library Shortcut: Whisper Inference with Visible Control Tokens</div>
+<div class="code-block-wrapper">
+<pre><code class="language-python">from transformers import WhisperProcessor, WhisperForConditionalGeneration
+from datasets import load_dataset, Audio
+import torch
+
+processor = WhisperProcessor.from_pretrained("openai/whisper-small")
+model = WhisperForConditionalGeneration.from_pretrained("openai/whisper-small")
+
+ds = load_dataset("hf-internal-testing/librispeech_asr_dummy", "clean", split="validation")
+ds = ds.cast_column("audio", Audio(sampling_rate=16_000))
+audio = ds[0]["audio"]
+
+inputs = processor(audio["array"], sampling_rate=16_000, return_tensors="pt")
+
+with torch.no_grad():
+    generated_ids = model.generate(**inputs)
+
+# Decode WITHOUT skipping special tokens so the control sequence is visible.
+print(processor.batch_decode(generated_ids, skip_special_tokens=False)[0])
+# &lt;|startoftranscript|&gt;&lt;|en|&gt;&lt;|transcribe|&gt;&lt;|notimestamps|&gt; The second in importance
+# is as follows. Sovereignty may be defined to be...&lt;|endoftext|&gt;
+
+# Switch to French transcription by setting the language tag.
+forced_decoder_ids = processor.get_decoder_prompt_ids(language="fr", task="transcribe")
+generated_ids = model.generate(**inputs, forced_decoder_ids=forced_decoder_ids)
+print(processor.batch_decode(generated_ids, skip_special_tokens=True)[0])</code></pre>
+<div class="code-caption"><strong>Code Fragment 20.0.3.1</strong>: Whisper inference via the lower-level <code>WhisperProcessor</code> + <code>WhisperForConditionalGeneration</code> pair (the higher-level <code>pipeline("automatic-speech-recognition")</code> wraps this and hides the control tokens). Setting <code>skip_special_tokens=False</code> in <code>batch_decode</code> exposes the directed-graph structure from Figure 20.0.3.1 in the output. The <code>forced_decoder_ids</code> mechanism lets the user pin the language tag and task tag to force a specific path through the control-token graph; this is how multilingual ASR and translation are selected at inference.</div>
+</div>
+</div>
+
+<div class="callout cross-ref">
+<div class="callout-title">Cross-Reference: Deep Whisper Dive in Section 20.5</div>
+<p>This section introduced Whisper's architecture and control-token vocabulary; the production-focused deep dive (faster-whisper, batched inference, VAD-based chunking, fine-tuning on Common Voice with Seq2SeqTrainer, the Hebrew tokenization bug, long-form chunk-and-stitch) is in <a href="section-20.5.html">Section 20.5</a>. Reader who only needs to use Whisper through HuggingFace can stop here; reader who wants to ship Whisper in a transcription product should also read Section 20.5.</p>
+</div>
+
+<h2 id="20-0-3-6-ctc">20.0.3.6 Connectionist Temporal Classification</h2>
+<p>Whisper handles ASR with an encoder-decoder where the decoder generates text autoregressively. The alternative, used by wav2vec 2.0 and HuBERT when fine-tuned for ASR, is an encoder-only model with a <strong>Connectionist Temporal Classification</strong> (CTC) head, trained with the CTC loss of Graves et al. (2006). The CTC approach is simpler to implement, faster at inference (no autoregressive generation), and lighter on parameter count, at the cost of being non-autoregressive (each frame predicts independently given the encoder output) and giving up the long-range conditioning a decoder provides.</p>
+
+<h3>The Misalignment Problem</h3>
+<p>An ASR model produces one prediction per audio frame (say, every 20 ms after the convolutional stem), but the ground-truth transcript is a sequence of characters or word pieces, and one phoneme typically spans several frames. The mapping from frame predictions to transcript characters is unknown at training time, only the final transcript is known. This is what slide 9 of the encoder deck calls <em>misaligned sequence-to-sequence</em> learning: there is no per-frame label to compute a frame-wise cross-entropy loss against.</p>
+
+<p>The naive fix is to run a separate forced-alignment preprocessor (Montreal Forced Aligner, the Kaldi GMM-HMM pipeline) that assigns each transcript character to a specific frame, but that requires a separately trained acoustic model and breaks end-to-end training. CTC sidesteps this entirely.</p>
+
+<h3>The CTC Trick</h3>
+<p>CTC enlarges the output vocabulary by adding a special <strong>blank</strong> symbol (often written <code>*</code> or <code>&lt;blank&gt;</code>). The model predicts one symbol per frame from the enlarged vocabulary, and the <em>decoding rule</em> collapses the frame-wise output to a clean transcript by:</p>
+<ol>
+<li>Merging consecutive duplicate symbols into a single occurrence.</li>
+<li>Removing all blank symbols.</li>
+</ol>
+<p>For example, the ground-truth transcript "CHAPTER SIXTEEN" might correspond to a frame-wise prediction like <code>"CHAAAAAPTT*ERRR/SS*IX*T*EE*EEN"</code> (where <code>*</code> is blank and <code>/</code> is the word-break or space symbol), which collapses under the rule to "CHAPTER SIXTEEN". The blank symbol is what enables the model to "stay silent" for a frame without inserting a spurious character, and it also separates intentional repeats (the double-L in "HELLO" is represented as <code>H*E*L*L*O</code> with a blank between the two L's so they are not merged).</p>
+
+<h3>The CTC Loss</h3>
+<p>Many different frame sequences collapse to the same transcript (any sequence with the right characters in the right order, separated by any number of blanks and repeats, decodes to "HELLO"). The CTC loss says the probability of the transcript is the <em>sum</em> of probabilities over all valid frame sequences:</p>
+<div class="math-block">$$P(y \mid x) = \sum_{\pi \in B^{-1}(y)} \prod_{t=1}^{T} P(\pi_t \mid x_t),$$</div>
+<p>where $\pi$ ranges over all $T$-length sequences in the enlarged vocabulary that collapse to $y$ under the decoding rule $B$. The number of such sequences is exponential in $T$, so direct enumeration is infeasible. The <strong>forward-backward algorithm</strong> (the same dynamic-programming idea that computes hidden Markov model likelihoods) computes the marginal in $O(T \cdot |y|)$ time by maintaining forward variables $\alpha_t(s)$ = "total probability of all paths that reach character index $s$ in the transcript at frame $t$" and analogous backward variables. The gradient with respect to the per-frame logits then flows back through standard automatic differentiation, making CTC end-to-end trainable.</p>
+
+<h3>CTC Decoding</h3>
+<p>At inference the model emits per-frame distributions over the enlarged vocabulary and the decoder needs to find the most likely <em>transcript</em> (not the most likely frame sequence). <strong>Greedy decoding</strong> picks the argmax symbol per frame and applies the collapse rule, which is fast but ignores the fact that many low-probability frame sequences could sum to a high-probability transcript. <strong>Beam search</strong> maintains the top-$k$ partial transcripts and their forward probabilities, optionally re-scored by an external language model (a Kenlm n-gram model or a small transformer) to handle long-range linguistic constraints. PyCTCDecode and torchaudio's <code>cuda_ctc_decoder</code> implement production-grade beam search; <code>processor.batch_decode</code> on a wav2vec 2.0 model defaults to greedy.</p>
+
+<div class="callout library-shortcut">
+<div class="callout-title">Library Shortcut: Wav2Vec 2.0 CTC Inference</div>
+<div class="code-block-wrapper">
+<pre><code class="language-python">from transformers import Wav2Vec2Processor, Wav2Vec2ForCTC
+from datasets import load_dataset, Audio
+import torch
+
+processor = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-base-960h")
+model = Wav2Vec2ForCTC.from_pretrained("facebook/wav2vec2-base-960h")
+
+ds = load_dataset("hf-internal-testing/librispeech_asr_dummy", "clean", split="validation")
+ds = ds.cast_column("audio", Audio(sampling_rate=16_000))
+audio = ds[0]["audio"]["array"]
+
+inputs = processor(audio, sampling_rate=16_000, return_tensors="pt")
+
+with torch.no_grad():
+    logits = model(**inputs).logits          # (1, n_frames, vocab_size)
+
+# Greedy CTC: argmax per frame, then collapse repeats + remove blanks.
+predicted_ids = torch.argmax(logits, dim=-1)
+transcription = processor.batch_decode(predicted_ids)[0]
+print(transcription)
+# "MISTER QUILTER IS THE APOSTLE OF THE MIDDLE CLASSES AND WE ARE GLAD ..."</code></pre>
+<div class="code-caption"><strong>Code Fragment 20.0.3.2</strong>: wav2vec 2.0 with a CTC head, the canonical encoder-only ASR pattern. The same code template works for HuBERT (<code>HubertForCTC.from_pretrained("facebook/hubert-large-ls960-ft")</code>) and for any wav2vec or HuBERT model with <code>-ft</code> in the name (the <code>-ft</code> indicates the model was fine-tuned for ASR; the base un-finetuned models are feature extractors only). The processor's <code>batch_decode</code> applies greedy CTC decoding; swap in <code>pyctcdecode</code> for beam search with an n-gram language model.</div>
+</div>
+</div>
+
+<h2 id="20-0-3-7-summary">20.0.3.7 Summary: Picking an Architecture</h2>
+<p>Four architectures cover almost every audio task in the rest of this chapter. <strong>AST</strong> handles audio classification (events, intents, KWS, genres) with a ViT-style spectrogram encoder. <strong>Conformer</strong> handles production ASR with a conv-plus-attention hybrid, paired with either a CTC head or an attention decoder. <strong>Whisper</strong> handles multilingual transcription, translation, and timestamping with a single encoder-decoder controlled by special tokens. <strong>wav2vec 2.0 / HuBERT with a CTC head</strong> handles ASR when a smaller, faster, non-autoregressive model is preferred and when the next section's self-supervised pretraining gives a starting checkpoint. The next section dissects the self-supervised pretraining that underlies wav2vec 2.0, HuBERT, WavLM, and BEATs in detail.</p>
+
+<div class="callout key-takeaway">
+<div class="callout-title">Key Takeaway</div>
+<p>Audio transformers come in two input flavors (raw waveform with conv stem, log-mel spectrogram as image) and three role flavors (encoder-only for classification and feature extraction, decoder-only for codec LMs, encoder-decoder for ASR). AST is ViT on log-mel spectrograms. Conformer is the conv-plus-attention hybrid behind most production ASR. Whisper is the encoder-decoder reference, with a multitask vocabulary of control tokens that selects transcription versus translation versus VAD versus timestamps. CTC is the alignment-free loss that turns any encoder into an ASR model by predicting blank-separated character sequences and marginalizing over alignments via the forward-backward algorithm. Word Error Rate is the standard evaluation metric: $\mathrm{WER} = (S + I + D) / N$.</p>
+</div>
+
+<div class="whats-next">
+<h3>What Comes Next</h3>
+<p><a href="section-20.0.4.html">Section 20.0.4</a> opens up the wav2vec 2.0 / HuBERT half of the architecture roster and explains how they get pretrained without any labels: contrastive (wav2vec 2.0) versus masked-cluster-prediction (HuBERT) versus utterance-mixing-augmented (WavLM) versus self-distilled-tokenizer (BEATs). After that, Section 20.0.5 brings the classification recipe full circle with the AST inference pattern, CLAP zero-shot, and a DistilHuBERT supervised fine-tune.</p>
+</div>
+
+<details class="bibliography-collapsible"><summary><strong>Further Reading</strong></summary>
+<section class="bibliography">
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://arxiv.org/abs/2104.01778" rel="noopener" target="_blank">Gong, Y., Chung, Y.-A., and Glass, J. (2021). "AST: Audio Spectrogram Transformer." <em>Interspeech 2021</em>.</a> The original AST paper that pioneered "ViT on spectrograms" for audio classification.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://arxiv.org/abs/2005.08100" rel="noopener" target="_blank">Gulati, A. et al. (2020). "Conformer: Convolution-augmented Transformer for Speech Recognition." <em>Interspeech 2020</em>.</a> The Conformer architecture that remains dominant in production ASR.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://cdn.openai.com/papers/whisper.pdf" rel="noopener" target="_blank">Radford, A. et al. (2022). "Robust Speech Recognition via Large-Scale Weak Supervision (Whisper)." <em>arXiv:2212.04356</em>.</a> The Whisper paper; the 680,000-hour training set and the multitask control-token format both originate here.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Graves, A., Fernandez, S., Gomez, F., and Schmidhuber, J. (2006). "Connectionist Temporal Classification: Labelling Unsegmented Sequence Data with Recurrent Neural Networks." <em>ICML 2006</em>. The original CTC paper; defines the loss, the blank token, and the forward-backward algorithm.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://arxiv.org/abs/2010.11929" rel="noopener" target="_blank">Dosovitskiy, A. et al. (2021). "An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale (ViT)." <em>ICLR 2021</em>.</a> The Vision Transformer paper that AST ports directly to log-mel spectrograms.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://distill.pub/2017/ctc/" rel="noopener" target="_blank">Hannun, A. (2017). "Sequence Modeling with CTC." <em>Distill</em>.</a> The clearest illustrated explanation of CTC available online; useful supplementary reading to Section 20.0.3.6.</div>
+</div>
+</section>
+</details>
+
+<nav class="chapter-nav">
+<a class="prev" href="section-20.0.2.html"><span class="nav-label">Previous</span><span class="nav-num">Section 20.0.2</span><span class="nav-title">Audio Codec Models and Vector Quantization</span></a>
+<a class="up" href="index.html"><span class="nav-label">In Chapter</span><span class="nav-num">Chapter 20</span><span class="nav-title">Audio, Music, and Video Generation</span></a>
+<a class="next" href="section-20.0.4.html"><span class="nav-label">Next</span><span class="nav-num">Section 20.0.4</span><span class="nav-title">Self-Supervised Audio Encoders</span></a>
+</nav>
+<footer><p>Fifteenth Edition, 2026 &middot; <a href="../../toc.html">Contents</a></p></footer>
+</main>
+</body>
+</html>

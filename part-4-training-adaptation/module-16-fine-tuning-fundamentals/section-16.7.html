@@ -358,6 +358,42 @@ print(f"{len(chunks)} chunks, avg {sum(map(len, chunks))/len(chunks):.0f} chars"
 <div class="callout-title">Key Insight</div>
 <p>Structure your prompts with the U-shape in mind. Place the most critical information (key instructions, the most relevant retrieved passages, essential context) at the very beginning and the very end of your prompt. Less critical supporting information can go in the middle. This simple reordering can improve retrieval accuracy by 10% to 20% on long-context tasks without any model changes.</p>
 </div>
+<h2 id="16-7-3-long-document-classification-strategy-catalog">16.7.3 Long-Document Classification: A Strategy Catalog</h2>
+<p>Sections 16.7.1 and 16.7.2 framed the long-context problem from the generative side: how to extend a model's context window so it can <em>continue writing</em> across a long document. Classification asks a different question: given a document longer than the model's context, how does the team produce a single label (or set of labels) for the entire document? The honest answer is that no single technique dominates; the right choice depends on document length, label granularity, available labels, and inference budget. Seven distinct strategies appear in production systems, and most mature pipelines combine two or three.</p>
+<h3 id="16-7-3-1-the-seven-strategies">16.7.3.1 The Seven Strategies</h3>
+<ol>
+<li><strong>Truncate to the first $N$ tokens.</strong> The simplest possible strategy: keep the first 512 (or 4,096) tokens and discard the rest. Works surprisingly well when the label is determined by the document's opening, as in news topic classification (the headline and lead carry the topic) or email intent detection (the subject line and first sentence reveal the request). Fails badly when the discriminative content lives in the middle or end (legal contract red flags, scientific paper conclusions).</li>
+<li><strong>Sliding window plus aggregate.</strong> Slide a fixed-size window across the document, run the classifier independently on each window, then combine the per-window predictions. The aggregator is either a <em>majority vote</em> over the predicted labels, an <em>average of the softmax logits</em>, or a <em>max-pool</em> across windows (useful when the task is "does this document contain X?"). Window overlap (typically 10 to 20 percent) reduces boundary-effect errors. Cheap, requires no architectural change, and surprisingly strong on most production tasks.</li>
+<li><strong>Hierarchical transformer.</strong> Two transformers stacked vertically. The lower transformer encodes each window into a single embedding (mean-pooled or [CLS]); the upper transformer (or a small RNN, or a simple mean pool) takes the sequence of window embeddings as input and emits the document-level label. The hierarchical structure preserves cross-window context that pure aggregation loses. Standard pattern in the Hierarchical Attention Networks line of work and the basis of most long-document classification baselines in academic benchmarks.</li>
+<li><strong>Long-sequence transformers.</strong> Architectures specifically designed for longer attention spans without quadratic cost. <strong>Longformer</strong> combines a sliding local window with a small set of global attention tokens to reach 4K tokens; <strong>BigBird</strong> adds <em>random</em> attention to the local + global pattern to provably approximate full attention with linear cost, scaling to roughly 16K. Both ship as drop-in replacements for BERT and require fine-tuning on long sequences to exploit the extended window. The right tool when the labeled long-document dataset is large enough to fine-tune a dedicated long-sequence encoder.</li>
+<li><strong>Summarize-first, then classify.</strong> Run a summarization model (or an LLM with a "summarize" prompt) over the long document to produce a 256- or 512-token summary, then classify the summary with a normal short-context model. Two-pass and slow, but extremely effective when the labels are abstract and require global understanding (sentiment of a multi-page review, regulatory classification of a contract).</li>
+<li><strong>Zero-shot generative classification.</strong> Feed the long document directly to an instruction-tuned LLM with a prompt like "Classify the following document into one of {labels}." Works for any length the LLM accepts and requires zero labeled training data, but is by far the most expensive per call and inherits the lost-in-the-middle failure mode for documents in the middle of its context window.</li>
+<li><strong>Retrieval-augmented classification.</strong> Chunk and embed the document at index time. At classification time, embed a small set of <em>label-related queries</em> ("does the document discuss termination clauses?"), retrieve the top-$k$ matching chunks, and pass only those chunks to a short-context classifier (or a zero-shot LLM). Combines retrieval's scalability with the classifier's discriminative power; the right choice for very long documents where only a small fraction of the text is relevant to the label.</li>
+</ol>
+<h3 id="16-7-3-2-which-strategy-when">16.7.3.2 Decision Table</h3>
+<div class="comparison-table">
+<div class="comparison-table-title"><strong>Table 16.7.1</strong>: <em>Long-Document Classification Strategy Selector.</em></div>
+<table class="complex-table">
+<thead>
+<tr><th scope="col">Strategy</th><th scope="col">Best When</th><th scope="col">Avoid When</th><th scope="col">Inference Cost</th></tr>
+</thead>
+<tr><td>Truncate</td><td>Label is determined by document opening (news topic, email intent)</td><td>Discriminative content is in the middle or end</td><td>Lowest (1 short-context call)</td></tr>
+<tr><td>Sliding window + aggregate</td><td>Label is local; majority vote / max-pool over windows is meaningful</td><td>Label requires global cross-section reasoning</td><td>Linear in document length</td></tr>
+<tr><td>Hierarchical transformer</td><td>Large labeled long-document dataset; cross-window context matters</td><td>No long-document labels available</td><td>Linear; two stacked transformers</td></tr>
+<tr><td>Longformer / BigBird</td><td>Documents under ~16K tokens; can afford to fine-tune a long-seq encoder</td><td>Documents exceed the long-seq attention window</td><td>Linear-in-length (vs. quadratic baseline)</td></tr>
+<tr><td>Summarize-first</td><td>Labels are abstract; summarization model is strong in the domain</td><td>Subtle local cues drive the label and would be lost in summary</td><td>2 model passes (summary + classify)</td></tr>
+<tr><td>Zero-shot generative</td><td>No labeled data; small label set; budget allows LLM calls</td><td>High-volume production with tight latency / cost budgets</td><td>Highest (long-context LLM per call)</td></tr>
+<tr><td>RAG classification</td><td>Very long documents where only a small fraction matters per label</td><td>Label depends on global properties of the full document</td><td>Embedding lookup + short classifier call</td></tr>
+</table>
+</div>
+<div class="callout tip">
+<div class="callout-title">Tip: Start with Strategies 1 and 2</div>
+<p>Many teams burn weeks fine-tuning Longformer or wiring up RAG-classification only to discover that plain truncation reaches 95 percent of the eventual accuracy. The honest production playbook is: (1) measure truncate-to-512 baseline, (2) measure sliding-window-512 + majority-vote baseline, and only then (3) invest in hierarchical or long-sequence architectures. The strategy you ship is almost always the cheapest one whose accuracy is "close enough" to the most expensive one.</p>
+</div>
+<div class="callout note">
+<div class="callout-title">Note: Long-Context Generation vs. Long-Document Classification</div>
+<p>The seven strategies above are <em>classification</em> patterns. Long-context <em>generation</em> (summarizing or answering questions over a long document) has overlapping but distinct trade-offs: RoPE scaling (Section 16.7.2) and chunked retrieval (the RAG strategy above, applied at generation time) dominate. Perceiver-AR and similar cross-attention architectures extend the generative side further but are still rare in production. Pick from the classification table when the output is a discrete label; pick from Section 16.7.2 when the output is free-form text.</p>
+</div>
 <div class="callout key-takeaway">
 <div class="callout-title">Key Takeaways</div>
 <ul>
@@ -473,6 +509,15 @@ print(f"{len(chunks)} chunks, avg {sum(map(len, chunks))/len(chunks):.0f} chars"
 </div>
 <div class="bib-entry-card">
 <div class="bib-ref"><a href="https://arxiv.org/abs/2108.12409" rel="noopener" target="_blank">Press, O. et al. (2022). <em>Train Short, Test Long: Attention with Linear Biases Enables Input Length Generalization</em>. ICLR 2022.</a> Introduces ALiBi (Attention with Linear Biases), an alternative to learned positional embeddings that generalizes naturally to longer sequences without any modification. ALiBi provides useful contrast to the RoPE scaling methods and represents a different philosophical approach to length generalization.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://arxiv.org/abs/2004.05150" rel="noopener" target="_blank">Beltagy, I., Peters, M. E., &amp; Cohan, A. (2020). <em>Longformer: The Long-Document Transformer</em>.</a> Introduces Longformer's combination of local sliding-window attention with task-specific global attention tokens, reaching 4,096-token contexts at linear cost. The reference architecture for long-document classification strategy #4 in Section 16.7.3.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://arxiv.org/abs/2007.14062" rel="noopener" target="_blank">Zaheer, M. et al. (2020). <em>Big Bird: Transformers for Longer Sequences</em>. NeurIPS 2020.</a> BigBird augments Longformer's local + global pattern with random attention and proves that the resulting sparse attention approximates full attention with linear cost. Scales to 16K tokens and is the second canonical choice when an off-the-shelf long-sequence encoder is needed.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://arxiv.org/abs/2202.07765" rel="noopener" target="_blank">Hawthorne, C. et al. (2022). <em>General-purpose, long-context autoregressive modeling with Perceiver AR</em>. ICML 2022.</a> Perceiver-AR uses cross-attention to a small latent array to compress long inputs before autoregressive generation, sidestepping the quadratic cost of self-attention on the full sequence. A research-frontier option for very long generative contexts noted in Section 16.7.3.2.</div>
 </div>
 </section>
 </details>

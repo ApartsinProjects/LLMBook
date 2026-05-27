@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-PWPHBQL2VL"></script>
+<script>
+window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', 'G-PWPHBQL2VL');
+</script>
+
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<meta content="Section E.10: Saving, Loading, and Deployment. state_dict vs full pickle, atomic saves, ONNX export, TorchScript (trace vs script), and mobile/edge deployment." name="description"/>
+<title>Section E.10: Saving, Loading, and Deployment | Building Conversational AI with LLMs and Agents</title>
+<link href="../../styles/book.css" rel="stylesheet"/>
+<link href="../../styles/pygments.css" rel="stylesheet"/>
+<link href="../../vendor/katex/katex.min.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/katex/katex.min.js"></script>
+<script defer="" onload="renderMathInElement(document.body, {
+            delimiters: [
+                {left: '$$', right: '$$', display: true},
+                {left: '$', right: '$', display: false}
+            ],
+            throwOnError: false
+        });" src="../../vendor/katex/contrib/auto-render.min.js"></script>
+<link href="../../vendor/prism/prism-theme.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/prism/prism-bundle.min.js"></script>
+<script defer="" src="../../scripts/book.js"></script>
+<link href="../../pagefind/pagefind-ui.css" rel="stylesheet"/>
+<script defer="" src="../../pagefind/pagefind-ui.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
+
+<header class="chapter-header">
+<nav class="header-nav">
+<a class="book-title-link" href="../../index.html">Building Conversational AI with LLMs and Agents</a>
+<a class="toc-link" href="../../toc.html" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+</nav>
+<div class="header-search">
+<div id="search"></div>
+</div>
+
+<div class="page-breadcrumb" data-pagefind-meta="chapter"><a href="../index.html">Appendices</a><span class="bc-sep">›</span><a href="index.html">Appendix E: PyTorch Reference</a></div>
+<h1>Saving, Loading, and Deployment</h1><div class="page-current">Section E.10</div>
+
+</header>
+<main class="content" id="main-content"><span class="pagefind-meta-injected" data-pagefind-meta="part:Building Conversational AI with LLMs and Agents" hidden=""></span><span class="pagefind-meta-injected" data-pagefind-meta="chapter:Appendix E: PyTorch Reference" hidden=""></span>
+
+<p>A trained model is not yet a deployed product. Between the last training step and the first production request there are decisions about serialization format, export target, latency budget, and hardware. This section covers the PyTorch-side of that transition: how to save a model so it can be loaded reliably, how to export to ONNX for cross-framework deployment, how TorchScript fits in (and when to skip it), and the brief overview of mobile and edge paths. Production serving systems (vLLM, TensorRT-LLM, llama.cpp) that consume these exports are covered in <a href="../../part-2-understanding-llms/module-09-inference-optimization/index.html">Chapter 9</a>.</p>
+
+<h2 id="state-dict-vs-pickle">state_dict vs Full Pickle</h2>
+
+<p>PyTorch supports two ways of serializing a model. The first is <code>torch.save(model, path)</code>, which pickles the entire model object. The second is <code>torch.save(model.state_dict(), path)</code>, which serializes only the tensor values. The two-line save and load idiom looks identical, but the implications differ considerably.</p>
+
+<p>Pickling the whole model is brittle. The pickle file contains a reference to the Python class that defined the model; loading the file requires that exact class to be importable under exactly the same module path. Refactoring the code (moving a class to a new module, renaming an attribute) breaks every checkpoint that depends on the old layout. The pickle also bundles the entire <code>nn.Module</code> machinery, which is unnecessary because the architecture is already in the source code.</p>
+
+<p>Saving only the <code>state_dict</code> is portable. The file is a flat dictionary of parameter tensors keyed by qualified name. Loading requires reconstructing the architecture in code and calling <code>model.load_state_dict(torch.load(path))</code>. The reconstruction step is the price for portability: the same state dict loads into an unchanged class today and into a refactored class tomorrow, as long as parameter names line up.</p>
+
+<div class="code-block-wrapper">
+<pre><code class="language-python">import torch
+
+# Save: state dict only, never the full model object.
+torch.save(model.state_dict(), "checkpoint.pt")
+
+# Load: reconstruct the architecture, then inject weights.
+model = NeuralNetwork(num_inputs=50, num_outputs=10)
+state = torch.load("checkpoint.pt", map_location="cpu", weights_only=True)
+model.load_state_dict(state, strict=True)
+model.eval()
+</code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> (no stdout; model is loaded with its trained parameters)</div>
+<div class="code-caption"><strong>Code Fragment E.10.1:</strong> The portable save and load pattern. The <code>map_location="cpu"</code> argument allows the file to be loaded on hosts that lack the GPU the model was trained on. The <code>weights_only=True</code> flag (default in recent PyTorch) prevents arbitrary code execution at load time.</div>
+</div>
+
+<div class="callout warning">
+<div class="callout-title">Warning: weights_only=True Is a Security Boundary</div>
+<p>The default behavior of <code>torch.load</code> in older PyTorch versions executed arbitrary Python code in the pickle file. A maliciously crafted checkpoint could, on load, exfiltrate data or install a backdoor. Recent PyTorch defaults to <code>weights_only=True</code>, which permits only tensor and basic type deserialization; this should never be turned off when loading untrusted checkpoints from the internet. For checkpoints that legitimately contain custom objects (training state with custom optimizer hyperparameters, for example), explicitly allow-list those classes with <code>torch.serialization.add_safe_globals</code> rather than disabling the safety check.</p>
+</div>
+
+<h2 id="atomic-saves">Atomic Saves Revisited</h2>
+
+<p>Section E.5 introduced the temp-file-and-rename pattern for atomic checkpoints. The pattern matters even more for the "best so far" model that production inference will load: if a save is interrupted by a crash or preemption, a half-written file at the canonical path will cause every subsequent load to fail. <code>os.replace</code> performs an atomic rename on both POSIX and Windows NTFS, so the canonical path either contains the previous valid checkpoint or the new valid checkpoint, never a corrupt mid-write file.</p>
+
+<h2 id="onnx">ONNX Export</h2>
+
+<p>ONNX (Open Neural Network Exchange) is a cross-framework graph format. Exporting a PyTorch model to ONNX makes it loadable by inference runtimes that do not depend on Python or PyTorch: ONNX Runtime, TensorRT, OpenVINO, CoreML, and many edge-device runtimes. For deployment outside the PyTorch ecosystem, ONNX is the lingua franca.</p>
+
+<div class="code-block-wrapper">
+<pre><code class="language-python">import torch
+
+model = NeuralNetwork(num_inputs=50, num_outputs=10).eval()
+dummy = torch.randn(1, 50)                  # example input for tracing
+
+# Modern API (PyTorch 2.x). Uses the dynamo-based exporter, which
+# handles control flow more robustly than the legacy tracer.
+torch.onnx.export(
+    model,
+    (dummy,),
+    "model.onnx",
+    input_names=["features"],
+    output_names=["logits"],
+    dynamic_axes={"features": {0: "batch"}, "logits": {0: "batch"}},
+    opset_version=18,
+)
+
+# Optional: verify the exported model.
+import onnx
+onnx_model = onnx.load("model.onnx")
+onnx.checker.check_model(onnx_model)
+</code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> (no stdout; model.onnx is written and validated)</div>
+<div class="code-caption"><strong>Code Fragment E.10.2:</strong> ONNX export with a dynamic batch dimension. The export is driven by a representative input; for models with data-dependent control flow, the dynamo-based exporter handles many cases the legacy tracer could not.</div>
+</div>
+
+<p>The <code>dynamic_axes</code> argument marks which dimensions of which inputs are allowed to vary at inference time. Without it, the exported ONNX model would be locked to whatever shape the dummy input had, which is rarely what production needs. Common patterns are dynamic batch (always), dynamic sequence length (for NLP), and dynamic image size (for vision models that accept variable resolutions).</p>
+
+<div class="callout practical-example">
+<div class="callout-title">Practical Example: Validating an ONNX Export</div>
+<p>The export succeeds quietly even if the ONNX model produces different outputs than the source. After exporting, always run the same input through both the PyTorch model and the ONNX model (via <code>onnxruntime.InferenceSession</code>) and verify with <code>torch.allclose(torch_out, onnx_out, atol=1e-4)</code>. Mismatches usually trace back to unsupported ops, missing <code>dynamic_axes</code>, or precision drift between PyTorch and ONNX Runtime. Catching the mismatch at export time is much cheaper than catching it after the model is in production.</p>
+</div>
+
+<h2 id="torchscript">TorchScript: Trace vs Script</h2>
+
+<p>TorchScript was PyTorch's original answer to "deploy without Python." It comes in two flavors. <code>torch.jit.trace(model, example_input)</code> records the operations performed on the example input and bakes them into a script. Tracing is simple but unfaithful: any data-dependent control flow (a Python <code>if</code> branching on tensor values) is locked to the path taken by the example. <code>torch.jit.script(model)</code> instead parses the model's Python source code and compiles it to TorchScript, faithfully preserving control flow at the cost of supporting only a TorchScript-compatible subset of Python.</p>
+
+<p>TorchScript is largely superseded by <code>torch.compile</code> for performance and by ONNX export for cross-framework deployment. Its remaining use cases are mobile deployment via PyTorch Mobile (which loads TorchScript) and a few legacy production systems. For new code, prefer <code>torch.compile</code> + <code>state_dict</code> save for PyTorch-resident deployment, and ONNX export for everything else.</p>
+
+<h2 id="mobile-edge">Mobile and Edge Deployment</h2>
+
+<p>Three paths exist for running PyTorch models on mobile and edge devices.</p>
+
+<ul>
+<li><strong>ExecuTorch</strong> (the recommended path going forward) is PyTorch's official on-device runtime, designed for iOS, Android, microcontrollers, and embedded Linux. It accepts models exported via <code>torch.export</code>, lowers them to a compact program format, and runs them with a minimal runtime that does not include the full PyTorch framework. Generally available since PyTorch 2.5.</li>
+<li><strong>PyTorch Mobile</strong> (legacy) loads TorchScript modules with a stripped-down PyTorch runtime on iOS and Android. Still works, but the project is in maintenance mode; new mobile deployments should use ExecuTorch.</li>
+<li><strong>ONNX Runtime Mobile and TensorFlow Lite</strong> are non-PyTorch runtimes that accept ONNX models. Useful when integrating with an existing TFLite-based mobile pipeline or when targeting specific NN accelerators with first-class ONNX support.</li>
+</ul>
+
+<p>Regardless of runtime, mobile deployment usually requires quantization to int8 or smaller to meet memory and latency budgets. PyTorch's <code>torch.ao.quantization</code> toolkit handles post-training quantization and quantization-aware training; the resulting model can then be exported to whichever runtime the device supports. The quantization tradeoffs are covered in detail in <a href="../../part-2-understanding-llms/module-09-inference-optimization/section-9.1.html">Section 9.1</a>.</p>
+
+<div class="callout key-insight">
+<div class="callout-title">Key Insight: Eager-Mode Inference Is Often Enough</div>
+<p>For server-side deployment of medium-size models, plain PyTorch in eager mode (with <code>model.eval()</code> and <code>torch.inference_mode()</code>) is often the simplest, fastest option. Adding <code>torch.compile</code> typically gives a free 1.5 to 2x. Beyond that, the marginal complexity of TorchScript, ONNX, or TensorRT pays off only when latency budgets are tight, when deployment is to a Python-free runtime, or when the model is large enough that compiler-specific kernel fusion matters. Starting with the simplest path and adding complexity only when measurements demand it saves significant engineering time.</p>
+</div>
+
+<h2 id="hf-hub">Sharing via the Hugging Face Hub</h2>
+
+<p>For models that will be shared publicly, the Hugging Face Hub provides versioned storage, model cards, and integration with the <code>transformers</code> library. The pattern is to subclass <code>PreTrainedModel</code>, save with <code>model.save_pretrained(path)</code>, and push with <code>model.push_to_hub(repo_id)</code>. Loading from the Hub is then a one-liner: <code>AutoModel.from_pretrained(repo_id)</code>. For PyTorch-only models that do not need <code>transformers</code>, the Hub still works through <code>huggingface_hub</code>'s <code>upload_file</code> API; the resulting URL can be downloaded directly with <code>hf_hub_download</code> on any machine.</p>
+
+<div class="callout key-takeaway">
+<div class="callout-title">Key Takeaway</div>
+<p>For PyTorch-resident deployment, save <code>state_dict</code> (never the full model), reconstruct the architecture at load time, and write atomically. For cross-framework deployment, export to ONNX with <code>dynamic_axes</code> set for the dimensions that vary, and always validate the export against the PyTorch source. For mobile and edge, use ExecuTorch for new code and PyTorch Mobile for maintenance. Skip TorchScript unless legacy systems require it. The simplest deployment path that meets the latency budget is almost always the right one; reach for compilers and quantization only when measurements justify the complexity.</p>
+</div>
+
+<details class="bibliography-collapsible">
+<summary><strong>Further Reading</strong></summary>
+<section class="bibliography">
+<h3 id="deploy-refs">Deployment References</h3>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://pytorch.org/tutorials/beginner/saving_loading_models.html" rel="noopener" target="_blank">PyTorch Tutorial: Saving and Loading Models.</a> Covers <code>state_dict</code> vs full-model patterns, cross-device loading, and the optimizer checkpointing idioms. The starting point for any serialization decision.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://pytorch.org/docs/stable/onnx.html" rel="noopener" target="_blank">PyTorch Documentation: ONNX Exporter.</a> The current export API, including the dynamo-based exporter that replaces the legacy tracer for most use cases.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://pytorch.org/executorch/stable/" rel="noopener" target="_blank">ExecuTorch Documentation.</a> The on-device runtime: architecture, export workflow, and integration guides for iOS, Android, and embedded targets.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://huggingface.co/docs/huggingface_hub" rel="noopener" target="_blank">Hugging Face Hub Documentation.</a> Programmatic upload, download, and versioning of models, datasets, and spaces. The pragmatic option for sharing PyTorch checkpoints.</div>
+</div>
+</section>
+</details>
+
+<nav class="chapter-nav">
+<a class="prev" href="section-e.9.html"><span class="nav-label">Previous</span><span class="nav-num">Section E.9</span><span class="nav-title">Debugging Recipes</span></a>
+<a class="up" href="index.html"><span class="nav-label">In Appendix</span><span class="nav-num">Appendix E</span><span class="nav-title">PyTorch Reference</span></a>
+<a class="next" href="../index.html"><span class="nav-label">Next</span><span class="nav-num">Appendices</span><span class="nav-title">Reference, Frameworks, Infrastructure &amp; Pedagogy</span></a>
+</nav>
+<footer><p>Fifteenth Edition, 2026 · <a href="../../toc.html">Contents</a></p></footer>
+</main>
+</body>
+</html>

@@ -330,6 +330,10 @@ trainable params: 13,631,488 || all params: 6,751,219,712 || trainable%: 0.2019
 <div class="callout-title">Note</div>
 <p>LoRA learning rates are typically 5-10x higher than full fine-tuning learning rates. This is because only a small fraction of parameters are being updated, so each update needs to have a larger effect. A learning rate of 2e-4 for LoRA corresponds roughly to 2e-5 for full fine-tuning in terms of per-step model change.</p>
 </div>
+<div class="callout note">
+<div class="callout-title">Note: What <code>lora_dropout</code> actually drops</div>
+<p>The <code>lora_dropout</code> parameter applies standard Bernoulli dropout to the input of the low-rank delta path (the $A$ matrix's input), not to the base model. During each forward pass a fraction $p$ of input features going into $A$ are zeroed and the remaining ones are scaled by $1/(1-p)$ to preserve expected magnitudes; the frozen base matrix $W_0$ receives the unmodified input. This regularizes only the adapter, so the base model's frozen behavior is never perturbed. A small value such as $p=0.05$ is enough for most fine-tunes because the adapter has so few parameters; raising it past $0.1$ tends to slow convergence without further reducing overfitting.</p>
+</div>
 <h2 id="17-1-8-the-peft-library-ecosystem">17.1.8 The PEFT Library Ecosystem</h2>
 <p>The <a href="../../part-2-understanding-llms/module-10-interpretability/section-10.7.html#10-6-huggingface-transformers-deep-dive">Hugging Face</a> <code>peft</code> library provides a unified interface for all parameter-efficient methods. Beyond basic LoRA, it supports loading adapters from the Hub, combining adapters, and quantized training workflows.
  <strong>Code Fragment 17.1.3</strong> shows this approach in practice.</p>
@@ -403,6 +407,34 @@ Target modules: ['q_proj', 'v_proj']
 </div>
 
 <div class="code-caption"><strong>Code Fragment 17.1.5:</strong> QLoRA (Dettmers et al., 2023) combines LoRA with 4-bit NF4 quantization of the base model.</div></div>
+
+<h3 id="qlora-mechanics-nf4-blockwise-double">Under the Hood: NF4, Blockwise, and Double Quantization</h3>
+<p>Three quantization tricks make QLoRA work. The first is the <strong>NF4 (4-bit NormalFloat)</strong> data type, a 16-value codebook hand-designed for tensors whose values are approximately $\mathcal{N}(0, \sigma^2)$ distributed (the regime that pretrained transformer weights consistently fall into after layer-norm). Rather than placing the 16 levels at uniform spacing across the value range, NF4 places them at the quantiles of a unit normal so that each level has equal expected probability mass. The full 16 anchor values (used by every modern <code>bitsandbytes</code> install) are:</p>
+<div class="callout practical-example">
+<div class="callout-title">The 16 NF4 anchor values</div>
+<p>$$\begin{aligned}\text{NF4} = \{&amp;-1.0,\ -0.6962,\ -0.5251,\ -0.3949,\ -0.2844,\ -0.1848,\\ &amp;-0.0911,\ 0.0,\ 0.0796,\ 0.1609,\ 0.2461,\ 0.3379,\\ &amp;0.4407,\ 0.5626,\ 0.7230,\ 1.0\}\end{aligned}$$</p>
+<p>The codebook is asymmetric around zero (9 positive, 7 negative including the explicit $0$) because the encoded distribution is forced to lie in $[-1, 1]$ by per-block scaling and exactly one anchor must sit at each endpoint to keep the dynamic range. Spacing is tight near zero (where the bulk of weight mass lives) and sparse near $\pm 1$ (the tails), the opposite of uniform quantization.</p>
+</div>
+<p>The second trick is <strong>blockwise quantization</strong>. A single global scale across an entire weight matrix is dominated by the largest outlier, which crushes precision for the typical weight. QLoRA instead splits each tensor into blocks of 64 contiguous parameters and quantizes each block independently against its own absolute-maximum scale $c_i = \max(|w_j|)$ for $w_j$ in block $i$. Each weight is stored as a 4-bit code (16 levels) plus the block shares a 32-bit FP32 scale. The per-parameter cost is therefore $4 + 32/64 = 4.5$ bits.</p>
+<p>The third trick, <strong>double quantization</strong>, attacks the residual 0.5-bit overhead. The block scales $c_i$ are themselves a long FP32 vector (one per 64 weights), so QLoRA groups <em>those</em> scales into super-blocks of 256 and quantizes each super-block to 8-bit precision against a single FP32 super-scale. The per-parameter cost drops to $4 + 8/64 + 32/(64 \cdot 256) \approx 4.127$ bits, recovering roughly 0.37 bits per parameter (about 3 GB on a 65B model) at negligible accuracy cost. The complete chain is summarized in <strong>Table 17.1.4</strong>.</p>
+<div class="table-container">
+<table>
+<caption><strong>Table 17.1.4</strong>: Bits per parameter introduced by each layer of QLoRA quantization, for a representative 65B-parameter base model.</caption>
+<thead>
+<tr><th scope="col">Layer</th><th scope="col">Per-parameter cost</th><th scope="col">65B model size</th></tr>
+</thead>
+<tbody>
+<tr><td>FP16 baseline</td><td>16 bits</td><td>130 GB</td></tr>
+<tr><td>NF4 codebook only (1 global scale)</td><td>4 bits</td><td>32.5 GB</td></tr>
+<tr><td>+ Blockwise FP32 scales (block=64)</td><td>4.5 bits</td><td>36.5 GB</td></tr>
+<tr><td>+ Double quantization (super-block=256)</td><td>4.127 bits</td><td>33.5 GB</td></tr>
+</tbody>
+</table>
+</div>
+<div class="callout key-insight">
+<div class="callout-title">Why the codebook is normal-shaped</div>
+<p>Pretrained transformer weights look like draws from a zero-mean normal after the layer-norm rescaling baked into modern architectures. An information-theoretically optimal 4-bit quantizer for a $\mathcal{N}(0, 1)$ source places its levels at the 16 equal-probability quantiles of the normal CDF, which is exactly how the NF4 anchors are derived. A uniform 4-bit grid would waste codewords on the rare tails and starve the dense center, hurting accuracy. NF4 is therefore a Lloyd-Max-style optimal quantizer rather than a clever heuristic.</p>
+</div>
 <!-- Quiz Section -->
 
 <div class="callout tip">

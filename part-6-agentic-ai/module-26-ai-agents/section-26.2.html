@@ -149,6 +149,18 @@ gtag('config', 'G-PWPHBQL2VL');
 <div class="callout-title">Key Insight</div>
 <p>Agent planning algorithms sit within a rich tradition of search and planning in AI and operations research. Greedy plan-and-execute is equivalent to a depth-first search with no backtracking: fast but brittle. Plan-and-execute with replanning resembles the "replan on failure" strategy from classical AI planning (STRIPS, 1971). Tree search methods like LATS are direct descendants of Monte Carlo Tree Search (MCTS), the algorithm that powered AlphaGo's victory in 2016. The fundamental tradeoff between exploration (trying diverse strategies) and exploitation (committing to a promising plan) was formalized in decision theory as the multi-armed bandit problem (Robbins, 1952) and later generalized by the UCB (Upper Confidence Bound) family of algorithms. Every agent planning strategy implicitly takes a position on this exploration-exploitation spectrum. Understanding this lineage helps practitioners choose the right planning depth: most business tasks are "easy bandits" where greedy exploitation suffices, while research or creative tasks are "hard bandits" where exploration pays off.</p>
 </div>
+<h3 id="rewoo-single-pass-plan-with-variables">ReWoo: a single-pass plan with cross-task variables</h3>
+<p>Plan-and-execute as described above interleaves planning with execution: the model plans, runs a step, observes, possibly replans, runs the next step. <strong>ReWoo</strong> (Reasoning WithOut Observation, Xu et al., 2023) takes the opposite design choice: it commits to the <em>entire plan in one LLM call</em> and only afterwards calls the tools, with no observation-driven replanning during execution. The key trick that makes this practical is variable substitution. The planner emits a numbered list whose tool-call arguments may reference the results of earlier steps by name (<code>$E1</code>, <code>$E2</code>, etc.), so the plan reads like a small dataflow program:</p>
+<pre class="algo-block"><code>Plan:
+  E1 = Search["population of Japan 2024"]
+  E2 = Search["population of South Korea 2024"]
+  E3 = Calculator["$E1 - $E2"]
+Solver(question, $E1, $E2, $E3): &lt;final answer&gt;</code></pre>
+<p>A separate <strong>executor</strong> walks the plan in order, dispatches each tool call (substituting any <code>$Ei</code> with the result of step $i$), and stores the result back in a results dictionary. After all calls return, a separate <strong>solver</strong> LLM call receives the original question together with the populated <code>$E1, $E2, ...</code> values and writes the final natural-language answer. Because the planner runs only once and the solver only once, ReWoo uses far fewer LLM calls than plan-and-execute for tasks with $k$ tool calls (two LLM calls plus $k$ tool calls, rather than $1 + k$ replan checks). The trade-off is that ReWoo cannot adapt when an intermediate result invalidates a later step: the plan is committed up front. This makes ReWoo the right choice for <em>predictable</em> compound queries (multi-hop fact lookups, financial calculations from API data, ETL-style aggregations) and a poor choice for exploratory tasks where every observation might rewrite the plan. In LangGraph, ReWoo is the cleanest three-node graph in this section: <code>planner</code> &rarr; <code>executor</code> &rarr; <code>solver</code>, no conditional edges needed.</p>
+<div class="callout fun-note">
+<div class="callout-title">Historical note: Baby-AGI, the first viral autonomous agent</div>
+<p>Months before the planning patterns above were named in papers, <strong>Baby-AGI</strong> (Yohei Nakajima, March 2023) shipped them all in roughly 100 lines of Python and went viral on Twitter. The architecture was the simplest possible decomposition of an autonomous loop into three sub-modules: a <em>task-creation</em> agent that proposed new subtasks given the objective and the latest result, a <em>task-prioritization</em> agent that re-ordered the task queue, and a <em>task-execution</em> agent that pulled the next task and ran it (with an optional retrieval step against a vector store of past results). Baby-AGI did not have ReWoo's variable-substitution discipline, plan-and-execute's replanning, or LATS's tree search; in practice it often spent hours looping over poorly-prioritised subtasks. But it was the first widely-shared open-source implementation of a "give the model a goal and walk away" loop, and almost every framework in this chapter (AutoGPT, LangChain's plan-and-execute, CrewAI's sequential process, the OpenAI Agents SDK's handoff pattern) has at least one design decision that is traceable to a lesson learned by reading Baby-AGI's task queue overflow.</p>
+</div>
 <h3 id="plan-and-execute-architecture">Plan-and-Execute Architecture</h3>
 <div class="callout algorithm">
 <div class="callout-title">Algorithm 26.2.1: The plan-and-execute algorithm with replanning. The LLM first decomposes a task into numbered steps, executes each one with tools, then reflects after every step to decide whether the remaining plan still makes sense or needs revision. This interleaving of execution and reflection balances forward progress with adaptability.</div>
@@ -389,9 +401,50 @@ graph.add_edge("synthesize", END)
  </p>
 <p>To build intuition for why reflection works: consider a student who writes an essay, then re-reads it with fresh eyes. The re-reading step catches errors that were invisible during writing because the student's mental state has "reset" enough to see the text as a reader would. LLM reflection works similarly. The critic prompt shifts the model's attention from generating to evaluating, engaging different patterns in the model's weights. This is why separate generator and critic roles outperform a single "generate then check" instruction: the role switch creates a meaningful shift in the model's behavior.
  </p>
+<h3 id="26-2-3-1-reflexion-responder-revisor">RefleXion: a Responder + Revisor pair with structured JSON and tool-augmented citations</h3>
+<p>The Actor / Evaluator / Self-Reflection split of Reflexion is general; a useful concrete instantiation that has shown up across LangGraph notebooks, the AutoGen recipe gallery, and Anthropic's research assistant prompts is the <strong>Responder + Revisor</strong> pair. Two LLM roles drive the loop. The <em>Responder</em> reads the user question and produces an initial structured answer; its output schema (a Pydantic <code>BaseModel</code> in practice) carries three fields: <code>answer</code>, <code>reflection</code> (a short, self-critical note about what is missing or shaky), and <code>search_queries</code> (a list of follow-up questions the model would ask to fix the weak parts). The <em>Revisor</em> takes the previous answer, the reflection, and the results of executing the search queries against a real retrieval tool, and emits the same schema but additionally populates a <code>references</code> field with citation IDs drawn from the search results. The pair alternates for a small fixed number of rounds (typically 2 to 3) or until the reflection field reports "no further weaknesses".</p>
+<p>Three engineering details make this pattern reliable. First, the structured-output schema is enforced via tool-call parsing: the LLM "calls" a dummy function named <code>Responder</code> or <code>Revisor</code> whose argument schema is the Pydantic model, which means any malformed output triggers the function-calling validator and the model is retried until parse succeeds. Second, the search queries are not free text; the Revisor runs them through the agent's real retrieval tool (a vector store, a web search, an internal docs MCP server) before its next turn, so the loop integrates new external evidence on each round rather than spinning on the model's parametric memory. Third, the <code>references</code> field forces the model to cite specific retrieved passages by source_id, which lets a downstream evaluator check that the cited passages actually support the claims, the same idea as faithfulness scoring in agentic-RAG (<a href="../module-27-tool-use-protocols/section-27.5.html">Section 27.5</a>).</p>
+<div class="code-block-wrapper">
+<pre><code class="language-python">from pydantic import BaseModel, Field
+from langchain_openai import ChatOpenAI
+
+class AnswerWithReflection(BaseModel):
+    answer: str = Field(description="Best current answer to the question.")
+    reflection: str = Field(description="Self-critique: what is missing or weak.")
+    search_queries: list[str] = Field(
+        description="Up to 3 follow-up queries to address the reflection.")
+    references: list[str] = Field(
+        default_factory=list,
+        description="source_id list for citations; empty on the first round.")
+
+llm = ChatOpenAI(model="gpt-4o", temperature=0)
+
+# The Responder writes the first draft with no citations yet.
+responder = llm.with_structured_output(AnswerWithReflection)
+
+# The Revisor is the same schema but consumes the previous draft + tool results.
+def revise(draft: AnswerWithReflection, tool_results: list[dict]) -&gt; AnswerWithReflection:
+    return responder.invoke(
+        f"Previous draft:\n{draft.model_dump_json()}\n\n"
+        f"New evidence from tool calls:\n{tool_results}\n\n"
+        "Revise the answer to address the reflection. Cite every claim using the "
+        "source_id values in tool_results and put them in `references`.")
+
+# One round of Responder + Revisor with a real retrieval call in between.
+draft = responder.invoke("Why did the Concorde program end in 2003?")
+hits = retrieval_tool.batch(draft.search_queries)   # real search / MCP call
+final = revise(draft, hits)
+print(final.answer, final.references)
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 26.2.4:</strong> The RefleXion Responder + Revisor pair. The Pydantic schema enforces a self-critical structured output; the Revisor runs the Responder's proposed search queries through a real retrieval tool and is required to cite source IDs in <code>references</code>. Two to three rounds typically saturate the quality gain; further rounds rarely justify the extra cost.</div>
+</div>
 <div class="callout warning">
 <div class="callout-title">Warning</div>
 <p>Reflection loops can get stuck in infinite self-criticism cycles where the agent repeatedly revises its output without making meaningful progress. Always set a maximum reflection budget (typically 2 to 3 iterations) and implement a "good enough" threshold that stops reflection when the output meets minimum quality criteria. Monitor reflection loops in production to identify patterns where agents waste tokens on unproductive self-evaluation.</p>
+</div>
+<div class="callout practical-example">
+<div class="callout-title">Pattern: the Code Assistant generate-execute-reflect cycle</div>
+<p>One reflection variant deserves its own callout because it shows up in essentially every production coding agent (Devin, Cursor's Composer, Claude Code, smolagents' CodeAct loop). The <strong>Code Assistant</strong> pattern replaces the abstract "evaluator" of Reflexion with an actual code-execution sandbox. The graph is four nodes: a <em>generate</em> node prompts an LLM (with relevant library documentation loaded as context) to write a snippet against a structured code-output schema; a <em>code-check</em> node executes the snippet in a sandbox and captures stdout, stderr, and the return value; a <em>reflect</em> node feeds the execution result back to an LLM that decides whether the code worked, partially worked, or failed; and a conditional edge routes back to <em>generate</em> with the error trace appended to the prompt if the reflect node says "regenerate", or to <em>finish</em> if it says "ok". The reason the cycle works is that execution gives the reflector ground truth: an exception trace is a fact, not an opinion, so the regenerate step has a real signal to act on rather than just an LLM-as-judge guess. Limit the cycle to 3 to 5 regenerate iterations; beyond that the agent is usually fighting an underspecified problem, not a code bug.</p>
 </div>
 <div class="callout library-shortcut">
 <div class="callout-title">Library Shortcut: letta (formerly MemGPT) for self-managing memory</div>
@@ -500,6 +553,12 @@ graph.add_edge("synthesize", END)
 </div>
 <div class="bib-entry-card">
 <div class="bib-ref"><a href="https://arxiv.org/abs/2305.04091" rel="noopener" target="_blank">Hao, S., Gu, Y., Ma, H., et al. (2023). "Reasoning with Language Model is Planning with World Model." <em>EMNLP 2023</em>.</a> Frames LLM reasoning as planning by treating the language model as both a world model and a reasoning agent, bridging classical AI planning with modern LLM capabilities.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://arxiv.org/abs/2305.18323" rel="noopener" target="_blank">Xu, B., Peng, Z., Lei, B., et al. (2023). "ReWoo: Decoupling Reasoning from Observations for Efficient Augmented Language Models." <em>arXiv:2305.18323</em>.</a> Introduces the single-pass planner-executor-solver pattern with <code>$Ei</code> variable substitution described in Section 26.2.1, the canonical reference for the "plan once, execute, solve" alternative to plan-and-execute.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://github.com/yoheinakajima/babyagi" rel="noopener" target="_blank">Nakajima, Y. (2023). "BabyAGI."</a> The original task-creation + task-prioritization + task-execution loop that popularized the autonomous-agent pattern; historical reference for the lineage of every agent framework in Chapter 30.</div>
 </div>
 </section>
 </details>

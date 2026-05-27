@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-PWPHBQL2VL"></script>
+<script>
+window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', 'G-PWPHBQL2VL');
+</script>
+
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<meta content="Section 20.0.4: Self-Supervised Audio Encoders. wav2vec 2.0 contrastive pretraining, HuBERT masked cluster prediction, WavLM utterance mixing, and BEATs self-distilled tokenizer, with a cheat-sheet table and a linear-probe code recipe." name="description"/>
+<title>Section 20.0.4: Self-Supervised Audio Encoders</title>
+<link href="../../styles/book.css" rel="stylesheet"/>
+<link href="../../styles/pygments.css" rel="stylesheet"/>
+<link href="../../vendor/prism/prism-theme.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/prism/prism-bundle.min.js"></script>
+<script defer="" src="../../scripts/book.js"></script>
+<link href="../../pagefind/pagefind-ui.css" rel="stylesheet"/>
+<script defer="" src="../../pagefind/pagefind-ui.js"></script>
+<link href="../../vendor/katex/katex.min.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/katex/katex.min.js"></script>
+<script defer="" onload="renderMathInElement(document.body, {
+ delimiters: [
+ {left: '$$', right: '$$', display: true},
+ {left: '$', right: '$', display: false}
+ ],
+ throwOnError: false
+ });" src="../../vendor/katex/contrib/auto-render.min.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
+
+<header class="chapter-header">
+<nav class="header-nav">
+<a class="book-title-link" href="../../index.html">Building Conversational AI with LLMs and Agents</a>
+<a class="toc-link" href="../../toc.html" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+</nav>
+<div class="header-search">
+<div id="search"></div>
+</div>
+<div class="page-breadcrumb" data-pagefind-meta="chapter"><a href="../index.html">Part V: Multimodal LLMs</a><span class="bc-sep">&rsaquo;</span><a href="index.html">Chapter 20: Audio, Music, and Video Generation</a></div>
+<h1>Self-Supervised Audio Encoders</h1><div class="page-current">Section 20.0.4</div>
+</header>
+<main class="content" id="main-content"><span class="pagefind-meta-injected" data-pagefind-meta="part:Part V: Multimodal LLMs" hidden=""></span><span class="pagefind-meta-injected" data-pagefind-meta="chapter:Chapter 20: Audio, Music, and Video Generation" hidden=""></span>
+
+<blockquote class="epigraph">
+<p>"BERT for speech is just BERT, but the targets you mask and predict have to be invented from the audio itself. The history of audio SSL is the history of better ways to invent those targets."</p>
+<span class="agent-avatar-inline" style="background-color: #f39c12;"><img alt="Echo" height="28" src="../../front-matter/images/agents/echo.png" width="28"/></span><cite>Echo, <span class="agent-desc">Pitch-Perfect AI Agent</span></cite>
+</blockquote>
+
+<div class="callout big-picture">
+<div class="callout-title">Big Picture</div>
+<p>Modern speech recognition and audio classification rely on pretrained encoders that have learned acoustic structure from hundreds of thousands of hours of unlabeled audio. The four canonical encoders, all available on HuggingFace, are wav2vec 2.0 (contrastive learning over Gumbel-quantized targets), HuBERT (masked prediction of k-means cluster IDs that get refined across iterations), WavLM (HuBERT plus utterance-mixing data augmentation), and BEATs (a self-distilled tokenizer that generalizes beyond speech to general audio). All four ingest raw waveforms (16 kHz, normalized to zero mean and unit variance), use a small convolutional feature encoder to produce a 50 Hz frame embedding, and pass that through a BERT-style transformer encoder. They differ only in what they ask the transformer to learn. This section dissects each in turn and ends with a cheat-sheet table that picks the right encoder for the reader's downstream task.</p>
+</div>
+
+<h2 id="20-0-4-1-the-two-ssl-families">20.0.4.1 The Two Self-Supervised Learning Families</h2>
+<p>Self-supervised learning (SSL) on audio splits into two families that differ on what kind of target the model learns to predict.</p>
+
+<p><strong>Contrastive SSL</strong> defines a target as <em>this audio frame's true latent</em> and trains the model to distinguish it from a set of <em>distractor</em> latents drawn from other frames. The InfoNCE loss treats the problem as a $|Q|$-way classification task: out of one true target plus $|Q| - 1$ distractors, identify the true one. wav2vec 2.0 lives in this family.</p>
+
+<p><strong>Masked-prediction SSL</strong> assigns each audio frame a discrete pseudo-label (a cluster ID), masks a subset of the frames, and trains the model to predict the cluster IDs of the masked frames from the unmasked context, using standard cross-entropy. The pseudo-label vocabulary is the hard part: it has to capture phonetic structure without being given any. HuBERT (and its descendants WavLM, BEATs) live in this family.</p>
+
+<p>Both families inherit the BERT recipe (mask a span, predict the masked content), but they differ on whether the prediction target is a continuous latent contrasted against distractors (wav2vec 2.0) or a discrete cluster ID compared with cross-entropy (HuBERT). The empirical winner depends on the downstream benchmark. HuBERT and WavLM dominate the SUPERB benchmark (Yang et al., 2021), a broad evaluation across ten speech tasks. wav2vec 2.0 is simpler to implement and converges faster.</p>
+
+<h2 id="20-0-4-2-wav2vec-2">20.0.4.2 wav2vec 2.0: Contrastive Pretraining</h2>
+<p>Baevski et al.'s wav2vec 2.0 (Baevski et al., 2020) was the breakthrough audio SSL model that beat hybrid HMM-DNN systems on LibriSpeech with only an hour of labeled data after pretraining on 53,000 hours of unlabeled audio. The architecture has three components.</p>
+
+<h3>The CNN Feature Encoder</h3>
+<p>A stack of seven 1D convolutional blocks downsamples the raw 16 kHz waveform by 320x to produce a 512-dimensional latent vector $z_t$ per 25 ms frame at 50 Hz. Each block uses kernel sizes (10, 3, 3, 3, 3, 2, 2) with matching strides, group normalization on the first block, and GELU activations throughout.</p>
+
+<h3>The Transformer Context Network</h3>
+<p>The latent sequence $z = (z_1, z_2, \ldots, z_T)$ goes through a transformer encoder (12 layers, 768 hidden dim for <code>wav2vec2-base</code>; 24 layers, 1024 hidden dim for <code>wav2vec2-large</code>) to produce contextual embeddings $c_t$. Before entering the transformer, a fraction $p$ of time steps (default $p = 0.065$ as starting indices, with each span extending 10 frames) are selected and replaced with a single trained <strong>mask vector</strong>, exactly as BERT masks input tokens. Positional information uses a convolutional positional encoding (a depthwise conv applied to the input, added residually) rather than sinusoidal or learned position embeddings.</p>
+
+<h3>The Quantization Module</h3>
+<p>In parallel, the unmasked $z_t$ goes through a <strong>Gumbel-Softmax quantizer</strong> to produce a discrete target $q_t$. The quantizer uses product quantization with $G = 2$ groups and $K = 320$ codewords per group, exposing $K^G = 320^2 = 102{,}400$ effective codewords from $2 \times 320 = 640$ trainable codeword vectors. Concretely, the quantizer multiplies $z_t$ by a trainable projection matrix $W_q \in \mathbb{R}^{d \times K}$ to get logits $\ell_t \in \mathbb{R}^K$ per group, samples a near-one-hot Gumbel-Softmax selection vector at temperature $\tau$ (annealed from 2.0 down to 0.5 during training), and looks up the corresponding codebook entries. The two group outputs are concatenated and passed through a final projection to give the target $q_t$. The Gumbel-Softmax (Section 20.0.2.4) is what makes the codebook trainable end-to-end.</p>
+
+<h3>The Contrastive Loss</h3>
+<p>For each masked time step $t$, the model takes the transformer output $c_t$ and computes its similarity to the true target $q_t$ as well as to a set of $|Q| - 1$ distractor targets sampled from other masked time steps in the same utterance. The InfoNCE loss is:</p>
+<div class="math-block">$$\mathcal{L}_m = -\log \frac{\exp(\mathrm{sim}(c_t, q_t) / \kappa)}{\sum_{q \in Q_t} \exp(\mathrm{sim}(c_t, q) / \kappa)},$$</div>
+<p>where $\mathrm{sim}(a, b) = a^\top b / (\lVert a \rVert \cdot \lVert b \rVert)$ is the cosine similarity, $\kappa$ is a temperature hyperparameter (typically 0.1), and $Q_t$ is the set of $|Q|$ candidate vectors (the true $q_t$ plus 100 distractors sampled uniformly from other masked positions). A small diversity loss is added to encourage uniform codebook usage and prevent collapse. The contrastive objective forces $c_t$ to be more similar to its true target $q_t$ than to distractors; because distractors come from other speech frames, the model learns to discriminate fine-grained phonetic content.</p>
+
+<h3>Fine-Tuning for ASR</h3>
+<p>For ASR, the quantizer is dropped, a linear character classifier is added on top of the transformer, and the model is fine-tuned with CTC loss (Section 20.0.3.6) on labeled speech. The famous result from the original paper: pretrain on 53,000 hours of unlabeled LibriVox audio, then fine-tune on just 10 minutes of labeled LibriSpeech, and achieve 4.8% WER on LibriSpeech test-clean, comparable to supervised systems trained on 100x more labeled data.</p>
+
+<h2 id="20-0-4-3-hubert">20.0.4.3 HuBERT: Masked Cluster Prediction</h2>
+<p>Hsu et al.'s HuBERT (Hsu et al., 2021) replaces the wav2vec 2.0 contrastive objective with a BERT-style cross-entropy on cluster IDs. The acronym stands for "Hidden Unit BERT": the audio is clustered into a set of discrete "hidden units" (phoneme-like pseudo-labels) and the transformer is trained to predict the unit IDs of masked frames. The model and the targets are trained jointly across iterations.</p>
+
+<h3>The Architecture</h3>
+<p>The CNN feature encoder is identical to wav2vec 2.0's (320x downsample to 50 Hz, 512-dim per frame). The transformer is also a standard BERT-style stack. The key difference is what the transformer is asked to predict.</p>
+
+<h3>Iterative Tokenization</h3>
+<p>The challenge HuBERT solves is "where do the cluster IDs come from?" Acoustic frames have no pre-existing phoneme labels (otherwise the model would not need SSL). HuBERT's answer is to bootstrap the clustering iteratively:</p>
+<ol>
+<li><strong>Iteration 1.</strong> Compute MFCC features for every 25 ms window of the unlabeled training audio. Run $k$-means with $K = 100$ clusters on a random subset (a few hundred thousand frames). Assign every frame to its nearest cluster; the cluster IDs become the pseudo-labels.</li>
+<li><strong>Iteration 1 training.</strong> Train the HuBERT transformer with masked prediction of these MFCC-derived cluster IDs. Mask 50% of the input frames (each masked span is up to 10 frames; the starting indices are sampled randomly), feed the masked sequence through the transformer, and predict the cluster ID at each masked position with cross-entropy.</li>
+<li><strong>Iteration 2.</strong> Extract intermediate transformer layer features (typically the 6th layer of the iteration-1 model) for the same training audio. Re-cluster with $k$-means at a larger $K = 500$. The new cluster IDs are derived from contextual transformer features and so are much more phonetically meaningful than raw MFCCs.</li>
+<li><strong>Iteration 2 training.</strong> Train a fresh HuBERT transformer with masked prediction of the iteration-2 cluster IDs.</li>
+<li><strong>Iteration 3 (optional).</strong> Repeat once more with $K = 1000$ for the largest model variants.</li>
+</ol>
+<p>Each iteration takes hundreds of GPU-days and the published HuBERT models stop at iteration 2 or 3. The intuition is that the transformer learns better representations than MFCCs, which yield better cluster IDs, which yield a better transformer in the next round.</p>
+
+<h3>Cluster Prediction Head</h3>
+<p>At training time the model needs to predict a cluster ID at each masked position. Rather than a flat linear classifier, HuBERT projects the masked transformer output into a low-dimensional space and compares it (via cosine similarity) to <strong>projected cluster centers</strong>. The cluster centers $\mu_k$ from $k$-means are themselves linearly projected to the same low-dimensional space through a small trainable matrix $A \in \mathbb{R}^{d \times d_c}$:</p>
+<div class="math-block">$$P(k \mid t) = \frac{\exp(\mathrm{sim}(A o_t, A \mu_k) / \tau)}{\sum_{k'} \exp(\mathrm{sim}(A o_t, A \mu_{k'}) / \tau)},$$</div>
+<p>where $o_t$ is the transformer output at masked position $t$ and $\tau$ is a learned temperature. The cross-entropy loss over the true cluster ID supplies the gradient. Both the transformer and the projection $A$ are trained; the cluster centers $\mu_k$ themselves are frozen between iterations.</p>
+
+<h3>Fine-Tuning for ASR</h3>
+<p>Fine-tuning replaces the cluster-prediction head with a linear character head and trains with CTC loss on labeled speech, exactly as wav2vec 2.0 does. Published checkpoints include <code>facebook/hubert-base-ls960</code> (95M params, base configuration trained on 960 hours of LibriSpeech), <code>facebook/hubert-large-ls960-ft</code> (300M params, fine-tuned for ASR), and the larger <code>facebook/hubert-xlarge</code> variants.</p>
+
+<div class="callout key-insight">
+<div class="callout-title">Key Insight: Contrast vs Cross-Entropy</div>
+<p>The single pedagogical contrast between wav2vec 2.0 and HuBERT is the loss function. wav2vec 2.0 asks "out of 100 candidate target vectors, identify the true one"; the loss is contrastive (InfoNCE). HuBERT asks "out of $K$ cluster IDs, predict the true one"; the loss is cross-entropy. Both work; both are forms of self-supervision on masked frames. The cross-entropy approach turns out to scale slightly better and is consistently a few WER points better on SUPERB benchmarks, which is why HuBERT, WavLM, and BEATs all adopted it. The contrastive recipe is conceptually closer to vision SSL (SimCLR, MoCo) and is easier to reason about for engineers coming from those models.</p>
+</div>
+
+<h2 id="20-0-4-4-wavlm">20.0.4.4 WavLM: HuBERT Plus Utterance Mixing</h2>
+<p>Chen et al.'s WavLM (Chen et al., 2022a) is HuBERT with one critical augmentation. The motivation: HuBERT and wav2vec 2.0 dominate clean single-speaker ASR but degrade on conversational, noisy, and multi-speaker audio (think podcasts, meetings, mobile-phone recordings). WavLM addresses this by augmenting training with <strong>utterance mixing</strong>.</p>
+
+<p>The trick is conceptually simple. During pretraining, with some probability mix two random training utterances together at the waveform level (overlay them with a random gain), but only require the model to predict the cluster IDs of the <em>first</em> utterance's frames. The model is forced to learn to separate overlapping speakers and noise sources because the prediction target ignores the interference. WavLM also adds noise augmentation (overlaying ambient noise from MUSAN at SNR 5-20 dB) and gain augmentation. The cluster targets come from the same HuBERT-style iterative $k$-means pipeline.</p>
+
+<p>The result is that WavLM matches HuBERT on clean ASR but substantially outperforms it on speaker verification, speaker diarization, speech separation, and any other task involving overlapping speakers or background noise. It topped the SUPERB benchmark when released and remains the default choice when downstream conditions are noisy. Published checkpoints include <code>microsoft/wavlm-base</code> (95M params) and <code>microsoft/wavlm-large</code> (316M params).</p>
+
+<p>WavLM is also the encoder used by Mimi (Section 20.0.2.5) as a distillation target for its first RVQ codebook, which is how Moshi gets a semantically meaningful first stream out of its audio codec.</p>
+
+<h2 id="20-0-4-5-beats">20.0.4.5 BEATs: Self-Distilled Tokenizer for General Audio</h2>
+<p>Chen et al.'s BEATs (Chen et al., 2022b/2023, "Bidirectional Encoder representation from Audio Transformers") generalizes the HuBERT recipe beyond speech to general audio (sound events, music, environmental sounds). The HuBERT clustering step works because phonemes are a useful inductive bias for speech, but for general audio there is no analogue: a "sound event" cluster is much less well-defined than a phoneme. BEATs solves this with a <strong>self-distilled discrete tokenizer</strong> trained alongside the main encoder.</p>
+
+<p>The architecture has two components. The first is an <strong>acoustic tokenizer</strong>: a small transformer that takes mel-spectrogram patches as input and outputs discrete token IDs via a Gumbel-Softmax codebook. The second is the main <strong>audio transformer encoder</strong> with the same patch input format. The training cycle alternates between two phases:</p>
+<ol>
+<li><em>Tokenizer phase.</em> Train the tokenizer to predict pseudo-labels derived from the main encoder's outputs (self-distillation). Specifically, the main encoder's intermediate features are clustered (or the encoder itself acts as a teacher whose predictions become tokenizer targets), and the tokenizer is trained with cross-entropy to match these targets.</li>
+<li><em>Encoder phase.</em> Freeze the tokenizer and use its outputs as cluster IDs to train the main encoder with BERT-style masked prediction (50% mask rate, cross-entropy loss on tokenizer IDs).</li>
+</ol>
+<p>The two phases alternate every few epochs, with each producing better targets for the other. The result is a general-audio encoder that achieves state-of-the-art on AudioSet (the 527-class audio event benchmark) and ESC-50, while also performing well on speech tasks. Published checkpoints live under <code>microsoft/beats</code> with sizes from <code>BEATs_iter3</code> (90M, after 3 self-distillation iterations) up to <code>BEATs_iter3_plus_AS2M</code> (the same model fine-tuned on AudioSet).</p>
+
+<p>BEATs is the encoder to reach for when the downstream task involves non-speech audio (environmental sounds, music) and a HuBERT-family encoder underperforms because speech-specific clustering does not transfer.</p>
+
+<h2 id="20-0-4-6-cheat-sheet">20.0.4.6 The Cheat-Sheet</h2>
+
+<figure>
+<table>
+<thead>
+<tr><th scope="col">Encoder</th><th scope="col">Input</th><th scope="col">Target type</th><th scope="col">Loss</th><th scope="col">Training stages</th><th scope="col">Best for</th></tr>
+</thead>
+<tbody>
+<tr>
+<td>wav2vec 2.0</td>
+<td>raw 16 kHz waveform &rarr; CNN feature encoder, 50 Hz</td>
+<td>Gumbel-quantized continuous codeword</td>
+<td>InfoNCE contrastive</td>
+<td>1 (single pretraining pass)</td>
+<td>English ASR, when convergence speed matters</td>
+</tr>
+<tr>
+<td>HuBERT</td>
+<td>raw 16 kHz waveform &rarr; CNN feature encoder, 50 Hz</td>
+<td>k-means cluster ID (refined iteratively)</td>
+<td>cross-entropy on cluster ID</td>
+<td>2-3 (iter 1 from MFCC clusters, iter 2+ from transformer features)</td>
+<td>Multilingual ASR, frame-level representations, downstream classification</td>
+</tr>
+<tr>
+<td>WavLM</td>
+<td>raw 16 kHz waveform + utterance mixing + noise overlay</td>
+<td>k-means cluster ID on clean utterance</td>
+<td>cross-entropy on cluster ID</td>
+<td>2-3, plus mixing augmentation throughout</td>
+<td>Noisy speech, conversational audio, speaker verification, diarization, separation</td>
+</tr>
+<tr>
+<td>BEATs</td>
+<td>log-mel patches (image-style)</td>
+<td>self-distilled tokenizer ID</td>
+<td>cross-entropy on tokenizer ID</td>
+<td>3+ (alternate tokenizer and encoder phases)</td>
+<td>General audio: events, music, environmental sounds, AudioSet/ESC-50</td>
+</tr>
+</tbody>
+</table>
+<figcaption><strong>Figure 20.0.4.1</strong>: The four canonical self-supervised audio encoders. All four use the same broad recipe (CNN or patch feature encoder &rarr; BERT-style transformer &rarr; predict-the-masked-content), but they differ on what the prediction target is and how that target is constructed. The "best for" column is a rough guideline; in practice the right move is to try the encoder closest to the downstream task and fine-tune.</figcaption>
+</figure>
+
+<h2 id="20-0-4-7-using-them">20.0.4.7 Using Them: The Frozen-Encoder + Linear-Probe Pattern</h2>
+<p>The most common way to put one of these encoders to work is the <strong>linear probe</strong>: freeze the pretrained encoder, extract a single fixed-size embedding per audio clip by mean-pooling the frame-level outputs, and train a small classification head (often just a linear layer) on labeled task data. The pattern is identical for wav2vec 2.0, HuBERT, WavLM, and BEATs; only the model class and processor differ. The snippet below uses <code>librosa</code> for audio loading and resampling alongside <code>transformers</code> for the encoder.</p>
+
+<div class="callout library-shortcut">
+<div class="callout-title">Library Shortcut: Frozen HuBERT Embedding Extraction</div>
+<div class="code-block-wrapper">
+<pre><code class="language-python">import torch
+import librosa
+from transformers import Wav2Vec2Processor, HubertModel
+
+processor = Wav2Vec2Processor.from_pretrained("facebook/hubert-base-ls960")
+model = HubertModel.from_pretrained("facebook/hubert-base-ls960").eval()
+
+def extract_embedding(file_path):
+    waveform, sr = librosa.load(file_path, sr=16_000, mono=True)
+    inputs = processor(waveform, sampling_rate=16_000, return_tensors="pt")
+    with torch.no_grad():
+        outputs = model(**inputs)
+    # outputs.last_hidden_state: (1, n_frames, hidden_dim=768)
+    # Mean-pool across the time axis to get a single clip embedding.
+    return outputs.last_hidden_state.mean(dim=1).squeeze(0)   # (768,)
+
+emb = extract_embedding("clip.wav")
+print(emb.shape)   # torch.Size([768])
+
+# Now train any sklearn / torch classifier on top of these embeddings:
+# from sklearn.linear_model import LogisticRegression
+# clf = LogisticRegression(max_iter=1000).fit(train_embeddings, train_labels)</code></pre>
+<div class="code-caption"><strong>Code Fragment 20.0.4.1</strong>: Frozen HuBERT for the linear-probe pattern. The same template works with <code>Wav2Vec2Model.from_pretrained("facebook/wav2vec2-base")</code>, <code>WavLMModel.from_pretrained("microsoft/wavlm-base")</code>, and the BEATs checkpoints. Note the distinction: <code>HubertModel</code> returns the bare encoder output (for feature extraction); <code>HubertForCTC</code> returns the character logits for ASR (a different downstream head). The same backbone serves both via different head classes. Reader who is fine-tuning end-to-end rather than linear-probing should call <code>model.train()</code> and either drop the <code>torch.no_grad()</code> block or use LoRA adapters on the transformer layers.</div>
+</div>
+</div>
+
+<h2 id="20-0-4-8-which-encoder">20.0.4.8 Which Encoder Should the Reader Use?</h2>
+<p>A short decision tree, with rationale:</p>
+<ul>
+<li><strong>English ASR on clean speech</strong>: any of the four works; wav2vec 2.0 base is the smallest and fastest.</li>
+<li><strong>Multilingual ASR</strong>: wav2vec 2.0 XLS-R (Babu et al., 2022), an extension of wav2vec 2.0 trained on 128 languages, or HuBERT multilingual variants.</li>
+<li><strong>Noisy or conversational speech, diarization, speaker verification</strong>: WavLM. The utterance-mixing augmentation pays for itself.</li>
+<li><strong>General audio classification (events, music, environmental sounds)</strong>: BEATs or AST. AST is older and simpler; BEATs is newer and slightly stronger on AudioSet.</li>
+<li><strong>Linear-probe downstream classification</strong>: HuBERT or WavLM gives the most generally useful frame-level representations. The default in most HuggingFace audio tutorials is DistilHuBERT (Chang et al., 2022), a 6-layer distilled HuBERT that fine-tunes 2x faster with minimal accuracy loss.</li>
+<li><strong>Speech-to-speech LLM (Moshi-style)</strong>: WavLM (used as the distillation target for Mimi's first RVQ codebook in Section 20.0.2.5).</li>
+</ul>
+
+<div class="callout cross-ref">
+<div class="callout-title">Cross-Reference: Classification Recipes in Section 20.0.5</div>
+<p>This section dissected how the four encoders are <em>pretrained</em>. The next section, <a href="section-20.0.5.html">Section 20.0.5</a>, applies them to the audio classification flavors from Section 20.0 (events, intent, KWS, language ID) and walks through both the zero-shot path (via CLAP) and the supervised fine-tune path (DistilHuBERT plus the GTZAN music genre dataset). Reader interested in the codec-as-tokenizer view of SSL encoders should also revisit <a href="section-20.0.2.html">Section 20.0.2</a>: EnCodec and Mimi are themselves a form of SSL encoder, just optimized for reconstruction rather than discrimination, and Mimi's codebook 1 is distilled from a WavLM encoder.</p>
+</div>
+
+<div class="callout key-takeaway">
+<div class="callout-title">Key Takeaway</div>
+<p>Self-supervised audio encoders learn from raw unlabeled audio by masking part of the input and predicting it from the rest. Two recipes dominate: contrastive (wav2vec 2.0, InfoNCE over Gumbel-quantized targets) and masked cluster prediction (HuBERT, cross-entropy on iteratively-refined $k$-means cluster IDs). WavLM extends HuBERT with utterance-mixing augmentation for noisy and conversational audio; BEATs replaces the $k$-means clustering with a self-distilled tokenizer to handle general non-speech audio. The frozen-encoder + linear-probe pattern is the cheapest way to put any of them to work on a new downstream task.</p>
+</div>
+
+<div class="whats-next">
+<h3>What Comes Next</h3>
+<p><a href="section-20.0.5.html">Section 20.0.5</a> closes the foundational sub-section block with the audio classification recipe. Reader will see how to use the AST checkpoint (built on AudioSet) for events, how the wav2vec 2.0 and Whisper backbones serve intent and language ID, how CLAP enables zero-shot classification of arbitrary text labels, and finally how to fine-tune DistilHuBERT on GTZAN for music genre classification using the HuggingFace <code>Trainer</code>. After that, the chapter returns to the original Section 20.1 on TTS.</p>
+</div>
+
+<details class="bibliography-collapsible"><summary><strong>Further Reading</strong></summary>
+<section class="bibliography">
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://arxiv.org/abs/2006.11477" rel="noopener" target="_blank">Baevski, A., Zhou, H., Mohamed, A., and Auli, M. (2020). "wav2vec 2.0: A Framework for Self-Supervised Learning of Speech Representations." <em>NeurIPS 2020</em>.</a> The breakthrough paper that established the contrastive-SSL recipe for audio encoders.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://arxiv.org/abs/2106.07447" rel="noopener" target="_blank">Hsu, W.-N. et al. (2021). "HuBERT: Self-Supervised Speech Representation Learning by Masked Prediction of Hidden Units." <em>IEEE/ACM TASLP</em>.</a> The HuBERT paper with the iterative $k$-means clustering procedure for pseudo-label construction.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://arxiv.org/abs/2110.13900" rel="noopener" target="_blank">Chen, S. et al. (2022). "WavLM: Large-Scale Self-Supervised Pre-Training for Full Stack Speech Processing." <em>IEEE J-STSP</em>.</a> The WavLM paper that adds utterance-mixing augmentation to HuBERT for robust speech representations.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://arxiv.org/abs/2212.09058" rel="noopener" target="_blank">Chen, S. et al. (2022). "BEATs: Audio Pre-Training with Acoustic Tokenizers." <em>ICML 2023</em>.</a> The BEATs paper that generalizes the HuBERT recipe to general audio using a self-distilled tokenizer.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://arxiv.org/abs/2105.01051" rel="noopener" target="_blank">Yang, S.-w. et al. (2021). "SUPERB: Speech Processing Universal PERformance Benchmark." <em>Interspeech 2021</em>.</a> The 10-task speech benchmark used to compare these encoders; the canonical evaluation for any new audio SSL model.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://arxiv.org/abs/2110.01900" rel="noopener" target="_blank">Chang, H.-J., Yang, S.-w., and Lee, H.-y. (2022). "DistilHuBERT: Speech Representation Learning by Layer-wise Distillation of Hidden-unit BERT." <em>ICASSP 2022</em>.</a> The 6-layer distilled HuBERT used in the Section 20.0.5 GTZAN fine-tuning recipe.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://arxiv.org/abs/2111.09296" rel="noopener" target="_blank">Babu, A. et al. (2022). "XLS-R: Self-supervised Cross-lingual Speech Representation Learning at Scale." <em>Interspeech 2022</em>.</a> The 128-language wav2vec 2.0 variant used when ASR has to cover beyond English.</div>
+</div>
+</section>
+</details>
+
+<nav class="chapter-nav">
+<a class="prev" href="section-20.0.3.html"><span class="nav-label">Previous</span><span class="nav-num">Section 20.0.3</span><span class="nav-title">Audio and Speech Transformer Architectures</span></a>
+<a class="up" href="index.html"><span class="nav-label">In Chapter</span><span class="nav-num">Chapter 20</span><span class="nav-title">Audio, Music, and Video Generation</span></a>
+<a class="next" href="section-20.0.5.html"><span class="nav-label">Next</span><span class="nav-num">Section 20.0.5</span><span class="nav-title">Audio Classification with CLAP and Supervised Fine-Tuning</span></a>
+</nav>
+<footer><p>Fifteenth Edition, 2026 &middot; <a href="../../toc.html">Contents</a></p></footer>
+</main>
+</body>
+</html>

@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-PWPHBQL2VL"></script>
+<script>
+window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', 'G-PWPHBQL2VL');
+</script>
+
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<meta content="Section E.5: Training Loop Deep Dive. Loss scaling, gradient clipping, learning-rate schedulers, checkpointing patterns, and small but important optimizations." name="description"/>
+<title>Section E.5: Training Loop Deep Dive | Building Conversational AI with LLMs and Agents</title>
+<link href="../../styles/book.css" rel="stylesheet"/>
+<link href="../../styles/pygments.css" rel="stylesheet"/>
+<link href="../../vendor/katex/katex.min.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/katex/katex.min.js"></script>
+<script defer="" onload="renderMathInElement(document.body, {
+            delimiters: [
+                {left: '$$', right: '$$', display: true},
+                {left: '$', right: '$', display: false}
+            ],
+            throwOnError: false
+        });" src="../../vendor/katex/contrib/auto-render.min.js"></script>
+<link href="../../vendor/prism/prism-theme.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/prism/prism-bundle.min.js"></script>
+<script defer="" src="../../scripts/book.js"></script>
+<link href="../../pagefind/pagefind-ui.css" rel="stylesheet"/>
+<script defer="" src="../../pagefind/pagefind-ui.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
+
+<header class="chapter-header">
+<nav class="header-nav">
+<a class="book-title-link" href="../../index.html">Building Conversational AI with LLMs and Agents</a>
+<a class="toc-link" href="../../toc.html" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+</nav>
+<div class="header-search">
+<div id="search"></div>
+</div>
+
+<div class="page-breadcrumb" data-pagefind-meta="chapter"><a href="../index.html">Appendices</a><span class="bc-sep">›</span><a href="index.html">Appendix E: PyTorch Reference</a></div>
+<h1>Training Loop Deep Dive</h1><div class="page-current">Section E.5</div>
+
+</header>
+<main class="content" id="main-content"><span class="pagefind-meta-injected" data-pagefind-meta="part:Building Conversational AI with LLMs and Agents" hidden=""></span><span class="pagefind-meta-injected" data-pagefind-meta="chapter:Appendix E: PyTorch Reference" hidden=""></span>
+
+<p>The canonical PyTorch training loop fits in twelve lines. Every word in it carries weight, every order matters, and every default has been tuned over years of community experience. This section dissects the loop, then layers on the extras that distinguish a research prototype from a production training script: gradient clipping, learning-rate schedulers, gradient accumulation, and checkpointing patterns.</p>
+
+<h2 id="canonical-loop">The Canonical Loop</h2>
+
+<div class="code-block-wrapper">
+<pre><code class="language-python">import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+model = NeuralNetwork(num_inputs=2, num_outputs=2).to(device)
+optimizer = torch.optim.SGD(model.parameters(), lr=0.5)
+num_epochs = 3
+
+for epoch in range(num_epochs):
+    model.train()
+    for batch_idx, (features, labels) in enumerate(train_loader):
+        features = features.to(device, non_blocking=True)
+        labels   = labels.to(device, non_blocking=True)
+
+        logits = model(features)
+        loss = F.cross_entropy(logits, labels)
+
+        optimizer.zero_grad(set_to_none=True)
+        loss.backward()
+        optimizer.step()
+
+    model.eval()
+</code></pre>
+<div class="code-output"><span class="output-label"><strong>Output (example):</strong></span> (no stdout; train loss falls from 0.75 at epoch 0 to near 0 at epoch 2)</div>
+<div class="code-caption"><strong>Code Fragment E.5.1:</strong> The canonical PyTorch training loop. Move batches to the device, forward, loss, zero-grad, backward, step. The order of <code>zero_grad</code>, <code>backward</code>, <code>step</code> is non-negotiable.</div>
+</div>
+
+<p>The three lines in the inner loop encode the heart of gradient-based learning. <code>optimizer.zero_grad(set_to_none=True)</code> erases gradients from the previous iteration; without it, <code>.grad</code> would accumulate across batches (a feature exploited by gradient accumulation, but a bug when unintended). <code>loss.backward()</code> populates <code>.grad</code> on every parameter that participated in the forward pass. <code>optimizer.step()</code> reads each <code>.grad</code> and updates the corresponding parameter. Swapping any two of these lines silently breaks training.</p>
+
+<div class="callout warning">
+<div class="callout-title">Warning: cross_entropy Wants Logits, Not Probabilities</div>
+<p>PyTorch's <code>F.cross_entropy</code> and <code>nn.CrossEntropyLoss</code> apply log-softmax internally for numerical stability. Pass raw logits, not the output of <code>torch.softmax</code>. Applying softmax before cross-entropy double-softmaxes the predictions, yielding a much weaker training signal and degraded accuracy. The same applies to <code>F.binary_cross_entropy_with_logits</code> versus <code>F.binary_cross_entropy</code>: the <code>_with_logits</code> variant fuses sigmoid and BCE for stability; the bare variant assumes probabilities. The fused variants are almost always the correct choice.</p>
+</div>
+
+<h2 id="clipping">Gradient Clipping</h2>
+
+<p>Gradient clipping caps the size of the gradient before the optimizer step. It is essential for any sequence model or any deep model trained with high learning rates, where occasional exploding gradients (caused by rare but extreme batches) can destabilize training in a single step. PyTorch offers two variants:</p>
+
+<ul>
+<li><code>torch.nn.utils.clip_grad_norm_(params, max_norm)</code> scales every gradient by the same factor so the total <span class="math">$L_2$</span> norm of all gradients combined is at most <code>max_norm</code>. This is the standard choice for transformers and most modern training recipes; the typical setting is <code>max_norm=1.0</code>.</li>
+<li><code>torch.nn.utils.clip_grad_value_(params, clip_value)</code> clamps each individual gradient element to <code>[-clip_value, clip_value]</code>. Coarser than norm clipping; rarely used in modern recipes.</li>
+</ul>
+
+<p>Both functions mutate gradients in place and return the (pre-clipping) total norm, which is worth logging because a steadily rising norm signals trouble.</p>
+
+<div class="code-block-wrapper">
+<pre><code class="language-python">import torch
+
+optimizer.zero_grad(set_to_none=True)
+loss.backward()
+# Cap the global gradient norm at 1.0. The returned value is the
+# pre-clipping norm; log it to monitor training stability.
+total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+optimizer.step()
+</code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> (no stdout; gradients are clipped in place)</div>
+<div class="code-caption"><strong>Code Fragment E.5.2:</strong> Inserting global-norm gradient clipping between <code>backward</code> and <code>step</code>. The clipping must happen after backward (gradients exist) and before step (so the optimizer sees the clipped values).</div>
+</div>
+
+<h2 id="schedulers">Learning Rate Schedulers</h2>
+
+<p>A learning rate scheduler adjusts <code>optimizer.param_groups[i]["lr"]</code> over time. PyTorch ships several pre-built schedules in <code>torch.optim.lr_scheduler</code>; the most useful for deep learning are:</p>
+
+<ul>
+<li><strong><code>LinearLR(start_factor, end_factor, total_iters)</code></strong>: linearly interpolates the multiplier from <code>start_factor</code> to <code>end_factor</code> over the specified number of iterations. Used for warmup phases.</li>
+<li><strong><code>CosineAnnealingLR(T_max, eta_min)</code></strong>: smoothly decays from the initial LR to <code>eta_min</code> following half a cosine wave over <code>T_max</code> iterations. The standard decay schedule for transformer training.</li>
+<li><strong><code>OneCycleLR(max_lr, total_steps)</code></strong>: implements Smith's one-cycle policy: warmup to <code>max_lr</code>, then anneal toward a very small final LR. Aggressive and often the fastest schedule to converge on a fixed budget.</li>
+<li><strong><code>ReduceLROnPlateau(factor, patience)</code></strong>: monitors a metric and drops the LR by <code>factor</code> when it plateaus. Useful when the total iteration count is unknown.</li>
+<li><strong><code>SequentialLR</code></strong>: chains other schedulers in sequence. The standard transformer recipe is <code>SequentialLR([LinearLR(warmup), CosineAnnealingLR(decay)], milestones=[warmup_steps])</code>.</li>
+</ul>
+
+<p>Whichever scheduler is used, the pattern is the same: build it after the optimizer, call <code>scheduler.step()</code> after <code>optimizer.step()</code> (not before, because <code>step()</code> reads the current LR). Most schedulers step per iteration; <code>ReduceLROnPlateau</code> steps per epoch and takes the monitored metric as an argument.</p>
+
+<div class="code-block-wrapper">
+<pre><code class="language-python">import torch
+from torch.optim.lr_scheduler import LinearLR, CosineAnnealingLR, SequentialLR
+
+warmup_steps = 500
+total_steps  = 10_000
+
+optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
+warmup   = LinearLR(optimizer, start_factor=0.01, end_factor=1.0,
+                    total_iters=warmup_steps)
+decay    = CosineAnnealingLR(optimizer, T_max=total_steps - warmup_steps,
+                             eta_min=3e-5)
+scheduler = SequentialLR(optimizer, schedulers=[warmup, decay],
+                         milestones=[warmup_steps])
+
+for step in range(total_steps):
+    train_one_step()                      # forward, backward, optimizer.step
+    scheduler.step()                      # advance the LR by one step
+</code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> (no stdout; LR rises linearly to 3e-4 over 500 steps, then cosine-decays to 3e-5)</div>
+<div class="code-caption"><strong>Code Fragment E.5.3:</strong> Warmup followed by cosine decay, composed with <code>SequentialLR</code>. The same pattern appears in essentially every modern transformer training recipe.</div>
+</div>
+
+<h2 id="accumulation">Gradient Accumulation</h2>
+
+<p>Gradient accumulation simulates a larger batch by running several forward and backward passes before each optimizer step. It is the standard trick when the target batch size does not fit in GPU memory but the recipe demands it (large-batch training for stability, contrastive losses that need many negatives, and so on). The implementation is a small twist on the canonical loop: skip <code>zero_grad</code> and <code>step</code> until <code>accumulation_steps</code> mini-batches have been processed.</p>
+
+<div class="code-block-wrapper">
+<pre><code class="language-python">accumulation_steps = 4
+
+for step, (features, labels) in enumerate(train_loader):
+    logits = model(features.to(device))
+    # Scale the loss so its sum across micro-batches equals the
+    # loss that would have been computed for the full virtual batch.
+    loss = F.cross_entropy(logits, labels.to(device)) / accumulation_steps
+    loss.backward()
+
+    if (step + 1) % accumulation_steps == 0:
+        optimizer.step()
+        optimizer.zero_grad(set_to_none=True)
+        scheduler.step()
+</code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> (no stdout; effective batch size is `accumulation_steps * micro_batch`)</div>
+<div class="code-caption"><strong>Code Fragment E.5.4:</strong> Gradient accumulation. Dividing the per-micro-batch loss by <code>accumulation_steps</code> keeps the gradient magnitude equivalent to the full virtual batch.</div>
+</div>
+
+<div class="callout warning">
+<div class="callout-title">Warning: BatchNorm and Gradient Accumulation Do Not Mix</div>
+<p>BatchNorm computes statistics over the actual mini-batch, not the virtual one. Accumulating gradients over four micro-batches of size 8 is <em>not</em> equivalent to one batch of 32 from BatchNorm's perspective: each micro-batch sees its own statistics. The downstream consequence is that BatchNorm-equipped models trained with gradient accumulation often diverge or underfit. Workarounds: switch to <code>LayerNorm</code> or <code>GroupNorm</code> (which compute per-sample statistics), use <code>SyncBatchNorm</code> in distributed training (which aggregates across replicas), or avoid accumulation when BatchNorm is essential. Modern transformer training uses LayerNorm-like normalizations, which sidesteps the problem entirely.</p>
+</div>
+
+<h2 id="set-to-none">The set_to_none Optimization</h2>
+
+<p>The default in modern PyTorch is <code>optimizer.zero_grad(set_to_none=True)</code>, which sets each <code>param.grad</code> to <code>None</code> rather than writing zeros into the existing tensor. This saves a write per parameter per step, which is small individually but adds up across millions of parameters and millions of steps. It also lets PyTorch allocate the gradient afresh in the backward pass, sometimes enabling sparse-gradient optimizations.</p>
+
+<p>The only caveat: code that inspects <code>param.grad</code> directly must handle the <code>None</code> case. Gradient norm monitoring, sparse logging, custom regularizers that read <code>.grad</code>, all need a <code>if p.grad is not None</code> guard. PyTorch's built-in <code>clip_grad_norm_</code> already handles this correctly.</p>
+
+<h2 id="checkpointing">Checkpointing Patterns</h2>
+
+<p>A checkpoint records enough state to resume training exactly where it stopped. The minimum is the model's <code>state_dict</code>; for resuming training, the optimizer's <code>state_dict</code>, the scheduler's <code>state_dict</code>, the current step, and the RNG state are all required. Saving everything in a single dict keeps the bookkeeping simple.</p>
+
+<div class="code-block-wrapper">
+<pre><code class="language-python">import os, torch
+
+def atomic_save(state, path):
+    """Write to a temp file, then rename: prevents corrupted checkpoints."""
+    tmp = path + ".tmp"
+    torch.save(state, tmp)
+    os.replace(tmp, path)              # atomic on POSIX and Windows NTFS
+
+def save_checkpoint(path, model, optimizer, scheduler, step, best_val):
+    atomic_save({
+        "model":     model.state_dict(),
+        "optimizer": optimizer.state_dict(),
+        "scheduler": scheduler.state_dict(),
+        "step":      step,
+        "best_val":  best_val,
+        "rng_cpu":   torch.get_rng_state(),
+        "rng_cuda":  torch.cuda.get_rng_state_all(),
+    }, path)
+</code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> (no stdout; checkpoint written to disk)</div>
+<div class="code-caption"><strong>Code Fragment E.5.5:</strong> An atomic checkpoint save. Writing to a temp file and then renaming guarantees that <code>path</code> always contains a complete file; a job killed mid-write leaves the previous checkpoint intact.</div>
+</div>
+
+<p>Two checkpoints are usually maintained: a "last" checkpoint overwritten every <em>N</em> steps for crash recovery, and a "best" checkpoint updated only when validation improves. The best checkpoint is what gets evaluated on the test set and shipped to production; the last enables resumption after preemption. Some shops also keep a rolling window of the last few "last" checkpoints to defend against the rare case where the latest one captures a momentary instability.</p>
+
+<div class="callout key-takeaway">
+<div class="callout-title">Key Takeaway</div>
+<p>The four lines that matter inside the training loop are <code>zero_grad</code>, <code>forward</code>, <code>backward</code>, <code>step</code>. Around them, three additions transform a toy script into a production trainer: gradient clipping (one line, prevents catastrophic single-step divergence), a warmup-plus-decay LR scheduler (a few lines, dramatically improves convergence), and atomic checkpointing (a dozen lines, prevents lost training time after crashes). Gradient accumulation simulates large batches when memory is tight, but is incompatible with BatchNorm and requires the per-micro-batch loss to be scaled by <code>1 / accumulation_steps</code>.</p>
+</div>
+
+<details class="bibliography-collapsible">
+<summary><strong>Further Reading</strong></summary>
+<section class="bibliography">
+<h3 id="training-loop-refs">Training Loop References</h3>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://pytorch.org/docs/stable/optim.html" rel="noopener" target="_blank">PyTorch Documentation: torch.optim.</a> The full catalog of optimizers and schedulers, with the parameter-group API that powers per-layer learning rates and weight decays.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Smith, L. N. (2017). "Cyclical Learning Rates for Training Neural Networks." <em>WACV 2017</em>. <a href="https://arxiv.org/abs/1506.01186" rel="noopener" target="_blank">arXiv:1506.01186</a>. <span class="bib-note">The paper behind <code>OneCycleLR</code>. Practical justification for the warmup-then-anneal shape that dominates modern recipes.</span></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Pascanu, R., Mikolov, T., &amp; Bengio, Y. (2013). "On the difficulty of training Recurrent Neural Networks." <em>ICML 2013</em>. <a href="https://arxiv.org/abs/1211.5063" rel="noopener" target="_blank">arXiv:1211.5063</a>. <span class="bib-note">Introduced global-norm gradient clipping. The reasoning generalizes to any deep model with occasional gradient explosions.</span></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://pytorch.org/tutorials/recipes/recipes/saving_and_loading_a_general_checkpoint.html" rel="noopener" target="_blank">PyTorch Recipe: Saving and Loading a General Checkpoint.</a> Official walkthrough of the dict-of-state-dicts pattern used in production training scripts.</div>
+</div>
+</section>
+</details>
+
+<nav class="chapter-nav">
+<a class="prev" href="section-e.4.html"><span class="nav-label">Previous</span><span class="nav-num">Section E.4</span><span class="nav-title">The Data Pipeline</span></a>
+<a class="up" href="index.html"><span class="nav-label">In Appendix</span><span class="nav-num">Appendix E</span><span class="nav-title">PyTorch Reference</span></a>
+<a class="next" href="section-e.6.html"><span class="nav-label">Next</span><span class="nav-num">Section E.6</span><span class="nav-title">Mixed Precision</span></a>
+</nav>
+<footer><p>Fifteenth Edition, 2026 · <a href="../../toc.html">Contents</a></p></footer>
+</main>
+</body>
+</html>

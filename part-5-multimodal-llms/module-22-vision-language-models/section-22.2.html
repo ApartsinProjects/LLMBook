@@ -79,7 +79,23 @@ gtag('config', 'G-PWPHBQL2VL');
 
 <p>where s_ij is the cosine similarity between image i and caption j, and T is the learnable temperature parameter (typically initialized at 0.07).</p>
 
+<div class="callout note">
+<div class="callout-title">Reminder: cosine similarity equals dot product on the unit sphere</div>
+<p>Every score in the CLIP loss is a <em>cosine similarity</em>, defined for two vectors $u, v$ as $\cos(u,v) = \tfrac{u \cdot v}{\lVert u\rVert\, \lVert v\rVert}$. The denominator is doing one job: it strips out vector magnitude so only the direction matters. The trick CLIP exploits everywhere is that if the encoders already L2-normalize their outputs to unit length (which they do, right after the projection layer), the denominator collapses to 1 and cosine similarity becomes a plain dot product: $\cos(u, v) = u \cdot v$ when $\lVert u \rVert = \lVert v \rVert = 1$. This is why every CLIP-style retrieval and zero-shot code path looks like a single matrix multiply rather than an explicit norm computation, and it is also why FAISS inner-product indexes work as cosine-similarity indexes when fed normalized vectors. If readers ever wonder why an embedding library has both <code>METRIC_INNER_PRODUCT</code> and <code>METRIC_COSINE</code> modes, the answer is "they are the same metric on unit-norm vectors, but different metrics in general."</p>
+</div>
+
 <p>The genius of the recipe is what it does not require: no per-image labels, no curated dataset, no human annotation. Captions scraped from the web (alt-text on news sites, ecommerce product descriptions, Wikipedia image captions, Reddit posts) are the supervision. OpenAI's training set, named WIT-400M, was 400 million such pairs assembled from public web crawls.</p>
+
+<h3 id="22-2-1a-clip-internals-5-step">CLIP internals: a five-step walk-through</h3>
+<p>It helps to follow exactly what happens to an image and a caption as they pass through CLIP at inference time, because every later VLM connector (Section 22.3) borrows pieces of this pipeline.</p>
+<ol>
+<li><strong>Pool from the ViT.</strong> The image is patchified, embedded, and run through the vision transformer (Section 22.1). The output is a sequence of 197 tokens (1 <code>[CLS]</code> + 196 patches for a 224x224 input). CLIP reads off the final hidden state at the <code>[CLS]</code> position as a single 768-dimensional image vector and discards the per-patch tokens. (Subsequent VLMs that need spatial detail keep the patch tokens instead; CLIP throws them away because it only needs one global vector for matching.)</li>
+<li><strong>Pool from the text encoder.</strong> The caption is BPE-tokenized, prepended with a start-of-text token, run through a 12-layer transformer, and pooled at the position of the <code>[EOS]</code> (end-of-text) token. CLIP's text encoder uses causal masking like a small GPT, so the <code>[EOS]</code> position has aggregated information from every preceding token; reading it gives a single 512-dimensional text vector. (BERT-style mean pooling or <code>[CLS]</code> pooling also work but lose 1-2 points of accuracy.)</li>
+<li><strong>Project to the common latent space.</strong> The image vector (768-d) and text vector (512-d) live in different spaces and have different dimensions, so neither can be compared to the other yet. A separate <em>projection layer</em> on each side, a single linear map, sends both into a shared $d$-dimensional space (typically $d=512$ for CLIP-B, $d=768$ for CLIP-L). These two projection matrices are the only modules that look directly at the matching loss; everything else is gradient that backpropagates through them.</li>
+<li><strong>Normalize.</strong> Both projected vectors are L2-normalized to unit length, placing every example on the surface of a unit sphere in $\mathbb{R}^d$. After this step, cosine similarity collapses to a plain dot product (the note above).</li>
+<li><strong>Compare.</strong> For a batch of $N$ images and $N$ captions, the $N \times N$ matrix $S$ of pairwise dot products contains every similarity needed for the InfoNCE loss; for zero-shot inference, the column of $S$ for a single query image plus $K$ candidate text embeddings is enough to rank the $K$ candidates by softmax probability.</li>
+</ol>
+<p>Five steps, one matrix multiply per side, and the whole multimodal alignment falls out. Section 22.3 will show that the same five-step structure (encode each modality, project, normalize, compare) reappears inside Q-Former training and Sentence-Image-Alignment classifiers; CLIP is simply the recipe boiled down to its essence.</p>
 
 <h2 id="22-2-2-the-zero-shot-magic">22.2.2 The Zero-Shot Magic</h2>
 <p>The transformative property of CLIP is zero-shot classification. To classify an image into one of K classes, you do not need to fine-tune CLIP on labeled examples of those classes. Instead, you write a textual prompt for each class (typically "a photo of a {class_name}"), encode each prompt through the text encoder, encode the image through the vision encoder, and pick the class whose text embedding has the highest cosine similarity with the image embedding. This works for any class describable in natural language.</p>
@@ -187,6 +203,31 @@ gtag('config', 'G-PWPHBQL2VL');
 <p>The original CLIP was released by OpenAI with weights but no training code. OpenCLIP (LAION + community, 2022-present) is the open replica: full training code, hyperparameters, multiple model sizes from B/32 through G/14, training on the LAION-2B and LAION-5B image-text datasets. As of 2026, OpenCLIP supports 30+ model variants and is the dominant choice for academic research and self-hosted production deployments.</p>
 
 <p>OpenCLIP's most impactful variants are the ViT-G/14 (2B parameters total, trained on LAION-2B, ~78.4% zero-shot ImageNet) and the ViT-bigG/14 (2.5B parameters, trained on LAION-2B-39B with batch 160k, ~80.1% zero-shot ImageNet). These models are within a couple of points of OpenAI's never-released private replicas. They are also frequently substituted for OpenAI CLIP in production VLM pipelines when license terms matter; OpenCLIP weights are released under permissive licenses while OpenAI's CLIP has more restrictive terms for commercial use.</p>
+
+<div class="callout library-shortcut">
+<div class="callout-title">Library shortcut: CLIP through <code>sentence-transformers</code> for retrieval</div>
+<p>For retrieval pipelines that already use <code>sentence-transformers</code> for text embeddings, CLIP is exposed through the same <code>SentenceTransformer().encode()</code> interface, which removes most of the boilerplate above. Both images (as PIL objects) and strings are accepted by the same model, and the returned vectors are already L2-normalized, so cosine similarity is a single dot product.</p>
+<pre><code class="language-python">from sentence_transformers import SentenceTransformer
+from PIL import Image
+import torch
+
+model = SentenceTransformer("clip-ViT-B-32")    # also: "clip-ViT-L-14", "sentence-transformers/clip-ViT-L-14-laion2B-s32B-b82K"
+
+image_embs = model.encode(
+    [Image.open(p).convert("RGB") for p in ["cat.jpg", "dog.jpg", "car.jpg"]],
+    convert_to_tensor=True, normalize_embeddings=True,
+)
+text_embs = model.encode(
+    ["a photo of a kitten", "a sports car at sunset"],
+    convert_to_tensor=True, normalize_embeddings=True,
+)
+
+scores = text_embs @ image_embs.T              # cosine == dot product on unit vectors
+print(scores)
+# tensor([[0.30, 0.15, 0.06],     # kitten matches cat
+#         [0.05, 0.04, 0.27]])    # car matches car</code></pre>
+<p class="figure-caption"><strong>Code Fragment 22.2.2</strong>: CLIP retrieval through the <code>sentence-transformers</code> wrapper. The same <code>.encode()</code> call accepts text and PIL images and returns embeddings in the same shared space, which makes CLIP a drop-in replacement for a text-only encoder in any vector-search stack (FAISS, Qdrant, Weaviate).</p>
+</div>
 
 <h2 id="22-2-7-eva-clip-and-data-recipes">22.2.7 EVA-CLIP and Data Recipes</h2>
 <p>EVA-CLIP (BAAI, 2023-2024) demonstrates that CLIP's training recipe can be improved by better data and better initialization, not just larger scale. EVA-CLIP starts from EVA-02 (a masked-image-modeling pretrained ViT) rather than random initialization, applies aggressive learning-rate warmup, and uses a curated subset of LAION + JFT data. The result is that EVA-CLIP-G/14 matches OpenCLIP-G/14 with 40% less training compute and beats it by 3 points on zero-shot ImageNet at the same compute budget.</p>

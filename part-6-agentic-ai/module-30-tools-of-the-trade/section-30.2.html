@@ -871,6 +871,205 @@ The weather in London is 22 degrees celsius and sunny. And 42 * 17 = 714.</div>
 
 </section>
 
+<section class="tot-subsection" id="30-2-5-langgraph-tutorial">
+<h2>30.2.5 LangGraph Tutorial: From Chain to ReAct Agent</h2>
+<div class="callout big-picture">
+<div class="callout-title">Big Picture</div>
+<p>The earlier subsections compared LangGraph against alternative agent frameworks at the level of API style. This tutorial works through the framework end-to-end: typed state with reducers, a simple chain graph, the prebuilt <code>tools_condition</code> router, a full ReAct chat agent, persistent memory via <code>Checkpointer</code> and <code>Thread</code>, the two streaming modes, the human-in-the-loop <code>interrupt</code> pattern, and the LangGraph Studio visual debugger. The goal is to give a reader the working mental model needed to debug a LangGraph application, not just call it.</p>
+</div>
+<h3 id="30-2-5-1-core-concepts-state-nodes-edges">Core concepts: state, nodes, edges</h3>
+<p>A LangGraph application is a directed graph whose nodes are pure Python functions that receive the current state and return an update, and whose edges decide which node runs next. The graph carries a single typed <em>State</em> object that is threaded through every node call. Four node names are reserved: <code>START</code> (the implicit entry point), <code>END</code> (the implicit exit), <code>ERROR</code> (raised when a node throws), and <code>TOOLS</code> (the prebuilt tool-execution node). Every other node name is user-defined.</p>
+<p>The simplest graph builds the state machine, registers two function nodes, and connects them with a single edge. The state is a <code>TypedDict</code> whose fields are mutated by each node:</p>
+<div class="code-block-wrapper">
+<pre><code class="language-python">from langgraph.graph import StateGraph, START, END
+from typing import TypedDict
+
+class CountState(TypedDict):
+    value: int
+
+def increment(state: CountState) -&gt; dict:
+    return {"value": state["value"] + 1}
+
+def double(state: CountState) -&gt; dict:
+    return {"value": state["value"] * 2}
+
+graph = StateGraph(CountState)
+graph.add_node("inc", increment)
+graph.add_node("dbl", double)
+graph.add_edge(START, "inc")
+graph.add_edge("inc", "dbl")
+graph.add_edge("dbl", END)
+
+app = graph.compile()
+print(app.invoke({"value": 3}))   # {'value': 8}: (3+1)*2
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 30.2.5:</strong> A two-node LangGraph chain. <code>StateGraph</code> takes the state type, nodes are added by name, and the chain runs in the order of <code>add_edge(...)</code> calls until it hits <code>END</code>.</div>
+</div>
+
+<h3 id="30-2-5-2-reducers">Reducers: how nodes append to state</h3>
+<p>Each node's return value is normally <em>merged</em> field-by-field into the state, overwriting the previous value. For lists (messages, tool calls, observations), overwriting is the wrong default: a node that wants to append a new chat message would erase the entire history. LangGraph solves this with <em>reducer functions</em> declared in the state schema via <code>typing.Annotated</code>. The reducer takes the old field value and the node's update and returns the combined value. For message lists, the convention is to use <code>operator.add</code> (or LangGraph's <code>add_messages</code>, which deduplicates by ID):</p>
+<div class="code-block-wrapper">
+<pre><code class="language-python">from langgraph.graph.message import add_messages
+from langchain_core.messages import AnyMessage
+from typing import Annotated, TypedDict
+
+class ChatState(TypedDict):
+    # The reducer is the second tuple element. add_messages appends new
+    # messages instead of overwriting the list and dedupes by message id.
+    messages: Annotated[list[AnyMessage], add_messages]
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 30.2.6:</strong> A chat-style state with a reducer. <code>AnyMessage</code> is the union of <code>HumanMessage</code>, <code>AIMessage</code>, and <code>ToolMessage</code>; the reducer makes every node's returned messages append rather than overwrite.</div>
+</div>
+
+<h3 id="30-2-5-3-chain-graph-llm-only">A chain graph: LLM-only chat</h3>
+<p>The minimal chat application wires a single LLM node into the chain. The node receives the message list, calls the model, and returns the new <code>AIMessage</code>; the reducer appends it to history. This is functionally identical to a hand-rolled chat loop, but expressed as a graph it composes cleanly with the additions that follow.</p>
+<div class="code-block-wrapper">
+<pre><code class="language-python">from langchain_openai import ChatOpenAI
+from langchain_core.messages import HumanMessage
+
+llm = ChatOpenAI(model="gpt-4o")
+
+def chat_node(state: ChatState) -&gt; dict:
+    response = llm.invoke(state["messages"])
+    return {"messages": [response]}   # the reducer appends, not replaces
+
+graph = StateGraph(ChatState)
+graph.add_node("chat", chat_node)
+graph.add_edge(START, "chat")
+graph.add_edge("chat", END)
+
+app = graph.compile()
+out = app.invoke({"messages": [HumanMessage("What is the boiling point of water?")]})
+print(out["messages"][-1].content)
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 30.2.7:</strong> A pure-chat chain graph. One node, one edge, one reducer: the same idea will scale to a ReAct agent in two more steps.</div>
+</div>
+
+<h3 id="30-2-5-4-add-tools-condition">Adding tools: <code>ToolNode</code> and <code>tools_condition</code></h3>
+<p>Turning the chain into a ReAct agent requires three additions: bind tools to the LLM so it can emit <code>tool_calls</code>, add LangGraph's prebuilt <code>ToolNode</code> (registered under the reserved <code>TOOLS</code> name) to execute those calls and append the result, and add a conditional edge driven by the prebuilt <code>tools_condition</code> router. The router inspects the last message: if it contains tool calls it routes to <code>tools</code>; otherwise it routes to <code>END</code>. The tools node's output flows back into the chat node, closing the ReAct loop.</p>
+<div class="code-block-wrapper">
+<pre><code class="language-python">from langgraph.prebuilt import ToolNode, tools_condition
+from langchain_core.tools import tool
+
+@tool
+def get_weather(city: str) -&gt; str:
+    """Return the current weather for a city."""
+    return f"{city}: 18C, partly cloudy"
+
+@tool
+def calculator(expression: str) -&gt; str:
+    """Evaluate a simple arithmetic expression."""
+    return str(eval(expression))   # toy: in production use a safe parser
+
+tools = [get_weather, calculator]
+llm_with_tools = ChatOpenAI(model="gpt-4o").bind_tools(tools)
+
+def chat_node(state: ChatState) -&gt; dict:
+    return {"messages": [llm_with_tools.invoke(state["messages"])]}
+
+graph = StateGraph(ChatState)
+graph.add_node("chat", chat_node)
+graph.add_node("tools", ToolNode(tools))          # the reserved TOOLS node
+graph.add_edge(START, "chat")
+graph.add_conditional_edges("chat", tools_condition)  # routes to "tools" or END
+graph.add_edge("tools", "chat")                   # close the ReAct loop
+
+app = graph.compile()
+out = app.invoke({"messages": [HumanMessage(
+    "What is the weather in Paris, and what is 23 * 17?")]})
+for m in out["messages"]:
+    print(type(m).__name__, getattr(m, "content", "")[:80])
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 30.2.8:</strong> A full ReAct chat agent in LangGraph. Two prebuilts (<code>ToolNode</code>, <code>tools_condition</code>) plus one conditional edge turn the chain graph into the ReAct loop. The model may emit only one tool call per turn; multiple tools are handled by repeated <code>chat</code>-<code>tools</code> cycles.</div>
+</div>
+<p>This is the canonical ReAct chat agent. Adding more tools is a one-line change (extend the <code>tools</code> list and rebind); adding planning, reflection, or memory is a matter of adding more nodes and wiring more edges, exactly as the planning and agentic-flow sections of Chapter 26 do.</p>
+
+<h3 id="30-2-5-5-memory-checkpoints-threads">Memory: <code>Checkpointer</code> and <code>Thread</code></h3>
+<p>By default no state is preserved between <code>invoke</code> calls: each invocation starts from the input dict. Production agents need persistence for at least three reasons: multi-turn conversation, resume-after-crash, and human-in-the-loop interrupts that may pause for minutes or days. LangGraph models this with two abstractions. A <strong>Checkpoint</strong> is the state plus the execution-progress marker captured after every node returns. A <strong>Thread</strong> is the ordered collection of checkpoints belonging to one logical session, identified by a <code>thread_id</code>. Compiling the graph with a checkpointer (<code>MemorySaver</code> for tests, <code>PostgresSaver</code> or <code>SqliteSaver</code> in production) makes both first-class:</p>
+<div class="code-block-wrapper">
+<pre><code class="language-python">from langgraph.checkpoint.memory import MemorySaver
+
+memory = MemorySaver()
+app = graph.compile(checkpointer=memory)
+
+# One thread (one conversation), two turns: the second sees the first.
+config = {"configurable": {"thread_id": "session-42"}}
+app.invoke({"messages": [HumanMessage("My name is Yossi.")]}, config=config)
+out = app.invoke({"messages": [HumanMessage("What is my name?")]}, config=config)
+print(out["messages"][-1].content)   # "Your name is Yossi."
+
+# Inspect the thread: a list of checkpoints, newest first.
+for ckpt in app.get_state_history(config):
+    print(ckpt.config["configurable"]["checkpoint_id"], len(ckpt.values["messages"]))
+
+# Resume from step 5: pick a past checkpoint and continue from it.
+old_config = list(app.get_state_history(config))[4].config
+app.invoke(None, config=old_config)   # replays from that checkpoint forward
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 30.2.9:</strong> Checkpoints and threads. Every node return is saved under the thread; <code>get_state_history</code> lists past checkpoints and any one of them can be the starting config for a fresh <code>invoke</code>, which is the "time-travel debugging" feature.</div>
+</div>
+
+<h3 id="30-2-5-6-streaming-modes">Streaming modes: <code>values</code> vs <code>updates</code></h3>
+<p>For UIs and tracing, <code>app.stream(...)</code> yields events as the graph runs instead of returning only the final state. The two most common modes differ in what they yield. <code>stream_mode="values"</code> emits the <em>complete state after each reducer runs</em>: every event is a full state dict, which is convenient when the UI re-renders from scratch but verbose. <code>stream_mode="updates"</code> emits only the per-node update dict, keyed by node name: events are small and tell you exactly which node produced the change, which is what tracing and observability backends want.</p>
+<div class="code-block-wrapper">
+<pre><code class="language-python"># Full state after every reducer (UI-friendly, verbose).
+for event in app.stream({"messages": [HumanMessage("Weather in Tokyo?")]},
+                        config=config, stream_mode="values"):
+    print("STATE", len(event["messages"]), "msgs")
+
+# Just the per-node update (logs / tracing-friendly, compact).
+for event in app.stream({"messages": [HumanMessage("And in Lima?")]},
+                        config=config, stream_mode="updates"):
+    # event is e.g. {"chat": {"messages": [AIMessage(...)]}}
+    node_name = next(iter(event))
+    print("UPDATE from", node_name)
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 30.2.10:</strong> Two streaming modes for the same graph. <code>values</code> emits the full post-reducer state; <code>updates</code> emits only the per-node delta. Pick <code>values</code> for live-rendered UIs, <code>updates</code> for tracing and observability.</div>
+</div>
+
+<h3 id="30-2-5-7-hitl-interrupt">Human-in-the-loop: <code>interrupt_before</code></h3>
+<p>For agents that take consequential actions (send email, run SQL writes, transfer funds), the right design pattern is to pause the graph at a known node, surface the proposed action to a human, and resume only after approval. LangGraph implements this by compiling the graph with <code>interrupt_before=[...]</code> (or <code>interrupt_after</code>). When execution reaches a listed node the graph saves a checkpoint, returns control to the caller, and waits. The caller inspects the pending state, optionally edits it with <code>app.update_state(...)</code>, and resumes by calling <code>invoke(None, config=...)</code> on the same thread. The mechanism rides on top of checkpointing, which is why <code>thread_id</code> is required for HITL.</p>
+<div class="code-block-wrapper">
+<pre><code class="language-python">app = graph.compile(checkpointer=memory, interrupt_before=["tools"])
+config = {"configurable": {"thread_id": "approval-1"}}
+
+# Step 1: run until just before any tool call.
+app.invoke({"messages": [HumanMessage(
+    "Send a thank-you email to alice@example.com.")]}, config=config)
+pending = app.get_state(config)
+print("Proposed action:", pending.values["messages"][-1].tool_calls)
+
+# Step 2 (human review): operator edits the args, then resumes.
+edited = pending.values["messages"][-1]
+edited.tool_calls[0]["args"]["body"] = "Thanks, Alice. From the LangGraph agent."
+app.update_state(config, {"messages": [edited]})
+
+# Step 3: resume from the saved checkpoint; the tool now executes.
+final = app.invoke(None, config=config)
+print(final["messages"][-1].content)
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 30.2.11:</strong> Human-in-the-loop interrupt. <code>interrupt_before=["tools"]</code> pauses execution before the <code>tools</code> node runs; the operator inspects the pending tool call, edits arguments if needed via <code>update_state</code>, then resumes by invoking with <code>None</code> on the same thread.</div>
+</div>
+<div class="callout cross-ref">
+<div class="callout-title">See Also</div>
+<p>The architectural rationale for HITL and the broader approval-flow design pattern live in <a href="../module-28-multi-agent-systems/section-28.3.html">Section 28.3</a>; the code above is the LangGraph wire-level implementation.</p>
+</div>
+
+<h3 id="30-2-5-8-langgraph-studio">LangGraph Studio: visual debugging</h3>
+<p>LangGraph Studio is the in-browser graph debugger that ships with the LangGraph platform. It renders the compiled graph as a live diagram, highlights the currently-executing node, exposes each checkpoint's state for inspection and edit, and lets the developer rewind to any past checkpoint and re-run forward from there. The same time-travel mechanism described in Code Fragment 30.2.9 is what Studio is showing graphically: every event the runtime emits already has a checkpoint ID, and Studio is the UI on top. For teams adopting LangGraph in production, Studio is the single best argument for using the framework rather than rolling a custom loop: a hand-rolled while-loop has no equivalent.</p>
+
+<div class="callout key-takeaway">
+<div class="callout-title">Key takeaway</div>
+<p>Eight concepts cover essentially every LangGraph application: typed <em>state</em>, function <em>nodes</em>, conditional <em>edges</em>, <em>reducers</em> for append-style updates, the prebuilt <code>ToolNode</code> + <code>tools_condition</code> router that turns a chain into a ReAct agent, a <em>checkpointer</em> + <em>thread</em> for persistence and resume, two <em>streaming modes</em> (<code>values</code> for full state, <code>updates</code> for per-node deltas), and <em>interrupts</em> for human-in-the-loop pauses. Everything else (subgraphs, parallel branches, send/recv APIs) layers on top of these primitives.</p>
+</div>
+
+<div class="callout exercise">
+<div class="callout-title">Exercise 30.2.5.1: MemGPT-style memory agent in LangGraph <span class="exercise-type coding" title="Coding">Coding</span></div>
+<p>Build a MemGPT-lite agent in LangGraph that adds two tools, <code>load_memory(query)</code> (vector search over a long-term store) and <code>save_memory(text)</code> (insert into the same store), and an <code>agent</code> node that prepends the top three recalled memories to every prompt before calling the LLM. Wire <code>tools_condition</code> so the agent can choose to load, save, or skip on each turn. Verify that across two threads sharing the same memory store, a fact saved in thread A becomes retrievable in thread B.</p>
+</div>
+
+</section>
+
 <div class="whats-next">
 <h3 id="what-s-next">What's Next?</h3>
 <p>In the next part of this section, <a href="section-30.3.html">Section 30.3: Multi-Agent Patterns &amp; Topologies</a>, we move from single-agent libraries to the topologies that combine multiple agents into one system.</p>
@@ -890,6 +1089,12 @@ The weather in London is 22 degrees celsius and sunny. And 42 * 17 = 714.</div>
 </div>
 <div class="bib-entry-card">
 <div class="bib-ref"><a href="https://github.com/huggingface/smolagents" rel="noopener" target="_blank">Hugging Face (2024). "smolagents: Minimal Code-First Agents."</a> The minimal-dependency code-first framework that emerged in late 2024 as a lightweight alternative to LangGraph and AutoGen.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://langchain-ai.github.io/langgraph/tutorials/introduction/" rel="noopener" target="_blank">LangChain (2024). "LangGraph Tutorials: Build a Basic Chatbot, Add Tools, Add Memory, Time Travel."</a> The official tutorial series whose step-by-step structure (chain, then router, then ReAct, then checkpoints, then HITL, then Studio) mirrors Section 30.2.5; recommended companion for a hands-on first run.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://langchain-ai.github.io/langgraph/concepts/persistence/" rel="noopener" target="_blank">LangChain (2024). "LangGraph Persistence: Checkpointers and Threads."</a> Reference for the <code>MemorySaver</code>, <code>SqliteSaver</code>, and <code>PostgresSaver</code> backends; the thread / checkpoint abstractions that drive both Section 30.2.5's memory subsection and Section 26.6's resume test.</div>
 </div>
 </section>
 </details>

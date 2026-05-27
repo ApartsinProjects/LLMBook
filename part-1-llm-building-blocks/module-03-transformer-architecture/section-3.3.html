@@ -714,6 +714,152 @@ gtag('config', 'G-PWPHBQL2VL');
 <div class="code-caption"><strong>Code Fragment 3.3.9:</strong> Build character vocabulary.</div>
 </div>
 <!-- ============================================================ -->
+<h2 id="3-3-4-encoder-decoder-transformers-and-cross-attention">3.3.4 Encoder-Decoder Transformers and Cross-Attention</h2>
+<p>
+ Everything assembled above is the <em>decoder-only</em> Transformer used by GPT, LLaMA, Mistral, and most modern chat LLMs. Three workloads still need the full <strong>encoder-decoder</strong> shape introduced by Vaswani et al. (2017) and continued by T5, BART, and most neural machine translation systems: source-to-target translation (French to English), sequence-to-sequence summarization where the model must read the entire input before writing, and many speech-to-text or grammatical-error-correction pipelines. The decoder-only stack above cannot serve these out of the box because it has no separate encoder representation to attend over. This subsection adds the missing pieces.
+</p>
+<p>
+ The mental model is two stacks side by side. The <strong>encoder</strong> reads the source sequence with bidirectional self-attention and produces a sequence of context vectors (called the <em>memory</em>). The <strong>decoder</strong> generates the target sequence autoregressively with three sub-layers per block instead of two: causal self-attention over its own generated tokens, <strong>cross-attention</strong> whose queries come from the decoder and whose keys and values come from the encoder memory, and the position-wise FFN. Two masks travel together through every decoder layer: a <code>tgt_mask</code> (causal, lower-triangular) for the self-attention, and a <code>src_mask</code> (padding) for the cross-attention so that decoder tokens never attend to padded encoder positions.
+</p>
+<div class="callout key-insight">
+<div class="callout-title">Key Insight: Two Masks in the Same Layer</div>
+<p>A subtle implementation footgun: the decoder layer holds two simultaneously-active masks of different shapes and purposes. The causal target mask is $(T_{\text{tgt}} \times T_{\text{tgt}})$ and forbids attending to future target tokens. The source padding mask is $(T_{\text{src}})$ and forbids attending to padded encoder positions. Mixing them up (applying the causal mask to cross-attention, or the padding mask to self-attention) produces a model that trains without errors and generates plausible-looking but subtly broken output. Name the variables clearly and assert their shapes at every call site.</p>
+</div>
+<h3 id="3-3-4-1-the-residual-wrapper">3.3.4.1 A Reusable Residual Wrapper</h3>
+<p>
+ To keep the encoder-decoder code compact, factor out the "LayerNorm, sub-layer, dropout, add residual" pattern into a small <code>Residual</code> class that wraps an arbitrary sub-layer. Every encoder and decoder sub-layer is then a one-line composition.
+</p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python">import torch
+import torch.nn as nn
+
+class Residual(nn.Module):
+    """Pre-LN residual wrapper: LayerNorm -> sub-layer -> dropout -> add."""
+    def __init__(self, d_model: int, sublayer: nn.Module, dropout: float = 0.1):
+        super().__init__()
+        self.norm = nn.LayerNorm(d_model)
+        self.sublayer = sublayer
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x: torch.Tensor, *args, **kwargs) -> torch.Tensor:
+        # Pre-LN: normalize, run sub-layer, drop, then add the original input.
+        return x + self.dropout(self.sublayer(self.norm(x), *args, **kwargs))
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 3.3.10:</strong> Generic Pre-LN residual wrapper. The sub-layer can be self-attention, cross-attention, or the FFN. Extra positional arguments (memory tensors, masks) pass through to the wrapped sub-layer.</div>
+</div>
+<h3 id="3-3-4-2-the-decoder-layer">3.3.4.2 The DecoderLayer with Three Residual Blocks</h3>
+<p>
+ With <code>Residual</code> in place, a decoder layer is three lines of forward logic: self-attention with the target mask, cross-attention into encoder memory with the source mask, then the FFN. The same <code>MultiHeadAttention</code> module powers both self- and cross-attention, only the query/key/value inputs differ.
+</p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python">import torch
+import torch.nn as nn
+
+class DecoderLayer(nn.Module):
+    """One encoder-decoder Transformer decoder block: self-attn + cross-attn + FFN."""
+    def __init__(self, d_model: int, n_heads: int, d_ff: int, dropout: float = 0.1):
+        super().__init__()
+        self.self_attn  = Residual(d_model, MultiHeadAttention(d_model, n_heads, dropout), dropout)
+        self.cross_attn = Residual(d_model, MultiHeadAttention(d_model, n_heads, dropout), dropout)
+        self.ffn        = Residual(d_model, FeedForward(d_model, d_ff, dropout),          dropout)
+
+    def forward(self,
+                x:        torch.Tensor,   # (B, T_tgt, d_model)  decoder input
+                memory:   torch.Tensor,   # (B, T_src, d_model)  encoder output
+                tgt_mask: torch.Tensor,   # (T_tgt, T_tgt)       causal mask
+                src_mask: torch.Tensor):  # (B, 1, 1, T_src)     source padding mask
+        # 1. Causal self-attention over already-generated target tokens
+        x = self.self_attn(x, x, x, mask=tgt_mask)
+        # 2. Cross-attention: Q from decoder, K and V from encoder memory
+        x = self.cross_attn(x, memory, memory, mask=src_mask)
+        # 3. Position-wise FFN
+        x = self.ffn(x)
+        return x
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 3.3.11:</strong> The decoder block has three residual sub-layers. The cross-attention call passes <code>memory</code> as both keys and values; only the queries come from the decoder stream.</div>
+</div>
+<h3 id="3-3-4-3-mask-helpers">3.3.4.3 Mask Helpers: Causal Target, Padded Source</h3>
+<p>
+ The two masks have completely different shapes and meanings, so it is worth keeping them as separate helpers. The causal mask is a constant once the target length is known. The padding mask depends on the actual contents of the source batch and must be recomputed per batch.
+</p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python">import torch
+
+def causal_mask(T: int, device=None) -> torch.Tensor:
+    """Lower-triangular mask: position t may attend to positions 0..t.
+    Shape (1, 1, T, T); True means 'allowed', False means 'masked out'."""
+    return torch.tril(torch.ones(T, T, dtype=torch.bool, device=device)).view(1, 1, T, T)
+
+def padding_mask(src: torch.Tensor, pad_id: int) -> torch.Tensor:
+    """Mark non-pad positions of the source sequence.
+    src is (B, T_src) of token IDs; returns (B, 1, 1, T_src) for broadcasting."""
+    return (src != pad_id).unsqueeze(1).unsqueeze(2)
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 3.3.12:</strong> The decoder consumes both masks at every layer. Causal mask blocks future target tokens; padding mask blocks padded source positions during cross-attention.</div>
+</div>
+<h3 id="3-3-4-4-the-encoder-decoder-transformer">3.3.4.4 The Top-Level EncoderDecoderTransformer</h3>
+<p>
+ The top-level class wires an embedding plus positional encoding for each side, a stack of encoder blocks (causal-free self-attention plus FFN, also wrapped with <code>Residual</code>), a stack of <code>DecoderLayer</code>s, and a final language-model head over the target vocabulary. Training feeds the source through the encoder once to produce memory, then runs the decoder with the right-shifted target sequence; inference runs the decoder autoregressively while the encoder memory stays fixed.
+</p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python">import torch
+import torch.nn as nn
+
+class EncoderLayer(nn.Module):
+    """Encoder block: bidirectional self-attention + FFN, both wrapped in Residual."""
+    def __init__(self, d_model, n_heads, d_ff, dropout=0.1):
+        super().__init__()
+        self.self_attn = Residual(d_model, MultiHeadAttention(d_model, n_heads, dropout), dropout)
+        self.ffn       = Residual(d_model, FeedForward(d_model, d_ff, dropout),          dropout)
+
+    def forward(self, x, src_mask):
+        x = self.self_attn(x, x, x, mask=src_mask)
+        x = self.ffn(x)
+        return x
+
+class EncoderDecoderTransformer(nn.Module):
+    """Full seq2seq Transformer (Vaswani et al., 2017) in ~60 lines."""
+    def __init__(self, src_vocab, tgt_vocab, d_model=512, n_heads=8,
+                 d_ff=2048, n_enc=6, n_dec=6, dropout=0.1, pad_id=0):
+        super().__init__()
+        self.pad_id = pad_id
+        self.src_embed = nn.Embedding(src_vocab, d_model)
+        self.tgt_embed = nn.Embedding(tgt_vocab, d_model)
+        self.src_pos   = SinusoidalPE(d_model)
+        self.tgt_pos   = SinusoidalPE(d_model)
+        self.encoder = nn.ModuleList([EncoderLayer(d_model, n_heads, d_ff, dropout) for _ in range(n_enc)])
+        self.decoder = nn.ModuleList([DecoderLayer(d_model, n_heads, d_ff, dropout) for _ in range(n_dec)])
+        self.norm_enc = nn.LayerNorm(d_model)
+        self.norm_dec = nn.LayerNorm(d_model)
+        self.lm_head  = nn.Linear(d_model, tgt_vocab, bias=False)
+
+    def encode(self, src):
+        src_mask = padding_mask(src, self.pad_id)
+        x = self.src_pos(self.src_embed(src))
+        for layer in self.encoder:
+            x = layer(x, src_mask)
+        return self.norm_enc(x), src_mask
+
+    def decode(self, tgt, memory, src_mask):
+        T = tgt.size(1)
+        tgt_mask = causal_mask(T, device=tgt.device)
+        y = self.tgt_pos(self.tgt_embed(tgt))
+        for layer in self.decoder:
+            y = layer(y, memory, tgt_mask, src_mask)
+        return self.norm_dec(y)
+
+    def forward(self, src, tgt):
+        memory, src_mask = self.encode(src)
+        y = self.decode(tgt, memory, src_mask)
+        return self.lm_head(y)             # (B, T_tgt, tgt_vocab)
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 3.3.13:</strong> The full encoder-decoder Transformer in roughly sixty lines. <code>encode()</code> runs once per source sentence; <code>decode()</code> runs once during training and step-by-step during autoregressive generation. The decoder needs both <code>memory</code> and the source mask so that cross-attention can ignore padded source positions.</div>
+</div>
+<div class="callout cross-ref">
+<div class="callout-title">See also</div>
+<p>This subsection adapts the reference seq2seq implementation walked through in deck 1307. The conceptual contrast between the three architecture families (encoder-only, decoder-only, encoder-decoder) is in <a href="section-3.5.html#3-5-1-the-three-architectural-families">Section 3.5.1</a>; cross-attention itself was introduced in <a href="../module-02-sequence-models-attention/section-2.3.html">Section 2.3</a>. For the practical NMT pipeline that uses this architecture end-to-end, see Harvard NLP's "Annotated Transformer", which inspired the structure above.</p>
+</div>
+<!-- ============================================================ -->
 <div class="callout exercise">
 <div class="callout-title">Exercise 3.3.1: Character-level vocabulary &amp; encode/decode <span class="exercise-type coding" title="Coding">Coding</span></div>
 <p>Using the Tiny Shakespeare text from this section, build the character vocabulary and write <code>encode(text)</code> and <code>decode(ids)</code> functions. Verify that <code>decode(encode("To be or not to be"))</code> returns the original string exactly. Then check that the vocabulary contains exactly 65 unique characters (the canonical count for Tiny Shakespeare).</p>
