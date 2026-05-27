@@ -520,3 +520,53 @@ Phase 7: Controller QA + audit gate.
 ---
 
 **END OF PLAN — gap-audited and ready to execute.**
+
+---
+
+## 12. Skipped-scope verification audit (post-integration)
+
+After Phases 1-7 completed and the integration was committed, a second-pass **skip-audit** was run to catch false negatives in the original §2 scope filter. 89 SKIP decks were read end-to-end by 6 parallel verification subagents.
+
+### Headline result
+
+| Bucket | Decks audited | TRULY_SKIP | FALSE_NEGATIVE |
+|---|---|---|---|
+| B1 (admin + classical ML) | 14 | 10 | 4 |
+| B2 (non-SD VLM) | 6 | 2 | 1 high + 2 medium |
+| B3 (Stable Diffusion) | 17 | 16 | 1 (CFG as generic technique) |
+| B4 (GAN history) | 7 | 6 | 1 (GAN_Music) |
+| B5 (Classical Vision 3xxx) | 33 | 19 | **14** |
+| B6 (Deep Vision + MARL) | 11 | 10 | 1 |
+| **TOTAL** | **88** | **63** | **22 (+ 2 partial)** |
+
+(B5 was higher than expected because the 3DGS / 2DGS / NeRF decks live under "Vision" folders but topically belong to Ch 23 (3D Generation), which the original filter put in SKIP.)
+
+### Highest-impact false negatives (deferred — user chose to not act on them in this round)
+
+* **SAM (slide 1624)** — Segment Anything (Meta 2023). Promptable foundation segmenter widely used in multimodal pipelines, document AI, and agentic vision. Belongs in a new sub-section in Ch 22 (post-CLIP vision foundation models) with cross-links from Ch 21 (Document Understanding), Ch 23.5 (3D editing), Ch 29 (Specialized Agents).
+* **3D Gaussian Splatting / 2DGS / NeRF (slides 3861, 3862, 3863)** — likely belong as full sub-sections in Ch 23 (3D Generation and Neural Scenes). They were wrongly classified as "pure classical CV" but are actually the topic of Ch 23.
+* **Viterbi decoding (slide 0005)** — should be a callout in Section 20.0.3 (Audio Transformers) before the CTC introduction. Viterbi is the historical DP precursor of CTC's beam-search decoding.
+* **EM as unifying framework (slide 0007)** — Appendix A.4 or new A.5. EM underlies HuBERT iterative k-means (Section 20.0.4), VAE training, and MoE routing; never named.
+* **DETR (slide 2333)** — short sidebar in Ch 3 (encoder-decoder applications) — DETR + object queries + Hungarian matching is the encoder-decoder transformer applied to detection.
+* **ImageGPT (slide 2334)** — short historical sidebar in Section 22.3 (alongside the new VisualBERT sidebar) or 22.9; ancestor of Chameleon-style discrete-token any-to-any.
+* **Transform coding / JPEG/MPEG (slides 3644, 3645)** — sidebar in Section 22.1 (ViT patches as learned analog of hand-crafted DCT blocks); also analogy for Section 20.0.2 (audio codecs).
+
+### Source files
+
+Full per-bucket reports with all 22 false negatives + suggested target sections:
+- `slide-summaries/_skip_audit_B1.json` (admin + classical ML)
+- `slide-summaries/_skip_audit_B2.json` (non-SD VLM)
+- `slide-summaries/_skip_audit_B3.json` (Stable Diffusion confirmation)
+- `slide-summaries/_skip_audit_B4.json` (GAN history)
+- `slide-summaries/_skip_audit_B5.json` (Classical Vision)
+- `slide-summaries/_skip_audit_B6.json` (Deep Vision + MARL)
+
+### Decision (recorded)
+
+The user chose **not to act on the false negatives in this integration round**. The current integration is considered "good enough" for the `slide-integration` PR.
+
+This decision is reversible: any future contributor can read the audit JSONs above and pick up the false-negative items in a separate edit round if/when the book's scope is revisited.
+
+---
+
+**END OF PLAN — gap-audited, skip-audited, integrated, and committed.**
