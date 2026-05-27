@@ -257,7 +257,7 @@ def parse_sections(html: str) -> list[dict]:
 def score_html(body: str) -> dict:
     has_fig = bool(re.search(r'<figure\b|<svg\b|diagram-container|class="[^"]*illustration', body, re.IGNORECASE))
     has_math = bool(re.search(r'\$\$[^$]+\$\$|\$[^$\n]{2,}\$', body))
-    has_code = bool(re.search(r'<pre[^>]*><code[^>]*class="[^"]*language-(python|bash|json|yaml|c|cpp|rust|go|cuda)', body, re.IGNORECASE))
+    has_code = bool(re.search(r'<pre[^>]*><code[^>]*class="[^"]*(?:language|lang)-(python|bash|json|yaml|c|cpp|rust|go|cuda)', body, re.IGNORECASE))
     has_example = bool(re.search(r'<div\s+class="[^"]*callout\s+(practical-example|numeric-example|key-insight|algorithm)', body, re.IGNORECASE))
     return {
         "has_figure": has_fig, "has_math": has_math,

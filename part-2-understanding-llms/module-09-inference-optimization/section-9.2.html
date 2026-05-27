@@ -187,6 +187,50 @@ Quantized model saved successfully</div>
 </div>
 <h2 id="9-2-4-awq-quantization">9.2.4 AWQ Quantization</h2>
 <p>This snippet quantizes a model to 4-bit precision using the AWQ algorithm via the AutoAWQ library.</p>
+<p>AWQ's core observation is that not all weight channels are equally important: a small subset (roughly 1%) interacts with high-magnitude activation features and disproportionately affects output quality. Pre-multiplying those salient weight channels by a per-channel scale <span class="math">$s_c$</span> and dividing the corresponding activation channels by <span class="math">$s_c$</span> leaves the layer output mathematically unchanged but reshapes the weight distribution to be easier to quantize uniformly:</p>
+<div class="math-block">$$y = W x = \big(W \cdot \mathrm{diag}(s)\big) \cdot \big(\mathrm{diag}(s)^{-1} x\big) = W' x'.$$</div>
+<p>The scales <span class="math">$s = (s_1, \ldots, s_C)$</span> are chosen by minimizing a calibration-set reconstruction error <span class="math">$\| Q(W \cdot \mathrm{diag}(s)) \cdot \mathrm{diag}(s)^{-1} x - W x \|^2$</span> on a small set of inputs, where <span class="math">$Q$</span> is the 4-bit quantizer. The result is consistently lower perplexity loss than GPTQ at the same bitrate, as the benchmark in this section's code block confirms (AWQ-4bit 6.38 vs GPTQ-4bit 6.41 perplexity on Llama-3.1-8B).</p>
+<figure>
+<svg viewbox="0 0 720 220" xmlns="http://www.w3.org/2000/svg" style="font-family:'Segoe UI',sans-serif;max-width:100%;height:auto;">
+<rect width="720" height="220" fill="#ffffff"/>
+<text x="360" y="22" font-size="13" font-weight="700" text-anchor="middle" fill="#1a1a2e">AWQ: identify salient weight channels via activation magnitude, then pre-scale</text>
+<g transform="translate(30,46)">
+<rect width="200" height="150" rx="8" fill="#fff3e0" stroke="#a67c1a"/>
+<text x="100" y="22" font-size="11" font-weight="700" text-anchor="middle" fill="#a67c1a">Step 1: activation calibration</text>
+<text x="100" y="42" font-size="10" text-anchor="middle" fill="#1a1a2e">run 128 samples through layer</text>
+<text x="100" y="58" font-size="10" text-anchor="middle" fill="#1a1a2e">measure per-channel mean(|x_c|)</text>
+<text x="100" y="78" font-size="10" font-weight="700" text-anchor="middle" fill="#a67c1a">~1% of channels have</text>
+<text x="100" y="92" font-size="10" font-weight="700" text-anchor="middle" fill="#a67c1a">10-100&#215; larger activations</text>
+<text x="100" y="116" font-size="10" font-style="italic" text-anchor="middle" fill="#a67c1a">these are the "salient" channels</text>
+<text x="100" y="132" font-size="10" font-style="italic" text-anchor="middle" fill="#a67c1a">whose weights matter most</text>
+</g>
+<g transform="translate(260,46)">
+<rect width="200" height="150" rx="8" fill="#e3f2fd" stroke="#1565c0"/>
+<text x="100" y="22" font-size="11" font-weight="700" text-anchor="middle" fill="#0d47a1">Step 2: scale &amp; quantize</text>
+<text x="100" y="42" font-size="10" text-anchor="middle" fill="#1a1a2e">multiply W's salient cols by s_c</text>
+<text x="100" y="58" font-size="10" text-anchor="middle" fill="#1a1a2e">divide x's salient rows by s_c</text>
+<text x="100" y="78" font-size="10" text-anchor="middle" fill="#1a1a2e">output Wx is invariant</text>
+<text x="100" y="100" font-size="10" font-weight="700" text-anchor="middle" fill="#0d47a1">then quantize W' to 4-bit</text>
+<text x="100" y="120" font-size="10" font-style="italic" text-anchor="middle" fill="#1565c0">salient weights now fit the</text>
+<text x="100" y="134" font-size="10" font-style="italic" text-anchor="middle" fill="#1565c0">quantization grid more accurately</text>
+</g>
+<g transform="translate(490,46)">
+<rect width="200" height="150" rx="8" fill="#e8f5e9" stroke="#2e7d32"/>
+<text x="100" y="22" font-size="11" font-weight="700" text-anchor="middle" fill="#1b5e20">Step 3: deploy</text>
+<text x="100" y="42" font-size="10" text-anchor="middle" fill="#1a1a2e">store 4-bit W' + scales s</text>
+<text x="100" y="58" font-size="10" text-anchor="middle" fill="#1a1a2e">no runtime reconstruction</text>
+<text x="100" y="78" font-size="10" text-anchor="middle" fill="#1a1a2e">runs in standard INT4 kernels</text>
+<text x="100" y="100" font-size="10" font-weight="700" text-anchor="middle" fill="#1b5e20">Result on Llama-3.1-8B:</text>
+<text x="100" y="116" font-size="10" text-anchor="middle" fill="#1b5e20">ppl 6.38 (vs FP16 6.14)</text>
+<text x="100" y="130" font-size="10" text-anchor="middle" fill="#1b5e20">memory 4.5 GB (vs 16.1 GB)</text>
+</g>
+</svg>
+<figcaption><strong>Figure 9.2.4</strong>: AWQ in three steps. A short activation calibration identifies the ~1% of channels carrying outlier activations; the layer is mathematically rewritten by absorbing a per-channel scale s into the weights and its inverse into the inputs (an identity transform); then the rescaled weights, now distributed more uniformly, quantize cleanly to 4-bit. The result is the same matmul algebra at one-quarter the memory.</figcaption>
+</figure>
+<div class="callout practical-example">
+<div class="callout-title">Worked Example: Why a Per-Channel Scale Beats Per-Tensor</div>
+<p>Suppose a 4096-channel weight matrix has values mostly in <span class="math">$[-0.1, 0.1]$</span> but one channel spans <span class="math">$[-2.5, 2.5]$</span> because it interacts with an outlier activation feature. A per-tensor 4-bit quantizer must size its grid to <span class="math">$[-2.5, 2.5]$</span>, giving a step size of <span class="math">$5 / 16 \approx 0.31$</span>. That step swallows most of the small-channel weights into zero, and the model's perplexity blows up. AWQ instead multiplies the outlier channel's weights by a large scale (say <span class="math">$s = 25$</span>), shrinking their effective range to <span class="math">$[-0.1, 0.1]$</span>, so the per-tensor grid can be sized to <span class="math">$[-0.1, 0.1]$</span> with step <span class="math">$0.0125$</span>: 25x finer. The inverse scale is applied to the activations at runtime (or absorbed into the previous LayerNorm), keeping the matmul output identical. This is why AWQ-4bit's perplexity (6.38) is consistently within 0.3 points of FP16 on Llama-family models.</p>
+</div>
 <div class="code-block-wrapper">
 <pre><code class="pygments-highlighted lang-python"><span class="c1"># Example 4: Benchmarking quantization quality</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">AutoModelForCausalLM</span><span class="p">,</span> <span class="n">AutoTokenizer</span>
