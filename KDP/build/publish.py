@@ -725,10 +725,13 @@ def step_kpv(epub: Path) -> int:
         return 0
     status = et = "?"
     errc = qic = None
+    output_path = quality_path = ""
     try:
         for row in csv.DictReader(summary.open(encoding="utf-8-sig", newline="")):
             status = row.get("Conversion Status", status)
             et = row.get("Enhanced Typesetting Status", et)
+            output_path = (row.get("Output File Path") or "").strip()
+            quality_path = (row.get("Quality Report Path") or "").strip()
             try:
                 errc = int((row.get("Error Count") or "0").strip())
             except ValueError:
@@ -745,6 +748,25 @@ def step_kpv(epub: Path) -> int:
     print(f"  quality issue count:  {qic}")
     print(f"  enhanced typesetting: {et}")
     rel = out_dir.relative_to(PROJECT_ROOT)
+
+    # Detect headless-KPV silent failure: when KPV is invoked from a non-
+    # interactive (no foreground desktop) subprocess context on Windows, it
+    # returns rc=0 + writes a Summary_Log.csv with Status=Success, Error
+    # Count=0, but EMPTY Output File Path, EMPTY Quality Report Path, and
+    # Enhanced Typesetting=Not Supported. See KDP/build/KPV_CLI_ANALYSIS.md.
+    # This is environmental (Claude/CI subprocess), not a content regression.
+    kpf_dir = out_dir / "KPF"
+    has_kpf = kpf_dir.exists() and any(kpf_dir.glob("*.kpf"))
+    if (not output_path and not quality_path and not has_kpf
+            and str(et).strip().lower().startswith("not")):
+        warn("KPV silent-failure signature detected (empty output paths, no KPF,")
+        warn("  Enhanced Typesetting=Not Supported). This is the headless-KPV")
+        warn("  limitation documented in KDP/build/KPV_CLI_ANALYSIS.md, not a")
+        warn("  content regression. Run KPV manually from an interactive")
+        warn("  desktop session to get a real KFX conversion report:")
+        warn(f"    \"{kp}\" \"{epub}\" -convert -output \"{out_dir}\" -qualitychecks")
+        return 0
+
     if str(status).strip().lower().startswith("success") and (errc in (0, None)):
         ok(f"KPV KFX qualitychecks PASSED -> {rel}")
         return 0
