@@ -445,7 +445,7 @@ Already noted in Section C: module-06 grows to 19 sections (4x), module-21 grows
 - Bookmarked `appendices/appendix-c-huggingface-ecosystem/` URLs break. **Mitigation**: redirect stubs (Section E).
 - The "Appendix C" naming convention disappears for moved content. Anyone who knows the appendix label loses recognition. **Mitigation**: appendix redirect stub names the new home; a deprecation note in front-matter explains the v12 reorganization.
 - Pagefind search index needs regeneration; saved-search results may surface deleted pages. **Mitigation**: regenerate pagefind index as part of Stage 4.
-- KDP / EPUB build (15th edition is the current target): the EPUB TOC entries change. **Mitigation**: rebuild KDP output; bump edition number to 16th.
+- KDP / EPUB build (16th edition is the current target): the EPUB TOC entries change. **Mitigation**: rebuild KDP output; bump edition number to 16th.
 
 ### Authoring / merge-conflict risk
 

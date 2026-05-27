@@ -1,6 +1,6 @@
 # Templating System Design for Safe Section/Chapter Restructures
 
-**Book:** Building Conversational AI with LLMs and Agents, 15th Edition 2026
+**Book:** Building Conversational AI with LLMs and Agents, 16th Edition 2026
 **Root:** `E:/Projects/BookBlogsHome/LLMBook/`
 **Scale:** 529 HTML files across 12 parts, ~70 modules, ~280 sections, 20 appendices
 **Date:** 2026-05-16

@@ -1267,7 +1267,7 @@ Page is otherwise well-structured: good Big Picture, multiple genre-relevant cal
 - **TODO**: counter +1 of `check_meta_description_matches_section.py`.
 
 ### Issue: corrupt UTF-8 char in repeated footer ("·" rendered as "�")
-- **Where**: line 112, 184, 722, 988, 1303 — `Fifteenth Edition, 2026 � <a href...` — the bullet/middot character (`·`) renders as `�` (replacement char), suggesting encoding mismatch when the footer was copied across blocks.
+- **Where**: line 112, 184, 722, 988, 1303 — `Sixteenth Edition, 2026 � <a href...` — the bullet/middot character (`·`) renders as `�` (replacement char), suggesting encoding mismatch when the footer was copied across blocks.
 - **What's wrong**: Several pages already use `·` (U+00B7) correctly; here the duplicated footers got their byte-level encoding mangled.
 - **Generalized pattern**: For each page, detect `U+FFFD` (replacement character) in HTML body. Regex: detect `�` in file contents.
 - **Suggested fix**: Re-encode file as UTF-8 with consistent bullet character.

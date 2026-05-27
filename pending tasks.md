@@ -357,7 +357,7 @@ Full per-finding detail in `_audit_templating_opportunities.py` report.
 1. **Pagefind init script duplicated in 352 files** (~30 lines each). Move
    the `window.addEventListener("DOMContentLoaded", ...)` block to
    `scripts/book.js`. Strips ~10K LoC.
-2. **Edition string drift**: pages say "Fifteenth Edition", templates still
+2. **Edition string drift**: pages say "Sixteenth Edition", templates still
    say "Fourteenth". New pages generated from templates would silently
    regress. Fix: `BOOK_CONFIG.md` as single source of truth, templates
    read `{{ edition }}`.

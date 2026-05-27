@@ -44,7 +44,7 @@ Date: 2026-05-16. Scope: `front-matter/*.html`. Voice: substance-first, no marke
 
 ### copyright.html
 - Word count: 646 -> 646 words (no edits).
-- Verified: Copyright 2026, Fifteenth Edition, ISBN-on-publication line. All correct per `book_structure.yaml`.
+- Verified: Copyright 2026, Sixteenth Edition, ISBN-on-publication line. All correct per `book_structure.yaml`.
 
 ## Constraints Verified
 - 0 em-dashes and 0 prose double-dashes across all seven files (only HTML comment `<!-- -->` delimiters and CSS `var(--*)` remain, both syntactic).
