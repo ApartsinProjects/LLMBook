@@ -120,6 +120,48 @@ gtag('config', 'G-PWPHBQL2VL');
 <p>An autoregressive language model predicts the next token from a finite vocabulary by emitting a probability distribution over that vocabulary; the model is trained with cross-entropy loss. This works exactly as well for audio tokens as for text tokens. A non-quantized continuous representation would force the model to either predict a real-valued vector (with no good loss for high-dimensional outputs) or predict a Gaussian density (mixture density networks; mode collapse-prone and slow to train). Discrete codebook indices sidestep both problems and let the entire LLM tool chain (FlashAttention, KV cache, beam search, top-p sampling) apply unchanged. This is the single most important reason audio codecs matter.</p>
 </div>
 
+<p>Figure 20.0.2.0 collapses to a few dozen lines of PyTorch. The snippet below builds a minimal VQ-VAE that encodes a batch of vectors, quantizes through a $K$-entry codebook with the straight-through estimator, decodes back, and exposes both the reconstruction loss and the commitment loss in one forward pass:</p>
+
+<div class="code-block-wrapper">
+<pre><code class="language-python">import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+class VQVAE(nn.Module):
+    def __init__(self, in_dim=64, latent_dim=16, K=256, beta=0.25):
+        super().__init__()
+        self.encoder = nn.Sequential(nn.Linear(in_dim, 64), nn.ReLU(),
+                                     nn.Linear(64, latent_dim))
+        self.decoder = nn.Sequential(nn.Linear(latent_dim, 64), nn.ReLU(),
+                                     nn.Linear(64, in_dim))
+        self.codebook = nn.Embedding(K, latent_dim)            # K x d
+        self.codebook.weight.data.uniform_(-1.0 / K, 1.0 / K)
+        self.beta = beta
+
+    def quantize(self, z):                                     # z: (B, d)
+        dist = torch.cdist(z, self.codebook.weight)            # (B, K)
+        k_star = torch.argmin(dist, dim=-1)                    # (B,)
+        e = self.codebook(k_star)                              # (B, d)
+        commit = F.mse_loss(z, e.detach()) + self.beta * F.mse_loss(e, z.detach())
+        e_st = z + (e - z).detach()                            # straight-through
+        return e_st, k_star, commit
+
+    def forward(self, x):
+        z = self.encoder(x)
+        e, k_star, commit = self.quantize(z)
+        x_hat = self.decoder(e)
+        recon = F.mse_loss(x_hat, x)
+        return x_hat, k_star, recon + commit
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 20.0.2.0</strong>: A minimal VQ-VAE in 25 lines of PyTorch. The <code>quantize</code> method performs the $\arg\min$ codebook lookup (the discrete step), assembles the commitment loss from Section 20.0.2.4, and applies the straight-through trick (<code>z + (e - z).detach()</code>) so the encoder receives the decoder's gradient unchanged. Swap the <code>nn.Linear</code> stacks for 1D convolutions to get the SoundStream / EnCodec encoder; swap them for 2D convolutions to get the image VQ-VAE that powers DALL-E and VQGAN.</div>
+</div>
+
+<div class="callout numeric-example">
+<div class="callout-title">Worked Example: K = 256 Codebook Quantizing a 64-Dimensional Vector</div>
+<p>Instantiating the module above with <code>VQVAE(in_dim=64, latent_dim=16, K=256)</code> and pushing a single random vector $x \in \mathbb{R}^{64}$ through it gives the following shapes and bit budget. The encoder compresses $x$ from 64 floats (2048 bits at fp32) to a 16-float latent $z$. The codebook contains $K = 256$ entries of dimension $16$, so the $\arg\min$ search computes 256 squared distances and returns a single integer $k^* \in \{0, \ldots, 255\}$.</p>
+<p>That integer is the entire transmitted payload: $\log_2 256 = 8$ bits replace the original 2048-bit vector, a $256\times$ compression. The decoder maps the chosen codebook entry $c_{k^*} \in \mathbb{R}^{16}$ back to $\hat{x} \in \mathbb{R}^{64}$, and the reconstruction error $\lVert x - \hat{x} \rVert_2^2$ shrinks as training pulls $c_{k^*}$ toward the encoder outputs that selected it. For a batch of 32 vectors, the codebook usage histogram is the diagnostic that exposes codebook collapse early: a healthy run sees roughly 80 to 150 of the 256 entries used on each batch, while a collapsing run sees the same handful of entries selected for everything.</p>
+</div>
+
 <h2 id="20-0-2-2-product-quantization">20.0.2.2 Product Quantization</h2>
 <p>The straightforward way to grow the effective vocabulary of VQ is to enlarge $K$, but the memory cost grows as $K \cdot d$ and the nearest-neighbor search cost grows as $O(K)$ per input. <strong>Product quantization</strong> (PQ) achieves the same effective vocabulary at a fraction of the cost by splitting the input vector into $G$ disjoint chunks and quantizing each chunk independently with its own codebook of $K$ entries.</p>
 
