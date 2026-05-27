@@ -95,6 +95,54 @@ gtag('config', 'G-PWPHBQL2VL');
 <li><strong>Constraint satisfaction:</strong> Verify that the output meets explicit constraints (e.g., "use exactly 100 words" or "include all specified keywords").</li>
 </ul>
 <p>The key insight is that verifiable tasks provide a <strong>free, scalable, perfectly accurate reward signal</strong>. There is no need for human annotators, no inter-annotator disagreement, and no label noise. This allows RL training at a scale that would be impractical with human feedback.</p>
+<p>Formally, RLVR optimizes the same expected-reward objective as standard RL, but with a deterministic verifier <span class="math">$V$</span> in place of a learned reward model. A KL anchor to the reference policy <span class="math">$\pi_{\text{ref}}$</span> (the supervised checkpoint) prevents the policy from drifting into reward-hacking strategies:</p>
+<div class="math-block">
+$$\mathcal{J}_{\text{RLVR}}(\pi_{\theta}) = \mathbb{E}_{q \sim \mathcal{D},\, s \sim \pi_{\theta}(\cdot \mid q)} \big[\, V(s, q) \,\big] - \beta \cdot \mathrm{KL}\big(\pi_{\theta} \,\|\, \pi_{\text{ref}}\big)$$
+</div>
+<p>Here <span class="math">$q$</span> is a problem, <span class="math">$s$</span> is a sampled solution (reasoning trace plus final answer), <span class="math">$V(s, q) \in \{0, 1\}$</span> is the verifier's verdict, and <span class="math">$\beta$</span> controls how far the policy may stray from the reference (typical values 0.01 to 0.05). The gradient is taken on this objective via PPO or GRPO. The contrast with RLHF is sharp: RLHF replaces <span class="math">$V$</span> with a learned reward model <span class="math">$r_{\phi}$</span> that must itself be trained on human preference labels and can be exploited by the policy.</p>
+<div class="code-block-wrapper">
+<pre><code class="language-python">from transformers import AutoModelForCausalLM, AutoTokenizer
+from trl import GRPOConfig, GRPOTrainer
+import torch, re
+
+# Minimal RLVR loop with TRL's GRPOTrainer.
+# Verifier is a Python function: no human labels, no learned reward model.
+
+MODEL = "Qwen/Qwen2.5-Math-7B"
+tok = AutoTokenizer.from_pretrained(MODEL)
+policy = AutoModelForCausalLM.from_pretrained(
+    MODEL, torch_dtype=torch.bfloat16, device_map="auto"
+)
+
+def math_verifier(solution: str, gold: str) -> float:
+    """Extract the final answer after 'ANSWER:' and compare to the gold value."""
+    m = re.search(r"ANSWER:\s*([\-\d\./]+)", solution)
+    if not m:
+        return 0.0
+    try:
+        return 1.0 if abs(float(m.group(1)) - float(gold)) &lt; 1e-6 else 0.0
+    except ValueError:
+        return 0.0
+
+# Each example in gsm8k_train is {"prompt": ..., "gold": ...}.
+# GRPOTrainer samples G completions per problem, scores them with math_verifier,
+# normalizes rewards within the group, and runs a PPO-style clipped update.
+# No critic model is required, which halves the GPU memory vs. PPO.
+trainer = GRPOTrainer(
+    model=policy,
+    args=GRPOConfig(
+        num_generations=8,            # G samples per problem
+        learning_rate=5e-6,
+        beta=0.04,                    # KL weight against pi_ref
+        max_prompt_length=512,
+        max_completion_length=1024,
+    ),
+    train_dataset=gsm8k_train,
+    reward_funcs=[lambda c, gold: math_verifier(c, gold)],
+)
+trainer.train()</code></pre>
+<p class="figure-caption"><strong>Code Fragment 8.3.0</strong>: A minimal RLVR training loop using Hugging Face TRL's <code>GRPOTrainer</code>. The verifier is just a Python function: extract the answer after <code>ANSWER:</code> and compare to the gold value. No human annotators, no reward model, no preference dataset; scaling is limited only by how fast the verifier runs and how many problems with known answers are available.</p>
+</div>
 <div class="callout warning">
 <div class="callout-title">Warning: Common Misconception</div>
 <p>"Verifiable" does not mean "unhackable." First-time readers see "the answer either matches the ground truth or it doesn't" and assume RLVR has solved reward hacking. The model can still hack the <em>verifier interface</em>: outputting answers in a non-standard format the parser misreads as correct, generating extra-long traces that exhaust verifier timeouts, or finding edge cases the test suite did not enumerate. RLVR moves the attack surface from "exploit a learned reward model" to "exploit the verifier parser." The advantage is that the new attacks are usually easier to spot and patch (you fix a regex), but the failure mode has not disappeared.</p>

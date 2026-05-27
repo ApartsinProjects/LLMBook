@@ -337,6 +337,26 @@ gtag('config', 'G-PWPHBQL2VL');
 <div class="callout-title">Key Insight: Bi-Encoder vs. Cross-Encoder</div>
 <p>The SBERT paper's contribution was less the loss and more the architecture. Plain BERT is a <em>cross-encoder</em>: it scores a pair by passing both sentences through the network jointly (concatenated with [SEP]), so $N$ documents and $M$ queries require $N \times M$ forward passes. SBERT is a <em>bi-encoder</em>: each sentence is encoded once and the comparison is a cheap cosine, so $N + M$ forward passes suffice. The bi-encoder is what makes vector search practical at billion-document scale; the cross-encoder is still the gold standard for accuracy and is the right tool when you can afford to re-rank a small candidate list.</p>
 </div>
+<p>Training an SBERT model on NLI takes only a few lines with the <code>sentence-transformers</code> library. Code Fragment 16.5.4a shows the canonical NLI recipe with the siamese softmax loss.</p>
+<div class="code-block-wrapper">
+<pre><code class="lang-python"># Canonical SBERT training on NLI pairs with the softmax loss.
+from sentence_transformers import SentenceTransformer, InputExample, losses
+from torch.utils.data import DataLoader
+from datasets import load_dataset
+
+base = SentenceTransformer("bert-base-uncased")  # two tied towers share these weights
+nli = load_dataset("snli", split="train").filter(lambda r: r["label"] != -1)
+
+# NLI labels: 0 = entailment (positive), 1 = neutral, 2 = contradiction (hard negative)
+examples = [InputExample(texts=[r["premise"], r["hypothesis"]], label=r["label"]) for r in nli.select(range(20000))]
+loader = DataLoader(examples, batch_size=64, shuffle=True)
+
+# SoftmaxLoss concatenates [u; v; |u - v|] and trains a 3-way head on the NLI label.
+loss = losses.SoftmaxLoss(base, sentence_embedding_dimension=base.get_sentence_embedding_dimension(), num_labels=3)
+base.fit(train_objectives=[(loader, loss)], epochs=1, output_path="./sbert-nli")
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 16.5.4a</strong>: SBERT training on NLI. The siamese towers share <code>base</code>, so each pair triggers two forward passes that produce embeddings $u$ and $v$; the <code>SoftmaxLoss</code> head learns to classify entailment vs neutral vs contradiction from the concatenation $[u; v; |u - v|]$. After training, only the encoder is kept and downstream code calls <code>base.encode(...)</code>.</div>
+</div>
 <h3 id="16-5-4-2-semi-supervised-gold-to-silver-bootstrapping">16.5.4.2 Semi-Supervised Gold-to-Silver Bootstrapping</h3>
 <p>Most domain teams have at most a few thousand human-labeled similarity pairs and millions of unlabeled domain sentences. The <strong>gold-to-silver bootstrapping</strong> recipe turns the unlabeled mountain into training data using a high-quality but slow cross-encoder as the labeler.</p>
 <ol>
@@ -354,9 +374,45 @@ gtag('config', 'G-PWPHBQL2VL');
 <li>Train a decoder (often a small transformer) to reconstruct the original sentence from the embedding alone.</li>
 </ol>
 <p>For the decoder to succeed, the embedding has to hold the full semantic content of the sentence. SDAE thus learns a representation that is sufficient for reconstruction, which tends to be a good general-purpose embedding even without any pair-similarity supervision. SDAE is most useful as a domain pretraining step on raw domain text, after which a small amount of labeled data unlocks contrastive fine-tuning.</p>
+<p>The SDAE training objective is a standard reconstruction loss applied to the corrupted-input, clean-target pair $(\tilde{x}, x)$:</p>
+<p>$$\mathcal{L}_{\text{SDAE}} = -\sum_{t=1}^{|x|} \log p_\theta\!\big(x_t \mid x_{<t},\; \operatorname{enc}_\phi(\tilde{x})\big)$$</p>
+<p>where $\tilde{x}$ is the noised sentence (token deletion, swap, or mask), $\operatorname{enc}_\phi(\tilde{x})$ is the pooled sentence embedding the model is forced to rely on, and the decoder generates the original tokens left-to-right. Gradient pressure on $\phi$ comes entirely from the bottleneck: the only way to reduce reconstruction loss is to pack enough semantics into the single embedding vector. Figure 16.5.4 shows the flow.</p>
+<figure>
+<svg viewBox="0 0 720 200" xmlns="http://www.w3.org/2000/svg" style="font-family:'Segoe UI',sans-serif;max-width:100%;height:auto;">
+<rect width="720" height="200" fill="#ffffff"/>
+<rect x="10" y="70" width="150" height="60" rx="6" fill="#fff3e0" stroke="#e67e22" stroke-width="1.5"/>
+<text x="85" y="95" font-size="12" text-anchor="middle" fill="#1a1a2e">Corrupt input</text>
+<text x="85" y="115" font-size="11" text-anchor="middle" fill="#555">delete / swap / mask</text>
+<rect x="200" y="70" width="120" height="60" rx="6" fill="#e3f2fd" stroke="#1976d2" stroke-width="1.5"/>
+<text x="260" y="95" font-size="12" text-anchor="middle" fill="#1a1a2e">Encoder</text>
+<text x="260" y="115" font-size="11" text-anchor="middle" fill="#555">enc(noised x)</text>
+<rect x="360" y="80" width="80" height="40" rx="6" fill="#e8f5e9" stroke="#2e7d32" stroke-width="1.5"/>
+<text x="400" y="105" font-size="12" text-anchor="middle" fill="#1a1a2e">embedding z</text>
+<rect x="480" y="70" width="120" height="60" rx="6" fill="#fce4ec" stroke="#c2185b" stroke-width="1.5"/>
+<text x="540" y="95" font-size="12" text-anchor="middle" fill="#1a1a2e">Decoder</text>
+<text x="540" y="115" font-size="11" text-anchor="middle" fill="#555">reconstruct x</text>
+<rect x="620" y="70" width="90" height="60" rx="6" fill="#f3e5f5" stroke="#7b1fa2" stroke-width="1.5"/>
+<text x="665" y="95" font-size="12" text-anchor="middle" fill="#1a1a2e">Clean target</text>
+<text x="665" y="115" font-size="11" text-anchor="middle" fill="#555">cross-entropy</text>
+<line x1="160" y1="100" x2="200" y2="100" stroke="#444" stroke-width="1.5" marker-end="url(#arrow-sdae)"/>
+<line x1="320" y1="100" x2="360" y2="100" stroke="#444" stroke-width="1.5" marker-end="url(#arrow-sdae)"/>
+<line x1="440" y1="100" x2="480" y2="100" stroke="#444" stroke-width="1.5" marker-end="url(#arrow-sdae)"/>
+<line x1="600" y1="100" x2="620" y2="100" stroke="#444" stroke-width="1.5" marker-end="url(#arrow-sdae)"/>
+<text x="400" y="160" font-size="11" text-anchor="middle" fill="#555">Bottleneck: only z carries semantics across the decoder</text>
+<defs><marker id="arrow-sdae" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#444"/></marker></defs>
+</svg>
+<figcaption><strong>Figure 16.5.4</strong>: SDAE pipeline. A corrupted sentence is encoded to a single embedding z, and a decoder must reconstruct the original tokens from z alone, forcing the encoder to compress all semantic content into the bottleneck representation.</figcaption>
+</figure>
 <h3 id="16-5-4-4-simcse-dropout-as-augmentation">16.5.4.4 SimCSE: Dropout as Data Augmentation</h3>
 <p><strong>SimCSE</strong> (Gao et al., 2021) reduces unsupervised sentence-embedding training to one delightful trick: feed the <em>same sentence twice</em> through a transformer with dropout enabled, treat the two slightly different output embeddings as a positive pair, and use all other sentences in the batch as negatives. That is the entire algorithm.</p>
 <p>Dropout, which randomly zeros out a small fraction of activations on each forward pass, supplies just enough noise to produce two views of the same sentence that share semantics but differ in fine-grained detail. The contrastive loss pulls those views together while pushing the in-batch negatives apart. SimCSE matched or beat the supervised SBERT models on STSB despite using zero labels, which is why it has become the default unsupervised baseline whenever a new sentence-embedding paper is proposed. The supervised variant of SimCSE plugs in NLI pairs and was state of the art for several years.</p>
+<p>Formally, with a mini-batch of $N$ sentences and dropout-perturbed encodings $h_i$ and $h_i^{+}$ of the same sentence $x_i$, SimCSE minimises the symmetric InfoNCE loss:</p>
+<p>$$\mathcal{L}_{\text{SimCSE}} = -\frac{1}{N}\sum_{i=1}^{N} \log \frac{\exp\!\big(\operatorname{sim}(h_i, h_i^{+}) / \tau\big)}{\sum_{j=1}^{N} \exp\!\big(\operatorname{sim}(h_i, h_j^{+}) / \tau\big)}$$</p>
+<p>where $\operatorname{sim}(u, v) = u^{\top} v / (\|u\|\,\|v\|)$ is cosine similarity and the temperature $\tau$ (typically $0.05$) sharpens the softmax. The numerator pulls the two dropout views of $x_i$ together; the denominator pushes $h_i$ away from every other in-batch sentence's view. The whole training signal therefore lives inside the batch, which is why batch size acts as a quality knob.</p>
+<div class="callout numeric-example">
+<div class="callout-title">Worked Example: Why Batch Size Matters for SimCSE</div>
+<p>Suppose a batch of $N = 4$ sentences produces cosine similarities (after dividing by $\tau = 0.05$) of $[16, 4, 5, 3]$ between anchor $h_1$ and the four candidates $h_1^{+}, h_2^{+}, h_3^{+}, h_4^{+}$. The softmax probability assigned to the true positive is $e^{16} / (e^{16} + e^{4} + e^{5} + e^{3}) \approx 0.99998$, giving a per-anchor loss of $-\log(0.99998) \approx 2\times 10^{-5}$. Shrink the batch to $N = 2$ and the same anchor sees only $[16, 4]$, dropping the loss further toward zero and starving the gradient. Bumping the batch to $N = 64$ adds 60 more competing negatives, which keeps the loss meaningfully positive and forces the encoder to sharpen its representations. This is why the original paper used batch size 64 to 512 and why a small-batch SimCSE run silently underperforms its own paper.</p>
+</div>
 <div class="code-block-wrapper">
 <pre><code class="lang-python"># SimCSE: the simplest unsupervised sentence embedding recipe in existence.
 # Two forward passes of the same sentence under dropout give a positive pair.

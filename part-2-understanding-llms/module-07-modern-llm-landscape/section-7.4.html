@@ -139,6 +139,44 @@ pulling parallel sentences toward the same internal representation.</text>
 </svg>
 <div class="diagram-caption"><strong>Figure 7.4.0</strong>: MLM versus TLM. Standard masked language modeling (left) recovers a masked token from same-language context only. Translation Language Modeling (right) concatenates a sentence with its translation, masks tokens in both halves, and lets the model use the cross-lingual context to fill the blank. TLM is the explicit cross-lingual signal that the original XLM added on top of MLM and CLM.</div>
 </div>
+<p>Formally, the three XLM losses are summed (with equal weights in the original paper). Let <span class="math">$s_{\text{en}}$</span> denote an English sentence, <span class="math">$s_{\text{fr}}$</span> its French translation, and <span class="math">$[s_{\text{en}};s_{\text{fr}}]$</span> their <code>[SEP]</code>-joined concatenation. Then:</p>
+<div class="math-block">
+$$L_{\text{XLM}} = \underbrace{L_{\text{MLM}}(s_{\text{en}})}_{\text{monolingual masked LM}} + \underbrace{L_{\text{CLM}}(s_{\text{en}})}_{\text{monolingual causal LM}} + \underbrace{L_{\text{TLM}}([s_{\text{en}};s_{\text{fr}}])}_{\text{cross-lingual masked LM}}$$
+</div>
+<p>Only TLM consumes parallel data; MLM and CLM remain monolingual. This is why XLM-R later dropped TLM: parallel corpora are scarce for most of the 100 languages, and pure MLM at scale closed most of the cross-lingual gap.</p>
+<div class="code-block-wrapper">
+<pre><code class="language-python">from transformers import AutoTokenizer, AutoModel
+import torch
+
+# Load XLM-R Base: 270M params, 100 languages, single shared 250K SentencePiece vocab.
+tok = AutoTokenizer.from_pretrained("xlm-roberta-base")
+model = AutoModel.from_pretrained("xlm-roberta-base").eval()
+
+# Same sentence in three languages. XLM-R encodes them in one shared space,
+# so the [CLS] vectors should cluster by *meaning*, not by language.
+sentences = [
+    "The cat sat on the mat.",                            # English
+    "Le chat s'est assis sur le tapis.",                   # French
+    "El gato se sento sobre la alfombra.",                 # Spanish
+    "Quantum mechanics describes subatomic particles.",   # English, different topic
+]
+with torch.no_grad():
+    embs = []
+    for s in sentences:
+        inp = tok(s, return_tensors="pt")
+        cls = model(**inp).last_hidden_state[:, 0]   # [CLS] pooler
+        embs.append(torch.nn.functional.normalize(cls, dim=-1))
+    E = torch.cat(embs)
+    sim = E @ E.T   # cosine similarities
+print(sim.round(decimals=2))
+# The three cat-on-mat sentences score ~0.85 with each other and
+# only ~0.45 against the quantum-mechanics sentence: meaning, not language.</code></pre>
+<p class="figure-caption"><strong>Code Fragment 7.4.0a</strong>: XLM-R encodes parallel sentences across English, French, and Spanish into one shared representation space, so cosine similarity tracks meaning rather than language identity. This is the property that enables zero-shot cross-lingual transfer: fine-tune on an English classification task and the same head works on Hindi or Swahili because the encoder maps them to overlapping regions of the same vector space.</p>
+</div>
+<div class="callout practical-example">
+<div class="callout-title">Practical Example: mBERT zero-shot NER from English to Hindi</div>
+<p>The most-cited demonstration of mBERT's surprising transfer ability comes from Pires et al. (2019). Take mBERT (110M params, 104-language WordPiece vocab), fine-tune its <code>[CLS]</code> token plus a small token-classification head on the English CoNLL-2003 NER training set (about 15,000 sentences with PER, ORG, LOC, MISC tags), then evaluate <em>without any Hindi training data</em> on a Hindi NER test set. The model lands around 65 F1, compared to about 90 F1 on the matched English test and roughly 30 F1 for a random baseline. The mechanism is subword overlap plus a shared encoder: Hindi proper nouns and English proper nouns share enough byte-pair tokens (numerals, Latin-script abbreviations, transliterated names) that the geometry the encoder learned for English entity boundaries partially generalizes to Devanagari. This zero-shot number drops to less than 40 F1 for Japanese (no script overlap, very different word order), which is exactly the gap that TLM-style explicit cross-lingual losses and later XLM-R's scale were designed to close.</p>
+</div>
 <p><strong>XLM-R</strong> (Conneau et al., 2020) scaled the approach: 100 languages, 2.5 TB of CommonCrawl data, 250,000 SentencePiece tokens, and (crucially) <em>only</em> MLM as the training objective. XLM-R dropped TLM because the parallel data needed to train it is scarce for most language pairs, and showed that pure monolingual MLM at sufficient scale closes most of the gap, while the curse of multilinguality (see Section 7.4.1.2 below) starts to bite. <strong>mT5</strong> (Xue et al., 2021) brought the same idea to encoder-decoders, applying span corruption to 101 languages of the mC4 corpus. <strong>NLLB-200</strong> (Meta, 2022) pushed the translation side further with a single encoder-decoder model serving 200 languages, including many with very little parallel data, via a mixture-of-experts architecture and curated low-resource corpora. Most recently, <strong>Aya 23</strong> (Cohere, 2024) showed that targeted multilingual <em>instruction</em> tuning of a strong base model produces stronger per-language quality than scaling raw multilingual pretraining alone, especially for the 23 languages it focuses on; the broader Aya 101 covers more languages but at lower per-language quality.</p>
 <h3 id="7-4-0-2-tokenization-fertility">7.4.0.2 Tokenization Fertility and the Per-Token Cost Asymmetry</h3>
 <p>Multilingual tokenizers must serve hundreds of scripts from one shared vocabulary. The result is severe <strong>fertility</strong> imbalance, where fertility means the average number of tokens needed to represent one whitespace-delimited word. With a typical 32k-100k BPE vocabulary trained on English-heavy data, English fertility is around 1.3 tokens per word; French and German hover around 1.5 to 1.8; Chinese and Japanese settle around 2 to 3 per "word" (a fuzzy notion in those scripts); Burmese, Khmer, and Tibetan can exceed 5 tokens per word. Section 1.7 has the detailed numbers; the consequence for production systems is direct: a Burmese user pays roughly 4x more per API call and receives roughly 4x less context within the same token budget as an English user.</p>
@@ -159,6 +197,59 @@ pulling parallel sentences toward the same internal representation.</text>
 <span class="nb">print</span><span class="p">(</span><span class="n">tok</span><span class="o">.</span><span class="n">batch_decode</span><span class="p">(</span><span class="n">out</span><span class="p">,</span> <span class="n">skip_special_tokens</span><span class="o">=</span><span class="kc">True</span><span class="p">))</span>
 <span class="c1"># =&gt; ['Le chat s\'est assis sur le tapis.']</span></code></pre>
 <div class="code-caption"><strong>Code Fragment 7.4.0:</strong> NLLB-200 translating English to French. The <code>forced_bos_token_id</code> selects the target language; swap <code>fra_Latn</code> for any of the 200 BCP-47 language tags (<code>zho_Hans</code>, <code>arb_Arab</code>, <code>swh_Latn</code>, etc.) to translate into a different language with the same model. This is the modern descendant of the XLM-era translation training loop.</div>
+</div>
+<figure>
+<svg viewbox="0 0 700 240" xmlns="http://www.w3.org/2000/svg" style="font-family:'Segoe UI',sans-serif;max-width:100%;height:auto;">
+<rect width="700" height="240" fill="#ffffff"/>
+<text x="350" y="22" font-size="13" font-weight="700" text-anchor="middle" fill="#1a1a2e">NLLB-200: one encoder-decoder, 200 languages, MoE experts</text>
+<g font-size="10" text-anchor="middle">
+<rect x="20" y="50" width="160" height="36" rx="6" fill="#e3e8f5" stroke="#3d4d8a"/>
+<text x="100" y="65" fill="#1a1a2e">source: "Hello"</text>
+<text x="100" y="78" font-size="9" fill="#5a4a3a">src_lang=eng_Latn</text>
+<text x="200" y="73" fill="#555">&#8594;</text>
+<rect x="220" y="50" width="120" height="36" rx="6" fill="#ecf6ee" stroke="#1f7a3a"/>
+<text x="280" y="65" fill="#1a1a2e">shared encoder</text>
+<text x="280" y="78" font-size="9" fill="#5a4a3a">SentencePiece 256k</text>
+<text x="360" y="73" fill="#555">&#8594;</text>
+<g transform="translate(380,40)">
+<rect width="180" height="64" rx="8" fill="#fef3e0" stroke="#a67c1a" stroke-width="1.5"/>
+<text x="90" y="20" font-weight="700" fill="#a67c1a">decoder + sparse MoE</text>
+<text x="90" y="36" font-size="9" fill="#5a4a3a">top-2 of 128 experts</text>
+<text x="90" y="50" font-size="9" fill="#5a4a3a">routed by language tag</text>
+</g>
+<text x="580" y="73" fill="#555">&#8594;</text>
+<rect x="600" y="50" width="80" height="36" rx="6" fill="#f5e3e8" stroke="#7a2a4a"/>
+<text x="640" y="65" fill="#1a1a2e">"Hallo"</text>
+<text x="640" y="78" font-size="9" fill="#5a4a3a">target token</text>
+</g>
+<g font-size="10" text-anchor="middle">
+<rect x="20" y="120" width="660" height="100" rx="6" fill="#fafafa" stroke="#cfd8dc"/>
+<text x="350" y="138" font-weight="700" fill="#1a1a2e">forced_bos_token_id picks the language at decode time</text>
+<g transform="translate(40,150)">
+<rect width="100" height="22" rx="4" fill="#ffffff" stroke="#a67c1a"/><text x="50" y="166" fill="#1a1a2e">fra_Latn</text>
+<rect width="100" height="22" rx="4" fill="#ffffff" stroke="#a67c1a" y="26"/><text x="50" y="192" fill="#1a1a2e">zho_Hans</text>
+<rect width="100" height="22" rx="4" fill="#ffffff" stroke="#a67c1a" y="52"/><text x="50" y="218" fill="#1a1a2e">swh_Latn</text>
+</g>
+<g transform="translate(160,150)">
+<text x="0" y="14" font-size="10" fill="#5a4a3a">&#8594; "Bonjour"</text>
+<text x="0" y="40" font-size="10" fill="#5a4a3a">&#8594; "&#20320;&#22909;"</text>
+<text x="0" y="66" font-size="10" fill="#5a4a3a">&#8594; "Habari"</text>
+</g>
+<text x="500" y="180" font-size="10" font-style="italic" fill="#5a4a3a">200 BCP-47 tags from one</text>
+<text x="500" y="195" font-size="10" font-style="italic" fill="#5a4a3a">checkpoint, including 150+</text>
+<text x="500" y="210" font-size="10" font-style="italic" fill="#5a4a3a">low-resource languages.</text>
+</g>
+</svg>
+<figcaption><strong>Figure 7.4.0b</strong>: NLLB-200's any-to-any translation architecture. A shared SentencePiece-256k encoder reads the source string after the tokenizer is bound to a source language tag; the decoder is a sparse Mixture-of-Experts that uses 128 experts per layer with top-2 routing. The target language is selected at decode time via <code>forced_bos_token_id</code>, so the same checkpoint covers all 200 BCP-47 directions including very low-resource pairs (Inuktitut, Acehnese, Wolof) that prior single-pair MT systems could not serve.</figcaption>
+</figure>
+<p>NLLB extends standard seq2seq cross-entropy with a <strong>language-balanced sampling scheme</strong> during training. Given <span class="math">$L$</span> language pairs of corpus sizes <span class="math">$n_\ell$</span>, the probability of drawing a batch from pair <span class="math">$\ell$</span> is tempered with an exponent <span class="math">$\alpha &lt; 1$</span>:</p>
+<div class="math-block">
+$$p_\ell = \frac{n_\ell^{\alpha}}{\sum_{k=1}^{L} n_k^{\alpha}}, \quad \alpha \approx 0.3 \text{ (NLLB default)}$$
+</div>
+<p>At <span class="math">$\alpha = 1$</span> the training mix matches the raw corpus distribution and high-resource pairs dominate; at <span class="math">$\alpha = 0$</span> all pairs are sampled uniformly and the model collapses on high-resource quality. <span class="math">$\alpha \approx 0.3$</span> is the empirical sweet spot that lifts low-resource quality without crashing high-resource pairs.</p>
+<div class="callout numeric-example">
+<div class="callout-title">Numeric Example: chrF++ across the resource spectrum</div>
+<p>NLLB-200 (54.5B sparse, 3.3B dense per token) reports on FLORES-200 a chrF++ of roughly 60 for English to French (high-resource), 48 for English to Swahili (mid-resource), and 35 for English to Wolof (low-resource). A baseline of bilingual NMT models trained on the same data lands at about 58 / 39 / 21 respectively. The headline gains are in low-resource: English to Wolof improves by 14 chrF++ points (35 vs 21) at zero additional training cost per pair, because the shared encoder transfers signal from related Senegambian languages (Fula, Serer) that the bilingual baseline never saw. The cost asymmetry from <a href="#7-4-0-2-tokenization-fertility">Section 7.4.0.2</a> still bites: a 100-character Wolof sentence takes about 290 SentencePiece tokens, so latency and token-cost per query is roughly 4x that of English, but the quality bar has finally moved above usefulness threshold.</p>
 </div>
 <h3 id="7-4-0-3-language-adapters">7.4.0.3 Language Adapters as a Mitigation</h3>
 <p>The curse of multilinguality (parameters get shared across all languages) suggests a fix: give each language its own small set of parameters that the rest of the model can call on. <strong>Language adapters</strong> (MAD-X, Pfeiffer et al. 2020; Lottery Tickets for Multilingual NMT, 2021) insert a small bottleneck MLP after each Transformer block. During pretraining or continual training, only the adapter for the active language is updated; the shared backbone learns language-agnostic structure while each adapter learns language-specific quirks. At inference, the model selects the adapter matching the input language. Language adapters trade a small parameter overhead (typically 1 to 3% of total weights per language) for significantly better per-language quality, and they compose cleanly with task adapters from <a href="../../part-4-training-adaptation/module-17-parameter-efficient-tuning/section-17.1.html">Section 17.1</a>. Aya 23 and several BLOOM-derived models use language-specific adapters or LoRA modules as a lightweight alternative to fully separate fine-tunes per language.</p>
