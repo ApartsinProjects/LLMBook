@@ -95,6 +95,86 @@ gtag('config', 'G-PWPHBQL2VL');
 <li><strong>Constraint satisfaction:</strong> Verify that the output meets explicit constraints (e.g., "use exactly 100 words" or "include all specified keywords").</li>
 </ul>
 <p>The key insight is that verifiable tasks provide a <strong>free, scalable, perfectly accurate reward signal</strong>. There is no need for human annotators, no inter-annotator disagreement, and no label noise. This allows RL training at a scale that would be impractical with human feedback.</p>
+<p>Formally, RLVR optimizes the same expected-reward objective as standard RL, but with a deterministic verifier <span class="math">$V$</span> in place of a learned reward model. A KL anchor to the reference policy <span class="math">$\pi_{\text{ref}}$</span> (the supervised checkpoint) prevents the policy from drifting into reward-hacking strategies:</p>
+<div class="math-block">
+$$\mathcal{J}_{\text{RLVR}}(\pi_{\theta}) = \mathbb{E}_{q \sim \mathcal{D},\, s \sim \pi_{\theta}(\cdot \mid q)} \big[\, V(s, q) \,\big] - \beta \cdot \mathrm{KL}\big(\pi_{\theta} \,\|\, \pi_{\text{ref}}\big)$$
+</div>
+<p>Here <span class="math">$q$</span> is a problem, <span class="math">$s$</span> is a sampled solution (reasoning trace plus final answer), <span class="math">$V(s, q) \in \{0, 1\}$</span> is the verifier's verdict, and <span class="math">$\beta$</span> controls how far the policy may stray from the reference (typical values 0.01 to 0.05). The gradient is taken on this objective via PPO or GRPO. The contrast with RLHF is sharp: RLHF replaces <span class="math">$V$</span> with a learned reward model <span class="math">$r_{\phi}$</span> that must itself be trained on human preference labels and can be exploited by the policy.</p>
+<p>The end-to-end loop is a tight cycle of sampling, verifying, and updating, with the verifier providing the only learning signal, as sketched in <strong>Figure 8.3.1a</strong>.</p>
+<figure>
+<svg viewBox="0 0 720 200" xmlns="http://www.w3.org/2000/svg" style="font-family:'Segoe UI',sans-serif;max-width:100%;height:auto;">
+<rect width="720" height="200" fill="#ffffff"/>
+<text x="360" y="22" font-size="13" font-weight="700" text-anchor="middle" fill="#1a1a2e">RLVR loop: prompt to policy to response to verifier to policy update</text>
+<g font-size="11" text-anchor="middle">
+<rect x="20" y="70" width="110" height="50" rx="6" fill="#e3e8f5" stroke="#3d4d8a" stroke-width="1.5"/>
+<text x="75" y="92" fill="#1a1a2e">prompt q</text>
+<text x="75" y="108" font-size="9" fill="#555">(math problem)</text>
+<text x="140" y="98" fill="#555">&#8594;</text>
+<rect x="155" y="70" width="120" height="50" rx="6" fill="#fef3e0" stroke="#a67c1a" stroke-width="1.5"/>
+<text x="215" y="92" fill="#1a1a2e">policy &#960;&#952;</text>
+<text x="215" y="108" font-size="9" fill="#555">sample G traces</text>
+<text x="285" y="98" fill="#555">&#8594;</text>
+<rect x="300" y="70" width="130" height="50" rx="6" fill="#ecf6ee" stroke="#1f7a3a" stroke-width="1.5"/>
+<text x="365" y="90" fill="#1a1a2e">response s</text>
+<text x="365" y="106" font-size="9" fill="#555">"... ANSWER: 42"</text>
+<text x="440" y="98" fill="#555">&#8594;</text>
+<rect x="455" y="70" width="130" height="50" rx="6" fill="#f5e3e8" stroke="#7a2a4a" stroke-width="1.5"/>
+<text x="520" y="90" fill="#1a1a2e">verifier V(s,q)</text>
+<text x="520" y="106" font-size="9" fill="#555">binary reward 0 / 1</text>
+<text x="595" y="98" fill="#555">&#8594;</text>
+<rect x="610" y="70" width="95" height="50" rx="6" fill="#fde8e8" stroke="#e94560" stroke-width="1.5"/>
+<text x="657" y="90" fill="#1a1a2e">PPO / GRPO</text>
+<text x="657" y="106" font-size="9" fill="#555">update &#952;</text>
+</g>
+<path d="M 657 120 Q 657 160 215 160 Q 215 130 215 120" fill="none" stroke="#888" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#rlvrArrow)"/>
+<text x="430" y="178" font-size="10" font-style="italic" text-anchor="middle" fill="#5a4a3a">gradient step on &#960;&#952; with KL anchor to &#960;_ref</text>
+<defs><marker id="rlvrArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#888"/></marker></defs>
+</svg>
+<figcaption><strong>Figure 8.3.1a</strong>: The RLVR training loop. A prompt is sampled from the problem set, the current policy generates one or more candidate solutions, an automatic verifier (regex, code runner, theorem checker) issues a binary reward, and the gradient step updates the policy under a KL constraint to the reference checkpoint. No human annotators or learned reward models appear anywhere in the cycle.</figcaption>
+</figure>
+<div class="code-block-wrapper">
+<pre><code class="language-python">from transformers import AutoModelForCausalLM, AutoTokenizer
+from trl import GRPOConfig, GRPOTrainer
+import torch, re
+
+# Minimal RLVR loop with TRL's GRPOTrainer.
+# Verifier is a Python function: no human labels, no learned reward model.
+
+MODEL = "Qwen/Qwen2.5-Math-7B"
+tok = AutoTokenizer.from_pretrained(MODEL)
+policy = AutoModelForCausalLM.from_pretrained(
+    MODEL, torch_dtype=torch.bfloat16, device_map="auto"
+)
+
+def math_verifier(solution: str, gold: str) -> float:
+    """Extract the final answer after 'ANSWER:' and compare to the gold value."""
+    m = re.search(r"ANSWER:\s*([\-\d\./]+)", solution)
+    if not m:
+        return 0.0
+    try:
+        return 1.0 if abs(float(m.group(1)) - float(gold)) &lt; 1e-6 else 0.0
+    except ValueError:
+        return 0.0
+
+# Each example in gsm8k_train is {"prompt": ..., "gold": ...}.
+# GRPOTrainer samples G completions per problem, scores them with math_verifier,
+# normalizes rewards within the group, and runs a PPO-style clipped update.
+# No critic model is required, which halves the GPU memory vs. PPO.
+trainer = GRPOTrainer(
+    model=policy,
+    args=GRPOConfig(
+        num_generations=8,            # G samples per problem
+        learning_rate=5e-6,
+        beta=0.04,                    # KL weight against pi_ref
+        max_prompt_length=512,
+        max_completion_length=1024,
+    ),
+    train_dataset=gsm8k_train,
+    reward_funcs=[lambda c, gold: math_verifier(c, gold)],
+)
+trainer.train()</code></pre>
+<p class="figure-caption"><strong>Code Fragment 8.3.0</strong>: A minimal RLVR training loop using Hugging Face TRL's <code>GRPOTrainer</code>. The verifier is just a Python function: extract the answer after <code>ANSWER:</code> and compare to the gold value. No human annotators, no reward model, no preference dataset; scaling is limited only by how fast the verifier runs and how many problems with known answers are available.</p>
+</div>
 <div class="callout warning">
 <div class="callout-title">Warning: Common Misconception</div>
 <p>"Verifiable" does not mean "unhackable." First-time readers see "the answer either matches the ground truth or it doesn't" and assume RLVR has solved reward hacking. The model can still hack the <em>verifier interface</em>: outputting answers in a non-standard format the parser misreads as correct, generating extra-long traces that exhaust verifier timeouts, or finding edge cases the test suite did not enumerate. RLVR moves the attack surface from "exploit a learned reward model" to "exploit the verifier parser." The advantage is that the new attacks are usually easier to spot and patch (you fix a regex), but the failure mode has not disappeared.</p>
@@ -298,6 +378,11 @@ gtag('config', 'G-PWPHBQL2VL');
 </ul>
 <h3 id="8-3-3-2-process-reward-models-prm">8.3.3.2 Process Reward Models (PRM)</h3>
 <p>A PRM evaluates <strong>each reasoning step individually</strong>, producing a score for every step in the chain. It answers the question: "Is this step logically valid given the previous steps?" PRMs are trained on step-level annotations where human annotators (or automated systems) label each reasoning step as correct or incorrect.</p>
+<p>Formally, given a reasoning trace decomposed into $T$ steps $y = (y_1, \dots, y_T)$ with step embeddings $h_t$, a PRM produces per-step probabilities $p_t = \sigma(w^\top h_t + b) \in [0, 1]$. Two common aggregation choices for selecting one of $N$ best-of-$N$ candidates are the <em>minimum-step score</em> (penalises any weak step) and the <em>product score</em> (rewards uniformly strong chains):</p>
+<div class="math-block">
+$$\mathrm{score}_{\min}(y) \;=\; \min_{t=1, \dots, T} p_t, \qquad \mathrm{score}_{\prod}(y) \;=\; \prod_{t=1}^{T} p_t.$$
+</div>
+<p>The $\min$ aggregation matches the empirical observation that one bad step usually ruins the final answer, while the $\prod$ aggregation is the maximum-likelihood choice when the per-step labels are conditionally independent. Lightman et al. (2023) report that $\min$ outperforms $\prod$ by 1 to 2 points on MATH best-of-N selection.</p>
 <p>The landmark dataset for PRM training is <strong>PRM800K</strong> (Lightman et al., 2023), which contains 800,000 step-level annotations of mathematical reasoning solutions. Each step is labeled as "positive" (correct), "negative" (incorrect), or "neutral" (valid but not helpful). Math-Shepherd (Wang et al., 2024) later provided an automated alternative to human annotation, using outcome verification to automatically label steps.</p>
 <div class="callout key-insight">
 <div class="callout-title">Key Insight</div>

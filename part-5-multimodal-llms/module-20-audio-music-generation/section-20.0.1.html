@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-PWPHBQL2VL"></script>
+<script>
+window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', 'G-PWPHBQL2VL');
+</script>
+
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<meta content="Section 20.0.1: Audio Data and Representations. Sampling rate, bit depth, decibel scale, FFT and STFT, mel scale, log-mel spectrograms, MFCCs, and the HuggingFace datasets workflow that turns raw waveforms into the tensors Whisper and AST consume." name="description"/>
+<title>Section 20.0.1: Audio Data and Representations</title>
+<link href="../../styles/book.css" rel="stylesheet"/>
+<link href="../../styles/pygments.css" rel="stylesheet"/>
+<link href="../../vendor/prism/prism-theme.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/prism/prism-bundle.min.js"></script>
+<script defer="" src="../../scripts/book.js"></script>
+<link href="../../pagefind/pagefind-ui.css" rel="stylesheet"/>
+<script defer="" src="../../pagefind/pagefind-ui.js"></script>
+<link href="../../vendor/katex/katex.min.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/katex/katex.min.js"></script>
+<script defer="" onload="renderMathInElement(document.body, {
+ delimiters: [
+ {left: '$$', right: '$$', display: true},
+ {left: '$', right: '$', display: false}
+ ],
+ throwOnError: false
+ });" src="../../vendor/katex/contrib/auto-render.min.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
+
+<header class="chapter-header">
+<nav class="header-nav">
+<a class="book-title-link" href="../../index.html">Building Conversational AI with LLMs and Agents</a>
+<a class="toc-link" href="../../toc.html" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+</nav>
+<div class="header-search">
+<div id="search"></div>
+</div>
+<div class="page-breadcrumb" data-pagefind-meta="chapter"><a href="../index.html">Part V: Multimodal LLMs</a><span class="bc-sep">&rsaquo;</span><a href="index.html">Chapter 20: Audio, Music, and Video Generation</a></div>
+<h1>Audio Data and Representations</h1><div class="page-current">Section 20.0.1</div>
+</header>
+<main class="content" id="main-content"><span class="pagefind-meta-injected" data-pagefind-meta="part:Part V: Multimodal LLMs" hidden=""></span><span class="pagefind-meta-injected" data-pagefind-meta="chapter:Chapter 20: Audio, Music, and Video Generation" hidden=""></span>
+
+<blockquote class="epigraph">
+<p>"A spectrogram is to a waveform what a printed score is to a performance: most of the information, almost none of the storage, exactly the right view for the next step in the pipeline."</p>
+<span class="agent-avatar-inline" style="background-color: #f39c12;"><img alt="Echo" height="28" src="../../front-matter/images/agents/echo.png" width="28"/></span><cite>Echo, <span class="agent-desc">Pitch-Perfect AI Agent</span></cite>
+</blockquote>
+
+<div class="callout big-picture">
+<div class="callout-title">Big Picture</div>
+<p>Every audio model in this chapter consumes one of three input formats: a raw waveform tensor, a complex-valued short-time Fourier transform (STFT), or a log-mel spectrogram. This section installs the signal-processing vocabulary needed to move between those formats, the decibel scale used everywhere in audio plots, and the HuggingFace <code>datasets</code> workflow that resamples, preprocesses, and batches audio into model-ready tensors. The payoff is that the rest of the chapter can say "Whisper consumes an 80-bin log-mel spectrogram at 100 Hz" without leaving the reader guessing what any of those numbers mean.</p>
+</div>
+
+<h2 id="20-0-1-1-waveforms-sampling-rate-bit-depth">20.0.1.1 Waveforms, Sampling Rate, and Bit Depth</h2>
+<p>A sound is a pressure variation in air. A microphone converts that variation into a continuous voltage $S(t)$ and an analog-to-digital converter samples it at uniform intervals to produce a discrete sequence $S_i = S(i / f_s)$ where $f_s$ is the <strong>sampling rate</strong> in samples per second (hertz, Hz). The standard sampling rates in audio AI are 16 kHz for speech (Whisper, wav2vec 2.0, HuBERT all expect 16 kHz input), 24 kHz for high-quality speech and EnCodec defaults, 44.1 kHz for CD audio, and 48 kHz for professional music. The Nyquist theorem says a sampling rate of $f_s$ can faithfully represent frequencies up to $f_s / 2$, so 16 kHz audio captures content up to 8 kHz, which covers all speech information but loses the highest musical overtones.</p>
+
+<p><strong>Bit depth</strong> measures how many bits encode each sample's amplitude. The standard formats are 16-bit signed integers (CD audio, most speech datasets), 24-bit (professional music), and 32-bit floats (intermediate processing). A 16-bit sample has 65,536 possible amplitude values, giving a theoretical dynamic range of about 96 dB, which is well above the noise floor of any normal recording environment.</p>
+
+<p>The number that matters when budgeting transformer context is the <em>length</em> of the resulting tensor. A 30-second clip at 16 kHz is 480,000 samples. Feeding that directly to a transformer is impossible (the attention cost is quadratic in sequence length), which is why every modern audio model first downsamples through a convolutional front-end or converts to a spectrogram. The log-mel spectrograms that Whisper consumes are roughly 3,000 frames long for a 30-second clip, a 160x compression, and even that uses two convolutional layers in the encoder to halve the length further before the transformer blocks see it.</p>
+
+<div class="callout warning">
+<div class="callout-title">Warning: Sample-Rate Mismatches Silently Corrupt Inference</div>
+<p>The single most common audio-AI bug is feeding 44.1 kHz audio to a model trained on 16 kHz. The model will not error; it will just transcribe gibberish, because the spectrogram the model sees corresponds to a sound played at 2.76x the original speed. Always call <code>librosa.resample</code> or <code>torchaudio.functional.resample</code> (or use HuggingFace <code>datasets.cast_column("audio", Audio(sampling_rate=16_000))</code>) before inference. Whisper's HuggingFace processor will print a warning but does not refuse; many other processors do neither.</p>
+</div>
+
+<div class="callout practical-example">
+<div class="callout-title">Practical Example: Loading a Waveform with librosa</div>
+<div class="code-block-wrapper">
+<pre><code class="language-python">import librosa
+import librosa.display
+import matplotlib.pyplot as plt
+
+# librosa ships with several example clips; "trumpet" is a clean 6-second tone
+y, sr = librosa.load(librosa.ex("trumpet"))
+print(f"Loaded {len(y)} samples at {sr} Hz")  # 132300 samples at 22050 Hz
+print(f"Duration: {len(y) / sr:.2f} seconds")  # 6.00 seconds
+
+# librosa.load defaults to mono and resamples to 22050 Hz. Override either:
+y16, sr16 = librosa.load(librosa.ex("trumpet"), sr=16_000, mono=True)
+
+fig, ax = plt.subplots(figsize=(8, 2.5))
+librosa.display.waveshow(y16, sr=sr16, ax=ax)
+ax.set(title="Trumpet waveform (16 kHz mono)", xlabel="Time (s)", ylabel="Amplitude")
+plt.tight_layout()</code></pre>
+<div class="code-caption"><strong>Code Fragment 20.0.1.1</strong>: The librosa entry point for loading and plotting audio. The <code>librosa.ex(name)</code> helper resolves a curated set of public-domain clips ("trumpet", "fishin", "brahms", "choice") to local cached paths. The default sample rate of 22.05 kHz comes from librosa's history with music research; speech work usually overrides to <code>sr=16_000</code>. <code>librosa.display.waveshow</code> uses a peak envelope renderer that stays readable even at minute-scale durations.</div>
+</div>
+</div>
+
+<h2 id="20-0-1-2-frequency-domain">20.0.1.2 The Frequency Domain: From FFT to STFT</h2>
+<p>The time-domain waveform $S_i$ is not what a transformer wants to look at, because speech and music structure live in the <em>frequency</em> distribution of energy, not in individual samples. A pure tone of frequency $f_0$ and amplitude $A$ is $A \sin(2\pi f_0 t - \phi)$; its frequency spectrum is a single spike at $f_0$. A real-world sound is a superposition of many such tones, and the Fourier transform decomposes the waveform into its frequency components.</p>
+
+<p>For discrete signals, the <strong>Discrete Fourier Transform</strong> (DFT) of an $N$-sample window computes the complex amplitudes at $N$ equally spaced frequencies:</p>
+<div class="math-block">$$X_k = \sum_{n=0}^{N-1} x_n \, e^{-j 2\pi k n / N}, \quad k = 0, 1, \ldots, N-1.$$</div>
+<p>The Fast Fourier Transform (FFT) algorithm computes the DFT in $O(N \log N)$ time, and is the workhorse behind every spectrogram in this book. Because audio is real-valued, the negative-frequency half of $X_k$ is the conjugate of the positive half, so libraries expose a "real" FFT (numpy's <code>np.fft.rfft</code>) that returns only the $N/2 + 1$ non-redundant bins.</p>
+
+<p>A single FFT over an entire utterance throws away time information: it tells the reader which frequencies are present somewhere in the clip, but not when. The <strong>Short-Time Fourier Transform</strong> (STFT) fixes this by sliding a short window along the signal and applying an FFT to each window. The standard conventions for speech at 16 kHz are a 25 ms <em>frame length</em> (400 samples) and a 10 ms <em>hop length</em> (160 samples), giving 100 frames per second of audio. A 30-second clip then becomes a 3000-frame STFT, which is exactly the input shape Whisper expects.</p>
+
+<p>Before applying the FFT to each window, the signal must be multiplied by a tapered <strong>window function</strong> to suppress the discontinuity at the window edges that would otherwise smear energy across all frequencies (spectral leakage). The two standard windows are the <em>Hann</em> window $w_n = 0.5 (1 - \cos(2\pi n / (N-1)))$ and the <em>Hamming</em> window $w_n = 0.54 - 0.46 \cos(2\pi n / (N-1))$, both raised cosines that taper smoothly to zero at the edges.</p>
+
+<figure class="diagram">
+<svg role="img" aria-label="STFT construction: overlapping windowed FFTs build a time-frequency matrix" viewBox="0 0 820 320" xmlns="http://www.w3.org/2000/svg" style="font-family:'Segoe UI',sans-serif;max-width:100%;height:auto;">
+<rect width="820" height="320" fill="#fafafa"/>
+<text x="410" y="22" font-size="14" font-weight="700" text-anchor="middle" fill="#1a1a2e">Short-Time Fourier Transform: slide a Hann window, FFT each frame</text>
+<text x="410" y="40" font-size="10" font-style="italic" text-anchor="middle" fill="#5a4a3a">25 ms frame, 10 ms hop @ 16 kHz = 100 frames/sec</text>
+<g transform="translate(40,60)">
+<text x="0" y="10" font-size="10" font-weight="700" fill="#333">Waveform x[n]</text>
+<path d="M0,40 Q20,15 40,40 T80,40 T120,40 T160,40 T200,40 T240,40 T280,40 T320,40 T360,40 T400,40 T440,40 T480,40 T520,40 T560,40 T600,40 T640,40 T680,40 T720,40" stroke="#3d4d8a" stroke-width="1.4" fill="none"/>
+<rect x="60" y="20" width="120" height="40" fill="#fef3e0" stroke="#a67c1a" stroke-width="1.5" opacity="0.7"/>
+<rect x="150" y="20" width="120" height="40" fill="#e3e8f5" stroke="#3d4d8a" stroke-width="1.5" opacity="0.7"/>
+<rect x="240" y="20" width="120" height="40" fill="#fef3e0" stroke="#a67c1a" stroke-width="1.5" opacity="0.7"/>
+<rect x="330" y="20" width="120" height="40" fill="#e3e8f5" stroke="#3d4d8a" stroke-width="1.5" opacity="0.7"/>
+<text x="120" y="78" text-anchor="middle" font-size="9" fill="#a67c1a">frame 1</text>
+<text x="210" y="78" text-anchor="middle" font-size="9" fill="#3d4d8a">frame 2</text>
+<text x="300" y="78" text-anchor="middle" font-size="9" fill="#a67c1a">frame 3</text>
+<text x="390" y="78" text-anchor="middle" font-size="9" fill="#3d4d8a">frame 4</text>
+<text x="500" y="42" font-size="10" fill="#888">25 ms each, 10 ms hop</text>
+<line x1="240" y1="92" x2="240" y2="125" stroke="#666" stroke-width="1.5" marker-end="url(#stftArr)"/>
+</g>
+<defs>
+<marker id="stftArr" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#666"/></marker>
+</defs>
+<g transform="translate(40,200)">
+<text x="0" y="10" font-size="10" font-weight="700" fill="#333">|FFT| of each windowed frame &rarr; spectrogram column</text>
+<rect x="0" y="20" width="720" height="80" fill="#ffffff" stroke="#999" stroke-width="1"/>
+<g>
+<rect x="0" y="20" width="40" height="80" fill="#bbdefb"/>
+<rect x="40" y="20" width="40" height="80" fill="#90caf9"/>
+<rect x="80" y="20" width="40" height="80" fill="#42a5f5"/>
+<rect x="120" y="20" width="40" height="80" fill="#1976d2"/>
+<rect x="160" y="20" width="40" height="80" fill="#42a5f5"/>
+<rect x="200" y="20" width="40" height="80" fill="#90caf9"/>
+<rect x="240" y="20" width="40" height="80" fill="#bbdefb"/>
+<rect x="280" y="20" width="40" height="80" fill="#e3f2fd"/>
+<rect x="320" y="20" width="40" height="80" fill="#bbdefb"/>
+<rect x="360" y="20" width="40" height="80" fill="#90caf9"/>
+<rect x="400" y="20" width="40" height="80" fill="#42a5f5"/>
+<rect x="440" y="20" width="40" height="80" fill="#1976d2"/>
+<rect x="480" y="20" width="40" height="80" fill="#0d47a1"/>
+<rect x="520" y="20" width="40" height="80" fill="#1976d2"/>
+<rect x="560" y="20" width="40" height="80" fill="#42a5f5"/>
+<rect x="600" y="20" width="40" height="80" fill="#90caf9"/>
+<rect x="640" y="20" width="40" height="80" fill="#bbdefb"/>
+<rect x="680" y="20" width="40" height="80" fill="#e3f2fd"/>
+</g>
+<text x="-5" y="40" text-anchor="end" font-size="9" fill="#666">high f</text>
+<text x="-5" y="95" text-anchor="end" font-size="9" fill="#666">low f</text>
+<text x="725" y="60" font-size="9" fill="#666">time &rarr;</text>
+</g>
+</svg>
+<figcaption><strong>Figure 20.0.1.1</strong>: STFT construction. The waveform is partitioned into overlapping windows (25 ms frames with 10 ms hop is the canonical speech setting). Each window is multiplied by a Hann taper, then the magnitude of its FFT becomes one column of the spectrogram. The result is a time-frequency matrix of shape <code>(n_fft / 2 + 1, n_frames)</code>: rows are frequency bins, columns are time frames, and the value at $(k, t)$ is the energy at frequency $k$ in time frame $t$.</figcaption>
+</figure>
+
+<h2 id="20-0-1-3-decibel-scale">20.0.1.3 The Decibel Scale</h2>
+<p>Sound intensity spans an enormous dynamic range. The threshold of human hearing is about $10^{-12}$ W/m^2; a jet engine at takeoff is about $10^2$ W/m^2, a factor of $10^{14}$ apart. Plotting any spectrum on a linear amplitude axis throws away nearly all the visible detail in the low-amplitude regions. The <strong>decibel</strong> (dB) is the logarithmic scale that fixes this:</p>
+<div class="math-block">$$L_{\mathrm{dB}} = 10 \log_{10} \frac{P}{P_{\mathrm{ref}}}, \quad P_{\mathrm{ref}} = 10^{-12}\,\text{W/m}^2.$$</div>
+<p>On this scale silence is 0 dB, a quiet room is around 30 dB, normal conversation about 60 dB, a busy street 80 dB, a rock concert 110 to 120 dB, and a jet engine at 10 m about 130 dB. Audio plots almost always use dB on the amplitude axis because perception itself is approximately logarithmic: a 10 dB increase sounds roughly twice as loud, regardless of the starting point.</p>
+
+<p>In practice librosa exposes two conversion helpers. <code>librosa.amplitude_to_db(np.abs(D))</code> converts a complex STFT $D$ to dB, treating the input as amplitude (so it uses $20 \log_{10}|D|$). <code>librosa.power_to_db(S)</code> takes a power spectrum (the squared magnitude) and uses $10 \log_{10} S$. Both clip very small values to a floor (default 80 dB below the maximum) to keep plots readable.</p>
+
+<div class="callout practical-example">
+<div class="callout-title">Practical Example: Computing an STFT and Plotting It in Decibels</div>
+<div class="code-block-wrapper">
+<pre><code class="language-python">import librosa
+import librosa.display
+import matplotlib.pyplot as plt
+import numpy as np
+
+y, sr = librosa.load(librosa.ex("trumpet"), sr=22_050)
+
+# A single FFT of the first 4096 samples shows the harmonic spectrum.
+window = np.hanning(4096)
+spectrum = np.fft.rfft(y[:4096] * window)
+spectrum_db = librosa.amplitude_to_db(np.abs(spectrum), ref=np.max)
+freqs = np.fft.rfftfreq(4096, d=1 / sr)
+
+fig, axes = plt.subplots(1, 2, figsize=(12, 3.5))
+axes[0].semilogx(freqs, spectrum_db)
+axes[0].set(title="Single-frame spectrum (Hanning-windowed)",
+            xlabel="Frequency (Hz)", ylabel="Amplitude (dB)",
+            xlim=(10, sr / 2))
+
+# A full STFT shows how the harmonic structure evolves over time.
+D = librosa.stft(y, n_fft=2048, hop_length=512)
+D_db = librosa.amplitude_to_db(np.abs(D), ref=np.max)
+img = librosa.display.specshow(D_db, sr=sr, hop_length=512,
+                                x_axis="time", y_axis="hz", ax=axes[1])
+axes[1].set(title="STFT spectrogram (linear-frequency, dB amplitude)")
+fig.colorbar(img, ax=axes[1], format="%+2.0f dB")
+plt.tight_layout()</code></pre>
+<div class="code-caption"><strong>Code Fragment 20.0.1.2</strong>: A Hann-windowed FFT exposes the trumpet's harmonic series as sharp peaks at integer multiples of the fundamental, separated by roughly 40 to 60 dB above the noise floor. The companion STFT shows how those harmonics persist over the attack-decay envelope. The <code>ref=np.max</code> argument normalizes the dB scale so the peak is at 0 dB, a convention that lets readers compare spectrograms across clips of different absolute loudness.</div>
+</div>
+</div>
+
+<h2 id="20-0-1-4-mel-scale-log-mel">20.0.1.4 The Mel Scale and the Log-Mel Spectrogram</h2>
+<p>Human hearing is not linear in frequency. A trained ear can easily distinguish 500 Hz from 1000 Hz, but the same 500 Hz gap between 5000 Hz and 5500 Hz is barely perceptible. Stevens, Volkmann, and Newman quantified this in 1937 with the <strong>mel scale</strong>, which warps frequency so that equal mel intervals correspond to equal perceived pitch differences. The standard formula is:</p>
+<div class="math-block">$$m = 2595 \log_{10}\!\left(1 + \frac{f}{700}\right),$$</div>
+<p>where $f$ is in hertz and $m$ is in mels. Below about 500 Hz the mel scale is nearly linear in $f$; above that it becomes increasingly logarithmic, so the upper octaves are compressed.</p>
+
+<p>A <strong>mel filterbank</strong> implements this warp by summing the STFT magnitudes into a smaller set of overlapping triangular filters spaced uniformly on the mel axis. The standard size for speech is 80 filters covering 0 to 8 kHz (Whisper, AST, wav2vec 2.0 all use 80-bin mel). The filters are denser at low frequencies where pitch discrimination matters most and broader at high frequencies where it does not.</p>
+
+<p>Applying the mel filterbank to a power-magnitude STFT yields a <strong>mel spectrogram</strong>; taking the log of that yields the <strong>log-mel spectrogram</strong>, the canonical input format for modern speech and audio models:</p>
+<div class="math-block">$$\text{logmel}(t, m) = \log\!\left(\sum_{k} M_{m,k} \, |\mathrm{STFT}(t, k)|^2 + \epsilon\right),$$</div>
+<p>where $M_{m,k}$ is the mel filterbank matrix (one row per mel bin, one column per linear frequency bin) and $\epsilon$ is a small constant (typically $10^{-10}$) to avoid taking $\log 0$. The log compression mirrors the decibel scale: it makes the network's input distribution more symmetric and helps gradient flow.</p>
+
+<div class="callout key-insight">
+<div class="callout-title">Key Insight: Whisper's Magic Numbers Come from This Pipeline</div>
+<p>Whisper's input tensor shape (3000, 80) decomposes exactly as the STFT plus mel filterbank pipeline above. A 30-second clip at 16 kHz with a 25 ms frame and 10 ms hop produces $30 \times 100 = 3000$ frames. The 80 comes from 80 mel filterbank bins covering 0 to 8 kHz. Every "Whisper expects log-mel" claim in the chapter reduces to running <code>librosa.feature.melspectrogram(y, sr=16000, n_fft=400, hop_length=160, n_mels=80)</code> followed by <code>librosa.power_to_db</code>. AST uses the same (3000, 80) shape for 30-second clips. The pretrained model is locked to these dimensions, which is why a feature extractor is a non-optional part of every audio pipeline.</p>
+</div>
+
+<div class="callout practical-example">
+<div class="callout-title">Practical Example: A Log-Mel Spectrogram in Five Lines</div>
+<div class="code-block-wrapper">
+<pre><code class="language-python">import librosa
+import librosa.display
+import numpy as np
+import matplotlib.pyplot as plt
+
+y, sr = librosa.load(librosa.ex("trumpet"), sr=16_000)
+
+# Compute the mel spectrogram on a power scale, then convert to dB.
+S = librosa.feature.melspectrogram(
+    y=y, sr=sr,
+    n_fft=400,        # 25 ms frame at 16 kHz
+    hop_length=160,   # 10 ms hop
+    n_mels=80,        # the canonical Whisper / AST setting
+    fmin=0, fmax=8000,
+)
+S_db = librosa.power_to_db(S, ref=np.max)
+
+print(S_db.shape)  # (80, n_frames); each frame is 10 ms
+
+fig, ax = plt.subplots(figsize=(8, 3))
+img = librosa.display.specshow(S_db, sr=sr, hop_length=160,
+                                x_axis="time", y_axis="mel",
+                                fmin=0, fmax=8000, ax=ax)
+ax.set(title="80-bin log-mel spectrogram (Whisper / AST input format)")
+fig.colorbar(img, ax=ax, format="%+2.0f dB")
+plt.tight_layout()</code></pre>
+<div class="code-caption"><strong>Code Fragment 20.0.1.3</strong>: The five-line log-mel pipeline. The output array <code>S_db</code> is the exact tensor Whisper's feature extractor produces internally (modulo a fixed normalization step), and any model with "log-mel input" in its model card consumes this format. Reader who wants the precise Whisper preprocessing should use <code>transformers.WhisperFeatureExtractor</code> instead; reader who wants to feed an arbitrary 80-bin log-mel into a custom model should start from this snippet.</div>
+</div>
+</div>
+
+<h2 id="20-0-1-5-mfcc">20.0.1.5 MFCCs: The Classical Front-End</h2>
+<p><strong>Mel-Frequency Cepstral Coefficients</strong> (MFCCs) were the dominant audio feature from the 1980s through the deep-learning revolution around 2014. The pipeline is one step longer than log-mel: take the log-mel spectrogram, then apply a Discrete Cosine Transform (DCT) along the mel axis and keep only the first $K$ coefficients (typically $K = 13$, sometimes augmented with first and second time derivatives for 39 total features per frame).</p>
+
+<p>The DCT serves two purposes. First, it decorrelates the mel bins, which was important for classical Gaussian mixture model (GMM) classifiers that assumed diagonal covariance. Second, it concentrates information in the low-order coefficients, so dropping all but the first 13 removes high-order detail that classical models could not exploit anyway. The result is a compact 13-dimensional feature vector per frame, an enormous compression over the 80-bin log-mel.</p>
+
+<p>Modern deep models do not use MFCCs. The decorrelation and dimensionality reduction that MFCCs provide are exactly what early convolutional layers in a neural network learn to do automatically, and the dropped high-order coefficients turn out to carry information that large models can exploit. Whisper, wav2vec 2.0, AST, and CLAP all consume log-mel; only HuBERT uses MFCCs, and only in the very first clustering pass of its iterative pretraining (which gets replaced by intermediate transformer features in later iterations, as Section 20.0.4 covers in detail). MFCC pseudocode looks like:</p>
+
+<div class="math-block">$$\mathrm{MFCC}_k(t) = \sum_{m=0}^{M-1} \text{logmel}(t, m) \cos\!\left(\frac{\pi k (m + 0.5)}{M}\right), \quad k = 0, 1, \ldots, K-1.$$</div>
+
+<p>The MFCC remains useful as a baseline feature for very small models (keyword spotters on microcontrollers, audio fingerprinters) and as a building block in HuBERT's bootstrap, but it is no longer the default front-end for any deep audio model. The mental model is "MFCC = log-mel + DCT + truncate", and the trend across the field has been toward keeping more of the log-mel information and letting the network sort it out.</p>
+
+<h2 id="20-0-1-6-the-huggingface-datasets-workflow">20.0.1.6 The HuggingFace datasets Workflow</h2>
+<p>The end-to-end loop for any classification or recognition task in this chapter looks the same: load a dataset, cast its audio to 16 kHz, build a feature extractor, run the extractor over the dataset with <code>.map()</code>, and visualize one example to verify the tensors look right. The MINDS-14 intent classification dataset is a canonical training ground for this workflow because it ships transcript, audio, and an intent label all in one record.</p>
+
+<div class="callout library-shortcut">
+<div class="callout-title">Library Shortcut: The Five-Step datasets Loop</div>
+<div class="code-block-wrapper">
+<pre><code class="language-python">from datasets import load_dataset, Audio
+from transformers import WhisperFeatureExtractor
+import librosa.display
+import matplotlib.pyplot as plt
+
+# 1. Load.
+minds = load_dataset("PolyAI/minds14", name="en-AU", split="train")
+print(minds.features)
+# {'path': Value(dtype='string'),
+#  'audio': Audio(sampling_rate=8000, mono=True),
+#  'transcription': Value('string'), ...,
+#  'intent_class': ClassLabel(names=['abroad', 'address', 'app_error', ...,
+#                                    'pay_bill', 'transfer', ...])}
+
+# Map the integer label to a human-readable name.
+example = minds[0]
+print(example["transcription"])
+# "I would like to pay my electricity bill using my card can you please assist"
+print(minds.features["intent_class"].int2str(example["intent_class"]))
+# 'pay_bill'
+
+# 2. Resample on access (cheap; just changes the load behavior).
+minds = minds.cast_column("audio", Audio(sampling_rate=16_000))
+arr = minds[0]["audio"]["array"]      # numpy float32, 16 kHz mono
+sr = minds[0]["audio"]["sampling_rate"]
+
+# 3. Build the model's feature extractor (Whisper here; AST and wav2vec2 are analogous).
+feat = WhisperFeatureExtractor.from_pretrained("openai/whisper-small")
+
+def prepare(batch):
+    audio = batch["audio"]
+    inputs = feat(audio["array"], sampling_rate=audio["sampling_rate"])
+    batch["input_features"] = inputs["input_features"][0]   # (80, 3000)
+    return batch
+
+# 4. Precompute features for the whole dataset.
+minds = minds.map(prepare, remove_columns=["audio"])
+
+# 5. Visualize one extracted feature to verify.
+fig, ax = plt.subplots(figsize=(8, 3))
+librosa.display.specshow(minds[0]["input_features"], sr=feat.sampling_rate,
+                         hop_length=feat.hop_length, x_axis="time", y_axis="mel", ax=ax)
+ax.set(title="Whisper log-mel features for MINDS-14 example 0")
+plt.tight_layout()</code></pre>
+<div class="code-caption"><strong>Code Fragment 20.0.1.4</strong>: The HuggingFace audio loop end to end. Note three patterns worth memorizing. (1) <code>cast_column("audio", Audio(sampling_rate=16_000))</code> resamples lazily; the underlying file is not rewritten. (2) <code>map(prepare)</code> precomputes features into a new column, dropping <code>"audio"</code> to save disk space. (3) The output of <code>WhisperFeatureExtractor</code> is always <code>(80, 3000)</code> regardless of input duration; the extractor pads or truncates to exactly 30 seconds. AST uses an analogous <code>ASTFeatureExtractor</code>; wav2vec 2.0 uses <code>Wav2Vec2Processor</code>; the rest of the loop is identical.</div>
+</div>
+</div>
+
+<p>The default interpolation used by HuggingFace's resampling is cubic, which preserves the underlying waveform better than nearest-neighbor or linear (the linear version causes audible aliasing on speech), at a modest cost in throughput. Reader who profiles a data-loading bottleneck and finds resampling dominates should consider precomputing the resampled audio to disk once rather than resampling on every epoch.</p>
+
+<h2 id="20-0-1-7-summary">20.0.1.7 Summary and Pointers</h2>
+<p>The classical audio preprocessing stack is short. Sample the waveform; choose a sample rate (16 kHz for speech, 24 kHz for high-quality TTS, 44.1 kHz for music); window into 25 ms Hann-tapered frames at 10 ms hop; FFT each frame; project onto an 80-bin mel filterbank; take the log. Whisper, AST, wav2vec 2.0, and HuBERT all consume the result. MFCCs are the same pipeline plus a DCT, kept around mostly for HuBERT's bootstrap and for legacy small-footprint models.</p>
+
+<div class="callout cross-ref">
+<div class="callout-title">Cross-Reference: Math Derivations Live in Appendix G</div>
+<p>This section installed the working vocabulary needed for the rest of Chapter 20. Reader who wants the math (the Nyquist-Shannon sampling theorem, the convolution theorem, the derivation of the DCT) should detour through <a href="../../appendices/appendix-g-signal-processing-audio/index.html">Appendix G: Signal Processing for Audio</a>. Reader who wants the discrete-token analogue of audio sampling should compare to text BPE tokenization in <a href="../../part-1-llm-building-blocks/module-01-foundations-nlp-text-representation/section-1.6.html">Section 1.6</a>: both reduce a continuous or near-continuous input to a finite vocabulary that a transformer can consume. The next two sub-sections turn that intuition into machinery: <a href="section-20.0.2.html">Section 20.0.2</a> on audio codec tokenization and <a href="section-20.0.3.html">Section 20.0.3</a> on the transformer architectures that consume those tokens.</p>
+</div>
+
+<div class="callout fun-note">
+<div class="callout-title">Fun Note: The Eight Kilohertz Phantom</div>
+<p>I once spent an entire afternoon debugging a wav2vec checkpoint that returned plausible-but-wrong transcripts on every clip. Resampling code: correct. Feature extractor: correct. Model weights: correct. The bug? The microphone driver was reporting 48 kHz, then a chain of resamples in the recording pipeline silently truncated frequencies above 4 kHz before I ever called <code>cast_column</code>. The model heard a muffled ghost of speech. Moral: sample-rate bugs do not always live where you wrote the resample. <em>An AI Model Who Distrusts Audio Drivers</em></p>
+</div>
+
+<div class="callout key-takeaway">
+<div class="callout-title">Key Takeaway</div>
+<p>A digital waveform is a sequence of samples at rate $f_s$ (16 kHz for speech, 24 kHz for TTS, 44.1 kHz for music) with bit depth 16 or 24. The FFT decomposes a window into frequency bins; the STFT does this in 25 ms frames at 10 ms hop. The mel scale warps frequency to match human perception; log-mel spectrograms (80 bins, log amplitude) are the canonical input for every modern audio model. MFCCs add a DCT on top and survive only in HuBERT's bootstrap and on microcontrollers. The HuggingFace <code>datasets</code> + feature extractor + <code>.map()</code> loop turns raw audio into model-ready tensors in five lines.</p>
+</div>
+
+<div class="whats-next">
+<h3>What Comes Next</h3>
+<p><a href="section-20.0.2.html">Section 20.0.2</a> takes the next pedagogical step: how do these continuous waveforms and spectrograms get further compressed into the discrete LLM-style token streams that Bark, AudioLM, MusicGen, and Moshi autoregress? The answer is the residual vector quantization (RVQ) family of audio codecs (EnCodec, SoundStream, DAC, Mimi), which the next section dissects from VQ basics up to the full EnCodec training pipeline.</p>
+</div>
+
+<div class="callout exercise">
+<div class="callout-title">Exercise 20.0.1.1: Load, Resample, Plot</div>
+<p><strong>Objective.</strong> Walk a real audio clip through the load, resample, frame, log-mel pipeline and confirm every shape and unit.</p>
+<p><strong>Task.</strong> Pick any clip from MINDS-14 or LibriSpeech. With <code>librosa.load(path, sr=16000)</code>, load and resample to 16 kHz. Verify the original sample rate, the new sample rate, and the resulting array length match the duration in seconds. Then call <code>librosa.feature.melspectrogram(y=y, sr=16000, n_mels=80, n_fft=400, hop_length=160)</code> and confirm the output shape is <code>(80, num_frames)</code> with <code>num_frames = ceil(len(y) / 160)</code>. Apply <code>librosa.power_to_db</code> and plot with <code>librosa.display.specshow</code>.</p>
+<p><strong>Expected outcome.</strong> A printed shape report plus a labeled mel spectrogram. The y-axis should be 80 mel bins; the x-axis should be the duration of the clip.</p>
+</div>
+
+<details class="bibliography-collapsible"><summary><strong>Further Reading</strong></summary>
+<section class="bibliography">
+<div class="bib-entry-card">
+<div class="bib-ref">Oppenheim, A. V. and Schafer, R. W. (2010). <em>Discrete-Time Signal Processing</em> (3rd edition). Pearson. The reference textbook for DFT, STFT, windowing, and the sampling theorem; covers everything in this section at full mathematical depth.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://librosa.org/doc/latest/index.html" rel="noopener" target="_blank">McFee, B. et al. (2015). "librosa: Audio and Music Signal Analysis in Python." <em>SciPy 2015</em>.</a> The library that powers every audio code snippet in this section; the API documentation is the single best reference for the spectrogram, mel, and MFCC functions used here.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Stevens, S. S., Volkmann, J., and Newman, E. B. (1937). "A Scale for the Measurement of the Psychological Magnitude Pitch." <em>Journal of the Acoustical Society of America</em>, 8(3), 185-190. The original psychoacoustic study that defined the mel scale.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://huggingface.co/learn/audio-course/chapter1/introduction" rel="noopener" target="_blank">HuggingFace Audio Course, Chapter 1 (2024).</a> A practical companion to this section that walks through datasets, resampling, and feature extraction with runnable notebooks.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://arxiv.org/abs/2106.06909" rel="noopener" target="_blank">Gerz, D. et al. (2021). "MINDS-14: A Multilingual Dataset for Intent Detection from Spoken Data." <em>EMNLP 2021</em>.</a> The MINDS-14 dataset used in Code Fragment 20.0.1.4 and throughout Section 20.0.5.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Davis, S. B. and Mermelstein, P. (1980). "Comparison of Parametric Representations for Monosyllabic Word Recognition in Continuously Spoken Sentences." <em>IEEE Transactions on Acoustics, Speech, and Signal Processing</em>, 28(4), 357-366. The original MFCC paper; the formula in Section 20.0.1.5 traces directly to this work.</div>
+</div>
+</section>
+</details>
+
+<nav class="chapter-nav">
+<a class="prev" href="section-20.0.html"><span class="nav-label">Previous</span><span class="nav-num">Section 20.0</span><span class="nav-title">The Audio Task Landscape</span></a>
+<a class="up" href="index.html"><span class="nav-label">In Chapter</span><span class="nav-num">Chapter 20</span><span class="nav-title">Audio, Music, and Video Generation</span></a>
+<a class="next" href="section-20.0.2.html"><span class="nav-label">Next</span><span class="nav-num">Section 20.0.2</span><span class="nav-title">Audio Codec Models and Vector Quantization</span></a>
+</nav>
+<footer><p>Fifteenth Edition, 2026 &middot; <a href="../../toc.html">Contents</a></p></footer>
+</main>
+</body>
+</html>

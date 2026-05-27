@@ -54,6 +54,10 @@ gtag('config', 'G-PWPHBQL2VL');
 <img alt="The advanced-RAG treasure hunt continues: the adventurer now rewrites the map, drafts a hypothetical landmark (HyDE), and reroutes around dead ends, evoking query transformation, contextual retrieval, and self-corrective RAG." src="images/advanced-rag-treasure-hunt-section2.png" width="1200" height="876"/>
 <figcaption><strong>Figure 35.2.1</strong>: Advanced RAG is a treasure hunt where each retrieval step gets you closer to the answer. Query rewriting, re-ranking, and iterative refinement are your map and compass.</figcaption>
 </figure>
+<div class="callout key-insight">
+<div class="callout-title">Key insight: six families of advanced RAG</div>
+<p>The advanced-RAG literature sprawls, but every technique in this chapter slots into one of six families. <strong>(1) Indirect embeddings</strong> change what gets embedded on either side: HyDE (Section 35.2.1.1) embeds a hypothetical answer at query time, HyPE (Section 35.2.1.4) embeds hypothetical questions at indexing time. <strong>(2) Context compression</strong> shrinks what reaches the generator: Anthropic contextual retrieval (Section 35.2.2), LangChain compression filters (Code Fragment 35.2.3). <strong>(3) Fusion</strong> merges multiple retrieval signals: hybrid dense+sparse (Section 35.1), MMR diversification (Section 35.2.1.5), RAG-Fusion with RRF (Section 35.2.1.6), Fusion-in-Decoder (Section 35.2.1.7). <strong>(4) Self-validation</strong> wraps the loop in a corrective pass: CRAG (Section 35.2.3.1), Self-RAG (Section 35.2.3.2). <strong>(5) Generator fine-tuning</strong> trains the LLM to handle imperfect retrieval: RAFT (Section 35.2.3.3). <strong>(6) Cache-augmented generation</strong> replaces retrieval with cached prefill: CAG (Section 32.2.3.4). Most production systems mix one technique from each of the first three families, then add a self-validation pass only when accuracy demands it.</p>
+</div>
 <h2 id="35-2-1-query-transformation">35.2.1 Query Transformation</h2>
 <div class="callout fun-note">
 <div class="callout-title">Fun Fact</div>
@@ -98,6 +102,49 @@ gtag('config', 'G-PWPHBQL2VL');
  documents that provide necessary background context, which is then combined with results from the
  specific query. compares these three query transformation strategies.</p>
 <p>A worked HyDE pass illustrates why "hypothetical and wrong" can still help. User query: "How does a transformer's KV cache reduce inference cost?" HyDE step 1: ask the LLM to <em>write</em> a fake passage as if it were the answer ("The KV cache stores previously computed key and value tensors so that during autoregressive decoding the model can skip recomputation for prior tokens, reducing complexity from O(n^2) to O(n) per step..."). HyDE step 2: embed that hypothetical passage, not the original question. The embedding now lives in "answer space," surrounded by real passages with similar phrasing. Even if the fake passage gets a fact wrong (say, it confuses K with V), the embedding is closer to actual technical explanations than the original question's embedding was, and the retriever surfaces better documents.</p>
+
+<p>HyDE can be written compactly as a two-step transformation of the retrieval query. Let $q$ be the user query, $f_\mathrm{LLM}$ a hypothetical-passage generator (one or many samples), $E$ the document embedding model, and $\mathrm{sim}$ the index's similarity metric. Standard dense retrieval scores the corpus as $s_\mathrm{dense}(d) = \mathrm{sim}(E(q), E(d))$. HyDE instead samples $N$ hypothetical answers $\tilde{d}_i = f_\mathrm{LLM}(q)$ and scores documents against their mean embedding:</p>
+<div class="math-block">$$ s_\mathrm{HyDE}(d) = \mathrm{sim}\!\left(\frac{1}{N} \sum_{i=1}^{N} E(\tilde{d}_i),\; E(d)\right). $$</div>
+<p>Setting $N = 1$ is the cheap default; $N = 4$ to $8$ averages out factual errors in any single hypothetical passage and is the typical published recipe. The mean-embedding pool is what makes the retriever robust to the "K versus V confusion" failure: a single wrong hypothesis lands near "encoder attention", but four wrong-but-related hypotheses average toward the centroid of "KV cache and inference cost" passages.</p>
+
+<div class="code-block-wrapper">
+<pre><code class="language-python">from openai import OpenAI
+
+client = OpenAI()
+HYDE_PROMPT = (
+    "Write a short, technical paragraph that directly answers the user's "
+    "question as if you were quoting it from a documentation page. Do not "
+    "say 'I don't know'. Be confident even if uncertain about specifics."
+)
+
+def hyde_retrieve(query: str, collection, k: int = 5, n_samples: int = 4):
+    """HyDE: generate N hypothetical answers, embed their mean, then retrieve."""
+    hypothetical_passages = []
+    for _ in range(n_samples):
+        resp = client.chat.completions.create(
+            model="gpt-4o-mini",
+            temperature=0.8,
+            messages=[
+                {"role": "system", "content": HYDE_PROMPT},
+                {"role": "user", "content": query},
+            ],
+        )
+        hypothetical_passages.append(resp.choices[0].message.content.strip())
+
+    # Embed each hypothetical passage; mean them to get a robust query vector.
+    embeds = collection._embed(hypothetical_passages)  # (n_samples, d)
+    mean_embed = embeds.mean(axis=0, keepdims=True)    # (1, d)
+
+    hits = collection.query(query_embeddings=mean_embed.tolist(),
+                            n_results=k)
+    return list(zip(hits["documents"][0], hits["metadatas"][0]))</code></pre>
+<div class="code-caption"><strong>Code Fragment 35.2.2a</strong>: HyDE retrieval in roughly 20 lines. Steps: generate $N$ hypothetical passages at <code>temperature=0.8</code> so they diverge enough to average usefully; embed each through the same model used for the index; mean the embeddings to form the HyDE query vector; query the vector store. Set <code>n_samples=1</code> for the cheap variant, <code>n_samples=4</code> for the published recipe. The hypothetical passages do not need to be factually correct; only their topical neighborhood matters for retrieval.</div>
+</div>
+
+<div class="callout numeric-example">
+<div class="callout-title">Worked Example: HyDE Recall@10 Lift on a Technical FAQ</div>
+<p>Take a 50,000-chunk internal documentation corpus and a 200-query evaluation set with hand-annotated relevant chunks. Vanilla dense retrieval with <code>text-embedding-3-small</code> (1536 dim) achieves recall@10 of 0.61 on the evaluation set; the failures cluster around short conceptual questions like "Why is the KV cache useful?" where the query is 6 tokens and the gold passages are 200-word explanations. Running HyDE with $N = 4$ hypothetical passages from <code>gpt-4o-mini</code> lifts recall@10 to 0.74, a 13-point absolute gain, at a cost of 4 extra LLM calls per query (about 35 ms each at the OpenAI batch endpoint) plus 4 embedding calls. Total added latency: roughly 280 ms per query, total added cost: about $0.0012 per query at 2026 pricing. For comparison, the same evaluation set sees recall@10 jump from 0.61 to 0.69 with single-sample HyDE ($N = 1$) at one-quarter the cost; the marginal benefit of $N = 2 \to 4$ is real but flattens fast. Production teams typically ship $N = 1$ HyDE under their latency budget and reserve $N = 4$ for offline evaluation runs.</p>
+</div>
 <!-- SVG: Query Transformation Strategies -->
 <div class="diagram-container">
 <svg aria-label="Diagram: 1.3 Step-Back Prompting" font-family="Segoe UI, system-ui, sans-serif" role="img" viewbox="0 -10 760 350" xmlns="http://www.w3.org/2000/svg">
@@ -147,6 +194,298 @@ gtag('config', 'G-PWPHBQL2VL');
 </svg>
 <div class="diagram-caption"><strong>Figure 35.2.2</strong>: Three query transformation strategies, each addressing different causes of retrieval failure.</div>
 </div>
+<h3 id="35-2-1-4-hype-hypothetical-prompt-embeddings">35.2.1.4 HyPE: Hypothetical Prompt Embeddings</h3>
+<p><strong>HyPE</strong> (Hypothetical Prompt Embeddings) is the dual of HyDE. Where HyDE generates a hypothetical answer at query time and embeds it, HyPE generates hypothetical <em>questions</em> at indexing time. For every chunk in the corpus, an LLM is asked to write three to five questions whose answer is contained in that chunk. Those generated questions are embedded and stored alongside (or instead of) the original chunk embeddings. At query time the user question is embedded once and matched directly against the question index, which puts query and index in the same linguistic register.</p>
+<p>The tradeoff with HyDE is symmetric. HyDE shifts the LLM cost to query time (one extra LLM call per query) and keeps the index cheap. HyPE shifts the cost to indexing time (several LLM calls per chunk) and pays nothing at query time. HyPE wins when the corpus is small and stable and queries are frequent (an FAQ that serves millions of users per day); HyDE wins when the corpus is large and changes constantly and queries are rare. Both can be combined: index each chunk with both its raw embedding and three HyPE embeddings, then at query time run a HyDE pass and retrieve top-$k$ across the union.</p>
+<h3 id="35-2-1-5-mmr-maximal-marginal-relevance">35.2.1.5 MMR: Diversifying the Top-K</h3>
+<p>Pure top-$k$ retrieval often returns the same idea written five different ways. If the corpus contains five near-duplicate chunks of a popular API page, vanilla cosine retrieval will hand the generator all five and waste the context budget. <strong>Maximal Marginal Relevance (MMR)</strong> fixes this by re-ranking the candidate pool to balance relevance to the query with dissimilarity from already-selected results:</p>
+<p>$$ \text{MMR} = \arg\max_{d_i \in C \setminus S} \left[ \lambda \cdot \text{sim}(d_i, q) - (1 - \lambda) \cdot \max_{d_j \in S} \text{sim}(d_i, d_j) \right] $$</p>
+<p>where $C$ is the candidate set, $S$ is the already-selected set, $q$ is the query, and $\lambda \in [0, 1]$ trades off relevance ($\lambda = 1$ recovers vanilla cosine) against diversity ($\lambda = 0$ picks the most spread-out chunks regardless of relevance). A typical production setting is $\lambda = 0.5$, applied to a candidate pool that is 3 to 5 times larger than the desired top-$k$. <strong>Figure 35.2.4</strong> shows the iterative selection loop that turns this argmax into a re-ranked list.</p>
+<div class="diagram-container">
+<svg aria-label="MMR selection loop: a candidate pool of 10 chunks is scored against the query, then on each iteration the chunk with the highest mixed score (lambda * query similarity minus (1 - lambda) * max similarity to already-selected) is moved into the output list, until the top-k slots are filled." role="img" viewbox="0 0 760 280" xmlns="http://www.w3.org/2000/svg">
+<rect fill="#fafafa" height="270" rx="10" stroke="#ddd" width="750" x="5" y="5"></rect>
+<text fill="#333" font-family="Segoe UI, system-ui, sans-serif" font-size="13" font-weight="700" x="25" y="32">MMR iterative re-ranking (lambda = 0.5)</text>
+<rect fill="#e3f2fd" height="200" rx="6" stroke="#1565c0" width="170" x="25" y="55"></rect>
+<text fill="#0d47a1" font-family="Segoe UI, system-ui, sans-serif" font-size="12" font-weight="700" text-anchor="middle" x="110" y="75">Candidate pool C</text>
+<text fill="#1565c0" font-family="Segoe UI, system-ui, sans-serif" font-size="11" text-anchor="middle" x="110" y="92">(10 chunks, sorted)</text>
+<g fill="#fff" font-family="Consolas, monospace" font-size="11" stroke="#1565c0">
+<rect height="18" rx="3" width="150" x="35" y="100"></rect>
+<rect height="18" rx="3" width="150" x="35" y="121"></rect>
+<rect height="18" rx="3" width="150" x="35" y="142"></rect>
+<rect height="18" rx="3" width="150" x="35" y="163"></rect>
+<rect height="18" rx="3" width="150" x="35" y="184"></rect>
+<rect height="18" rx="3" width="150" x="35" y="205"></rect>
+<rect height="18" rx="3" width="150" x="35" y="226"></rect>
+</g>
+<g fill="#333" font-family="Consolas, monospace" font-size="11" text-anchor="middle">
+<text x="110" y="114">d1  sim(q)=0.92</text>
+<text x="110" y="135">d2  sim(q)=0.89</text>
+<text x="110" y="156">d3  sim(q)=0.88</text>
+<text x="110" y="177">d4  sim(q)=0.84</text>
+<text x="110" y="198">d5  sim(q)=0.81</text>
+<text x="110" y="219">d6  sim(q)=0.77</text>
+<text x="110" y="240">...</text>
+</g>
+<rect fill="#fff3e0" height="200" rx="6" stroke="#e65100" stroke-width="1.5" width="280" x="240" y="55"></rect>
+<text fill="#bf360c" font-family="Segoe UI, system-ui, sans-serif" font-size="12" font-weight="700" text-anchor="middle" x="380" y="75">MMR scorer</text>
+<text fill="#e65100" font-family="Segoe UI, system-ui, sans-serif" font-size="11" text-anchor="middle" x="380" y="92">argmax over C \ S</text>
+<text fill="#333" font-family="Consolas, monospace" font-size="11" x="255" y="118">score(d) = lambda * sim(d, q)</text>
+<text fill="#333" font-family="Consolas, monospace" font-size="11" x="255" y="136">         - (1 - lambda) * max sim(d, d')</text>
+<text fill="#333" font-family="Consolas, monospace" font-size="11" x="255" y="152">                           d' in S</text>
+<text fill="#555" font-family="Segoe UI, system-ui, sans-serif" font-size="11" x="255" y="180">Iter 1: S empty -&gt; pick d1 (top sim)</text>
+<text fill="#555" font-family="Segoe UI, system-ui, sans-serif" font-size="11" x="255" y="196">Iter 2: penalise sim to d1 -&gt; pick d4</text>
+<text fill="#555" font-family="Segoe UI, system-ui, sans-serif" font-size="11" x="255" y="212">Iter 3: penalise sim to d1, d4 -&gt; pick d6</text>
+<text fill="#555" font-family="Segoe UI, system-ui, sans-serif" font-size="11" x="255" y="228">...</text>
+<text fill="#bf360c" font-family="Segoe UI, system-ui, sans-serif" font-size="11" font-style="italic" x="255" y="248">stop when |S| = k</text>
+<rect fill="#e8f5e9" height="200" rx="6" stroke="#2e7d32" width="190" x="545" y="55"></rect>
+<text fill="#1b5e20" font-family="Segoe UI, system-ui, sans-serif" font-size="12" font-weight="700" text-anchor="middle" x="640" y="75">Selected set S</text>
+<text fill="#2e7d32" font-family="Segoe UI, system-ui, sans-serif" font-size="11" text-anchor="middle" x="640" y="92">(top-k = 5)</text>
+<g fill="#fff" font-family="Consolas, monospace" font-size="11" stroke="#2e7d32">
+<rect height="22" rx="3" width="170" x="555" y="105"></rect>
+<rect height="22" rx="3" width="170" x="555" y="132"></rect>
+<rect height="22" rx="3" width="170" x="555" y="159"></rect>
+<rect height="22" rx="3" width="170" x="555" y="186"></rect>
+<rect height="22" rx="3" width="170" x="555" y="213"></rect>
+</g>
+<g fill="#1b5e20" font-family="Consolas, monospace" font-size="11" text-anchor="middle">
+<text x="640" y="121">d1   (most relevant)</text>
+<text x="640" y="148">d4   (diverse)</text>
+<text x="640" y="175">d6   (diverse)</text>
+<text x="640" y="202">d9   (diverse)</text>
+<text x="640" y="229">d2   (relevant + new)</text>
+</g>
+<g stroke="#555" stroke-width="1.5" fill="none">
+<line x1="195" x2="238" y1="155" y2="155"></line>
+<polygon fill="#555" points="238 155, 232 152, 232 158"></polygon>
+<line x1="520" x2="543" y1="155" y2="155"></line>
+<polygon fill="#555" points="543 155, 537 152, 537 158"></polygon>
+</g>
+</svg>
+<div class="diagram-caption"><strong>Figure 35.2.4</strong>: MMR iteratively builds the output set $S$ by picking the candidate that maximises a convex combination of query similarity and dissimilarity to already-selected items. With $\lambda = 0.5$ the top-ranked d1 is kept on the first iteration; on subsequent iterations the scorer penalises near-duplicates of d1, so the second pick jumps to d4 (relevant but on a different sub-topic) and the third to d6 (different again).</div>
+</div>
+<div class="callout numeric-example">
+<div class="callout-title">Worked Example: Diversifying 5 from 10 Candidates with $\lambda = 0.5$</div>
+<p>A query about "rolling back failed deployments" returns ten candidate chunks. Three of them (d1, d2, d3) are paraphrases of the same canary-rollback page, with cosine similarities to the query of $(0.92, 0.89, 0.88)$ and pairwise similarities between themselves above $0.90$. The remaining seven cover blue-green switches, database migration reversals, feature-flag kills, and runbook references, with query similarities in the range $0.65$ to $0.84$.</p>
+<p>Vanilla top-5 returns $\{d_1, d_2, d_3, d_4, d_5\}$: three near-duplicates plus two diverse chunks. MMR with $\lambda = 0.5$ proceeds as follows.</p>
+<ul>
+<li><strong>Iter 1.</strong> $S = \emptyset$, so the scorer is just $\lambda \cdot \mathrm{sim}(d, q)$. The winner is $d_1$ with score $0.5 \cdot 0.92 = 0.46$.</li>
+<li><strong>Iter 2.</strong> For each remaining $d$, score $= 0.5 \cdot \mathrm{sim}(d, q) - 0.5 \cdot \mathrm{sim}(d, d_1)$. For the near-duplicate $d_2$: $0.5 \cdot 0.89 - 0.5 \cdot 0.91 = -0.01$. For the diverse $d_4$ (sim to $d_1 = 0.32$): $0.5 \cdot 0.84 - 0.5 \cdot 0.32 = 0.26$. Winner: $d_4$.</li>
+<li><strong>Iter 3.</strong> The scorer now subtracts $\max(\mathrm{sim}(d, d_1), \mathrm{sim}(d, d_4))$. $d_2$ stays penalised by $d_1$; $d_6$ (sim to $d_1 = 0.28$, sim to $d_4 = 0.41$) scores $0.5 \cdot 0.77 - 0.5 \cdot 0.41 = 0.18$. Winner: $d_6$.</li>
+<li><strong>Iters 4 and 5.</strong> The same logic picks $d_9$ and finally $d_2$ (when the diversity penalty no longer dominates).</li>
+</ul>
+<p>Final ranking: $\{d_1, d_4, d_6, d_9, d_2\}$, which keeps the most relevant chunk but drops two of the three near-duplicates in favour of broader coverage. On a 1,000-query benchmark of canary, blue-green, and feature-flag rollback questions, the MMR list lifts recall@5 over distinct rollback strategies from 0.62 to 0.84 with no other pipeline changes.</p>
+</div>
+<div class="callout library-shortcut">
+<div class="callout-title">Library Shortcut: MMR retrieval in LangChain</div>
+<p>LangChain exposes MMR as a one-line switch on any vector store:</p>
+<div class="code-block-wrapper">
+<pre><code class="language-python">from langchain_chroma import Chroma
+
+retriever = Chroma(
+    collection_name="docs",
+    embedding_function=embeddings,
+).as_retriever(
+    search_type="mmr",
+    search_kwargs={"k": 5, "fetch_k": 25, "lambda_mult": 0.5},
+)
+docs = retriever.invoke("How does the KV cache work?")</code></pre>
+<div class="code-caption"><strong>Code Fragment 35.2.2</strong>: <code>fetch_k</code> is the candidate pool size, <code>k</code> is how many MMR keeps, and <code>lambda_mult</code> is the relevance/diversity dial. Switching <code>search_type</code> from <code>"similarity"</code> to <code>"mmr"</code> is usually a 5% to 10% improvement on multi-faceted queries with no other changes.</div>
+</div>
+</div>
+<h3 id="35-2-1-6-rag-fusion-multi-query-with-rrf">35.2.1.6 RAG-Fusion: Multi-Query + RRF</h3>
+<p><strong>RAG-Fusion</strong> (Raudaschl, 2023) is the canonical name for the recipe that combines LLM multi-query expansion (Section 35.2.1.2) with Reciprocal Rank Fusion (RRF; see Section 36.2.1). The pipeline is: ask the LLM for $n$ paraphrases of the user question, run a vector search for each paraphrase, and merge the $n$ ranked lists into a single ranking using $\text{RRF}(d) = \sum_i \frac{1}{k + \text{rank}_i(d)}$ with $k = 60$. The Code Fragment 35.2.1 implementation above dedupes by document id; RAG-Fusion replaces that dedupe step with RRF so that documents appearing high in several paraphrase rankings are promoted relative to documents that appear in just one. LangChain's <code>MultiQueryRetriever</code> is the off-the-shelf wrapper for the front half (paraphrase generation plus per-query retrieval); pair it with the RRF helper from <code>langchain.retrievers.ensemble</code> to get the full RAG-Fusion pattern in under twenty lines.</p>
+<div class="callout numeric-example">
+<div class="callout-title">Worked Example: Three Paraphrases, One Fused Ranking</div>
+<p>A user asks "How do I roll back a failed deployment?" The LLM produces three paraphrases and each returns its own top-5 list of chunk IDs. Using $k = 60$, the RRF score for chunk $d$ is $\sum_i 1/(60 + \mathrm{rank}_i(d))$, with $\mathrm{rank}_i(d) = \infty$ when $d$ is absent from list $i$:</p>
+<ul>
+<li><strong>Chunk A</strong> appears at ranks 1, 2, and 3: score $= 1/61 + 1/62 + 1/63 \approx 0.0483$.</li>
+<li><strong>Chunk B</strong> appears at ranks 2, 1, and absent: score $= 1/62 + 1/61 \approx 0.0325$.</li>
+<li><strong>Chunk C</strong> appears at rank 1 only in one list: score $= 1/61 \approx 0.0164$.</li>
+</ul>
+<p>Final ranking: A &gt; B &gt; C. Chunk A wins because it is in the top three of all three paraphrases, even though no single paraphrase ranked it first. This is exactly the "promote consensus" behavior that distinguishes RAG-Fusion from picking the best single-query result.</p>
+</div>
+<div class="diagram-container">
+<svg aria-label="RAG-Fusion pipeline: the user question is expanded into n paraphrases by an LLM, each paraphrase runs an independent vector search to produce its own ranked list of chunks, and reciprocal rank fusion combines the n lists into a single ranking that promotes chunks appearing in multiple lists." role="img" viewbox="0 0 780 320" xmlns="http://www.w3.org/2000/svg">
+<rect fill="#fafafa" height="310" rx="10" stroke="#ddd" width="770" x="5" y="5"></rect>
+<rect fill="#e3f2fd" height="50" rx="6" stroke="#1565c0" width="170" x="25" y="135"></rect>
+<text fill="#0d47a1" font-family="Segoe UI, system-ui, sans-serif" font-size="12" font-weight="700" text-anchor="middle" x="110" y="158">User question</text>
+<text fill="#1565c0" font-family="Consolas, monospace" font-size="10" text-anchor="middle" x="110" y="175">"rollback failed deploy?"</text>
+<rect fill="#fff3e0" height="50" rx="6" stroke="#e65100" width="160" x="225" y="135"></rect>
+<text fill="#bf360c" font-family="Segoe UI, system-ui, sans-serif" font-size="12" font-weight="700" text-anchor="middle" x="305" y="158">LLM expander</text>
+<text fill="#e65100" font-family="Segoe UI, system-ui, sans-serif" font-size="11" text-anchor="middle" x="305" y="175">n paraphrases</text>
+<rect fill="#f3e5f5" height="36" rx="4" stroke="#7b1fa2" width="170" x="415" y="60"></rect>
+<text fill="#4a148c" font-family="Consolas, monospace" font-size="10" text-anchor="middle" x="500" y="80">q1: "undo a bad release"</text>
+<rect fill="#f3e5f5" height="36" rx="4" stroke="#7b1fa2" width="170" x="415" y="105"></rect>
+<text fill="#4a148c" font-family="Consolas, monospace" font-size="10" text-anchor="middle" x="500" y="125">q2: "revert canary push"</text>
+<rect fill="#f3e5f5" height="36" rx="4" stroke="#7b1fa2" width="170" x="415" y="150"></rect>
+<text fill="#4a148c" font-family="Consolas, monospace" font-size="10" text-anchor="middle" x="500" y="170">q3: "rollback k8s deploy"</text>
+<rect fill="#f3e5f5" height="36" rx="4" stroke="#7b1fa2" width="170" x="415" y="195"></rect>
+<text fill="#4a148c" font-family="Consolas, monospace" font-size="10" text-anchor="middle" x="500" y="215">qn: "feature-flag kill"</text>
+<rect fill="#e8f5e9" height="36" rx="4" stroke="#2e7d32" width="80" x="605" y="60"></rect>
+<text fill="#1b5e20" font-family="Consolas, monospace" font-size="11" text-anchor="middle" x="645" y="82">L1: A,C,F</text>
+<rect fill="#e8f5e9" height="36" rx="4" stroke="#2e7d32" width="80" x="605" y="105"></rect>
+<text fill="#1b5e20" font-family="Consolas, monospace" font-size="11" text-anchor="middle" x="645" y="127">L2: B,A,D</text>
+<rect fill="#e8f5e9" height="36" rx="4" stroke="#2e7d32" width="80" x="605" y="150"></rect>
+<text fill="#1b5e20" font-family="Consolas, monospace" font-size="11" text-anchor="middle" x="645" y="172">L3: A,B,E</text>
+<rect fill="#e8f5e9" height="36" rx="4" stroke="#2e7d32" width="80" x="605" y="195"></rect>
+<text fill="#1b5e20" font-family="Consolas, monospace" font-size="11" text-anchor="middle" x="645" y="217">Ln: D,A,G</text>
+<rect fill="#fce4ec" height="60" rx="8" stroke="#c62828" stroke-width="1.5" width="200" x="290" y="240"></rect>
+<text fill="#b71c1c" font-family="Segoe UI, system-ui, sans-serif" font-size="13" font-weight="700" text-anchor="middle" x="390" y="263">Reciprocal Rank Fusion</text>
+<text fill="#c62828" font-family="Consolas, monospace" font-size="11" text-anchor="middle" x="390" y="282">score(d) = sum_i 1/(60 + rank_i(d))</text>
+<rect fill="#fff" height="60" rx="6" stroke="#888" width="200" x="525" y="240"></rect>
+<text fill="#333" font-family="Segoe UI, system-ui, sans-serif" font-size="12" font-weight="700" text-anchor="middle" x="625" y="265">Fused top-k</text>
+<text fill="#333" font-family="Consolas, monospace" font-size="11" text-anchor="middle" x="625" y="285">A &gt; B &gt; D &gt; ...</text>
+<g stroke="#555" stroke-width="1.5" fill="none">
+<line x1="195" x2="223" y1="160" y2="160"></line>
+<polygon fill="#555" points="223 160, 217 157, 217 163"></polygon>
+<line x1="385" x2="413" y1="148" y2="78"></line>
+<line x1="385" x2="413" y1="155" y2="123"></line>
+<line x1="385" x2="413" y1="162" y2="168"></line>
+<line x1="385" x2="413" y1="170" y2="213"></line>
+<line x1="585" x2="603" y1="78" y2="78"></line>
+<line x1="585" x2="603" y1="123" y2="123"></line>
+<line x1="585" x2="603" y1="168" y2="168"></line>
+<line x1="585" x2="603" y1="213" y2="213"></line>
+<line x1="645" x2="380" y1="231" y2="240"></line>
+<line x1="490" x2="523" y1="270" y2="270"></line>
+<polygon fill="#555" points="523 270, 517 267, 517 273"></polygon>
+</g>
+<text fill="#555" font-family="Segoe UI, system-ui, sans-serif" font-size="11" x="25" y="40">n vector searches in parallel; consensus chunks rise to the top</text>
+</svg>
+<div class="diagram-caption"><strong>Figure 35.2.4b</strong>: The RAG-Fusion pipeline. The user question is expanded into $n$ paraphrases, each paraphrase runs an independent vector search, and Reciprocal Rank Fusion (RRF) merges the $n$ ranked lists by summing $1/(k + \mathrm{rank}_i)$ across lists. Chunks that appear high in multiple paraphrase rankings dominate the fused result.</div>
+</div>
+<p>The pattern fits in well under twenty lines of Python; the two pieces are an LLM-driven query expander and the RRF helper, both already shipped in LangChain.</p>
+<div class="code-block-wrapper">
+<pre><code class="language-python">from langchain.retrievers import EnsembleRetriever
+from langchain.retrievers.multi_query import MultiQueryRetriever
+from langchain_openai import ChatOpenAI
+
+# 1. Multi-query expander: LLM rewrites the user question into n paraphrases
+expander = MultiQueryRetriever.from_llm(
+    retriever=vectorstore.as_retriever(search_kwargs={"k": 10}),
+    llm=ChatOpenAI(model="gpt-4o-mini", temperature=0),
+)
+
+# 2. Helper: Reciprocal Rank Fusion over the per-paraphrase ranked lists
+def reciprocal_rank_fusion(ranked_lists, k=60):
+    scores = {}
+    for lst in ranked_lists:
+        for rank, doc in enumerate(lst, start=1):
+            scores[doc.page_content] = scores.get(doc.page_content, 0.0) + 1.0 / (k + rank)
+    return sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
+
+# 3. Wire it up: each paraphrase yields its own ranked list, RRF fuses them
+paraphrased = expander.generate_queries("How do I roll back a failed deployment?")
+ranked_lists = [vectorstore.similarity_search(q, k=10) for q in paraphrased]
+fused = reciprocal_rank_fusion(ranked_lists, k=60)[:5]
+for doc_text, score in fused:
+    print(f"{score:.4f}  {doc_text[:80]}")</code></pre>
+<div class="code-caption"><strong>Code Fragment 35.2.1b</strong>: A minimal RAG-Fusion implementation. <code>MultiQueryRetriever</code> handles the paraphrase generation; the <code>reciprocal_rank_fusion</code> helper implements $\mathrm{RRF}(d) = \sum_i 1 / (60 + \mathrm{rank}_i(d))$ across the $n$ ranked lists. Documents in the top-$k$ of multiple paraphrase searches rise above documents that win only one search, which is the consensus-promotion property that distinguishes RAG-Fusion from naive multi-query union.</div>
+</div>
+<h3 id="35-2-1-7-fid-fusion-in-decoder">35.2.1.7 Fusion-in-Decoder (FiD)</h3>
+<p>Every fusion technique above merges retrieval <em>rankings</em>. <strong>Fusion-in-Decoder</strong> (Izacard &amp; Grave, 2021) merges retrieval <em>contexts</em> inside the generator itself, and it is worth knowing as the third option in the fusion taxonomy. The architecture uses an encoder-decoder model (originally T5): the encoder processes each retrieved passage independently and produces a separate token stream per passage, and the decoder cross-attends over the concatenation of all encoded passages when generating the answer. Because the encoder pass scales linearly with the number of passages (each one sees only its own context), FiD can fuse dozens or hundreds of retrieved documents without the quadratic-attention blow-up of stuffing them all into a single decoder-only prompt.</p>
+<p>FiD is the dominant pattern in open-domain QA leaderboards because it lets the model reason across many short passages without a context-length limit. It is less common in production conversational systems for two reasons: it requires an encoder-decoder backbone (most production LLMs are decoder-only), and it costs a separate forward pass per passage. The three fusion patterns map onto a clean taxonomy: <strong>input fusion</strong> (stuff all passages into one prompt; this is naive RAG), <strong>output fusion</strong> (RRF over per-passage rankings; this is RAG-Fusion), <strong>intermediate fusion</strong> (cross-attend over per-passage encodings; this is FiD).</p>
+<div class="diagram-container">
+<svg aria-label="Fusion-in-Decoder: each retrieved passage is concatenated with the question and encoded independently, then the decoder cross-attends over the concatenation of all encoder outputs and emits the answer." role="img" viewbox="0 0 780 260" xmlns="http://www.w3.org/2000/svg">
+<defs>
+<lineargradient id="fid_enc" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#e3f2fd"></stop><stop offset="100%" stop-color="#bbdefb"></stop></lineargradient>
+<lineargradient id="fid_dec" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#fff3e0"></stop><stop offset="100%" stop-color="#ffe0b2"></stop></lineargradient>
+<marker id="fid_arrow" markerHeight="7" markerWidth="10" orient="auto" refx="9" refy="3.5">
+<polygon fill="#555" points="0 0, 10 3.5, 0 7"></polygon>
+</marker>
+</defs>
+<rect fill="#fafafa" height="250" rx="10" stroke="#ddd" width="770" x="5" y="5"></rect>
+<text fill="#333" font-family="Segoe UI, system-ui, sans-serif" font-size="12" font-weight="700" x="25" y="30">N independent encoder passes</text>
+<g fill="#fff" font-family="Segoe UI, system-ui, sans-serif" font-size="11" stroke="#666">
+<rect height="30" rx="4" width="170" x="25" y="45"></rect>
+<rect height="30" rx="4" width="170" x="25" y="85"></rect>
+<rect height="30" rx="4" width="170" x="25" y="125"></rect>
+<rect height="30" rx="4" width="170" x="25" y="165"></rect>
+</g>
+<g fill="#333" font-family="Segoe UI, system-ui, sans-serif" font-size="11" text-anchor="middle">
+<text x="110" y="64">[Q] + passage_1</text>
+<text x="110" y="104">[Q] + passage_2</text>
+<text x="110" y="144">[Q] + passage_3</text>
+<text x="110" y="184">[Q] + passage_N</text>
+</g>
+<g fill="url(#fid_enc)" stroke="#1565c0" stroke-width="1.5">
+<rect height="30" rx="6" width="100" x="215" y="45"></rect>
+<rect height="30" rx="6" width="100" x="215" y="85"></rect>
+<rect height="30" rx="6" width="100" x="215" y="125"></rect>
+<rect height="30" rx="6" width="100" x="215" y="165"></rect>
+</g>
+<g fill="#0d47a1" font-family="Segoe UI, system-ui, sans-serif" font-size="12" font-weight="600" text-anchor="middle">
+<text x="265" y="64">Encoder</text>
+<text x="265" y="104">Encoder</text>
+<text x="265" y="144">Encoder</text>
+<text x="265" y="184">Encoder</text>
+</g>
+<g stroke="#555" stroke-width="1.5" marker-end="url(#fid_arrow)">
+<line x1="195" x2="213" y1="60" y2="60"></line>
+<line x1="195" x2="213" y1="100" y2="100"></line>
+<line x1="195" x2="213" y1="140" y2="140"></line>
+<line x1="195" x2="213" y1="180" y2="180"></line>
+</g>
+<!-- Concat -->
+<rect fill="#fff" height="170" rx="6" stroke="#888" stroke-dasharray="4,3" width="120" x="350" y="45"></rect>
+<text fill="#555" font-family="Segoe UI, system-ui, sans-serif" font-size="11" font-weight="600" text-anchor="middle" x="410" y="120">concat</text>
+<text fill="#555" font-family="Segoe UI, system-ui, sans-serif" font-size="11" text-anchor="middle" x="410" y="140">encoded</text>
+<text fill="#555" font-family="Segoe UI, system-ui, sans-serif" font-size="11" text-anchor="middle" x="410" y="158">token streams</text>
+<g stroke="#555" stroke-width="1.5" marker-end="url(#fid_arrow)">
+<line x1="315" x2="348" y1="60" y2="120"></line>
+<line x1="315" x2="348" y1="100" y2="125"></line>
+<line x1="315" x2="348" y1="140" y2="130"></line>
+<line x1="315" x2="348" y1="180" y2="135"></line>
+</g>
+<!-- Decoder -->
+<rect fill="url(#fid_dec)" height="100" rx="6" stroke="#ef6c00" stroke-width="1.5" width="140" x="505" y="80"></rect>
+<text fill="#bf360c" font-family="Segoe UI, system-ui, sans-serif" font-size="13" font-weight="700" text-anchor="middle" x="575" y="115">Decoder</text>
+<text fill="#bf360c" font-family="Segoe UI, system-ui, sans-serif" font-size="11" text-anchor="middle" x="575" y="135">cross-attention over</text>
+<text fill="#bf360c" font-family="Segoe UI, system-ui, sans-serif" font-size="11" text-anchor="middle" x="575" y="151">all N streams</text>
+<line marker-end="url(#fid_arrow)" stroke="#555" stroke-width="1.5" x1="470" x2="503" y1="130" y2="130"></line>
+<rect fill="#fff" height="40" rx="6" stroke="#888" width="100" x="660" y="110"></rect>
+<text fill="#333" font-family="Segoe UI, system-ui, sans-serif" font-size="12" font-weight="700" text-anchor="middle" x="710" y="135">Answer</text>
+<line marker-end="url(#fid_arrow)" stroke="#555" stroke-width="1.5" x1="645" x2="658" y1="130" y2="130"></line>
+<text fill="#888" font-family="Segoe UI, system-ui, sans-serif" font-size="11" text-anchor="middle" x="380" y="230">Encoder cost is linear in N; attention is still quadratic only inside each passage.</text>
+</svg>
+<div class="diagram-caption"><strong>Figure 35.2.7</strong>: Fusion-in-Decoder splits the attention budget across N independent encoder passes (one per passage) and fuses the resulting token streams inside the decoder's cross-attention. The architecture sidesteps the quadratic blow-up of stuffing all passages into a single self-attention window.</div>
+</div>
+<p>Concretely, with N retrieved passages each of length $L$, FiD's encoder cost is $\mathcal{O}(N \cdot L^2)$ (linear in $N$) and the decoder cross-attention cost is $\mathcal{O}(T_{\mathrm{out}} \cdot N \cdot L)$, where $T_{\mathrm{out}}$ is the answer length. The naive prompt-concatenation baseline pays $\mathcal{O}((N \cdot L)^2)$ for self-attention over the joined prompt, so FiD wins by a factor of $N$ on the dominant term:</p>
+<div class="math-block">$$\mathrm{Cost}_{\mathrm{FiD}} = N \cdot \mathrm{enc}(L) + T_{\mathrm{out}} \cdot N \cdot L, \quad \mathrm{Cost}_{\mathrm{naive}} = \mathrm{enc}(N \cdot L) + T_{\mathrm{out}} \cdot (N \cdot L)^2.$$</div>
+<p>The HuggingFace <code>FiDT5</code> wrapper exposes the encoder loop directly:</p>
+<div class="code-block-wrapper">
+<pre><code class="language-python">from transformers import T5ForConditionalGeneration, T5Tokenizer
+import torch
+
+tok = T5Tokenizer.from_pretrained("t5-base")
+model = T5ForConditionalGeneration.from_pretrained("t5-base")
+
+question = "When was the Eiffel Tower built?"
+passages = [
+    "The Eiffel Tower was constructed between 1887 and 1889.",
+    "Gustave Eiffel was a French engineer born in 1832.",
+    "Paris hosts the Louvre, the Pantheon, and the Eiffel Tower.",
+]
+
+# Encode each (question, passage) pair independently
+enc_inputs = [tok(f"question: {question} context: {p}", return_tensors="pt")
+              for p in passages]
+encoder_outs = [model.encoder(**inp).last_hidden_state for inp in enc_inputs]
+
+# Concatenate along the sequence dimension and run the decoder once
+fused = torch.cat(encoder_outs, dim=1)
+attn_mask = torch.cat([inp.attention_mask for inp in enc_inputs], dim=1)
+out = model.generate(encoder_outputs=(fused,), attention_mask=attn_mask, max_length=32)
+print(tok.decode(out[0], skip_special_tokens=True))  # "1887 to 1889"</code></pre>
+<div class="code-caption"><strong>Code Fragment 35.2.5</strong>: A minimal FiD forward pass on T5. Each passage is encoded with its own forward call; the decoder then cross-attends over the concatenation of all encoder hidden states. Swapping in a stronger encoder (T5-XL, Flan-T5) or a domain-adapted checkpoint is the only change needed to reach leaderboard-quality open-domain QA.</div>
+</div>
+<div class="callout numeric-example">
+<div class="callout-title">Worked Example: FiD vs. Prompt-Concatenation on 50 Passages</div>
+<p>Suppose each retrieved passage is 256 tokens and the answer is 32 tokens. Naive concatenation produces a 50 * 256 = 12,800-token prompt, so the encoder self-attention matrix has roughly $12{,}800^2 \approx 1.6 \times 10^{8}$ entries. FiD encodes 50 separate 256-token sequences, totaling $50 \cdot 256^2 \approx 3.3 \times 10^{6}$ attention entries, a 50x reduction in dominant cost. The decoder still cross-attends to all 12,800 encoder states, but only for 32 output tokens, which is cheap. This is why FiD scales gracefully to dozens of passages while a 50-passage stuffed prompt is impractical.</p>
+</div>
+<h3 id="35-2-1-8-memory-augmented-rag">35.2.1.8 Memory-Augmented RAG</h3>
+<p>Production assistants need to remember the conversation, not just the corpus. <strong>Memory-augmented RAG</strong> maintains a second retrieval index built from the conversation history itself and retrieves from both indexes when answering a new turn. The dialog index typically lives in a separate vector store keyed by session and rotates older turns into a longer-term summary store (covered in <a href="../../part-8-conversational-ai-with-llms/module-37-conversational-ai/index.html">Chapter 37</a>). At query time the system retrieves the top-$k$ chunks from the corpus index plus the top-$m$ turns or summaries from the dialog index, concatenates them with provenance labels ("[wiki]" vs "[earlier in this chat]"), and hands the merged context to the generator.</p>
+<p>The Knowledge Storage Spectrum table in <a href="../module-32-rag/section-32.1.html">Section 32.1</a> already lists agent memory as a first-class storage tier; memory-augmented RAG is the retrieval pattern that connects that tier to the corpus tier. Two practical gotchas: the dialog index needs strict per-session access control (treat it as PII) and the dialog retriever should weight recency more aggressively than the corpus retriever because conversational context decays in relevance much faster than reference documentation.</p>
 <h2 id="35-2-2-contextual-retrieval">35.2.2 Contextual Retrieval</h2>
 <p>Standard chunking strips away the surrounding context that gives a chunk its meaning. A chunk
  reading "The company reported 15% growth" is ambiguous without knowing which company, which
@@ -157,6 +496,24 @@ gtag('config', 'G-PWPHBQL2VL');
 <div class="callout note">
 <div class="callout-title">Note</div>
 <p>Anthropic's experiments showed that contextual retrieval reduced retrieval failure rates by 49% compared to standard chunking, and by 67% when combined with BM25 hybrid search. The contextual prefix is typically 50 to 100 tokens describing the document title, section heading, and the chunk's role within the broader document. This prefix is included when embedding but can be omitted when presenting the chunk to the LLM for generation.</p>
+</div>
+<p>The complementary pattern compresses chunks at <em>query time</em> instead of enriching them at indexing time. LangChain calls this the <strong>ContextualCompressionRetriever</strong>: a base retriever returns ten candidate chunks, then a chain of compressors prunes the pool down to what is actually useful. The two most common compressors are <code>LLMChainExtractor</code> (cheap LLM extracts the relevant sentences from each chunk and discards the rest) and <code>EmbeddingsFilter</code> (drops chunks whose embedding similarity to the query is below a threshold). Stack them with <code>DocumentCompressorPipeline</code> for a two-stage filter:</p>
+<div class="code-block-wrapper">
+<pre><code class="language-python">from langchain.retrievers import ContextualCompressionRetriever
+from langchain.retrievers.document_compressors import (
+    DocumentCompressorPipeline, EmbeddingsFilter, LLMChainExtractor,
+)
+
+pipeline = DocumentCompressorPipeline(transformers=[
+    EmbeddingsFilter(embeddings=embeddings, similarity_threshold=0.65),
+    LLMChainExtractor.from_llm(llm),
+])
+compression_retriever = ContextualCompressionRetriever(
+    base_compressor=pipeline,
+    base_retriever=vectorstore.as_retriever(search_kwargs={"k": 20}),
+)
+docs = compression_retriever.invoke("What changed in v3.2?")</code></pre>
+<div class="code-caption"><strong>Code Fragment 35.2.3</strong>: A two-stage compression pipeline. The cheap <code>EmbeddingsFilter</code> first cuts the candidate pool from 20 to ~8 chunks, then <code>LLMChainExtractor</code> distills each surviving chunk down to the sentences that actually mention v3.2. Net effect: tighter prompts and a measurable reduction in lost-in-the-middle errors.</div>
 </div>
 <h2 id="35-2-3-self-corrective-rag">35.2.3 Self-Corrective RAG</h2>
 <p>Standard RAG blindly trusts the retrieval results and generates from whatever context is provided.
@@ -233,6 +590,92 @@ gtag('config', 'G-PWPHBQL2VL');
  response is supported by the evidence, and whether the response is useful. These self-assessments
  allow the model to adaptively decide when to retrieve, which passages to use, and when to regenerate.
  </p>
+<h3 id="35-2-3-3-raft-retrieval-augmented-fine-tuning">35.2.3.3 RAFT: Retrieval-Augmented Fine-Tuning</h3>
+<p>Every technique up to this point modifies retrieval or prompting and leaves the generator untouched. <strong>RAFT</strong> (Retrieval-Augmented Fine-Tuning, Zhang et al., 2024) goes the other way: it fine-tunes the generator to behave well in the presence of imperfect retrieval. The training recipe encodes three priors that production RAG needs and a frozen instruction-tuned model lacks.</p>
+<p>The first prior is <strong>QA-from-docs generation</strong>. For each chunk in the training corpus, an LLM generates question-answer pairs whose answers are grounded in that specific chunk. This produces a dataset of (question, gold chunk, gold answer) triples without manual labeling. The second prior is <strong>distractor mixing</strong>: each training example bundles the gold chunk together with several distractor chunks retrieved from elsewhere in the corpus, and the model learns to ignore the distractors when generating the answer. Critically, a fraction of the training examples (typically 20%) drop the gold chunk entirely and provide only distractors, teaching the model to abstain or to fall back on parametric knowledge when retrieval has failed. The third prior is <strong>chain-of-thought answers</strong>: the gold answer is rewritten to quote the supporting span from the gold chunk verbatim and then derive the final answer through a short reasoning chain. The fine-tuned model thus learns to read, cite, and reason rather than to pattern-match the longest retrieved string.</p>
+<p><strong>Figure 35.2.6b</strong> sketches how the three priors combine into a single training example, and the loss below states the chain-of-thought-with-quotes objective formally.</p>
+<div class="diagram-container">
+<svg aria-label="RAFT training-example construction: a gold chunk is bundled with several distractor chunks, an LLM rewrites the gold answer into a chain-of-thought that quotes the supporting span inside begin_quote markers, and a fraction p of examples drop the gold chunk to teach abstention." role="img" viewbox="0 0 780 300" xmlns="http://www.w3.org/2000/svg">
+<rect fill="#fafafa" height="290" rx="10" stroke="#ddd" width="770" x="5" y="5"></rect>
+<text fill="#333" font-family="Segoe UI, system-ui, sans-serif" font-size="13" font-weight="700" x="25" y="32">Distractor-aware RAFT training example</text>
+<rect fill="#e8f5e9" height="40" rx="4" stroke="#2e7d32" width="180" x="25" y="55"></rect>
+<text fill="#1b5e20" font-family="Segoe UI, system-ui, sans-serif" font-size="11" font-weight="700" text-anchor="middle" x="115" y="73">Gold chunk d*</text>
+<text fill="#2e7d32" font-family="Consolas, monospace" font-size="10" text-anchor="middle" x="115" y="89">"...Smith proposed it in 1998..."</text>
+<rect fill="#ffebee" height="40" rx="4" stroke="#c62828" width="180" x="25" y="105"></rect>
+<text fill="#b71c1c" font-family="Segoe UI, system-ui, sans-serif" font-size="11" font-weight="700" text-anchor="middle" x="115" y="123">Distractor d1</text>
+<text fill="#c62828" font-family="Consolas, monospace" font-size="10" text-anchor="middle" x="115" y="139">unrelated paragraph</text>
+<rect fill="#ffebee" height="40" rx="4" stroke="#c62828" width="180" x="25" y="155"></rect>
+<text fill="#b71c1c" font-family="Segoe UI, system-ui, sans-serif" font-size="11" font-weight="700" text-anchor="middle" x="115" y="173">Distractor d2</text>
+<text fill="#c62828" font-family="Consolas, monospace" font-size="10" text-anchor="middle" x="115" y="189">unrelated paragraph</text>
+<rect fill="#ffebee" height="40" rx="4" stroke="#c62828" width="180" x="25" y="205"></rect>
+<text fill="#b71c1c" font-family="Segoe UI, system-ui, sans-serif" font-size="11" font-weight="700" text-anchor="middle" x="115" y="223">Distractor d3</text>
+<text fill="#c62828" font-family="Consolas, monospace" font-size="10" text-anchor="middle" x="115" y="239">unrelated paragraph</text>
+<text fill="#555" font-family="Segoe UI, system-ui, sans-serif" font-size="11" font-style="italic" x="25" y="270">20% of examples: drop d* -&gt; teach abstention</text>
+<rect fill="#fff3e0" height="170" rx="6" stroke="#e65100" width="180" x="240" y="60"></rect>
+<text fill="#bf360c" font-family="Segoe UI, system-ui, sans-serif" font-size="12" font-weight="700" text-anchor="middle" x="330" y="82">Question q</text>
+<text fill="#e65100" font-family="Consolas, monospace" font-size="10" text-anchor="middle" x="330" y="100">"Who proposed the algorithm?"</text>
+<text fill="#bf360c" font-family="Segoe UI, system-ui, sans-serif" font-size="12" font-weight="700" text-anchor="middle" x="330" y="130">Chain-of-thought answer y</text>
+<text fill="#e65100" font-family="Consolas, monospace" font-size="10" x="252" y="150">##begin_quote##</text>
+<text fill="#e65100" font-family="Consolas, monospace" font-size="10" x="252" y="166">"Smith proposed it in 1998"</text>
+<text fill="#e65100" font-family="Consolas, monospace" font-size="10" x="252" y="182">##end_quote##</text>
+<text fill="#e65100" font-family="Consolas, monospace" font-size="10" x="252" y="202">Therefore the answer is</text>
+<text fill="#e65100" font-family="Consolas, monospace" font-size="10" font-weight="700" x="252" y="218">Smith.</text>
+<rect fill="#f3e5f5" height="170" rx="6" stroke="#7b1fa2" stroke-width="1.5" width="285" x="455" y="60"></rect>
+<text fill="#4a148c" font-family="Segoe UI, system-ui, sans-serif" font-size="13" font-weight="700" text-anchor="middle" x="597" y="83">Training loss</text>
+<text fill="#7b1fa2" font-family="Consolas, monospace" font-size="11" x="465" y="108">L_RAFT = - sum_t log P(y_t | q,</text>
+<text fill="#7b1fa2" font-family="Consolas, monospace" font-size="11" x="465" y="124">         d* + distractors, y_&lt;t)</text>
+<text fill="#7b1fa2" font-family="Consolas, monospace" font-size="11" x="465" y="148">y_t includes both the quoted</text>
+<text fill="#7b1fa2" font-family="Consolas, monospace" font-size="11" x="465" y="164">span and the derived answer</text>
+<text fill="#555" font-family="Segoe UI, system-ui, sans-serif" font-size="11" x="465" y="195">Three priors:</text>
+<text fill="#555" font-family="Segoe UI, system-ui, sans-serif" font-size="11" x="465" y="211">1. QA-from-docs  2. Distractors</text>
+<text fill="#555" font-family="Segoe UI, system-ui, sans-serif" font-size="11" x="465" y="227">3. Quoted chain-of-thought</text>
+<g stroke="#555" stroke-width="1.5" fill="none">
+<line x1="207" x2="238" y1="140" y2="140"></line>
+<polygon fill="#555" points="238 140, 232 137, 232 143"></polygon>
+<line x1="422" x2="453" y1="140" y2="140"></line>
+<polygon fill="#555" points="453 140, 447 137, 447 143"></polygon>
+</g>
+</svg>
+<div class="diagram-caption"><strong>Figure 35.2.6b</strong>: RAFT's distractor-aware training example. The gold chunk is bundled with several distractor chunks, and the rewritten answer interleaves a verbatim quote from the gold chunk with a short reasoning chain that derives the final answer. A configurable fraction of examples drop the gold chunk entirely to teach abstention when retrieval fails.</div>
+</div>
+<p>Concretely, let $q$ be the question, $d^\star$ the gold chunk, $D^- = \{d_1^-, \ldots, d_n^-\}$ a set of distractor chunks, and $y = [y_1, \ldots, y_T]$ the chain-of-thought answer that interleaves a quoted span and the derived final answer. With probability $p$ (typically $p = 0.2$) the example drops $d^\star$ to train abstention. The RAFT training loss is the standard next-token cross-entropy taken over this distractor-aware context:</p>
+<p>$$ \mathcal{L}_{\text{RAFT}} \;=\; -\, \mathbb{E}_{(q, d^\star, D^-, y) \sim \mathcal{D}} \sum_{t=1}^{T} \log P_\theta\!\big(y_t \,\big|\, q,\; \mathbb{1}[u > p]\cdot d^\star \,\cup\, D^-,\; y_{<t}\big), \quad u \sim \mathrm{Uniform}(0, 1). $$</p>
+<p>The indicator $\mathbb{1}[u > p]$ keeps the gold chunk with probability $1 - p$ and drops it otherwise, so the model sees both "retrieval succeeded" and "retrieval failed" contexts in the same training distribution. Because $y$ contains the <code>##begin_quote##</code> span, gradient signal flows back into both faithfully copying the supporting evidence and deriving the final answer.</p>
+<p>A typical RAFT training prompt looks like the following, with <code>##begin_quote##</code> markers wrapping the spans the model is expected to lift from the gold chunk:</p>
+<div class="code-block-wrapper">
+<pre><code class="language-python"># RAFT-style training example
+{
+    "instruction": "Answer the question using the provided documents.",
+    "documents": [
+        {"id": 0, "text": "...gold passage about the topic..."},   # the gold doc
+        {"id": 1, "text": "...irrelevant distractor..."},
+        {"id": 2, "text": "...irrelevant distractor..."},
+    ],
+    "question": "Who first proposed the algorithm?",
+    "cot_answer": (
+        "##begin_quote##The algorithm was first proposed by Smith in 1998"
+        "##end_quote## Therefore the answer is Smith."
+    ),
+    "answer": "Smith",
+}</code></pre>
+<div class="code-caption"><strong>Code Fragment 35.2.4</strong>: A RAFT training record. The model is trained to lift the supporting span from the gold document inside <code>##begin_quote##</code> markers and then derive the final answer, which both anchors generation in retrieved evidence and creates an audit trail for downstream NLI verification (Section 32.5.3).</div>
+</div>
+<p>LlamaIndex ships a <a href="https://docs.llamaindex.ai/en/stable/examples/cookbooks/raft_dataset/" rel="noopener" target="_blank">RAFT dataset builder</a> that consumes a directory of documents and emits the training records above, ready for a QLoRA fine-tune of a 7B or 8B base model. In the original paper, a Llama 2 7B fine-tuned with RAFT matched or beat GPT-3.5 on domain-specific QA benchmarks (PubMed, HuggingFace docs, Gorilla API) at a tiny fraction of the inference cost. The technique is the natural complement to all the retrieval-side tricks earlier in this section: query rewriting, hybrid retrieval, and reranking raise the quality of the retrieved context, and RAFT teaches the generator to use that context responsibly.</p>
+<div class="callout numeric-example">
+<div class="callout-title">Worked Example: RAFT on a PubMed Corpus</div>
+<p>A team fine-tunes Llama 2 7B with RAFT on 5,000 PubMed abstracts. Their pipeline:</p>
+<ul>
+<li><strong>Data generation.</strong> GPT-4 turns each abstract into 4 question-answer pairs, producing 20,000 (question, gold chunk, gold answer) triples.</li>
+<li><strong>Distractor mixing.</strong> For each triple, sample 3 distractor abstracts from the same corpus by BM25 nearest neighbors. 20% of the records (4,000) drop the gold abstract entirely, leaving only distractors with the target answer set to "the provided documents do not contain the answer."</li>
+<li><strong>CoT rewriting.</strong> GPT-4 rewrites every answer to quote the supporting span inside <code>##begin_quote##</code> markers and then state the final answer.</li>
+<li><strong>QLoRA training.</strong> 3 epochs on a single A100, rank-16 LoRA adapters, batch size 16. Wall-clock: 6 hours.</li>
+</ul>
+<p>On the PubMedQA test set, the RAFT-tuned model reaches 73% exact-match accuracy versus 58% for the same base model with naive prompt-RAG and 71% for GPT-3.5 with the same retrieval pipeline. The 20% distractor-only slice teaches the model to abstain on out-of-corpus questions, cutting false-positive answers from 18% to 4%.</p>
+</div>
+<div class="callout cross-ref">
+<div class="callout-title">See also</div>
+<p>RAFT is a fine-tuning recipe; the underlying machinery (LoRA, QLoRA, instruction tuning datasets) is covered in <a href="../../part-4-training-adaptation/module-16-fine-tuning-fundamentals/index.html">Chapter 16</a>. The distractor-aware training data pairs naturally with the NLI-based faithfulness verification described in <a href="../module-32-rag/section-32.5.html">Section 32.5.3</a>: RAFT teaches the model to quote its sources, and the NLI verifier then checks that the quoted spans actually support the final claim.</p>
+</div>
 <h2 id="35-2-4-fusion-retrieval-and-multi-modal-rag">35.2.4 Fusion Retrieval and Multi-Modal RAG</h2>
 <p>Fusion retrieval goes beyond combining dense and sparse signals. RAG Fusion (Raudaschl, 2023)
  generates multiple search queries, retrieves results for each, and applies RRF across all result
@@ -303,6 +746,42 @@ gtag('config', 'G-PWPHBQL2VL');
 <td>Blind trust in bad retrieval</td>
 <td>+1 to 3 LLM calls</td>
 <td>Safety-critical applications</td>
+</tr>
+<tr>
+<td>HyPE</td>
+<td>Query/document linguistic mismatch</td>
+<td>Ingestion-time LLM cost</td>
+<td>Stable, high-traffic FAQs</td>
+</tr>
+<tr>
+<td>MMR</td>
+<td>Redundant top-k chunks</td>
+<td>Negligible (one-line switch)</td>
+<td>Multi-faceted queries with duplicate sources</td>
+</tr>
+<tr>
+<td>RAG-Fusion</td>
+<td>Single-query brittleness</td>
+<td>+1 LLM call + N retrievals + RRF</td>
+<td>Open-ended exploratory questions</td>
+</tr>
+<tr>
+<td>Fusion-in-Decoder</td>
+<td>Long-tail QA across many passages</td>
+<td>N encoder passes per query</td>
+<td>Open-domain QA with encoder-decoder models</td>
+</tr>
+<tr>
+<td>RAFT</td>
+<td>Generator trusts distractors</td>
+<td>One-time fine-tune; zero at query time</td>
+<td>Narrow-domain QA with stable corpus</td>
+</tr>
+<tr>
+<td>CAG</td>
+<td>RAG infrastructure overhead</td>
+<td>One-time prefill; cached afterwards</td>
+<td>Small, stable, high-traffic corpora</td>
 </tr>
 </table>
 </div>
@@ -794,6 +1273,18 @@ Managing dependencies: base=1.00 exp=1.00 rr=1.00
 </div>
 <div class="bib-entry-card">
 <div class="bib-ref"><a href="https://huggingface.co/cross-encoder" rel="noopener" target="_blank">Cross-Encoder Models on Hugging Face.</a> A collection of pretrained cross-encoder models for semantic similarity and re-ranking. Provides ready-to-use models that integrate easily into RAG systems. Ideal for practitioners who want to add re-ranking quickly.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://arxiv.org/abs/2403.10131" rel="noopener" target="_blank">Zhang, T. et al. (2024). "RAFT: Adapting Language Model to Domain Specific RAG." <em>arXiv preprint</em>.</a> Introduces distractor-aware fine-tuning with chain-of-thought answers used in Section 35.2.3.3. Combine with the LlamaIndex RAFT dataset cookbook for an end-to-end training pipeline.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Carbonell, J. &amp; Goldstein, J. (1998). "The Use of MMR, Diversity-Based Reranking for Reordering Documents and Producing Summaries." <em>SIGIR 1998</em>. <a href="https://dl.acm.org/doi/10.1145/290941.291025" rel="noopener" target="_blank">DOI</a>. The original Maximal Marginal Relevance paper behind Section 35.2.1.5 and the LangChain <code>search_type="mmr"</code> switch.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://towardsdatascience.com/forget-rag-the-future-is-rag-fusion-1147298d8ad1" rel="noopener" target="_blank">Raudaschl, A. (2023). "Forget RAG, the Future is RAG-Fusion."</a> Coined the RAG-Fusion name for the multi-query + RRF pattern in Section 35.2.1.6. Includes the original LangChain reference implementation.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://arxiv.org/abs/2007.01282" rel="noopener" target="_blank">Izacard, G. &amp; Grave, E. (2021). "Leveraging Passage Retrieval with Generative Models for Open Domain Question Answering" (Fusion-in-Decoder). <em>EACL 2021</em>.</a> The encoder-decoder architecture behind Section 35.2.1.7 that cross-attends over per-passage encodings instead of concatenating all passages into a single prompt.</div>
 </div>
 </section>
 </details>

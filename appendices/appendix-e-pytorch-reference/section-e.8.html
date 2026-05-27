@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-PWPHBQL2VL"></script>
+<script>
+window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', 'G-PWPHBQL2VL');
+</script>
+
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<meta content="Section E.8: Performance. torch.compile, the profiler, memory snapshot, and the common bottlenecks they expose." name="description"/>
+<title>Section E.8: Performance | Building Conversational AI with LLMs and Agents</title>
+<link href="../../styles/book.css" rel="stylesheet"/>
+<link href="../../styles/pygments.css" rel="stylesheet"/>
+<link href="../../vendor/katex/katex.min.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/katex/katex.min.js"></script>
+<script defer="" onload="renderMathInElement(document.body, {
+            delimiters: [
+                {left: '$$', right: '$$', display: true},
+                {left: '$', right: '$', display: false}
+            ],
+            throwOnError: false
+        });" src="../../vendor/katex/contrib/auto-render.min.js"></script>
+<link href="../../vendor/prism/prism-theme.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/prism/prism-bundle.min.js"></script>
+<script defer="" src="../../scripts/book.js"></script>
+<link href="../../pagefind/pagefind-ui.css" rel="stylesheet"/>
+<script defer="" src="../../pagefind/pagefind-ui.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
+
+<header class="chapter-header">
+<nav class="header-nav">
+<a class="book-title-link" href="../../index.html">Building Conversational AI with LLMs and Agents</a>
+<a class="toc-link" href="../../toc.html" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+</nav>
+<div class="header-search">
+<div id="search"></div>
+</div>
+
+<div class="page-breadcrumb" data-pagefind-meta="chapter"><a href="../index.html">Appendices</a><span class="bc-sep">›</span><a href="index.html">Appendix E: PyTorch Reference</a></div>
+<h1>Performance: Compile, Profile, Snapshot</h1><div class="page-current">Section E.8</div>
+
+</header>
+<main class="content" id="main-content"><span class="pagefind-meta-injected" data-pagefind-meta="part:Building Conversational AI with LLMs and Agents" hidden=""></span><span class="pagefind-meta-injected" data-pagefind-meta="chapter:Appendix E: PyTorch Reference" hidden=""></span>
+
+<figure class="illustration">
+<img alt="A friendly anthropomorphic stopwatch character standing beside a colorful racetrack with several lanes, each lane has a mascot runner moving at different speeds, with the stopwatch pointing a little flag at the slow lane, illustrating profiler-driven bottleneck identification" src="images/performance-stopwatch-racetrack.png"/>
+<figcaption>The profiler is the stopwatch that times every lane of the training loop and points cheerfully at the one runner holding everyone else up.</figcaption>
+</figure>
+
+<p>Once a model trains correctly, the next question is whether it trains <em>fast enough</em>. PyTorch ships three tools that together answer that question: <code>torch.compile</code> compiles the model to fused kernels with one line of code, the profiler measures where time is actually going, and the memory snapshot shows where memory is actually going. This section covers each tool, the common bottlenecks they reveal, and the corresponding fixes.</p>
+
+<h2 id="compile">torch.compile</h2>
+
+<div class="diagram-container">
+<img alt="A flowchart showing the torch.compile pipeline: Python source nn.Module flows through TorchDynamo bytecode tracer to an FX graph, then through AOTAutograd to lower into Inductor which fuses kernels and codegens Triton, C++, or CUDA into optimized kernels" src="images/torch-compile-pipeline.png"/>
+<p class="figure-caption"><strong>Figure E.8.1</strong>: torch.compile traces Python bytecode with Dynamo, captures an FX graph, differentiates with AOTAutograd, then lowers through Inductor to fused Triton or native kernels.</p>
+</div>
+
+<p>The traditional PyTorch execution model is eager: every operation dispatches to a kernel, runs, and returns before the next operation is queued. The overhead per kernel launch is small (microseconds), but for a transformer that runs hundreds of kernels per layer per token, it adds up. <code>torch.compile</code> traces the model with TorchDynamo, fuses chains of pointwise operations into single kernels with Inductor (the default back end), and replaces the eager execution with a compiled call. For pure forward passes the speedup is typically 1.3 to 2x; for full training loops it is often 1.2 to 1.5x; for inference of small models it can be 3x or more.</p>
+
+<div class="code-block-wrapper">
+<pre><code class="language-python">import torch
+
+model = NeuralNetwork(50, 10).cuda()
+compiled = torch.compile(model)              # default mode
+
+# The compiled model behaves identically to the eager one.
+features = torch.rand(64, 50, device="cuda")
+logits = compiled(features)                  # first call: traces and compiles
+logits = compiled(features)                  # subsequent calls: fast
+</code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> (no stdout; first call is slow due to compilation, subsequent calls are fast)</div>
+<div class="code-caption"><strong>Code Fragment E.8.1:</strong> One-line model compilation. The compiled callable is a drop-in replacement; gradients flow through it unchanged.</div>
+</div>
+
+<p>Three modes are available via the <code>mode=</code> keyword. <strong><code>default</code></strong> compiles eagerly when shapes change, prioritizing flexibility. <strong><code>reduce-overhead</code></strong> aggressively caches CUDA graphs to drive down per-step launch overhead; ideal for small models with fixed input shapes. <strong><code>max-autotune</code></strong> spends much longer at compile time exploring kernel autotuning options to squeeze out the last 10 to 20 percent of throughput; worthwhile for production inference where the compile cost amortizes over millions of requests.</p>
+
+<div class="callout warning">
+<div class="callout-title">Warning: Recompilation Is Expensive</div>
+<p><code>torch.compile</code> traces the model under specific input shapes. If shapes change frequently (variable sequence lengths without padding, dynamic batch sizes), each new shape triggers a fresh compilation, and the resulting "compilation thrash" can be slower than eager mode. Mitigations: pad sequences to bucket boundaries, fix the batch size, or pass <code>dynamic=True</code> to let the compiler generate shape-polymorphic code. Inspect <code>torch._dynamo.config.cache_size_limit</code> if the suspicion is recompilation; raising it above the default 8 can help but is rarely the right answer.</p>
+</div>
+
+<h2 id="profiler">torch.profiler</h2>
+
+<p><code>torch.profiler.profile</code> is a context manager that records CPU events, GPU kernel launches, memory allocations, and stack traces over a window of iterations. The output can be exported as a TensorBoard trace or a Chrome trace JSON, both of which give an interactive flame graph of where time is being spent. The single most valuable diagnostic for any "training is slow but I don't know why" problem.</p>
+
+<div class="code-block-wrapper">
+<pre><code class="language-python">import torch
+from torch.profiler import profile, schedule, tensorboard_trace_handler
+
+# Warmup for 2 steps, record 5, repeat the cycle once.
+prof_schedule = schedule(skip_first=2, wait=1, warmup=1, active=5, repeat=1)
+
+with profile(
+    activities=[torch.profiler.ProfilerActivity.CPU,
+                torch.profiler.ProfilerActivity.CUDA],
+    schedule=prof_schedule,
+    on_trace_ready=tensorboard_trace_handler("./profiler_logs"),
+    record_shapes=True,
+    profile_memory=True,
+    with_stack=True,
+) as prof:
+    for step, (features, labels) in enumerate(train_loader):
+        features = features.cuda(non_blocking=True)
+        labels   = labels.cuda(non_blocking=True)
+        optimizer.zero_grad(set_to_none=True)
+        loss = torch.nn.functional.cross_entropy(model(features), labels)
+        loss.backward()
+        optimizer.step()
+        prof.step()                  # advance the profiler schedule
+
+# In a shell: tensorboard --logdir ./profiler_logs
+</code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> (TensorBoard trace written to ./profiler_logs; load in TensorBoard UI)</div>
+<div class="code-caption"><strong>Code Fragment E.8.2:</strong> Profiling a training loop. The <code>schedule</code> argument controls when the profiler is active so a long training run is not flooded with trace data.</div>
+</div>
+
+<p>Inside TensorBoard's PyTorch Profiler view, the most useful tabs are: <strong>Overview</strong> (top-level summary of where time goes, with concrete recommendations), <strong>Operator</strong> (sorted list of which operators consumed the most time, useful for spotting unexpectedly slow ops), <strong>Kernel</strong> (the same for GPU kernels), <strong>Trace</strong> (the flame graph; pan and zoom to see exactly what happened on each thread and each CUDA stream), and <strong>Memory</strong> (allocation timeline).</p>
+
+<h2 id="bottlenecks">Common Bottlenecks and Fixes</h2>
+
+<p>The profiler answers <em>what</em> is slow; experience answers <em>what to do about it</em>. The most common bottlenecks the profiler surfaces in training loops are:</p>
+
+<dl>
+<dt>Dataloader bound</dt>
+<dd>Long stretches where the GPU is idle waiting for data. Visible as gaps on the CUDA timeline. Fixes: increase <code>num_workers</code> (Section E.4), enable <code>pin_memory=True</code>, set <code>persistent_workers=True</code>, raise <code>prefetch_factor</code>, move per-sample preprocessing to the GPU using <code>torchvision.transforms.v2</code> or <code>kornia</code>.</dd>
+
+<dt>Sync points</dt>
+<dd>Operations that force the CPU to wait for the GPU. Most often caused by <code>tensor.item()</code>, <code>tensor.tolist()</code>, <code>print(tensor)</code>, conversions to NumPy, or boolean checks like <code>if loss.isnan():</code>. Fix: batch these checks, log only every N steps, and never call <code>.item()</code> inside the hot loop on values you do not need this step.</dd>
+
+<dt>CPU-bound launch overhead</dt>
+<dd>The GPU is fast but the CPU cannot dispatch kernels quickly enough. Visible when GPU utilization is low despite no dataloader gaps. Fix: <code>torch.compile</code> (kernel fusion reduces total kernel count) or CUDA Graph capture for inference (eliminates launch overhead).</dd>
+
+<dt>Dtype mismatches forcing copies</dt>
+<dd>Adding a float32 tensor to a bfloat16 tensor triggers an implicit cast. Visible as unexpected <code>aten::to</code> entries in the operator table. Fix: keep dtypes consistent through the forward pass, especially when mixing autocast scopes and non-autocast computations.</dd>
+
+<dt>Suboptimal kernel selection</dt>
+<dd>The same operation has multiple implementations and PyTorch occasionally picks the wrong one for the input shape. Fix: <code>torch.compile</code> in <code>max-autotune</code> mode, or for inference, replace dense ops with their fused equivalents (FlashAttention, fused MLPs from xformers).</dd>
+</dl>
+
+<h2 id="memory">Memory Snapshot</h2>
+
+<p>When a training run fails with <code>CUDA out of memory: tried to allocate X GiB</code>, the error tells you what failed but not what was using the memory. The memory snapshot fills that gap: it records every allocation and deallocation, and renders an interactive timeline of memory use that pinpoints the largest live tensors.</p>
+
+<div class="code-block-wrapper">
+<pre><code class="language-python">import torch
+
+torch.cuda.memory._record_memory_history(max_entries=100_000)
+
+# Run the workload that OOMs (or just a few iterations of the suspect loop).
+try:
+    for step in range(20):
+        train_one_step()
+except torch.cuda.OutOfMemoryError:
+    pass
+
+# Dump a snapshot to disk for visualization.
+torch.cuda.memory._dump_snapshot("oom_snapshot.pickle")
+torch.cuda.memory._record_memory_history(enabled=None)
+
+# Load the snapshot in https://pytorch.org/memory_viz
+</code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> (no stdout; a pickle file is written to disk)</div>
+<div class="code-caption"><strong>Code Fragment E.8.3:</strong> Capturing a CUDA memory snapshot. Drag the resulting pickle into the PyTorch memory visualizer to see the allocation timeline.</div>
+</div>
+
+<p>The visualizer shows each allocation as a colored block on a timeline, with the call stack that produced it. The most common patterns it reveals are: an activation that grows linearly with sequence length and is too large to fit (fix: enable activation checkpointing), an optimizer that doubles parameter memory (fix: switch to 8-bit AdamW from <code>bitsandbytes</code> or shard with FSDP), a forgotten tensor retained by a hook closure (fix: detach before storing), and Python objects that hold tensor references past their useful lifetime (fix: explicit <code>del</code> and <code>torch.cuda.empty_cache()</code>).</p>
+
+<div class="callout practical-example">
+<div class="callout-title">Practical Example: Iterative OOM Hunting</div>
+<p>A training run OOMs after 1000 steps. The memory snapshot shows the peak grew slowly across iterations rather than at the first step. This signature points to a leak rather than a sizing problem: each iteration retains slightly more memory than the previous one. The usual culprits are accumulating a list of losses without calling <code>.detach()</code>, registering forward hooks without removing them, or holding past activations in a custom debugging dictionary. Confirm by adding the <code>del</code> statements suggested by the snapshot and re-running with the profiler memory view enabled.</p>
+</div>
+
+<div class="callout library-shortcut">
+<div class="callout-title">Library Shortcut: bitsandbytes for 8-Bit Optimizers</div>
+<p>When the memory snapshot fingers the optimizer as the OOM culprit, swap <code>torch.optim.AdamW</code> for <code>bitsandbytes.optim.AdamW8bit</code>. Adam's two momentum buffers go from 8 bytes per parameter to 2 bytes, often the cheapest 4x reduction available short of FSDP. The change is one import and one class swap.</p>
+<pre><code class="language-python">import bitsandbytes as bnb
+
+optimizer = bnb.optim.AdamW8bit(model.parameters(), lr=3e-4,
+                                betas=(0.9, 0.95), weight_decay=0.1)
+</code></pre>
+</div>
+
+<h2 id="benchmarking">Microbenchmarking with torch.utils.benchmark</h2>
+
+<p>When comparing two implementations of the same op, naive timing with <code>time.time()</code> is misleading because GPU work is asynchronous and the first few calls include compilation and cache warming. <code>torch.utils.benchmark.Timer</code> handles the synchronization, warmup, and statistical aggregation, returning a confidence interval for each run.</p>
+
+<div class="code-block-wrapper">
+<pre><code class="language-python">import torch
+import torch.utils.benchmark as benchmark
+
+x = torch.randn(1024, 1024, device="cuda")
+y = torch.randn(1024, 1024, device="cuda")
+
+t_eager = benchmark.Timer(
+    stmt="x @ y",
+    globals={"x": x, "y": y},
+    label="matmul",
+    description="eager",
+).blocked_autorange(min_run_time=1.0)
+
+print(t_eager)
+</code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> &lt;torch.utils.benchmark.utils.common.Measurement object at 0x...&gt;
+matmul: eager
+  Median: 60.32 us
+  IQR:     0.78 us (60.04 to 60.82)
+  16 measurements, 100 runs per measurement</div>
+<div class="code-caption"><strong>Code Fragment E.8.4:</strong> Honest microbenchmarking with <code>torch.utils.benchmark</code>. Handles GPU synchronization, warmup, and statistical aggregation automatically.</div>
+</div>
+
+<div class="callout key-takeaway">
+<div class="callout-title">Key Takeaway</div>
+<p>Three tools, three questions. <code>torch.compile</code> answers "can I make this faster without changing the code?" (often yes, 1.2 to 2x). <code>torch.profiler</code> answers "where is the time actually going?" (typically the dataloader, sync points, or a single dominant operator). <code>torch.cuda.memory._record_memory_history</code> answers "what is using all my memory?" (usually activations, optimizer state, or a leak). Together they turn performance optimization from guesswork into measurement; reach for them before changing the model architecture or buying more GPUs.</p>
+</div>
+
+<div class="callout exercise">
+<div class="callout-title">Exercise E.8.1: Measure torch.compile End-to-End</div>
+<p><strong>Objective.</strong> Confirm the published 1.2 to 2x speed-up of <code>torch.compile</code> on your own hardware and workload.</p>
+<p><strong>Task.</strong> Take a 6-layer transformer block (or use the FashionMNIST CNN from Lab E.5). Time a single forward-plus-backward step in three modes: eager, <code>torch.compile(model, mode="reduce-overhead")</code>, <code>torch.compile(model, mode="max-autotune")</code>. Use <code>torch.utils.benchmark.Timer</code> with at least 50 measurement iterations after a 5-iteration warmup. Tabulate median microseconds per step and the IQR for each mode.</p>
+<p><strong>Hint.</strong> The first call after compilation pays the compilation cost. Always warm up before measuring. The first call is often 10 to 100x slower than steady state.</p>
+</div>
+
+<div class="callout exercise">
+<div class="callout-title">Exercise E.8.2: Hunt a Dataloader Bottleneck with the Profiler</div>
+<p><strong>Objective.</strong> Use <code>torch.profiler</code> to identify and fix the canonical "GPU starvation" symptom.</p>
+<p><strong>Task.</strong> Build a deliberately slow dataset (per-sample <code>time.sleep(0.005)</code> plus a Python-side image augmentation). Wrap five training steps in <code>torch.profiler.profile(activities=[CPU, CUDA])</code> with <code>schedule(wait=1, warmup=1, active=3)</code> and export the trace. Open the trace in Chrome (<code>chrome://tracing</code>) or Perfetto and find the gap between consecutive <code>cudaLaunchKernel</code> events. Identify the dominant stack frame in the gap.</p>
+<p><strong>Expected outcome.</strong> The trace will show large CPU-side gaps populated by the slow dataset code, with the GPU idle. The fix is more <code>num_workers</code> or a faster transform.</p>
+</div>
+
+<details class="bibliography-collapsible">
+<summary><strong>Further Reading</strong></summary>
+<section class="bibliography">
+<h3 id="perf-refs">Performance Tooling References</h3>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://pytorch.org/docs/stable/torch.compiler.html" rel="noopener" target="_blank">PyTorch Documentation: torch.compiler.</a> Reference for <code>torch.compile</code>, its modes, dynamic shapes, and troubleshooting. The "What Every User Should Know" section is particularly worth a careful read.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://pytorch.org/tutorials/recipes/recipes/profiler_recipe.html" rel="noopener" target="_blank">PyTorch Profiler Recipe.</a> The official walkthrough of <code>torch.profiler</code> with concrete examples of CPU, GPU, and memory profiling.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://pytorch.org/blog/understanding-gpu-memory-1/" rel="noopener" target="_blank">PyTorch Blog (2023). "Understanding GPU Memory 1: Visualizing All Allocations Over Time."</a> The original post introducing the memory snapshot workflow. Worked examples of using the visualizer to diagnose OOM bugs.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Ansel, J. et al. (2024). "PyTorch 2: Faster Machine Learning Through Dynamic Python Bytecode Transformation and Graph Compilation." <em>ASPLOS 2024</em>. <a href="https://pytorch.org/assets/pytorch2-2.pdf" rel="noopener" target="_blank">PDF</a>. <span class="bib-note">The paper describing TorchDynamo and Inductor, the technology that makes <code>torch.compile</code> work.</span></div>
+</div>
+</section>
+</details>
+
+<nav class="chapter-nav">
+<a class="prev" href="section-e.7.html"><span class="nav-label">Previous</span><span class="nav-num">Section E.7</span><span class="nav-title">Distributed Training</span></a>
+<a class="up" href="index.html"><span class="nav-label">In Appendix</span><span class="nav-num">Appendix E</span><span class="nav-title">PyTorch Reference</span></a>
+<a class="next" href="section-e.9.html"><span class="nav-label">Next</span><span class="nav-num">Section E.9</span><span class="nav-title">Debugging Recipes</span></a>
+</nav>
+<footer><p>Fifteenth Edition, 2026 · <a href="../../toc.html">Contents</a></p></footer>
+</main>
+</body>
+</html>

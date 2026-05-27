@@ -238,7 +238,55 @@ gtag('config', 'G-PWPHBQL2VL');
  the total parameter count (and thus model capacity) while keeping the computation per token roughly
  constant.
 </p>
+<div class="callout practical-example">
+<div class="callout-title">Worked Example: Parameter Arithmetic for a Dense FFN vs. 16 Experts</div>
+<p>The clearest way to see why MoE "multiplies capacity without multiplying compute" is to count parameters on a concrete dense FFN and then split it into experts. Take the original Transformer's FFN with $d_{\text{model}} = 512$ and $d_{\text{ff}} = 2048$. The two linear projections account for</p>
+<div class="math-block">$$P_{\text{dense}} \;=\; \underbrace{d_{\text{model}} \cdot d_{\text{ff}}}_{W_1} \;+\; \underbrace{d_{\text{ff}} \cdot d_{\text{model}}}_{W_2} \;=\; 512 \cdot 2048 + 2048 \cdot 512 \;\approx\; 2.1\,\text{M parameters}.$$</div>
+<p>Now split the hidden dimension $2048$ into $E = 16$ disjoint chunks of $128$ each, and turn each chunk into a separate expert FFN with its own narrow projections. Each expert has hidden width $128$, so its parameter count is</p>
+<div class="math-block">$$P_{\text{expert}} \;=\; 512 \cdot 128 + 128 \cdot 512 \;\approx\; 131\,\text{K parameters}.$$</div>
+<p>Sixteen such experts collectively hold $16 \cdot 131\text{K} \approx 2.1$M parameters, the same budget as the original dense FFN. The trick is the <em>router</em>: for any given token, only one expert (or a small top-$k$ subset) fires, so the <em>active</em> FLOPs per token are $1/16$th (or $k/16$th) of the dense FFN's cost. Multiply by an integer scaling factor: keep the per-expert width at $128$ but raise the expert count from $16$ to $128$. The total parameter pool grows to $128 \cdot 131\text{K} \approx 17$M (eight times the dense budget), yet a top-1 router still touches only $131\text{K}$ per token. That is the single arithmetic identity that powers Switch Transformer, Mixtral, and DeepSeek-V3: capacity (total params) decouples from compute (active params).</p>
+</div>
 <h3 id="3-8-3-1-architecture">3.8.3.1 Architecture</h3>
+<p>
+ The router (also called the <em>gating network</em>) is just one linear layer followed by a softmax over the expert dimension. For an input token vector $x \in \mathbb{R}^{d_{\text{model}}}$ and a router weight matrix $W_g \in \mathbb{R}^{d_{\text{model}} \times E}$, the per-expert gate score is
+</p>
+<div class="math-block">$$g_i(x) \;=\; \mathrm{softmax}(x W_g)_i \;=\; \frac{\exp((x W_g)_i)}{\sum_{j=1}^{E} \exp((x W_g)_j)}, \qquad i = 1, \dots, E.$$</div>
+<p>
+ Sparse routing then keeps only the top-$k$ entries of $g(x)$ (typically $k = 1$ for Switch Transformer and Llama 4, $k = 2$ for Mixtral, $k = 6$ to $8$ for DeepSeek-V2/V3), re-normalizes those $k$ weights so they sum to one, and combines the chosen experts' outputs accordingly. A small ASCII sketch of the routed data flow follows; the dispatcher (the router box) is conceptually identical to the parcel-depot analogy below.
+</p>
+<pre>
+    token x (d_model)
+            |
+            v
+   +----------------+        g(x) = softmax(x W_g)  in R^E
+   |  router (W_g)  | -------------------------------+
+   +----------------+                                |
+            |                                        |
+            v                                        v
+       top-k indices                   gate weights g_top (k floats)
+            |                                        |
+   +--------+--------+----- ... -------+             |
+   |        |        |                 |             |
+   v        v        v                 v             |
+  +---+   +---+   +---+              +---+           |
+  |E1 |   |E2 |   |E3 |    ...       |EE |           |
+  +---+   +---+   +---+              +---+           |
+   |       |       |                   |             |
+   v       v       v                   v             |
+  out1   out2    out3                outE            |
+   \       |        /                                |
+    \      |       /                                 |
+     \     |      /  weighted sum:                   |
+      v    v     v   y = sum_{j in top-k} g_top[j] * E_{idx[j]}(x)
+            y                                        |
+            |&lt;---------------------------------------+
+            v
+        next layer
+</pre>
+<p>
+ Out of $E$ courier vans, only $k$ run for any given parcel; the rest sit idle for that token. The next token might pick a completely different subset of $k$ vans, so over a batch every expert sees enough traffic to keep training, provided the load-balancing loss does its job.
+</p>
+<h3 id="3-8-3-1-pytorch-architecture">3.8.3.1.1 PyTorch Sketch</h3>
 <p>
  In a typical MoE Transformer, the FFN in each block is replaced by a set of
  <span class="math">$E$</span> expert FFNs plus a <strong>router</strong> (gating network). For each
@@ -377,6 +425,34 @@ spread mass uniformly. A perfectly balanced router yields E * sum_i (1/E)^2 = 1.
  plus shared parameters. Both Llama 4 variants are natively multimodal, processing text and images in
  a unified architecture. The trend is clear: leading labs have converged on MoE as the way to scale
  model knowledge without proportionally scaling inference cost.
+</p>
+<h3 id="3-8-3-3-routing-strategies-glossary">3.8.3.3 Routing Strategies, Named</h3>
+<p>
+ The MoE literature uses several near-synonymous names for routing strategies; it helps to put them on one chip-sheet:
+</p>
+<ul>
+<li><strong>Top-k routing</strong> (also called <strong>KeepTopK</strong> in Shazeer et al., 2017): keep the $k$ experts with the highest gate scores per token, re-normalize their weights, dispatch. $k = 2$ is the historical default and the choice in Mixtral.</li>
+<li><strong>Switch routing</strong> (Fedus, Zoph, Shazeer 2021): the $k = 1$ special case. Each token is sent to exactly one expert. Conceptually a "hard router". Used by Switch Transformer and by both Llama 4 variants.</li>
+<li><strong>Noisy top-k</strong>: Gaussian noise is added to the router logits before the softmax during training to encourage exploration of under-used experts. Drops away at inference.</li>
+<li><strong>Soft / dense routing</strong>: all $E$ experts run, but their outputs are mixed with the full softmax weights. Used in some research papers (e.g., Soft-MoE 2023) but rare in production because the FLOPs-per-token grow with $E$.</li>
+<li><strong>Expert Choice routing</strong> (Zhou et al., 2022): invert the dispatch direction. Each expert picks its top-$N$ tokens instead of each token picking its top-$k$ experts. Guarantees perfect load balance without an auxiliary loss but breaks autoregressive causality and so is mostly used for encoder-only pretraining.</li>
+<li><strong>Auxiliary-loss-free routing</strong> (DeepSeek-V3, 2024): maintain a per-expert bias term that the trainer adjusts after each step to nudge under-used experts toward selection, sidestepping the gradient-versus-routing trade-off baked into the Switch-style $\alpha \cdot E \cdot \sum f_i p_i$ loss.</li>
+</ul>
+<h3 id="3-8-3-4-the-gshard-switch-mixtral-deepseek-lineage">3.8.3.4 The GShard - Switch - Mixtral - DeepSeek Lineage</h3>
+<p>
+ MoE went from research curiosity to frontier-default in roughly six years. The lineage is worth following because each step solved a specific blocker.
+</p>
+<ul>
+<li><strong>Sparsely-Gated MoE (Shazeer et al., 2017)</strong> introduced the modern formulation: a top-$k$ gating network on top of many small expert FFNs, trained jointly with a load-balancing auxiliary loss. Demonstrated on machine translation with up to 137B parameters at a time when dense state of the art was ~1B.</li>
+<li><strong>GShard (Lepikhin et al., 2020)</strong> brought MoE to large-scale multilingual machine translation (600B parameters, 2048 experts) and introduced the practical engineering: token-to-expert dispatching across TPU pods, capacity factor to bound per-expert tokens, and the all-to-all collective that is now the canonical MoE communication primitive.</li>
+<li><strong>Switch Transformer (Fedus et al., 2021)</strong> simplified routing to top-1, demonstrated that the $f_i \cdot p_i$ auxiliary loss is sufficient for balance, and scaled to 1.6T parameters. The Switch paper's clean ablations on capacity factor, expert count, and routing-loss coefficient are the source of most modern defaults.</li>
+<li><strong>GLaM (Du et al., 2022)</strong>, <strong>ST-MoE (Zoph et al., 2022)</strong>, and <strong>NLLB-MoE (Costa-jussa et al., 2022)</strong> filled in the recipe: router z-loss for numerical stability, fine-tuning-time freezing tricks, and the demonstration that MoE quality scales similarly to dense quality per active parameter.</li>
+<li><strong>Mixtral 8x7B (Jiang et al., 2024)</strong> made MoE practical for the open-source community. Eight experts, top-2 routing, 47B total / 13B active parameters, Apache-2.0 weights. Quality matched or exceeded dense LLaMA-2-70B at one-third the inference cost.</li>
+<li><strong>DeepSeek-V2 (2024) and DeepSeek-V3 (December 2024)</strong> pushed the design toward many fine-grained experts (256 in V3) with auxiliary-loss-free routing and shared "always-on" experts for common knowledge. V3's 671B total / 37B active configuration is the current public state of the art and the architecture behind DeepSeek-R1's reasoning successes.</li>
+<li><strong>Llama 4 Scout and Maverick (Meta, 2025)</strong> completed the transition: Meta's flagship line moved from dense to top-1 MoE for both compute economics and multimodal scaling reasons.</li>
+</ul>
+<p>
+ The common thread is unchanged from Shazeer 2017: decouple total parameters (where knowledge lives) from active parameters (where the FLOP bill is paid), pay the engineering cost of an all-to-all dispatch, and accept that the router will need careful balancing to keep every expert useful.
 </p>
 <!-- ============================================================ -->
 <h2 id="3-8-4-gated-attention-and-gated-linear-units">3.8.4 Gated Attention and Gated Linear Units</h2>

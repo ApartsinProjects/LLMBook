@@ -60,6 +60,26 @@ gtag('config', 'G-PWPHBQL2VL');
 <p>This section assumes the transformer mechanics from <a href="../../part-1-llm-building-blocks/module-03-transformer-architecture/section-3.1.html">Section 3.1</a>, the tokenization and embedding intuition from <a href="../../part-1-llm-building-blocks/module-01-foundations-nlp-text-representation/section-1.6.html">Section 1.6</a>, and the basic CNN-versus-attention contrast from <a href="../../part-1-llm-building-blocks/module-00-ml-pytorch-foundations/section-0.5.html">Section 0.5</a>.</p>
 </div>
 
+<div class="callout big-picture">
+<div class="callout-title">A Mental Shelf for Pretrained Vision Models</div>
+<p>Before diving into ViT specifics, it helps to have a four-bucket taxonomy that places every later model (CLIP, BLIP, DINO, SAM, ViT variants) onto the same shelf. Pretrained vision models fall into four families, each defined by what the model produces and how downstream code consumes it.</p>
+<figure>
+<table>
+<thead>
+<tr><th scope="col">Family</th><th scope="col">Output</th><th scope="col">Defining feature</th><th scope="col">Canonical examples</th></tr>
+</thead>
+<tbody>
+<tr><td><strong>Task-specific</strong></td><td>Class labels, masks, or boxes</td><td>The task is baked into the model; downstream code consumes the prediction directly.</td><td>Faster R-CNN (detection), DeepLab (segmentation), ViT-ImageNet classifier</td></tr>
+<tr><td><strong>Representation</strong></td><td>An embedding vector (or per-patch vectors)</td><td>Task-agnostic backbone; downstream head chooses what to do with the embedding.</td><td>ResNet, ViT, DINO, DINOv2, DeiT</td></tr>
+<tr><td><strong>Multimodal</strong></td><td>An embedding aligned with text (or another modality)</td><td>The space is shared across modalities, enabling cross-modal comparison.</td><td>CLIP, SigLIP, BLIP-2, LLaVA</td></tr>
+<tr><td><strong>Generative</strong></td><td>A whole new image (pixels)</td><td>The output is an image, not a representation; conditioned on a prompt, mask, or reference image.</td><td>VAE, GAN, latent diffusion, flow-based models</td></tr>
+</tbody>
+</table>
+<figcaption><strong>Figure 22.1.0</strong>: Four-bucket taxonomy of pretrained vision models. Sections 22.1 through 22.2 cover the representation and multimodal families that feed every VLM; the generative family is treated in Chapter 24 (vision generation).</figcaption>
+</figure>
+<p>Chapter 22 lives mostly in the second and third buckets. ViT, DINO, DeiT, and Swin (this section) are representation backbones. CLIP, SigLIP, BLIP-2, LLaVA, and the frontier VLMs in later sections add text alignment, moving into the multimodal bucket. Keeping this shelf in mind makes it easier to know what each model is actually <em>for</em> when later sections introduce a new acronym.</p>
+</div>
+
 
 <h2 id="22-1-1-from-pixels-to-tokens-the-patch-embedding">22.1.1 From Pixels to Tokens: The Patch Embedding</h2>
 <p>The defining move of ViT (Dosovitskiy et al., Google, 2020) was to abandon convolutions entirely and treat an image as a sequence of small fixed-size patches. For a 224x224 RGB image with a patch size of 16x16, the image is partitioned into 14x14 = 196 non-overlapping patches. Each patch is flattened to a 16x16x3 = 768-dimensional vector and linearly projected to the model's hidden dimension (typically 768 for ViT-Base, 1024 for ViT-Large, 1280 for ViT-Huge). The resulting sequence of 196 patch embeddings is then processed by a standard transformer encoder, exactly the same architecture used in BERT for text.</p>
@@ -75,10 +95,59 @@ gtag('config', 'G-PWPHBQL2VL');
 
 <p>The second ingredient is the <code>[CLS]</code> (class) token: a learned vector prepended to the sequence of patch embeddings. After 12 (or 24, or 32) layers of self-attention, the final hidden state at the <code>[CLS]</code> position serves as a global image representation suitable for classification or contrastive matching. This is the direct visual analog of BERT's <code>[CLS]</code> token for text. For dense prediction tasks (segmentation, detection), per-patch embeddings are used instead.</p>
 
+<div class="callout tip">
+<div class="callout-title">[CLS] vs. mean pooling: two different embeddings</div>
+<p>There are two natural ways to turn the 197-token ViT output into a single per-image vector. The first is to read off the <code>[CLS]</code> token, which is what the original ViT classifier head consumes and what CLIP uses for its image embedding. The second is to mean-pool the 196 patch tokens, ignoring <code>[CLS]</code> altogether. These two embeddings live in the same dimension but they are <em>not</em> the same vector and they do not have the same downstream properties. <code>[CLS]</code> was trained (via the supervised or contrastive head) to summarize what the image is about, so it captures category-level semantics cleanly. Mean-pooled patch features instead carry a more uniform mixture of every spatial region, which makes them better for tasks that care about every part of the image (texture analysis, retrieval against scene-rich queries). DINOv2 deliberately uses both signals at different stages, and Hugging Face <code>AutoModel</code> exposes both via <code>outputs.pooler_output</code> (CLS-derived) and <code>outputs.last_hidden_state[:, 1:].mean(dim=1)</code> (mean pool). If a downstream classifier underperforms, switching pooling strategy is often the cheapest experiment to run.</p>
+</div>
+
 <figure><img alt="ViT architecture diagram: image to patches to flattened patches to linear projection plus position embeddings to transformer encoder" src="images/figure-35-1-1.svg" width="1100" height="540"/><figcaption><strong>Figure 22.1.1</strong>: Vision Transformer architecture. A 224x224 image is split into 196 patches of 16x16 pixels, each flattened and linearly projected. Position embeddings are added; a learned <code>[CLS]</code> token is prepended. The 197-token sequence is processed by a standard transformer encoder.</figcaption></figure>
 
 <h2 id="22-1-3-running-vit-inference">22.1.3 Running ViT Inference</h2>
 <p>The Hugging Face <code>transformers</code> library ships ViT support through the <code>ViTModel</code> class for feature extraction and <code>ViTForImageClassification</code> for pretrained classifier heads. The minimum viable call demonstrates both the input preparation and the structure of the output.</p>
+<p>Before running it, the patch tokenization is worth pinning down. A ViT-Base/16 model splits a 224x224 RGB image into a 14x14 grid of 16x16 patches, flattens each patch into a 768-dim vector, and prepends a learned <span class="math">$\texttt{[CLS]}$</span> token, giving the well-known 197-token sequence length:</p>
+<div class="math-block">$$N = \left(\frac{H}{P}\right) \cdot \left(\frac{W}{P}\right) + 1, \qquad N = \left(\frac{224}{16}\right)^2 + 1 = 14^2 + 1 = 197.$$</div>
+<p>Each patch <span class="math">$x_p \in \mathbb{R}^{P \cdot P \cdot 3}$</span> is mapped through a single linear projection <span class="math">$E \in \mathbb{R}^{(P^2 \cdot 3) \times D}$</span>, summed with a learned positional embedding, and fed through the standard transformer encoder. The 197 output tokens in the code below are exactly the <span class="math">$\texttt{[CLS]}$</span> plus the 196 patches.</p>
+<figure>
+<svg viewbox="0 0 720 240" xmlns="http://www.w3.org/2000/svg" style="font-family:'Segoe UI',sans-serif;max-width:100%;height:auto;">
+<rect width="720" height="240" fill="#ffffff"/>
+<text x="360" y="22" font-size="13" font-weight="700" text-anchor="middle" fill="#1a1a2e">ViT-Base/16 inference: image &#8594; 14&#215;14 patches &#8594; 197-token transformer input</text>
+<g transform="translate(30,50)">
+<rect width="120" height="120" rx="6" fill="#e3f2fd" stroke="#1565c0"/>
+<text x="60" y="22" font-size="11" font-weight="700" text-anchor="middle" fill="#0d47a1">224&#215;224 image</text>
+<g stroke="#1565c0" stroke-width="0.5" fill="none">
+<line x1="20" y1="40" x2="100" y2="40"/><line x1="20" y1="60" x2="100" y2="60"/>
+<line x1="20" y1="80" x2="100" y2="80"/><line x1="20" y1="100" x2="100" y2="100"/>
+<line x1="40" y1="30" x2="40" y2="110"/><line x1="60" y1="30" x2="60" y2="110"/>
+<line x1="80" y1="30" x2="80" y2="110"/>
+<rect x="20" y="30" width="80" height="80" fill="none" stroke="#1565c0" stroke-width="1.5"/>
+</g>
+</g>
+<line x1="160" y1="100" x2="210" y2="100" stroke="#444" stroke-width="2" marker-end="url(#vitArr)"/>
+<defs><marker id="vitArr" markerwidth="8" markerheight="8" refx="7" refy="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#444"/></marker></defs>
+<g transform="translate(210,50)">
+<rect width="180" height="120" rx="6" fill="#fff3e0" stroke="#a67c1a"/>
+<text x="90" y="22" font-size="11" font-weight="700" text-anchor="middle" fill="#a67c1a">linear projection E</text>
+<text x="90" y="42" font-size="10" text-anchor="middle" fill="#a67c1a">each 16&#215;16&#215;3 patch &#8594; 768-D</text>
+<text x="90" y="64" font-size="10" text-anchor="middle" fill="#a67c1a">+ learned position embedding</text>
+<text x="90" y="86" font-size="10" text-anchor="middle" fill="#a67c1a">+ [CLS] token</text>
+<text x="90" y="108" font-size="10" font-weight="700" text-anchor="middle" fill="#a67c1a">&#8594; 197&#215;768 tokens</text>
+</g>
+<line x1="400" y1="100" x2="450" y2="100" stroke="#444" stroke-width="2" marker-end="url(#vitArr)"/>
+<g transform="translate(450,50)">
+<rect width="240" height="120" rx="6" fill="#e8f5e9" stroke="#2e7d32"/>
+<text x="120" y="22" font-size="11" font-weight="700" text-anchor="middle" fill="#1b5e20">12-layer Transformer encoder</text>
+<text x="120" y="44" font-size="10" text-anchor="middle" fill="#1b5e20">last_hidden_state: 1&#215;197&#215;768</text>
+<text x="120" y="62" font-size="10" text-anchor="middle" fill="#1b5e20">pooler_output: 1&#215;768 (CLS)</text>
+<text x="120" y="86" font-size="10" font-style="italic" text-anchor="middle" fill="#2e7d32">classifier head reads CLS</text>
+<text x="120" y="100" font-size="10" font-style="italic" text-anchor="middle" fill="#2e7d32">downstream models read patches</text>
+</g>
+</svg>
+<figcaption><strong>Figure 22.1.3</strong>: ViT-Base/16 inference pipeline. The image is sliced into a 14x14 grid of 16x16 patches, each patch is flattened and linearly projected into a 768-dim token, a learned <code>[CLS]</code> token is prepended, and the resulting 197-token sequence runs through a standard transformer encoder. The <code>last_hidden_state</code> and <code>pooler_output</code> from the code block below correspond exactly to the two outputs on the right.</figcaption>
+</figure>
+<div class="callout practical-example">
+<div class="callout-title">Worked Example: Patch Count for ViT-L/14 at 336x336</div>
+<p>LLaVA-1.5 uses CLIP ViT-L/14 at input resolution 336x336 instead of 224x224 and patch size 14 instead of 16. The patch grid is therefore (336/14)x(336/14) = 24x24 = 576 patches, plus the <code>[CLS]</code> token, giving N=577 transformer tokens per image. Each token is 1024-dim (ViT-L's hidden size). The output tensor shape that LLaVA's projector consumes is exactly (batch, 576, 1024) after dropping the <code>[CLS]</code>: 576 visual tokens that get mapped into the LLM's embedding space. This is the source of the "576 visual tokens" number in Section 22.7.</p>
+</div>
 
 <div class="code-block-wrapper">
 <pre><code class="pygments-highlighted lang-python"><span class="kn">from</span><span class="w"> </span><span class="nn">transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">ViTImageProcessor</span><span class="p">,</span> <span class="n">ViTModel</span>
@@ -111,6 +180,44 @@ gtag('config', 'G-PWPHBQL2VL');
  Global image feature: torch.Size([1, 768])
  Reshaped patch grid: torch.Size([1, 14, 14, 768])</div>
 <div class="code-caption"><strong>Code Fragment 22.1.1</strong>: ViT inference and output anatomy. The 197-token output decomposes as 1 CLS token + 196 patch tokens (14x14 grid). VLM connector layers typically consume the patch tokens (dropping the CLS) and project them to the LLM's hidden dimension.</div>
+</div>
+
+<div class="callout library-shortcut">
+<div class="callout-title">Library shortcut: Fine-tuning ViTForImageClassification on a custom label set</div>
+<p>The same <code>ViTModel</code> backbone wraps into a one-shot training loop for any custom label vocabulary. The Hugging Face Trainer takes care of evaluation, checkpointing, and mixed precision; the only bespoke piece is the label map.</p>
+<pre><code class="language-python">from transformers import (
+    ViTForImageClassification, ViTImageProcessor,
+    Trainer, TrainingArguments,
+)
+from datasets import load_dataset
+
+ds = load_dataset("food101", split={"train": "train[:5000]", "val": "validation[:1000]"})
+labels = ds["train"].features["label"].names
+id2label = {i: l for i, l in enumerate(labels)}
+label2id = {l: i for i, l in id2label.items()}
+
+processor = ViTImageProcessor.from_pretrained("google/vit-base-patch16-224-in21k")
+model = ViTForImageClassification.from_pretrained(
+    "google/vit-base-patch16-224-in21k",
+    num_labels=len(labels),
+    id2label=id2label, label2id=label2id,
+    ignore_mismatched_sizes=True,   # swap in the new classifier head
+)
+
+def transform(batch):
+    px = processor([img.convert("RGB") for img in batch["image"]], return_tensors="pt")
+    return {"pixel_values": px["pixel_values"], "labels": batch["label"]}
+
+ds = ds.with_transform(transform)
+args = TrainingArguments(
+    output_dir="vit-food101",
+    per_device_train_batch_size=32, per_device_eval_batch_size=32,
+    num_train_epochs=3, learning_rate=2e-5,
+    eval_strategy="epoch", save_strategy="epoch",
+    fp16=True, report_to="none",
+)
+Trainer(model=model, args=args, train_dataset=ds["train"], eval_dataset=ds["val"]).train()</code></pre>
+<p class="figure-caption"><strong>Code Fragment 22.1.2</strong>: Fine-tuning ViT-Base on a custom 101-class food dataset. <code>ignore_mismatched_sizes=True</code> lets the Trainer drop the original ImageNet head and initialize a new classifier matched to the user vocabulary. A 5k-image subset trains to ~85% top-1 in three epochs on a single RTX 4090.</p>
 </div>
 
 <h2 id="22-1-4-the-vit-zoo-resolution-and-patch-size-tradeoffs">22.1.4 The ViT Zoo: Resolution and Patch Size Tradeoffs</h2>
@@ -158,6 +265,109 @@ gtag('config', 'G-PWPHBQL2VL');
 
 <p>The fourth is self-supervised learning via image-only objectives that produce semantically meaningful features without text. DINO (Caron et al., 2021) and DINOv2 (Oquab et al., 2023) use a teacher-student setup where the model learns to produce consistent representations across augmentations. DINOv2's features are remarkable: they cluster semantic concepts (animals, vehicles, faces) without ever seeing class labels and serve as drop-in replacements for CLIP encoders in some VLMs (notably Idefics-2).</p>
 
+<h3 id="22-1-5a-deit-distillation-token">DeiT: The Distillation-Token Bridge to ImageNet-1K</h3>
+<p>The original ViT paper made an uncomfortable confession: ViTs only outperform CNNs when pretrained on JFT-300M (Google's 300-million-image internal dataset). On the public ImageNet-1K (1.3M images), a plain ViT trails a same-sized ResNet. For two years that gating fact kept ViTs out of academic labs that could not access JFT.</p>
+<p>DeiT (Touvron et al., Facebook AI, 2021) fixed the problem with a single architectural addition: the <em>distillation token</em>. Alongside the usual <code>[CLS]</code> token, DeiT prepends a second learnable token to the patch sequence. The distillation token attends over the same patches with the same transformer parameters; only its supervision differs. A classification head on top of the <code>[CLS]</code> token is trained with the usual cross-entropy against the ground-truth ImageNet label, while a separate head on top of the distillation token is trained with cross-entropy against the soft-max output of a frozen CNN teacher (typically a RegNetY-16GF trained on ImageNet itself). At inference, the final image embedding can be the <code>[CLS]</code> token, the distillation token, or their sum (the latter typically gives the best accuracy).</p>
+<p>The trick works because the CNN teacher injects its translation-invariance and local-feature priors into the ViT through the soft labels: instead of "this is class 37" the student hears "this is most likely class 37, but it also has the texture of class 89 and the silhouette of class 42", which is a much richer signal than a one-hot label. With this recipe DeiT-B trained on ImageNet-1K alone matches the original ViT-B trained on the 11x-larger ImageNet-21K, and DeiT-S/16 reaches 81.2% top-1 with only 22M parameters, opening ViT-style architectures to teams without industrial-scale data.</p>
+<p>Pedagogically, DeiT is also the conceptual precursor to DINO's self-distillation in the next subsection. DeiT distills from a frozen external <em>teacher network</em> (the CNN) into a special <em>token</em>; DINO removes the external teacher and distills from a slow exponential-moving-average copy of the model into the model itself. Both recipes pass knowledge through a dedicated transformer position, and both demonstrate that ViTs benefit dramatically from any pretraining signal richer than one-hot labels.</p>
+
+<h3 id="22-1-5b-dino-multi-crop">DINO Multi-Crop: Two Networks, Many Views, One Distribution</h3>
+<p>DINO (Caron et al., 2021), the predecessor of the DINOv2 model discussed below, is worth understanding in its own right because it is the cleanest articulation of <em>self-distillation</em> for vision. The intuition: a good semantic representation should be invariant to scale, viewpoint, and crop. If you photograph a cat's left ear up close and the whole cat from across the room, both images describe "cat", and a useful embedding should reflect that.</p>
+<p>DINO operationalizes this idea through a <strong>multi-crop</strong> strategy. From each training image the data loader emits several augmented crops at two scales: two <em>global crops</em> covering more than 50% of the image and resized to 224x224, plus typically six <em>local crops</em> covering less than 50% of the image and resized to 96x96. Two copies of the same ViT process the crops: a <strong>student</strong> (parameters updated by gradient descent) and a <strong>teacher</strong> (parameters maintained as an exponential moving average of the student, with no gradients). The teacher only sees the two global crops; the student sees all crops. The target distribution is computed by passing each crop through a high-dimensional projection head (about 65,000 outputs) followed by a softmax, producing a soft pseudo-label vector. Training minimizes cross-entropy between every student crop's output and every teacher crop's output (excluding self-pairs).</p>
+<p>The local-to-global targeting is what teaches the network semantic invariance. A 96x96 local crop of a cat's ear is forced to produce the same pseudo-label distribution as the 224x224 global crop of the whole cat, so the only way the network can satisfy both is to learn features that ignore scale and focus on shared content. Two collapse failure modes lurk: the network could output a constant distribution for every input (trivially matching itself), or it could output a peaked one-hot distribution on a single arbitrary index. DINO prevents both by <em>centering</em> the teacher's logits (subtract an EMA of the running mean before softmax) and <em>sharpening</em> them (low teacher temperature, $\tau_t \approx 0.04$). Centering prevents one dimension from dominating; sharpening prevents the trivial uniform-distribution solution.</p>
+<p>The result is a network that has never seen a label yet produces feature maps where the <code>[CLS]</code> token attends cleanly to the salient object: in canonical DINO visualizations, the model trained on natural images segments cups, dogs, and birds with no segmentation supervision whatsoever. DINOv2 (covered in 22.1.6) is essentially this recipe scaled up with iBOT masked-patch losses, larger datasets, and KoLeo feature spreading regularization, but the multi-crop teacher-student core is identical.</p>
+
+<figure class="diagram">
+<svg role="img" aria-label="DINO multi-crop teacher-student diagram: image yields two global crops and several local crops; student sees all crops, teacher sees only global crops; teacher logits are centered and sharpened then matched to student via cross-entropy" viewBox="0 0 820 320" xmlns="http://www.w3.org/2000/svg" style="font-family:'Segoe UI',sans-serif;max-width:100%;height:auto;">
+<rect width="820" height="320" fill="#fafafa"/>
+<text x="410" y="22" font-size="14" font-weight="700" text-anchor="middle" fill="#1a1a2e">DINO self-distillation: student sees all crops, teacher sees only global crops</text>
+<defs>
+<marker id="dnArr" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#666"/></marker>
+</defs>
+<g font-size="10">
+<rect x="20" y="120" width="100" height="60" rx="6" fill="#bbdefb" stroke="#1976d2" stroke-width="1.5"/>
+<text x="70" y="145" text-anchor="middle" font-weight="700" fill="#0d47a1">Input image</text>
+<text x="70" y="160" text-anchor="middle" font-size="9" fill="#1976d2">multi-crop sampler</text>
+<line x1="120" y1="135" x2="148" y2="70" stroke="#666" stroke-width="1.5" marker-end="url(#dnArr)"/>
+<line x1="120" y1="160" x2="148" y2="240" stroke="#666" stroke-width="1.5" marker-end="url(#dnArr)"/>
+<rect x="148" y="50" width="140" height="40" rx="6" fill="#fff3e0" stroke="#ef6c00" stroke-width="1.5"/>
+<text x="218" y="68" text-anchor="middle" font-weight="700" fill="#e65100">2 global crops</text>
+<text x="218" y="82" text-anchor="middle" font-size="9" fill="#ef6c00">&gt;50% area, 224x224</text>
+<rect x="148" y="230" width="140" height="50" rx="6" fill="#fff3e0" stroke="#ef6c00" stroke-width="1.5"/>
+<text x="218" y="250" text-anchor="middle" font-weight="700" fill="#e65100">6 local crops</text>
+<text x="218" y="264" text-anchor="middle" font-size="9" fill="#ef6c00">&lt;50% area, 96x96</text>
+<line x1="288" y1="70" x2="318" y2="70" stroke="#666" stroke-width="2" marker-end="url(#dnArr)"/>
+<line x1="288" y1="70" x2="318" y2="170" stroke="#666" stroke-width="2" marker-end="url(#dnArr)"/>
+<line x1="288" y1="255" x2="318" y2="170" stroke="#666" stroke-width="2" marker-end="url(#dnArr)"/>
+<rect x="318" y="40" width="140" height="60" rx="6" fill="#ffcdd2" stroke="#c62828" stroke-width="1.5"/>
+<text x="388" y="62" text-anchor="middle" font-weight="700" fill="#b71c1c">Teacher ViT</text>
+<text x="388" y="78" text-anchor="middle" font-size="9" fill="#c62828">EMA of student</text>
+<text x="388" y="92" text-anchor="middle" font-size="9" fill="#c62828">no gradient</text>
+<rect x="318" y="140" width="140" height="60" rx="6" fill="#e1bee7" stroke="#6a1b9a" stroke-width="1.5"/>
+<text x="388" y="162" text-anchor="middle" font-weight="700" fill="#4a148c">Student ViT</text>
+<text x="388" y="178" text-anchor="middle" font-size="9" fill="#6a1b9a">all 8 crops</text>
+<text x="388" y="192" text-anchor="middle" font-size="9" fill="#6a1b9a">backprop</text>
+<line x1="458" y1="70" x2="486" y2="70" stroke="#666" stroke-width="2" marker-end="url(#dnArr)"/>
+<line x1="458" y1="170" x2="486" y2="170" stroke="#666" stroke-width="2" marker-end="url(#dnArr)"/>
+<rect x="486" y="40" width="160" height="60" rx="6" fill="#fff9c4" stroke="#f57f17" stroke-width="1.5"/>
+<text x="566" y="58" text-anchor="middle" font-weight="700" fill="#e65100">Projection head</text>
+<text x="566" y="74" text-anchor="middle" font-size="9" fill="#f57f17">center + sharpen</text>
+<text x="566" y="88" text-anchor="middle" font-size="9" fill="#f57f17">softmax tau_t=0.04</text>
+<rect x="486" y="140" width="160" height="60" rx="6" fill="#fff9c4" stroke="#f57f17" stroke-width="1.5"/>
+<text x="566" y="158" text-anchor="middle" font-weight="700" fill="#e65100">Projection head</text>
+<text x="566" y="172" text-anchor="middle" font-size="9" fill="#f57f17">softmax tau_s=0.1</text>
+<text x="566" y="186" text-anchor="middle" font-size="9" fill="#f57f17">~65k outputs</text>
+<line x1="646" y1="70" x2="676" y2="120" stroke="#666" stroke-width="2" marker-end="url(#dnArr)"/>
+<line x1="646" y1="170" x2="676" y2="120" stroke="#666" stroke-width="2" marker-end="url(#dnArr)"/>
+<rect x="676" y="100" width="120" height="60" rx="6" fill="#c8e6c9" stroke="#2e7d32" stroke-width="1.5"/>
+<text x="736" y="120" text-anchor="middle" font-weight="700" fill="#1b5e20">Cross-entropy</text>
+<text x="736" y="138" text-anchor="middle" font-size="9" fill="#2e7d32">student matches</text>
+<text x="736" y="152" text-anchor="middle" font-size="9" fill="#2e7d32">teacher distribution</text>
+<line x1="736" y1="160" x2="736" y2="220" stroke="#666" stroke-width="1.5"/>
+<line x1="736" y1="220" x2="388" y2="220" stroke="#666" stroke-width="1.5" stroke-dasharray="4,4"/>
+<line x1="388" y1="220" x2="388" y2="200" stroke="#666" stroke-width="1.5" marker-end="url(#dnArr)"/>
+<text x="560" y="235" text-anchor="middle" font-size="9" font-style="italic" fill="#5a4a3a">gradient backprops only into student; teacher updated by EMA of student</text>
+<line x1="388" y1="100" x2="388" y2="140" stroke="#666" stroke-width="1.5" stroke-dasharray="2,2"/>
+<text x="395" y="125" font-size="8" fill="#5a4a3a">EMA</text>
+</g>
+</svg>
+<figcaption><strong>Figure 22.1.5b</strong>: The DINO self-distillation training loop. From one source image the multi-crop sampler emits two large global crops and six small local crops. The student ViT processes all eight crops; the teacher ViT processes only the two global crops. Both networks share architecture, but the teacher's weights are an exponential moving average of the student's, never updated by gradient. Teacher logits are centered (subtract an EMA of the running mean) and sharpened (low temperature $\tau_t \approx 0.04$) before softmax. The student then minimizes cross-entropy between its softmax output (at higher temperature $\tau_s \approx 0.1$) and the teacher's, summed over every student-teacher crop pair (excluding self-pairs). Forcing a 96x96 local crop's distribution to match a 224x224 global crop's distribution is what teaches the network scale-invariant semantic features without any labels.</figcaption>
+</figure>
+
+<div class="callout library-shortcut">
+<div class="callout-title">Library Shortcut: DINO Attention Maps from a Pretrained Backbone</div>
+<div class="code-block-wrapper">
+<pre><code class="language-python">import torch
+from PIL import Image
+from transformers import AutoImageProcessor, AutoModel
+
+# Pretrained DINO ViT-B/16 (Caron et al. 2021) on ImageNet, no labels used.
+processor = AutoImageProcessor.from_pretrained("facebook/dino-vitb16")
+model = AutoModel.from_pretrained("facebook/dino-vitb16",
+                                  output_attentions=True).eval()
+
+image = Image.open("cat.jpg").convert("RGB")
+inputs = processor(images=image, return_tensors="pt")
+
+with torch.no_grad():
+    outputs = model(**inputs)
+
+# Last-layer attention: (batch, heads, n_tokens, n_tokens), n_tokens = 1 + 14*14
+attn = outputs.attentions[-1][0]                   # (heads, 197, 197)
+cls_attn = attn[:, 0, 1:]                          # CLS attends to 196 patches
+cls_attn = cls_attn.reshape(-1, 14, 14).mean(dim=0)  # average over heads
+print(cls_attn.shape)   # torch.Size([14, 14])
+# Visualize: bright cells trace the salient object silhouette,
+# even though no segmentation labels ever entered training.</code></pre>
+<div class="code-caption"><strong>Code Fragment 22.1.5b</strong>: Extracting DINO's famously-clean object-attention maps from a HuggingFace checkpoint. The <code>[CLS]</code> token's attention to the 196 spatial patches forms a near-pixel-accurate silhouette of the dominant object, despite the model being trained without any localization labels. This is the "emerging properties" result from Caron et al. that motivated SAM, OpenSeg, and the entire post-DINO segmentation-from-features lineage.</div>
+</div>
+</div>
+
+<div class="callout numeric-example">
+<div class="callout-title">Worked Example: One DINO Training Step on Two Crops</div>
+<p>Take one cat photo, sample one global crop ($224 \times 224$, the cat's whole body) and one local crop ($96 \times 96$, just the left ear), and run a 65k-dim projection head on each. The teacher centers its global-crop logits by subtracting an EMA mean $c$ and divides by $\tau_t = 0.04$; suppose for this image the teacher's softmax peaks at $p_t \approx 0.62$ on the "cat-like cluster index" $k^* = 17{,}429$ and spreads the remaining 0.38 across the other 65k slots. The student processes the local ear crop through its own head at $\tau_s = 0.1$, producing $p_s$ with only $0.04$ probability on index 17,429 (the student has not yet learned that an ear belongs to the same cluster as a cat). The cross-entropy contribution from this index alone is $-p_t^{(k^*)} \log p_s^{(k^*)} = -0.62 \cdot \log 0.04 \approx 2.00$ nats. Summed across all 65k indices the per-pair loss is around 4.2 nats; with 8 crops per image and (8 student) x (2 teacher) - 2 self-pairs = 14 pairs the per-image loss is about 60 nats. Gradient descent on the student gradually raises $p_s^{(k^*)}$, the teacher follows via EMA ($\theta_t \leftarrow 0.996 \theta_t + 0.004 \theta_s$), and after roughly 300 ImageNet epochs the local-crop and global-crop distributions on the same image agree to within 0.02 nats per pair: the network has learned that "left ear of a cat" and "cat" should produce the same pseudo-label.</p>
+</div>
+
 <div class="callout note">
 <div class="callout-title">Note: Patch Embedding, MAE, and DINOv2 EMA</div>
 <p>The ViT input pipeline is succinct enough to write as one equation. For an input image $x \in \mathbb{R}^{H \times W \times C}$ partitioned into $N = (H/P)(W/P)$ non-overlapping patches $x_p^i \in \mathbb{R}^{P^2 C}$, the input token sequence is</p>
@@ -173,6 +383,115 @@ gtag('config', 'G-PWPHBQL2VL');
 <p>The empirical 2025 consensus is that DINOv2 features beat CLIP features on segmentation, depth estimation, and dense correspondence by 8-15% mAP, while CLIP features beat DINOv2 on captioning, retrieval, and zero-shot classification by 5-10% top-1 accuracy. VLMs that need both (multimodal robotic agents, autonomous driving stacks) increasingly use both encoders in parallel.</p>
 
 <p>A concrete way to picture the difference: imagine asking each encoder "where is the cup in this photo?" CLIP can tell you it sees a cup (it learned the word "cup" during training) but its bounding box drifts because the language objective never required pixel-accurate localization. DINOv2 segments the cup cleanly down to the millimeter, but if you ask it to name what it segmented, it returns "object cluster 47" because it never saw the word "cup." A robot picking up the cup needs both: CLIP says what to grab, DINOv2 says where to grab it.</p>
+
+<p>The canonical DINOv2 demonstration is an attention map from the <code>[CLS]</code> token: for a photo of a cup on a table, the brightest attention cells form a near-pixel-accurate silhouette of the cup; for a photo of a dog on grass, the attention map outlines the dog. These maps are produced with no segmentation labels, no bounding-box supervision, and no fine-tuning. The DINOv2 paper highlights this property as the visual proof that the network has learned "what an object is" from raw pixels alone, and it is the reason DINOv2 features are now the default backbone for open-set segmentation pipelines (SAM combines a DINO-style encoder with a prompt-driven mask decoder, for instance).</p>
+
+<h2 id="22-1-6a-swin-transformer-shifted-windows-and-hierarchical-features">22.1.6a Swin Transformer: Shifted Windows and Hierarchical Features</h2>
+<p>The plain ViT applies global self-attention over all 196 (or 577, or 1024) patch tokens. That works for image classification, where one global decision is the only thing the model has to make, but it has two structural weaknesses for dense-prediction tasks (detection, segmentation, depth). The first is cost: attention is quadratic in the token count, so doubling the input resolution quadruples the FLOPs. The second is missing multi-scale features: CNNs naturally build a feature pyramid (small features at fine resolution, large features at coarse resolution) that detectors like Faster R-CNN consume; plain ViT outputs a single resolution at every layer.</p>
+<p><strong>Swin Transformer</strong> (Liu et al., Microsoft Research Asia, 2021) addresses both weaknesses with two ideas: <em>shifted local windows</em> for cheap attention and <em>hierarchical patch merging</em> for CNN-pyramid-style multi-scale features. Swin became, almost overnight, the default vision backbone for dense-prediction tasks and remains so in 2026: most production detection and segmentation stacks (Mask2Former, DINO-DETR, ViTDet variants, video models) are built on a Swin or Swin-v2 backbone.</p>
+
+<h3 id="22-1-6a-windows">W-MSA and SW-MSA: window attention with cross-window flow</h3>
+<p>Swin replaces global self-attention with <strong>Window-MSA (W-MSA)</strong>: partition the patch grid into non-overlapping windows of MxM patches (typically M=7) and run self-attention only within each window. For an HxW patch grid this drops the cost from $O((HW)^2)$ to $O(HW \cdot M^2)$, which is linear in the image area at fixed window size. The price is that windows are isolated, so information from one window never reaches another.</p>
+
+<figure class="diagram">
+<svg role="img" aria-label="Swin shifted window attention: regular window partition on the left and shifted window partition on the right with arrows showing cross-window information flow" viewBox="0 0 760 280" xmlns="http://www.w3.org/2000/svg" style="font-family:'Segoe UI',sans-serif;max-width:100%;height:auto;">
+<rect width="760" height="280" fill="#fafafa"/>
+<text x="380" y="22" font-size="14" font-weight="700" text-anchor="middle" fill="#1a1a2e">Swin: alternating W-MSA and SW-MSA layers route information across windows</text>
+<g font-size="10">
+<text x="160" y="48" text-anchor="middle" font-weight="700" fill="#0d47a1">Layer L (W-MSA): regular windows</text>
+<g fill="#bbdefb" stroke="#1976d2" stroke-width="1.2">
+<rect x="40" y="60" width="80" height="80"/><rect x="120" y="60" width="80" height="80"/><rect x="200" y="60" width="80" height="80"/>
+<rect x="40" y="140" width="80" height="80"/><rect x="120" y="140" width="80" height="80"/><rect x="200" y="140" width="80" height="80"/>
+</g>
+<text x="80" y="105" text-anchor="middle" font-size="9" fill="#0d47a1">W1</text>
+<text x="160" y="105" text-anchor="middle" font-size="9" fill="#0d47a1">W2</text>
+<text x="240" y="105" text-anchor="middle" font-size="9" fill="#0d47a1">W3</text>
+<text x="80" y="185" text-anchor="middle" font-size="9" fill="#0d47a1">W4</text>
+<text x="160" y="185" text-anchor="middle" font-size="9" fill="#0d47a1">W5</text>
+<text x="240" y="185" text-anchor="middle" font-size="9" fill="#0d47a1">W6</text>
+<text x="600" y="48" text-anchor="middle" font-weight="700" fill="#b71c1c">Layer L+1 (SW-MSA): shifted by M/2</text>
+<g fill="#ffcdd2" stroke="#c62828" stroke-width="1.2">
+<rect x="480" y="60" width="40" height="40"/><rect x="520" y="60" width="80" height="40"/><rect x="600" y="60" width="80" height="40"/><rect x="680" y="60" width="40" height="40"/>
+<rect x="480" y="100" width="40" height="80"/><rect x="520" y="100" width="80" height="80"/><rect x="600" y="100" width="80" height="80"/><rect x="680" y="100" width="40" height="80"/>
+<rect x="480" y="180" width="40" height="40"/><rect x="520" y="180" width="80" height="40"/><rect x="600" y="180" width="80" height="40"/><rect x="680" y="180" width="40" height="40"/>
+</g>
+<text x="560" y="145" text-anchor="middle" font-size="9" fill="#b71c1c">W'2</text>
+<text x="640" y="145" text-anchor="middle" font-size="9" fill="#b71c1c">W'3</text>
+<line x1="290" y1="140" x2="470" y2="140" stroke="#2e7d32" stroke-width="2" marker-end="url(#swArr)"/>
+<defs>
+<marker id="swArr" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#2e7d32"/></marker>
+</defs>
+<text x="380" y="135" text-anchor="middle" font-size="10" fill="#2e7d32">shift M/2</text>
+<text x="380" y="250" text-anchor="middle" font-size="10" fill="#5a4a3a">Patches at window seams (e.g., between W1 and W2) end up inside W'2 at the next layer,</text>
+<text x="380" y="265" text-anchor="middle" font-size="10" fill="#5a4a3a">so information flows across windows in just two layers with O(N M^2) cost per layer.</text>
+</g>
+</svg>
+<figcaption><strong>Figure 22.1.6a</strong>: Swin's shifted-window mechanism. Layer $L$ partitions the patch grid into non-overlapping $M \times M$ windows (W1 through W6) and runs self-attention inside each. Layer $L+1$ shifts the partition by $M/2$ in both axes, so the previously-isolated edges between W1, W2, W4, W5 now sit inside a new central window (W'2 plus W'3). After one W-MSA + SW-MSA pair, every patch has attended to its full $M \times M$ neighborhood and to half of each adjacent neighborhood, which is enough to propagate information across the whole image in $O(\log H)$ such pairs.</figcaption>
+</figure>
+
+<p>The cost saving is direct. For an $H \times W$ patch grid with global attention, each layer costs $\Omega(HW \cdot HW \cdot d) = \Omega((HW)^2 d)$ floating-point operations. Swin's window attention with window size $M \times M$ costs only</p>
+<p>$$ \mathrm{FLOPs}_\mathrm{W\text{-}MSA} = \Omega\bigl(HW \cdot M^2 \cdot d\bigr), $$</p>
+<p>which is linear in the image area at fixed $M$. The hierarchical patch-merging blocks add a constant factor: across the four stages with channel counts $C, 2C, 4C, 8C$ and grid sizes $H/4, H/8, H/16, H/32$, the total cost is dominated by stage 1 (largest grid, smallest channels) and stays approximately linear in the input pixel count.</p>
+<p>The fix is the <strong>Shifted Window-MSA (SW-MSA)</strong> layer that alternates with W-MSA. In SW-MSA the window grid is shifted by $M/2$ patches diagonally, so patches that were on the edge of one window now sit in a new window that straddles its old neighbors. Stacking W-MSA and SW-MSA layers in pairs lets information flow across the entire image in a few steps while keeping per-layer cost linear. Conceptually, W-MSA looks <em>within</em> tiles and SW-MSA stitches the tiles together at the seams.</p>
+
+<h3 id="22-1-6a-patch-merging">Hierarchical patch merging: a CNN pyramid built from transformer blocks</h3>
+<p>After a stack of W-MSA + SW-MSA blocks at one resolution, Swin reduces resolution and doubles the channel count through a <strong>patch merging</strong> layer. Patch merging concatenates the embeddings of every 2x2 block of neighboring patches (producing a single token with $4C$ channels), then applies a linear projection back down to $2C$ channels. The patch grid shrinks from $H \times W$ to $H/2 \times W/2$, the channel count goes from $C$ to $2C$, and the next stage's windows now cover four times the original receptive field.</p>
+<p>Stacking four such stages produces feature maps at four resolutions (typically $H/4, H/8, H/16, H/32$) with channel counts $C, 2C, 4C, 8C$. This is exactly the shape of a CNN feature pyramid, so Swin features drop directly into Feature Pyramid Network (FPN) heads for object detection, U-Net-style decoders for segmentation, and dense prediction heads in general. Swin-T (28M params), Swin-S (50M), Swin-B (88M), and Swin-L (197M) span the same scale ladder as ResNet-50 through ResNet-200, and a Swin-L backbone replaced ResNet-50 backbones in essentially every COCO leaderboard entry within a year of release.</p>
+
+<figure>
+<table>
+<thead>
+<tr><th scope="col">Variant</th><th scope="col">Window</th><th scope="col">Hierarchical?</th><th scope="col">Attention cost</th><th scope="col">Best fit</th></tr>
+</thead>
+<tbody>
+<tr><td>Plain ViT-L/14</td><td>global</td><td>no (single scale)</td><td>$O(N^2)$ in tokens</td><td>Classification, CLIP, VLM connectors</td></tr>
+<tr><td>DeiT-B</td><td>global</td><td>no</td><td>$O(N^2)$</td><td>ImageNet-1K classification, data-efficient training</td></tr>
+<tr><td>DINOv2-L/14</td><td>global</td><td>no</td><td>$O(N^2)$</td><td>Self-supervised features, dense correspondence, segmentation backbones</td></tr>
+<tr><td>Swin-L</td><td>local 7x7 + shift</td><td>yes (4 stages)</td><td>$O(N \cdot M^2)$</td><td>Detection, instance and semantic segmentation, dense prediction</td></tr>
+<tr><td>Swin-v2-G</td><td>local + RPE</td><td>yes</td><td>$O(N \cdot M^2)$</td><td>3B-param dense-prediction backbone (Microsoft 2022)</td></tr>
+</tbody>
+</table>
+<figcaption><strong>Figure 22.1.3a</strong>: ViT-family architectural choices. Plain ViT keeps global attention at one resolution and dominates classification and contrastive VLM encoders; Swin uses local windows with shifts to recover CNN-style hierarchical features and dominates dense prediction. Most production stacks use both: SigLIP-ViT for the VLM front-end, Swin for the detection or segmentation pipeline.</figcaption>
+</figure>
+
+<div class="callout library-shortcut">
+<div class="callout-title">Library Shortcut: Swin Multi-Scale Features for a Detection Head</div>
+<div class="code-block-wrapper">
+<pre><code class="language-python">import torch
+from PIL import Image
+from transformers import AutoImageProcessor, SwinModel
+
+processor = AutoImageProcessor.from_pretrained("microsoft/swin-base-patch4-window7-224")
+model = SwinModel.from_pretrained(
+    "microsoft/swin-base-patch4-window7-224",
+    out_features=["stage1", "stage2", "stage3", "stage4"],
+).eval()
+
+image = Image.open("street.jpg").convert("RGB")
+inputs = processor(image, return_tensors="pt")
+with torch.no_grad():
+    outputs = model(**inputs, output_hidden_states=True)
+
+# Four pyramid levels at H/4, H/8, H/16, H/32 with channel counts C, 2C, 4C, 8C.
+for i, h in enumerate(outputs.reshaped_hidden_states):
+    print(f"stage {i+1}: {tuple(h.shape)}")
+# stage 1: (1, 128, 56, 56)
+# stage 2: (1, 256, 28, 28)
+# stage 3: (1, 512, 14, 14)
+# stage 4: (1, 1024, 7, 7)</code></pre>
+<div class="code-caption"><strong>Code Fragment 22.1.3</strong>: Swin-Base produces a CNN-style four-level feature pyramid. The four returned tensors drop directly into a Feature Pyramid Network head, a U-Net decoder, or any other dense-prediction architecture that expects multi-scale spatial features. This is the structural reason Swin (rather than plain ViT) dominates COCO detection and ADE20K segmentation leaderboards.</div></div></div>
+
+<div class="callout numeric-example">
+<div class="callout-title">Worked Example: Swin-B vs ViT-L/14 FLOPs at 1024x1024</div>
+<p>Compare Swin-Base and ViT-L/14 on a 1024x1024 input, the standard COCO detection resolution. ViT-L/14 splits the image into a $1024/14 \approx 73 \times 73 = 5329$ patch grid and adds a CLS token for 5330 tokens; with $d = 1024$ each global-attention layer costs roughly $5330^2 \cdot 1024 \approx 2.9 \times 10^{10}$ FLOPs and the full 24-layer stack costs $\approx 700$ GFLOPs just for attention. Swin-B starts with a $1024/4 = 256 \times 256 = 65{,}536$ patch grid and runs window attention with $M = 7$ in four stages. Stage 1 (256x256 grid, $C = 128$) costs $65{,}536 \cdot 49 \cdot 128 \approx 4.1 \times 10^{8}$ FLOPs per layer, and across all four stages with the hierarchical 2x downsampling the total attention budget sits around 47 GFLOPs, roughly 15x cheaper than ViT-L/14 at the same resolution while producing four-level features that a Mask R-CNN head can consume directly. The Swin-B detector reaches 51.9 box mAP on COCO compared to ResNet-101's 44.0 mAP at similar compute, which is the empirical answer to "is the hierarchical structure worth the engineering complexity?".</p>
+</div>
+</div>
+</div>
+
+<div class="callout key-insight">
+<div class="callout-title">Key Insight: One Backbone Family, Two Job Markets</div>
+<p>As of 2026, the ViT zoo splits cleanly along the task axis. <em>Plain global-attention ViTs</em> (CLIP-ViT, SigLIP-ViT, DINOv2-ViT) dominate VLM connectors, contrastive retrieval, and self-supervised representation work, because their single-scale token sequence drops trivially into a language-model context window. <em>Hierarchical window-attention ViTs</em> (Swin, Swin-v2, MViT, FocalNet) dominate detection, segmentation, depth, and any task that wants an FPN-style multi-scale feature pyramid. Mixing them is fine: many production VLMs hand image inputs to SigLIP for the language-aligned token stream and to a frozen Swin backbone for an auxiliary spatial mask head, with the two feature streams concatenated at the LLM input.</p>
+</div>
 
 <h2 id="22-1-7-v-next-and-the-next-generation">22.1.7 V-NeXT and the Next Generation</h2>
 <p>The 2025-2026 generation of vision encoders pushes scale further. Two flagship examples stand out. <strong>EVA-CLIP-G</strong> (BAAI, 2024) trains a 1B-parameter ViT-G/14 on 5 billion image-text pairs and surpasses CLIP-L/14 on every zero-shot benchmark by 3 to 8 points. <strong>InternViT-6B</strong> (Shanghai AI Lab, 2024) is the largest publicly available vision encoder; InternVL 1.5 and 2.0 use it to handle 4K-resolution inputs through dynamic patch sampling.</p>
@@ -193,6 +512,9 @@ gtag('config', 'G-PWPHBQL2VL');
 <li>Token count scales as (resolution/patch_size)^2; FLOPs scale quadratically in token count. This is the dominant constraint on high-resolution VLM design.</li>
 <li>The dominant production variant for VLMs is ViT-L/14@336 (303M params, 577 tokens), pretrained via CLIP contrastive learning.</li>
 <li>DINOv2 self-supervised features beat CLIP on segmentation and dense tasks; CLIP features beat DINOv2 on captioning and classification.</li>
+<li>DeiT showed that distilling a CNN teacher into a dedicated distillation token brings ViT training within reach of ImageNet-1K, with no JFT-300M required.</li>
+<li>DINO self-distillation uses two networks (student plus EMA teacher) and a multi-crop strategy (96x96 local crops matched against 224x224 global crops) to learn semantic features without labels; centering and sharpening prevent collapse.</li>
+<li>Swin Transformer alternates Window-MSA and Shifted-Window-MSA layers with hierarchical 2x2 patch merging, producing a CNN-style multi-scale feature pyramid that powers nearly every modern detection and segmentation backbone.</li>
 <li>2025-2026 innovations include dynamic-resolution tile processing (for 4K inputs) and register tokens (for cleaner attention maps).</li>
 <li>EVA-CLIP-G and InternViT-6B push the frontier to 1B-6B parameter encoders, primarily serving frontier VLMs.</li>
 </ul>
@@ -238,6 +560,18 @@ gtag('config', 'G-PWPHBQL2VL');
 </div>
 <div class="bib-entry-card">
 <div class="bib-ref">Darcet, T., Oquab, M., Mairal, J., Bojanowski, P. (2024). <a href="https://arxiv.org/abs/2309.16588" rel="noopener" target="_blank">"Vision Transformers Need Registers."</a> ICLR 2024.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Touvron, H., Cord, M., Douze, M., et al. (2021). <a href="https://arxiv.org/abs/2012.12877" rel="noopener" target="_blank">"Training data-efficient image transformers and distillation through attention (DeiT)."</a> ICML 2021. Introduces the distillation-token recipe that lets ViTs train competitively on ImageNet-1K by distilling soft labels from a frozen CNN teacher.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Caron, M., Touvron, H., Misra, I., et al. (2021). <a href="https://arxiv.org/abs/2104.14294" rel="noopener" target="_blank">"Emerging Properties in Self-Supervised Vision Transformers (DINO)."</a> ICCV 2021. The original DINO paper; introduces the student-teacher self-distillation with multi-crop (96x96 local, 224x224 global) and EMA-teacher centering.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Liu, Z., Lin, Y., Cao, Y., et al. (2021). <a href="https://arxiv.org/abs/2103.14030" rel="noopener" target="_blank">"Swin Transformer: Hierarchical Vision Transformer using Shifted Windows."</a> ICCV 2021 (best paper). Introduces W-MSA + SW-MSA + 2x2 patch merging; the dominant ViT backbone for detection and segmentation.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Liu, Z., Hu, H., Lin, Y., et al. (2022). <a href="https://arxiv.org/abs/2111.09883" rel="noopener" target="_blank">"Swin Transformer V2: Scaling Up Capacity and Resolution."</a> CVPR 2022. Scales the Swin recipe to 3B parameters and 1536x1536 inputs with stabilization tricks for high-resolution dense prediction.</div>
 </div>
 <div class="bib-entry-card">
 <div class="bib-ref">Sun, Q., Fang, Y., Wu, L., et al. (2024). <a href="https://arxiv.org/abs/2402.04252" rel="noopener" target="_blank">"EVA-CLIP-18B: Scaling CLIP to 18 Billion Parameters."</a></div>

@@ -84,6 +84,41 @@ gtag('config', 'G-PWPHBQL2VL');
 <div class="callout-title">Warning: Common Misconception: "Doubling the Context Window Doubles the Memory Cost"</div>
 <p>Beginners often estimate context-window scaling as linear in tokens, but the active memory at any moment is dominated by KV cache <em>plus</em> the activations for the current step, and they scale very differently with batch size. For a single user at long context, KV cache grows linearly with sequence length (the formula above is the right reference). For batched serving, the binding constraint is KV-per-request times the number of concurrent requests, so going from 8K to 32K context can cut your batch size by 4x even though "memory per request" only grew 4x. Always estimate KV memory at your <em>operating</em> batch size, not at batch=1.</p>
 </div>
+<figure>
+<svg viewbox="0 0 760 280" xmlns="http://www.w3.org/2000/svg" style="font-family:'Segoe UI',sans-serif;max-width:100%;height:auto;">
+<rect width="760" height="280" fill="#ffffff"/>
+<text x="380" y="22" font-size="13" font-weight="700" text-anchor="middle" fill="#1a1a2e">KV cache: store every past K, V so each new token costs O(1) per layer, not O(t)</text>
+<g transform="translate(20,50)">
+<rect width="720" height="80" rx="8" fill="#fff3e0" stroke="#a67c1a" stroke-width="2"/>
+<text x="360" y="22" font-size="11" font-weight="700" text-anchor="middle" fill="#a67c1a">Without KV cache: O(t&#178;) recomputation</text>
+<g font-size="10" text-anchor="middle">
+<rect x="20" y="36" width="80" height="28" rx="4" fill="#ffe0b2" stroke="#a67c1a"/><text x="60" y="54" fill="#1a1a2e">step 1: K,V for t=1</text>
+<rect x="110" y="36" width="120" height="28" rx="4" fill="#ffe0b2" stroke="#a67c1a"/><text x="170" y="54" fill="#1a1a2e">step 2: K,V for t=1..2</text>
+<rect x="240" y="36" width="160" height="28" rx="4" fill="#ffe0b2" stroke="#a67c1a"/><text x="320" y="54" fill="#1a1a2e">step 3: K,V for t=1..3</text>
+<rect x="410" y="36" width="200" height="28" rx="4" fill="#ffe0b2" stroke="#a67c1a"/><text x="510" y="54" fill="#1a1a2e">step 4: K,V for t=1..4</text>
+<text x="660" y="54" font-size="9" fill="#a67c1a">&#8230; quadratic growth</text>
+</g>
+</g>
+<g transform="translate(20,150)">
+<rect width="720" height="110" rx="8" fill="#e3e8f5" stroke="#3d4d8a" stroke-width="2"/>
+<text x="360" y="22" font-size="11" font-weight="700" text-anchor="middle" fill="#3d4d8a">With KV cache: prefill once (O(n)), then O(1) per generated token</text>
+<g font-size="10" text-anchor="middle">
+<text x="60" y="44" font-weight="700" fill="#3d4d8a">PREFILL</text>
+<rect x="20" y="50" width="200" height="28" rx="4" fill="#bbdefb" stroke="#3d4d8a"/>
+<text x="120" y="68" fill="#1a1a2e">compute K, V for prompt (n tokens)</text>
+<text x="120" y="92" font-size="9" fill="#5a4a3a">one big GEMM, parallel over n</text>
+<text x="380" y="44" font-weight="700" fill="#3d4d8a">DECODE (loop)</text>
+<rect x="250" y="50" width="120" height="28" rx="4" fill="#fff" stroke="#3d4d8a"/><text x="310" y="68" fill="#1a1a2e">read cache</text>
+<text x="385" y="68" fill="#555">&#8594;</text>
+<rect x="400" y="50" width="160" height="28" rx="4" fill="#fff" stroke="#3d4d8a"/><text x="480" y="68" fill="#1a1a2e">attend with new Q only</text>
+<text x="575" y="68" fill="#555">&#8594;</text>
+<rect x="585" y="50" width="120" height="28" rx="4" fill="#fff" stroke="#3d4d8a"/><text x="645" y="68" fill="#1a1a2e">append new K,V</text>
+<text x="480" y="92" font-size="9" fill="#5a4a3a">each step: 1 token in, 1 token out; cache grows by 1</text>
+</g>
+</g>
+</svg>
+<figcaption><strong>Figure 9.3.1a</strong>: The KV cache eliminates the O(t&#178;) recomputation of past keys and values. Generation splits cleanly into a <em>prefill</em> phase (one parallel pass over the n-token prompt that fills the cache) and a <em>decode</em> phase (a loop that, for each new token, reads the existing cache, computes only the new query, attends, and appends the new K and V back to the cache). The model weights are fixed; the cache grows by one slot per generated token per layer per attention head, which is why long contexts dominate memory rather than compute.</figcaption>
+</figure>
 <p>In autoregressive generation, each new token attends to all previous tokens. The attention mechanism computes queries, keys, and values for each token. Without caching, generating the <span class="math">$t$</span>-th token would require recomputing the keys and values for all <span class="math">$t-1$</span> previous tokens, making generation O(t²) in computation. This caching challenge is particularly important for <a href="../../part-8-conversational-ai-with-llms/module-37-conversational-ai/section-37.3.html">multi-turn conversation systems</a>, where context accumulates across many exchanges. The <strong>KV cache</strong> stores the key and value projections from all previous positions so that each new token only needs to compute its own query, key, and value, then attend against the cached keys and values.</p>
 <div class="callout practical-example">
 <div class="callout-title">Real-World Scenario: Implementing PagedAttention to Double Serving Throughput</div>
@@ -330,6 +365,15 @@ Ratio: 295x memory-bound</div>
 <h2 id="9-3-5-prefix-caching-and-radixattention">9.3.5 Prefix Caching and RadixAttention</h2>
 <p>In many serving scenarios, multiple requests share a common <strong><a href="../../part-3-working-with-llms/module-12-prompt-engineering/section-12.1.html">system prompt</a></strong> or prefix. A customer support chatbot might prepend a 2,000-token company policy document to every conversation. A code assistant might include a large block of boilerplate instructions before each coding request. A RAG system might prepend the same set of retrieved documents to a batch of similar queries. Without prefix caching, the KV computation for those shared tokens is redundantly performed for every single request, burning GPU cycles and inflating time-to-first-token.</p>
 <p><strong>The memory savings scale directly with concurrency.</strong> Consider a production deployment with 100 concurrent requests, each prepending a 2,000-token system prompt to a 500-token user message. Without prefix caching, each request independently computes and stores KV cache for all 2,500 tokens. With prefix caching, the 2,000-token prefix KV cache is computed once and shared across all 100 requests. Only the 500 unique tokens per request require individual KV computation and storage. The KV memory for the prefix portion drops from 100x the cost of a single prefix to 1x, regardless of how many concurrent requests share it.</p>
+<p>The total KV memory under prefix caching with $C$ concurrent sessions sharing a prefix of $L_{\mathrm{prefix}}$ tokens and per-session unique suffix length $L_{\mathrm{unique}}$ is</p>
+<div class="math-block">
+$$M_{\mathrm{KV}}^{\mathrm{cached}} \;=\; m \cdot L_{\mathrm{prefix}} \;+\; C \cdot m \cdot L_{\mathrm{unique}},$$
+</div>
+<p>compared with the uncached cost $M_{\mathrm{KV}}^{\mathrm{naive}} = C \cdot m \cdot (L_{\mathrm{prefix}} + L_{\mathrm{unique}})$, where $m$ is the per-token KV cost. The savings ratio is $1 - \frac{1 + C \cdot \rho}{C(1 + \rho)}$ with $\rho = L_{\mathrm{unique}}/L_{\mathrm{prefix}}$.</p>
+<div class="callout numeric-example">
+<div class="callout-title">Worked Example: prefix caching pays for a long system prompt</div>
+<p>A support assistant uses a 3 K-token product-knowledge prefix and a typical 200-token user turn, serving 50 concurrent sessions on a single H100 running Llama 3 8B. Per-token KV cost at BF16 with $L = 32, H_{\mathrm{kv}} = 8, d = 128$ is $m = 2 \cdot 32 \cdot 8 \cdot 128 \cdot 2 = 131\,072$ bytes/token, or about 128 KB. Naive cost: $50 \times 128 \text{ KB} \times 3\,200 = 20 \text{ GB}$. Cached cost: $128 \text{ KB} \times 3\,000 + 50 \times 128 \text{ KB} \times 200 = 0.38 + 1.28 = 1.66 \text{ GB}$. The 12x reduction frees enough GPU memory to either double the concurrency or quadruple the per-session context window, on the same hardware, with zero quality change. This is why every production serving framework added prefix caching between 2023 and 2025.</p>
+</div>
 <p><strong>Prefix caching</strong> stores the KV cache for common prefixes and reuses it across requests. SGLang (Zheng et al., 2024) implements this via <strong>RadixAttention</strong>, which organizes cached prefixes in a <strong>radix tree</strong> (trie) data structure. Each node in the tree represents a sequence of tokens, with associated KV cache blocks stored on the GPU. When a new request arrives, the serving system traverses the tree from the root, matching tokens one block at a time. At the point where the request diverges from all cached paths, it stops matching, reuses the cached KV up to that point, and only computes KV for the remaining novel tokens. The tree grows as new request patterns are encountered, and an LRU eviction policy removes infrequently used branches when GPU memory is needed.</p>
 <!-- Radix Tree Diagram for Prefix Caching -->
 <div class="diagram-container">

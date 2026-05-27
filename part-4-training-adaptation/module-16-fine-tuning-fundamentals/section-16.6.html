@@ -239,6 +239,150 @@ Token type IDs: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0]
 <div class="callout-title">Warning</div>
 <p><strong>Subword tokenization breaks word boundaries.</strong> A critical challenge in token classification is that the tokenizer may split a single word into multiple subword tokens. The word "Mountain" might become ["Mount", "##ain"]. You must carefully align the original word-level labels with the subword tokens. The standard approach is to assign the label to the first subword and use -100 (ignore) or the corresponding I- tag for continuation subwords.</p>
 </div>
+<h2 id="16-6-4-token-classification-and-ner">16.6.4 Token Classification and Named Entity Recognition</h2>
+<p><strong>Named Entity Recognition (NER)</strong> is the canonical token-level classification task: instead of one label per input, the model emits one label per <em>token</em>. NER tags spans like person names, organizations, locations, dates, and money amounts in text. The architecture mirrors single-label classification but with one critical change: the classification head is applied to <em>every</em> token's hidden state, not just the [CLS] token. Hugging Face provides <code>AutoModelForTokenClassification</code> as the drop-in counterpart of <code>AutoModelForSequenceClassification</code>.</p>
+<h3 id="16-6-4-1-conll-2003-and-the-b-i-o-tagging-scheme">16.6.4.1 CoNLL-2003 and BIO Tagging</h3>
+<p>The reference NER dataset is <strong>CoNLL-2003</strong>, an English newswire corpus annotated with four entity types: <em>PER</em> (person), <em>ORG</em> (organization), <em>LOC</em> (location), and <em>MISC</em> (miscellaneous). Tags follow the <strong>BIO scheme</strong> (sometimes BILOU): <code>B-PER</code> marks the <em>beginning</em> of a person span, <code>I-PER</code> marks the <em>inside</em> (continuation) of the same span, and <code>O</code> marks tokens outside any entity. With four entity types, the label set is $2 \times 4 + 1 = 9$ classes. The BIO scheme matters because it lets the model express that two adjacent person tokens (<code>B-PER I-PER</code>) form a single span ("John Smith") while two adjacent person tokens marked <code>B-PER B-PER</code> would be two separate one-word people ("John Mary").</p>
+<h3 id="16-6-4-2-word-to-subword-label-inheritance">16.6.4.2 Word-to-Subword Label Inheritance</h3>
+<p>NER annotations are defined at the <em>word</em> level, but transformer tokenizers operate at the <em>subword</em> level. The token "Washington" might split into <code>["Wash", "##ington"]</code>; a single label has to be distributed across two tokens. The standard recipe is:</p>
+<ol>
+<li>Assign the original word label (e.g., <code>B-LOC</code>) to the <strong>first subword</strong>.</li>
+<li>For every continuation subword, either repeat the corresponding <code>I-</code> tag (e.g., <code>I-LOC</code>) <em>or</em> assign the sentinel value <code>-100</code>, which PyTorch's cross-entropy loss skips entirely.</li>
+<li>Always assign <code>-100</code> to special tokens (<code>[CLS]</code>, <code>[SEP]</code>, <code>[PAD]</code>) so they do not contribute to the loss.</li>
+</ol>
+<p>The HuggingFace tokenizer exposes <code>word_ids()</code> on its encoded output, returning a list that maps each subword position back to its source word index (with <code>None</code> for special tokens). The full alignment code is the <code>tokenize_and_align_labels</code> helper shown in <strong>Code Fragment 16.6.2</strong> above. Skipping this step is the most common source of "my NER model trains but predicts garbage" bug reports.</p>
+<h3 id="16-6-4-3-seqeval-entity-level-evaluation">16.6.4.3 seqeval: Entity-Level Evaluation</h3>
+<p>NER metrics must be computed at the <strong>entity level</strong>, not the token level. A prediction that gets two of three tokens correct in a three-token entity is a <em>wrong</em> entity prediction; the entire span must match. The <a href="https://github.com/chakki-works/seqeval" rel="noopener" target="_blank"><code>seqeval</code></a> library (one <code>pip install</code>) handles this correctly and is the standard reporting tool. Token-level F1 inflates scores because most tokens are <code>O</code> (outside-any-entity) and any model that predicts <code>O</code> everywhere will look respectable. Entity-level F1, by contrast, only rewards exact span matches and is the metric every CoNLL-style leaderboard expects.</p>
+<div class="callout warning">
+<div class="callout-title">Warning: Token-Level F1 Is Not Entity-Level F1</div>
+<p>If two systems both report "NER F1 = 0.92", they may be measuring different things. Always specify <em>entity-level</em> F1 (computed by <code>seqeval</code>) when comparing NER models. Token-level F1 on CoNLL-2003 is typically 5 to 10 points higher than the entity-level metric, so the two numbers are not interchangeable. The seqeval default uses the strict CoNLL evaluation script, which only credits an entity prediction when both the span boundaries and the type match exactly.</p>
+</div>
+<div class="code-block-wrapper">
+<pre><code class="lang-python"># Entity-level NER metrics with seqeval
+# pip install seqeval evaluate
+from seqeval.metrics import classification_report, f1_score
+import numpy as np
+
+def compute_ner_metrics(eval_pred, label_list):
+    predictions, labels = eval_pred
+    predictions = np.argmax(predictions, axis=2)
+
+    # Drop -100 positions (special tokens, continuation subwords)
+    true_labels = [
+        [label_list[l] for l in seq if l != -100]
+        for seq in labels
+    ]
+    pred_labels = [
+        [label_list[p] for p, l in zip(pred_seq, label_seq) if l != -100]
+        for pred_seq, label_seq in zip(predictions, labels)
+    ]
+    return {
+        "entity_f1": f1_score(true_labels, pred_labels),
+        "report": classification_report(true_labels, pred_labels, digits=3),
+    }
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 16.6.5:</strong> Plugging seqeval into a HuggingFace <code>Trainer</code>. The <code>compute_metrics</code> function strips out the <code>-100</code> positions (continuation subwords and special tokens) before calling seqeval, which expects clean per-word label sequences.</div>
+</div>
+<h2 id="16-6-4-b-setfit-few-shot-classification-without-prompts">16.6.4b SetFit: Few-Shot Classification Without Prompts</h2>
+<p><strong>SetFit</strong> (Tunstall et al., 2022) is the production-default few-shot text-classification recipe and the one that should appear in every team's "I only have 8 labeled examples per class" playbook. The trick is to outsource the heavy lifting to an existing sentence-transformer.</p>
+<p>SetFit runs in two stages:</p>
+<ol>
+<li><strong>Contrastive fine-tuning of a sentence transformer.</strong> Take a pretrained sentence-transformer (e.g., <code>all-MiniLM-L6-v2</code>) and a tiny labeled set (8 to 64 examples per class). Generate <em>contrastive pairs</em> on the fly: sentences from the same class form positives, sentences from different classes form negatives. The number of pairs grows quadratically in the number of examples, so even 8 examples per class produces thousands of training pairs. Fine-tune the sentence transformer on these pairs with a contrastive loss for a few epochs. The embedding space is now warped so that same-class sentences cluster together.</li>
+<li><strong>Train a classifier head on the embeddings.</strong> Encode every labeled example with the fine-tuned sentence transformer, then fit a vanilla classifier (logistic regression by default) on those embeddings. The head trains in seconds because logistic regression on a few hundred 384-dim vectors is trivial.</li>
+</ol>
+<p>The result is competitive with full BERT fine-tuning on standard few-shot benchmarks while using zero prompts, zero generative model calls, no LLM API costs at inference, and a model small enough to deploy on a CPU. SetFit is what to reach for when the labeled dataset is too small for a normal fine-tune but too important to leave to a few-shot prompt. Figure 16.6.4b separates the two stages visually so the contrastive warp-up and the head-fit step do not blur together.</p>
+<figure>
+<svg viewBox="0 0 760 240" xmlns="http://www.w3.org/2000/svg" style="font-family:'Segoe UI',sans-serif;max-width:100%;height:auto;">
+<rect width="760" height="240" fill="#ffffff"/>
+<text x="380" y="22" font-size="13" text-anchor="middle" fill="#1a1a2e" font-weight="bold">SetFit: contrastive pre-tune, then classifier head</text>
+<rect x="20" y="50" width="350" height="160" rx="8" fill="#fafafa" stroke="#1976d2" stroke-width="1.5"/>
+<text x="195" y="72" font-size="12" text-anchor="middle" fill="#1565c0" font-weight="bold">Stage 1: Contrastive pre-tune</text>
+<rect x="40" y="90" width="120" height="40" rx="5" fill="#e3f2fd" stroke="#1976d2"/>
+<text x="100" y="108" font-size="11" text-anchor="middle" fill="#1a1a2e">8 examples</text>
+<text x="100" y="122" font-size="10" text-anchor="middle" fill="#555">per class</text>
+<rect x="180" y="90" width="170" height="40" rx="5" fill="#e3f2fd" stroke="#1976d2"/>
+<text x="265" y="108" font-size="11" text-anchor="middle" fill="#1a1a2e">On-the-fly pairs</text>
+<text x="265" y="122" font-size="10" text-anchor="middle" fill="#555">same-class +, cross-class -</text>
+<rect x="40" y="145" width="310" height="50" rx="5" fill="#e8f5e9" stroke="#2e7d32"/>
+<text x="195" y="165" font-size="11" text-anchor="middle" fill="#1a1a2e">Sentence transformer (all-MiniLM-L6-v2)</text>
+<text x="195" y="183" font-size="10" text-anchor="middle" fill="#555">contrastive loss warps embedding space</text>
+<line x1="160" y1="110" x2="180" y2="110" stroke="#444" stroke-width="1.5" marker-end="url(#arrow-setfit)"/>
+<line x1="195" y1="130" x2="195" y2="145" stroke="#444" stroke-width="1.5" marker-end="url(#arrow-setfit)"/>
+<rect x="400" y="50" width="340" height="160" rx="8" fill="#fafafa" stroke="#c2185b" stroke-width="1.5"/>
+<text x="570" y="72" font-size="12" text-anchor="middle" fill="#c2185b" font-weight="bold">Stage 2: Classifier head</text>
+<rect x="420" y="90" width="140" height="40" rx="5" fill="#fce4ec" stroke="#c2185b"/>
+<text x="490" y="108" font-size="11" text-anchor="middle" fill="#1a1a2e">Frozen encoder</text>
+<text x="490" y="122" font-size="10" text-anchor="middle" fill="#555">embed labeled set</text>
+<rect x="580" y="90" width="140" height="40" rx="5" fill="#fff3e0" stroke="#e67e22"/>
+<text x="650" y="108" font-size="11" text-anchor="middle" fill="#1a1a2e">Logistic regression</text>
+<text x="650" y="122" font-size="10" text-anchor="middle" fill="#555">fits in seconds</text>
+<rect x="420" y="145" width="300" height="50" rx="5" fill="#f3e5f5" stroke="#7b1fa2"/>
+<text x="570" y="165" font-size="11" text-anchor="middle" fill="#1a1a2e">Prediction = head(encode(text))</text>
+<text x="570" y="183" font-size="10" text-anchor="middle" fill="#555">CPU-ready, no LLM calls</text>
+<line x1="560" y1="110" x2="580" y2="110" stroke="#444" stroke-width="1.5" marker-end="url(#arrow-setfit)"/>
+<line x1="570" y1="130" x2="570" y2="145" stroke="#444" stroke-width="1.5" marker-end="url(#arrow-setfit)"/>
+<line x1="370" y1="130" x2="400" y2="130" stroke="#444" stroke-width="2" marker-end="url(#arrow-setfit)"/>
+<defs><marker id="arrow-setfit" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#444"/></marker></defs>
+</svg>
+<figcaption><strong>Figure 16.6.4b</strong>: SetFit runs in two stages. Stage 1 takes a handful of labeled examples per class, generates same-class positive and cross-class negative pairs on the fly, and contrastively warps a pretrained sentence transformer. Stage 2 freezes that encoder and fits a vanilla logistic-regression head on its embeddings.</figcaption>
+</figure>
+<p>Code Fragment 16.6.5a is the smallest SetFit invocation that ships: one model, one trainer, one call to <code>train</code>.</p>
+<div class="code-block-wrapper">
+<pre><code class="language-python"># SetFit in its smallest possible form: two-stage few-shot text classification.
+from setfit import SetFitModel, SetFitTrainer
+from datasets import Dataset
+
+train_dataset = Dataset.from_dict({
+    "text": ["loved the support", "worst flight ever", "fast and friendly", "lost my luggage"],
+    "label": [1, 0, 1, 0],
+})
+model = SetFitModel.from_pretrained("sentence-transformers/all-MiniLM-L6-v2")
+trainer = SetFitTrainer(model=model, train_dataset=train_dataset, num_iterations=20)
+trainer.train()
+print(model.predict(["the staff were wonderful"]))
+</code></pre>
+<p class="figure-caption"><strong>Code Fragment 16.6.5a</strong>: Minimal SetFit recipe. <code>num_iterations=20</code> drives the on-the-fly pair generation that produces thousands of contrastive pairs from a handful of labels; the logistic head fits automatically inside <code>trainer.train()</code>.</p>
+</div>
+<p>Concretely, stage one minimizes a contrastive distance loss over on-the-fly pairs $(x_i, x_j)$ with label $y_{ij} \in \{0, 1\}$ (1 if same class, 0 otherwise):</p>
+<p>$$\mathcal{L}_{\text{SetFit}} = \frac{1}{|\mathcal{P}|} \sum_{(x_i, x_j) \in \mathcal{P}} y_{ij}\, d(f(x_i), f(x_j))^2 + (1 - y_{ij})\, \max\!\big(0,\; m - d(f(x_i), f(x_j))\big)^2$$</p>
+<p>where $f$ is the sentence transformer, $d$ is Euclidean (or cosine) distance, and $m$ is a margin (default $0.5$). Same-class pairs pull together; different-class pairs are pushed at least $m$ apart. Stage two is a vanilla logistic regression head on the resulting embeddings, with the usual cross-entropy loss.</p>
+<div class="callout numeric-example">
+<div class="callout-title">Worked Example: How 8 Examples Become Thousands of Training Pairs</div>
+<p>Suppose a 3-class sentiment task has $K = 8$ labeled examples per class, so $3K = 24$ examples total. SetFit generates contrastive pairs by sampling positive pairs from the same class and negative pairs across classes. With $K = 8$, each class yields $\binom{8}{2} = 28$ unique same-class pairs, so 3 classes produce $84$ positive pairs. The set of distinct cross-class pairs is $3 \cdot K \cdot K \cdot (3 - 1)/2 = 192$. With <code>num_iterations=20</code>, SetFit resamples and rebalances each epoch, yielding roughly $20 \cdot (84 + 192) \approx 5{,}500$ training pairs from the original 24 examples. That is the quadratic pair-generation trick: the labeled budget is fixed, but the contrastive signal grows with $K^2$.</p>
+</div>
+<div class="callout library-shortcut">
+<div class="callout-title">Library Shortcut: SetFit in 10 Lines</div>
+<details class="code-collapsible"><summary>Show code</summary><div class="code-block-wrapper">
+<pre><code class="lang-python"># pip install setfit
+from setfit import SetFitModel, SetFitTrainer
+from datasets import Dataset
+
+# 8 labeled examples per class is enough to start
+train_ds = Dataset.from_dict({
+    "text": ["Order arrived broken", "Great product!", "Late delivery", "Loved it!"],
+    "label": [0, 1, 0, 1],  # 0=complaint, 1=praise
+})
+test_ds = Dataset.from_dict({"text": ["Worst experience ever", "Five stars"], "label": [0, 1]})
+
+model = SetFitModel.from_pretrained("sentence-transformers/all-MiniLM-L6-v2")
+trainer = SetFitTrainer(
+    model=model,
+    train_dataset=train_ds,
+    eval_dataset=test_ds,
+    num_iterations=20,           # pair-generation iterations
+    num_epochs=1,
+)
+trainer.train()
+print(trainer.evaluate())
+print(model.predict(["Box arrived crushed"]))
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 16.6.6:</strong> The full SetFit recipe. Two stages (contrastive sentence-transformer fine-tune, then classifier head) are hidden behind <code>SetFitTrainer.train()</code>. The model trains in minutes on CPU and ships at sentence-transformer speed.</div>
+</div></details>
+</div>
+<div class="callout tip">
+<div class="callout-title">Tip: When SetFit Beats SFT</div>
+<p>If labeled examples per class are in the single digits and inference latency matters, SetFit usually wins on the cost-quality frontier. If labeled examples are in the hundreds per class and the task involves multi-step reasoning, full classifier-head fine-tuning (Section 16.6.2) or even an instruction-tuned LLM with few-shot prompts will do better. The rule of thumb is: under 32 examples per class, try SetFit first.</p>
+</div>
 <h2 id="16-6-5-sequence-pair-tasks">16.6.5 Sequence-Pair Tasks</h2>
 <p>Some classification tasks require comparing two input texts. Natural language inference (NLI) classifies the relationship between a premise and hypothesis as entailment, contradiction, or neutral. Semantic textual similarity (STS) scores the similarity between two sentences. Question answering classification determines whether a passage contains the answer to a question. All of these are handled with the same <code>AutoModelForSequenceClassification</code> by providing both texts to the tokenizer. <strong>Code Fragment 16.6.2</strong> shows this approach in practice.</p>
 <div class="code-block-wrapper">
@@ -469,6 +613,12 @@ Class 2 (2%): 2.46x
 </div>
 <div class="bib-entry-card">
 <div class="bib-ref"><a href="https://arxiv.org/abs/1910.03771" rel="noopener" target="_blank">Wolf, T. et al. (2020). <em>Transformers: State-of-the-Art Natural Language Processing</em>. EMNLP 2020.</a> The original Hugging Face Transformers library paper, describing the unified API design that makes switching between models trivial. Understanding the AutoModel architecture is key to the model selection flexibility discussed in this section. Recommended background for anyone new to the Transformers ecosystem.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://arxiv.org/abs/2209.11055" rel="noopener" target="_blank">Tunstall, L. et al. (2022). <em>Efficient Few-Shot Learning Without Prompts</em>. arXiv:2209.11055.</a> The SetFit paper. Demonstrates that contrastive fine-tuning of a sentence-transformer followed by a classifier head matches GPT-3 few-shot performance on standard classification benchmarks while using a model 1,000x smaller and zero prompts. The production-default recipe for any classification problem with fewer than 32 examples per class, covered in Section 16.6.4b.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://aclanthology.org/W03-0419/" rel="noopener" target="_blank">Tjong Kim Sang, E. F. &amp; De Meulder, F. (2003). <em>Introduction to the CoNLL-2003 Shared Task: Language-Independent Named Entity Recognition</em>. CoNLL 2003.</a> The reference NER dataset and the source of the four-entity-type BIO scheme used in Section 16.6.4. Every modern English NER paper still reports its primary number on CoNLL-2003 entity-level F1.</div>
 </div>
 </section>
 </details>

@@ -166,6 +166,53 @@ Total:            112.0 GB
 <div class="callout-title">Key Insight</div>
 <p>AdamW is the de facto standard optimizer for LLM training. Nearly every major open LLM (GPT, Llama, Mistral, Qwen) uses AdamW. The decoupled weight decay provides more consistent regularization across the model's diverse parameter groups, leading to better generalization. Weight decay is typically not applied to bias terms or layer normalization parameters.</p>
 </div>
+<figure>
+<svg viewbox="0 0 720 240" xmlns="http://www.w3.org/2000/svg" style="font-family:'Segoe UI',sans-serif;max-width:100%;height:auto;">
+<rect width="720" height="240" fill="#ffffff"/>
+<text x="360" y="22" font-size="13" font-weight="700" text-anchor="middle" fill="#1a1a2e">Adam vs AdamW: where the weight-decay term is applied</text>
+<g transform="translate(30,46)">
+<rect width="320" height="170" rx="8" fill="#fff3e0" stroke="#a67c1a" stroke-width="2"/>
+<text x="160" y="22" font-size="12" font-weight="700" text-anchor="middle" fill="#a67c1a">Adam (coupled)</text>
+<text x="160" y="52" font-size="11" text-anchor="middle" fill="#1a1a2e">g &#8592; &#8711;L + &#955;&#952;  (decay folded into grad)</text>
+<text x="160" y="80" font-size="11" text-anchor="middle" fill="#1a1a2e">m, v updated from g</text>
+<text x="160" y="108" font-size="11" text-anchor="middle" fill="#1a1a2e">&#952; &#8592; &#952; &#8722; &#951; &#183; m&#770; / (&#8730;v&#770; + &#949;)</text>
+<text x="160" y="142" font-size="10" text-anchor="middle" fill="#a67c1a">Decay is scaled by 1/&#8730;v&#770;: large-grad params get less decay.</text>
+</g>
+<g transform="translate(370,46)">
+<rect width="320" height="170" rx="8" fill="#e8f5e9" stroke="#2e7d32" stroke-width="2"/>
+<text x="160" y="22" font-size="12" font-weight="700" text-anchor="middle" fill="#2e7d32">AdamW (decoupled)</text>
+<text x="160" y="52" font-size="11" text-anchor="middle" fill="#1a1a2e">g &#8592; &#8711;L  (no decay in grad)</text>
+<text x="160" y="80" font-size="11" text-anchor="middle" fill="#1a1a2e">m, v updated from g</text>
+<text x="160" y="108" font-size="11" text-anchor="middle" fill="#1a1a2e">&#952; &#8592; (1 &#8722; &#955;&#951;) &#952; &#8722; &#951; &#183; m&#770; / (&#8730;v&#770; + &#949;)</text>
+<text x="160" y="142" font-size="10" text-anchor="middle" fill="#2e7d32">Every parameter gets the same multiplicative shrink per step.</text>
+</g>
+</svg>
+<figcaption><strong>Figure 6.5.3</strong>: Adam folds weight decay into the gradient before the adaptive scaling, so parameters with large second-moment estimates effectively see weaker regularization. AdamW applies the decay term as a separate multiplicative shrink on the parameter, restoring uniform regularization across the network.</figcaption>
+</figure>
+<pre><code class="language-python"># Minimal AdamW update step in NumPy, matching torch.optim.AdamW.
+# The key line is the decoupled decay theta *= (1 - lr * weight_decay)
+# applied OUTSIDE the adaptive m / sqrt(v) ratio.
+import numpy as np
+
+def adamw_step(theta, grad, m, v, t, lr=3e-4, betas=(0.9, 0.999),
+               eps=1e-8, weight_decay=0.01):
+    b1, b2 = betas
+    m = b1 * m + (1 - b1) * grad
+    v = b2 * v + (1 - b2) * grad ** 2
+    m_hat = m / (1 - b1 ** t)              # bias-corrected first moment
+    v_hat = v / (1 - b2 ** t)              # bias-corrected second moment
+    theta = theta * (1.0 - lr * weight_decay)   # decoupled weight decay
+    theta = theta - lr * m_hat / (np.sqrt(v_hat) + eps)
+    return theta, m, v
+
+theta = np.array([1.0, -2.0, 0.5])
+m, v = np.zeros_like(theta), np.zeros_like(theta)
+for t in range(1, 4):
+    grad = np.array([0.1, -0.2, 0.05])     # toy fixed gradient
+    theta, m, v = adamw_step(theta, grad, m, v, t)
+    print(f"step {t}: theta = {theta}")
+</code></pre>
+<p class="figure-caption"><strong>Code Fragment 6.5.1</strong>: AdamW step from scratch in NumPy. The decoupled weight-decay line <code>theta *= (1 - lr * weight_decay)</code> is the only difference from vanilla Adam; it is applied to the parameter directly rather than added into the gradient.</p>
 <h2 id="6-5-4-memory-efficient-optimizer-alternatives">6.5.4 Memory-Efficient Optimizer Alternatives</h2>
 <p>AdamW wins on accuracy but loses badly on memory: its two moment buffers triple the parameter footprint, and a 70B model needs roughly 840 GB just for optimizer state in FP32. Three families of memory-efficient alternatives (Adafactor, 8-bit Adam, and Lion) sacrifice some of AdamW's robustness in exchange for 50% to 87% less optimizer memory. We work through them in order of increasing aggressiveness.</p>
 <h3 id="adafactor">Adafactor</h3>
@@ -269,6 +316,33 @@ Step 99999:  LR = 3.00e-05
     </div>
 <div class="code-caption"><strong>Code Fragment 6.5.3</strong>: Where $T$ is the total number of training steps.</div>
 </div>
+<p>PyTorch ships the same schedule as a one-liner via <code>CosineAnnealingLR</code>, which most production training loops use directly rather than rolling the formula by hand:</p>
+<div class="code-block-wrapper">
+<pre><code class="language-python">import torch
+from torch.optim.lr_scheduler import CosineAnnealingLR
+
+optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
+scheduler = CosineAnnealingLR(optimizer, T_max=100_000, eta_min=3e-5)
+
+for step in range(100_000):
+    train_step(...)
+    optimizer.step()
+    scheduler.step()         # advances LR along the cosine curve
+    optimizer.zero_grad()
+</code></pre>
+<p class="figure-caption"><strong>Code Fragment 6.5.4</strong>: The native PyTorch <code>CosineAnnealingLR</code> with peak 3e-4 decaying to a floor of 3e-5 over 100k steps. Pair with a separate <code>LinearLR</code> warmup or wrap both in a <code>SequentialLR</code> for the warmup-plus-cosine recipe used by Llama and Mistral.</p>
+</div>
+<div class="callout numeric-example">
+<div class="callout-title">Numeric Example: Cosine LR at three checkpoints</div>
+<p>With peak <span class="math">$\eta_{\max} = 3 \times 10^{-4}$</span>, floor <span class="math">$\eta_{\min} = 3 \times 10^{-5}$</span>, warmup <span class="math">$T_{\text{warm}} = 2000$</span> steps, and total budget <span class="math">$T = 100{,}000$</span> steps:</p>
+<ul>
+<li><strong>Step 1</strong> (deep in warmup): <span class="math">$\eta = 3 \times 10^{-4} \cdot 1/2000 = 1.5 \times 10^{-7}$</span>. Essentially zero, so the first gradient barely moves any weight.</li>
+<li><strong>Step 2000</strong> (end of warmup, cosine begins): <span class="math">$\eta = \eta_{\max} = 3 \times 10^{-4}$</span>. Peak learning rate, applied for one step only.</li>
+<li><strong>Step 50000</strong> (halfway through cosine phase, progress = 48/98 ≈ 0.49): <span class="math">$\eta = 3 \times 10^{-5} + 0.5 \cdot (3 \times 10^{-4} - 3 \times 10^{-5})(1 + \cos(0.49\pi)) \approx 1.65 \times 10^{-4}$</span>. About 55% of peak, the regime where most of the loss reduction happens.</li>
+<li><strong>Step 100000</strong> (final step): <span class="math">$\eta = \eta_{\min} = 3 \times 10^{-5}$</span>. Exactly 10% of peak, the conventional floor.</li>
+</ul>
+<p>Roughly 80% of the training budget is spent at learning rates between 50% and 100% of peak, which is what makes cosine such a good fit for large-batch pretraining.</p>
+</div>
 <div class="callout library-shortcut">
 <div class="callout-title">Library Shortcut: <a href="../../part-2-understanding-llms/module-10-interpretability/section-10.7.html#10-6-huggingface-transformers-deep-dive">Hugging Face</a> Transformers LR Schedulers</div>
 <p>The manual schedule function above is useful for understanding the math. In practice, the Hugging Face <code>transformers</code> library provides pre-built schedulers that plug directly into any PyTorch optimizer:</p>
@@ -289,6 +363,50 @@ for step in range(num_training_steps):
     scheduler.step()  # advances LR according to the cosine curve.
     optimizer.zero_grad()
 </code></pre><div class="code-caption"><strong>Code Fragment 6.5.7:</strong> Plug a Hugging Face cosine-with-warmup scheduler into any PyTorch optimizer.</div></div></details>
+</div>
+<h3 id="noam-schedule">The Noam Schedule (Historical Reference)</h3>
+<p>Before cosine and WSD became default, the <strong>Noam</strong> schedule, named after Noam Shazeer and introduced alongside the original Transformer in Vaswani et al. (2017, "Attention Is All You Need"), set the historical convention: <em>linear warmup followed by inverse-square-root decay</em>. The learning rate at training step <span class="math">$t$</span> is</p>
+<div class="math-block">
+    $$\eta (t) = d_{\text{model}}^{-0.5} \cdot \min \!\left(t^{-0.5}, \; t \cdot T_{\text{warm}}^{-1.5}\right)$$
+</div>
+<p>For <span class="math">$t \le T_{\text{warm}}$</span> the right argument of the <span class="math">$\min$</span> dominates, giving a linear warmup. For <span class="math">$t > T_{\text{warm}}$</span> the left argument takes over, decaying the learning rate as <span class="math">$t^{-1/2}$</span>. The peak learning rate is reached exactly at <span class="math">$t = T_{\text{warm}}$</span> and is scaled by <span class="math">$d_{\text{model}}^{-0.5}$</span>, so wider models automatically use smaller learning rates. The schedule has no notion of a total step budget, which made it convenient when total training horizons were uncertain. Most modern large-scale runs prefer cosine or WSD because the slow square-root decay leaves the model at a non-trivial learning rate for too long, but Noam is still the historical reference and remains a useful baseline for translation-scale transformer experiments.</p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># Noam learning-rate schedule (Vaswani et al., 2017, "Attention Is All You Need").</span>
+<span class="c1"># Linear warmup for T_warm steps, then inverse-square-root decay.</span>
+<span class="kn">import</span> <span class="nn">torch</span>
+
+<span class="k">class</span> <span class="nc">NoamScheduler</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">optim</span><span class="o">.</span><span class="n">lr_scheduler</span><span class="o">.</span><span class="n">_LRScheduler</span><span class="p">):</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">optimizer</span><span class="p">,</span> <span class="n">d_model</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">warmup_steps</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">4000</span><span class="p">,</span> <span class="n">factor</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">d_model</span> <span class="o">=</span> <span class="n">d_model</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">warmup</span> <span class="o">=</span> <span class="n">warmup_steps</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">factor</span> <span class="o">=</span> <span class="n">factor</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">optimizer</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">get_lr</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">step</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_step_count</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+        <span class="n">scale</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">factor</span> <span class="o">*</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">d_model</span> <span class="o">**</span> <span class="o">-</span><span class="mf">0.5</span><span class="p">)</span> <span class="o">*</span> \
+                <span class="nb">min</span><span class="p">(</span><span class="n">step</span> <span class="o">**</span> <span class="o">-</span><span class="mf">0.5</span><span class="p">,</span> <span class="n">step</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">warmup</span> <span class="o">**</span> <span class="o">-</span><span class="mf">1.5</span><span class="p">)</span>
+        <span class="k">return</span> <span class="p">[</span><span class="n">scale</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">base_lrs</span><span class="p">]</span>
+
+<span class="c1"># Usage with the canonical Transformer config (d_model=512, warmup=4000):</span>
+<span class="n">model</span> <span class="o">=</span> <span class="o">...</span>  <span class="c1"># your Transformer</span>
+<span class="n">optimizer</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">optim</span><span class="o">.</span><span class="n">Adam</span><span class="p">(</span><span class="n">model</span><span class="o">.</span><span class="n">parameters</span><span class="p">(),</span> <span class="n">lr</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">betas</span><span class="o">=</span><span class="p">(</span><span class="mf">0.9</span><span class="p">,</span> <span class="mf">0.98</span><span class="p">),</span> <span class="n">eps</span><span class="o">=</span><span class="mf">1e-9</span><span class="p">)</span>
+<span class="n">scheduler</span> <span class="o">=</span> <span class="n">NoamScheduler</span><span class="p">(</span><span class="n">optimizer</span><span class="p">,</span> <span class="n">d_model</span><span class="o">=</span><span class="mi">512</span><span class="p">,</span> <span class="n">warmup_steps</span><span class="o">=</span><span class="mi">4000</span><span class="p">)</span></code></pre>
+<div class="code-caption"><strong>Code Fragment 6.5.8:</strong> A faithful PyTorch implementation of the Noam schedule from the original Transformer paper. Note the trick of initializing Adam with <code>lr=1</code> so the scheduler's multiplier <em>is</em> the effective learning rate; the scaling by <span class="math">$d_{\text{model}}^{-0.5}$</span> means a 1024-dim model automatically gets roughly 70% of the learning rate that a 512-dim model uses.</div>
+</div>
+<div class="callout numeric-example">
+<div class="callout-title">Numeric Example: Noam LR at three checkpoints</div>
+<p>For the canonical Transformer base config (<span class="math">$d_{\text{model}} = 512$</span>, <span class="math">$T_{\text{warm}} = 4000$</span>, factor = 1), the schedule <span class="math">$\eta(t) = 512^{-0.5} \cdot \min(t^{-0.5}, \, t \cdot 4000^{-1.5})$</span> evaluates to:</p>
+<ul>
+<li><strong>Step 1</strong> (early warmup, second branch active): <span class="math">$\eta = 0.0442 \cdot 1 \cdot 4000^{-1.5} = 0.0442 \cdot 3.95 \times 10^{-6} \approx 1.75 \times 10^{-7}$</span>. The optimizer is essentially frozen for the first few hundred steps.</li>
+<li><strong>Step 4000</strong> (end of warmup, both branches equal): <span class="math">$\eta = 0.0442 \cdot 4000^{-0.5} = 0.0442 \cdot 0.01581 \approx 6.99 \times 10^{-4}$</span>. This is the peak learning rate.</li>
+<li><strong>Step 100000</strong> (deep into the square-root decay): <span class="math">$\eta = 0.0442 \cdot 100000^{-0.5} = 0.0442 \cdot 0.00316 \approx 1.40 \times 10^{-4}$</span>. The LR has decayed to roughly 20% of peak but is still non-trivial, which is exactly the slow-tail behaviour that pushed modern runs toward cosine and WSD.</li>
+</ul>
+<p>A useful sanity check: peak LR at step <span class="math">$T_{\text{warm}}$</span> equals <span class="math">$(d_{\text{model}} \cdot T_{\text{warm}})^{-0.5}$</span>, so a wider 1024-dim model with the same warmup would peak at roughly <span class="math">$4.94 \times 10^{-4}$</span>, about 70% of the 512-dim value.</p>
+</div>
+<div class="callout note">
+<div class="callout-title">Note: Noam vs cosine vs WSD at a glance</div>
+<p>All three schedules share the same warmup ramp, then differ in their decay phase. Noam decays as <span class="math">$t^{-1/2}$</span> with no terminal step (slow tail, never reaches zero). Cosine decays smoothly to a small floor (typically 10% of peak) at a pre-committed total step count. WSD holds at peak for most of training and crashes to near zero in a short final phase. Noam is best when the training budget is unknown but the model is small; cosine is the safe default for fixed-budget runs; WSD wins when you want to extend training without restarting the schedule.</p>
 </div>
 <h3 id="wsd-warmup-stable-decay">WSD: Warmup-Stable-Decay</h3>
 <p>A newer schedule, increasingly preferred for large-scale training, is the <strong>Warmup-Stable-Decay (WSD)</strong> schedule (also called trapezoidal). Instead of continuously decaying the learning rate after warmup, WSD maintains a constant "stable" phase at the peak learning rate for most of training, then applies a rapid linear or cosine decay only during a short final phase (typically the last 10-20% of steps).</p>
@@ -479,6 +597,9 @@ Step  99999: LR = 3.00e-05</div>
 <h3 id="optimizer-foundations">Optimizer Foundations</h3>
 <div class="bib-entry-card">
 <div class="bib-ref"><a href="https://arxiv.org/abs/1412.6980" rel="noopener" target="_blank">Kingma, D. P. &amp; Ba, J. (2015). "Adam: A Method for Stochastic Optimization." <em>ICLR 2015</em>.</a> Introduces the Adam optimizer combining momentum with adaptive per-parameter learning rates. The most widely used optimizer in deep learning and the starting point for nearly all LLM training recipes.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://arxiv.org/abs/1706.03762" rel="noopener" target="_blank">Vaswani, A. et al. (2017). "Attention Is All You Need." <em>NeurIPS 2017</em>.</a> The original Transformer paper. Beyond the architecture, it defines the Noam learning-rate schedule (linear warmup then inverse-square-root decay scaled by <span class="math">$d_{\text{model}}^{-0.5}$</span>) that remained the multilingual-NMT and small-Transformer training convention for years.</div>
 </div>
 <div class="bib-entry-card">
 <div class="bib-ref"><a href="https://arxiv.org/abs/1711.05101" rel="noopener" target="_blank">Loshchilov, I. &amp; Hutter, F. (2019). "Decoupled Weight Decay Regularization." <em>ICLR 2019</em>.</a> Shows that L2 regularization and weight decay are not equivalent in adaptive optimizers, and proposes AdamW which decouples weight decay from the gradient update. AdamW is now the default optimizer for LLM pretraining.</div>

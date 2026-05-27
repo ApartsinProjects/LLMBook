@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-PWPHBQL2VL"></script>
+<script>
+window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', 'G-PWPHBQL2VL');
+</script>
+
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<meta content="Section E.7: Distributed Training. DataParallel, DistributedDataParallel with torchrun, FSDP1 vs FSDP2 (sharding, mixed precision, activation checkpointing), and HF Accelerate." name="description"/>
+<title>Section E.7: Distributed Training | Building Conversational AI with LLMs and Agents</title>
+<link href="../../styles/book.css" rel="stylesheet"/>
+<link href="../../styles/pygments.css" rel="stylesheet"/>
+<link href="../../vendor/katex/katex.min.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/katex/katex.min.js"></script>
+<script defer="" onload="renderMathInElement(document.body, {
+            delimiters: [
+                {left: '$$', right: '$$', display: true},
+                {left: '$', right: '$', display: false}
+            ],
+            throwOnError: false
+        });" src="../../vendor/katex/contrib/auto-render.min.js"></script>
+<link href="../../vendor/prism/prism-theme.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/prism/prism-bundle.min.js"></script>
+<script defer="" src="../../scripts/book.js"></script>
+<link href="../../pagefind/pagefind-ui.css" rel="stylesheet"/>
+<script defer="" src="../../pagefind/pagefind-ui.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
+
+<header class="chapter-header">
+<nav class="header-nav">
+<a class="book-title-link" href="../../index.html">Building Conversational AI with LLMs and Agents</a>
+<a class="toc-link" href="../../toc.html" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+</nav>
+<div class="header-search">
+<div id="search"></div>
+</div>
+
+<div class="page-breadcrumb" data-pagefind-meta="chapter"><a href="../index.html">Appendices</a><span class="bc-sep">›</span><a href="index.html">Appendix E: PyTorch Reference</a></div>
+<h1>Distributed Training</h1><div class="page-current">Section E.7</div>
+
+</header>
+<main class="content" id="main-content"><span class="pagefind-meta-injected" data-pagefind-meta="part:Building Conversational AI with LLMs and Agents" hidden=""></span><span class="pagefind-meta-injected" data-pagefind-meta="chapter:Appendix E: PyTorch Reference" hidden=""></span>
+
+<figure class="illustration">
+<img alt="A team of four friendly cartoon chefs in a sunny kitchen, each preparing one piece of a giant rainbow layer cake at their own station, with conveyor lines synchronizing the pieces at a central turntable, illustrating gradient synchronization across distributed workers" src="images/distributed-chefs-cake.png"/>
+<figcaption>Distributed training is a team of chefs: each works on its own slice of the batch, then everyone synchronizes their gradients at the all-reduce so the recipe stays consistent across the kitchen.</figcaption>
+</figure>
+
+<p>When one GPU is no longer enough, distributed training spreads the model, the data, or both across multiple devices. PyTorch ships three increasingly capable approaches: the legacy single-process <code>DataParallel</code> (briefly covered for historical context), the modern multi-process <code>DistributedDataParallel</code> (the default for data-parallel training), and Fully Sharded Data Parallel (FSDP, the default for models that exceed a single GPU's memory). For most teams that do not want to write distributed code at all, Hugging Face Accelerate provides a thin launcher on top of these primitives. This section explains when to reach for each.</p>
+
+<p>The mathematical story behind why distributed pretraining works at all (the Chinchilla scaling laws, the compute-optimal token budget) lives in <a href="../../part-2-understanding-llms/module-06-pretraining-scaling-laws/index.html">Chapter 6</a>. Distributed inference patterns for production serving are covered in <a href="../../part-2-understanding-llms/module-09-inference-optimization/index.html">Chapter 9</a>.</p>
+
+<h2 id="dataparallel">DataParallel: The Legacy Single-Process Path</h2>
+
+<p>The original <code>nn.DataParallel</code> wraps a model and, on each forward pass, scatters the input across multiple GPUs, replicates the model on each, runs the forward pass in parallel, and gathers the outputs. It runs entirely in one Python process. This sounds attractive but is dominated by the global interpreter lock (GIL): the gather step serializes all gradients through the master process, and the replication step copies the model on every forward pass. <code>DataParallel</code> typically achieves 50 to 70 percent of single-GPU efficiency per added device.</p>
+
+<p><strong>Use <code>DataParallel</code> for nothing.</strong> It is mentioned here only because legacy code uses it. The drop-in modern replacement is <code>DistributedDataParallel</code>, which uses one process per GPU and is strictly faster and more scalable.</p>
+
+<h2 id="ddp">DistributedDataParallel: The Modern Default</h2>
+
+<p><code>nn.parallel.DistributedDataParallel</code> (DDP) replicates the model on every GPU, runs forward and backward independently on each replica, and then synchronizes gradients via an all-reduce collective so every replica sees the average gradient and performs an identical optimizer step. Each GPU runs in its own process; there is no master process bottleneck. The all-reduce overlaps with the backward pass (gradients for early layers are reduced while later layers are still computing their backwards), so the communication cost is largely hidden.</p>
+
+<p>The launcher is <code>torchrun</code>, which sets the environment variables every DDP process needs (<code>RANK</code>, <code>WORLD_SIZE</code>, <code>LOCAL_RANK</code>, <code>MASTER_ADDR</code>, <code>MASTER_PORT</code>) and spawns one process per GPU. The training script then initializes the process group, builds the model on the local GPU, and wraps it in <code>DDP</code>.</p>
+
+<div class="code-block-wrapper">
+<pre><code class="language-python">import os
+import torch
+import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel as DDP
+
+def main():
+    dist.init_process_group(backend="nccl")
+    local_rank = int(os.environ["LOCAL_RANK"])
+    torch.cuda.set_device(local_rank)
+    device = torch.device("cuda", local_rank)
+
+    model = NeuralNetwork(num_inputs=512, num_outputs=10).to(device)
+    model = DDP(model, device_ids=[local_rank])
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
+
+    sampler = torch.utils.data.distributed.DistributedSampler(train_set)
+    loader  = torch.utils.data.DataLoader(train_set, batch_size=32,
+                                          sampler=sampler)
+
+    for epoch in range(num_epochs):
+        sampler.set_epoch(epoch)         # ensures different shuffle per epoch
+        for features, labels in loader:
+            features = features.to(device, non_blocking=True)
+            labels   = labels.to(device, non_blocking=True)
+            optimizer.zero_grad(set_to_none=True)
+            loss = torch.nn.functional.cross_entropy(model(features), labels)
+            loss.backward()
+            optimizer.step()
+
+    dist.destroy_process_group()
+
+if __name__ == "__main__":
+    main()
+
+# Launch: torchrun --nproc-per-node=4 train_ddp.py
+</code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> (no stdout from a single process; aggregate logs visible via rank-0 logging)</div>
+<div class="code-caption"><strong>Code Fragment E.7.1:</strong> A complete DDP training script. The launcher (<code>torchrun --nproc-per-node=N</code>) spawns N processes, each pinning itself to one local GPU. The <code>DistributedSampler</code> ensures each rank sees a disjoint slice of the dataset.</div>
+</div>
+
+<div class="callout warning">
+<div class="callout-title">Warning: set_epoch Is Not Optional</div>
+<p><code>DistributedSampler</code> generates its shuffle from a seed that depends on <code>self.epoch</code>. Without <code>sampler.set_epoch(epoch)</code> at the top of each epoch, every epoch will use the same shuffle, which silently degrades training. The same applies to the gradient-accumulating cousin: if accumulation is used, do not call <code>set_epoch</code> inside the accumulation inner loop. Forgetting this is the single most common DDP bug.</p>
+</div>
+
+<div class="callout practical-example">
+<div class="callout-title">Practical Example: Rank-0-Only Logging and Saving</div>
+<p>Every DDP rank runs the same script, but logs, checkpoints, and external API calls should usually happen on rank 0 only. The idiom is <code>if dist.get_rank() == 0:</code> around the relevant block. For metric aggregation across ranks, use <code>dist.all_reduce(tensor, op=dist.ReduceOp.SUM)</code> first to sum values across all ranks, then divide by world size on rank 0 before logging. Hugging Face Trainer and Accelerate handle this bookkeeping automatically; raw DDP requires explicit care.</p>
+</div>
+
+<h2 id="fsdp">Fully Sharded Data Parallel</h2>
+
+<p>DDP replicates the model on every GPU, so the maximum model size is bounded by single-GPU memory. For multi-billion-parameter models, this is the binding constraint long before compute becomes the bottleneck. Fully Sharded Data Parallel (FSDP) breaks the constraint by sharding the model's parameters, gradients, and optimizer state across GPUs: each rank holds only its slice and reconstructs full layers on demand using all-gather collectives, freeing them again after use.</p>
+
+<p>The intuition is that, for a transformer layer with parameter count <span class="math">$P$</span> per GPU sharded across <span class="math">$N$</span> GPUs, each GPU only stores <span class="math">$P/N$</span> in steady state but briefly materializes <span class="math">$P$</span> during the forward pass for that layer. With activation checkpointing layered on top, even very large models can be trained on commodity GPU clusters. The cost is communication: each layer's forward and backward incurs an all-gather and (in backward) a reduce-scatter; the wall clock penalty versus DDP is typically 10 to 30 percent, more than paid back by the larger model that now fits.</p>
+
+<h3 id="fsdp2">FSDP1 vs FSDP2</h3>
+
+<p>PyTorch has shipped two FSDP implementations. <strong>FSDP1</strong> (the original, available since PyTorch 1.11) wraps modules at construction time and exposes a per-module API. It works but has rough edges: limited support for parameter freezing, complex interaction with <code>torch.compile</code>, and a state-dict format that does not match a single-GPU model. <strong>FSDP2</strong> (introduced in PyTorch 2.4, generally available in 2.5) uses a per-parameter sharding strategy built on the <code>DTensor</code> abstraction. It is simpler to use, composes cleanly with <code>torch.compile</code> and mixed precision, supports partial freezing, and saves state dicts that are interchangeable with single-GPU checkpoints. New code should use FSDP2.</p>
+
+<div class="code-block-wrapper">
+<pre><code class="language-python">import torch
+import torch.distributed as dist
+from torch.distributed.fsdp import fully_shard, MixedPrecisionPolicy
+
+dist.init_process_group(backend="nccl")
+local_rank = int(os.environ["LOCAL_RANK"])
+torch.cuda.set_device(local_rank)
+
+model = build_transformer().cuda()
+
+mp_policy = MixedPrecisionPolicy(
+    param_dtype=torch.bfloat16,        # parameters held in bfloat16
+    reduce_dtype=torch.float32,        # gradient all-reduce in float32
+)
+
+# Shard each transformer block independently for finer-grained
+# overlap of compute and communication.
+for block in model.transformer_blocks:
+    fully_shard(block, mp_policy=mp_policy)
+fully_shard(model, mp_policy=mp_policy)
+
+optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
+
+# Training loop is identical to DDP from this point on.
+</code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> (no stdout; FSDP2 shards parameters across all ranks)</div>
+<div class="code-caption"><strong>Code Fragment E.7.2:</strong> FSDP2 with mixed-precision policy. Each transformer block is sharded as its own unit; the outer <code>fully_shard(model)</code> handles the remaining top-level parameters.</div>
+</div>
+
+<h3 id="sharding-strategies">Sharding Strategies</h3>
+
+<div class="diagram-container">
+<img alt="A comparison diagram of three FSDP sharding strategies across four GPUs: full shard splits parameters, gradients, and optimizer state into quarters; shard grad and opt keeps full parameters per GPU but shards gradients and optimizer state; hybrid shard splits within each node and replicates across nodes" src="images/fsdp-sharding.png"/>
+<p class="figure-caption"><strong>Figure E.7.1</strong>: Three FSDP sharding strategies trade memory savings for communication volume; full shard maximizes savings, hybrid shard balances intra-node speed against cross-node bandwidth.</p>
+</div>
+
+<p>FSDP exposes several strategies that trade memory against communication:</p>
+
+<ul>
+<li><strong>Full shard</strong> (the default): parameters, gradients, and optimizer state are all sharded. Maximum memory savings, highest communication. The right choice when the model would not otherwise fit.</li>
+<li><strong>Shard grad and optimizer only</strong> (ZeRO-2 in DeepSpeed terminology): parameters replicated, gradients and optimizer state sharded. Less communication, less memory savings. Useful when parameters fit but optimizer state does not.</li>
+<li><strong>Hybrid shard</strong>: full shard within a small group of GPUs (e.g., one node), replicated across groups. Reduces cross-node bandwidth requirements; the typical choice for multi-node training where intra-node NVLink is much faster than inter-node Ethernet or InfiniBand.</li>
+</ul>
+
+<h3 id="activation-checkpointing">Combining with Activation Checkpointing</h3>
+
+<p>Activation checkpointing (also called gradient checkpointing) trades compute for memory: instead of saving every intermediate activation for the backward pass, only a subset is saved and the rest are recomputed. For transformers, the typical recipe is to checkpoint every attention block, which roughly halves activation memory at the cost of one extra forward pass per backward. Combined with FSDP, activation checkpointing is what makes 7B-to-70B parameter models trainable on clusters of 80GB GPUs. The PyTorch API is <code>torch.utils.checkpoint.checkpoint(function, *args)</code> or, for whole modules, the more ergonomic <code>torch.distributed.algorithms._checkpoint.checkpoint_wrapper</code>.</p>
+
+<div class="callout warning">
+<div class="callout-title">Warning: DDP Gradient-Sync Deadlocks</div>
+<p>DDP synchronizes gradients at the end of every backward pass. If one rank takes a different code path that skips a backward (early-exit on a condition, an exception swallowed in a try block, a rank that finishes its data shard early), the other ranks block forever waiting for the all-reduce that will never arrive. The symptom is a job that hangs at constant GPU utilization with no progress logs. Mitigations: keep the forward and backward path identical on every rank (gate divergences with <code>dist.all_reduce</code> on a flag tensor), set <code>find_unused_parameters=True</code> only when actually needed (it imposes its own overhead), and make sure all ranks see the same number of batches per epoch (use <code>drop_last=True</code> and a divisor-friendly batch size).</p>
+</div>
+
+<h2 id="accelerate">Hugging Face Accelerate</h2>
+
+<p>Hugging Face's <code>accelerate</code> library is a thin abstraction over PyTorch's distributed primitives that lets a single training script run unchanged on CPU, single GPU, multi-GPU DDP, FSDP, or DeepSpeed. The pattern is to construct an <code>Accelerator</code>, call <code>accelerator.prepare(model, optimizer, loader)</code>, and then use <code>accelerator.backward(loss)</code> instead of <code>loss.backward()</code>. The <code>accelerate config</code> CLI walks the user through choosing a launch strategy and writes a config file; <code>accelerate launch script.py</code> then handles the equivalent of <code>torchrun</code>.</p>
+
+<p>Accelerate is the recommended starting point for teams that want distributed training without authoring the boilerplate. The escape hatch (dropping to raw DDP or FSDP) is always available when fine-grained control is needed.</p>
+
+<div class="callout library-shortcut">
+<div class="callout-title">Library Shortcut: accelerator.prepare() Hides the Distributed Plumbing</div>
+<p>A single call wraps the model in DDP or FSDP, attaches a <code>DistributedSampler</code> to the DataLoader, moves everything to the right device, and configures mixed precision. The training loop reads exactly like the single-GPU version; the launcher decides at runtime whether to spawn one or many processes.</p>
+<pre><code class="language-python">from accelerate import Accelerator
+
+accelerator = Accelerator(mixed_precision="bf16")
+model, optimizer, loader = accelerator.prepare(model, optimizer, loader)
+
+for epoch in range(num_epochs):
+    for batch in loader:
+        loss = compute_loss(model, batch)
+        accelerator.backward(loss)
+        optimizer.step()
+        optimizer.zero_grad(set_to_none=True)
+</code></pre>
+</div>
+
+<div class="callout key-takeaway">
+<div class="callout-title">Key Takeaway</div>
+<p>Pick the distribution strategy based on what does not fit. If the model fits but training is slow, use DDP (<code>torchrun</code> plus <code>DistributedDataParallel</code> plus <code>DistributedSampler</code>). If the model does not fit on a single GPU, use FSDP2 with a mixed-precision policy and activation checkpointing. If standing up the distributed boilerplate is the bottleneck, use Hugging Face Accelerate to write hardware-agnostic training code. Skip <code>DataParallel</code> entirely; it exists only for backward compatibility.</p>
+</div>
+
+<div class="callout lab">
+<div class="callout-title">Lab E.7: From Single-GPU to DDP to FSDP2</div>
+<h3 id="lab-e7-objective">Objective</h3>
+<p>Take a working single-GPU training loop and migrate it through three stages: torchrun-launched DistributedDataParallel, FSDP2 with full sharding, and finally a hardware-agnostic Hugging Face Accelerate version. At each stage, measure throughput, peak memory per rank, and final accuracy to develop intuition for when each strategy pays off. Single-machine multi-GPU is fine; if only one GPU is available, simulate two ranks with <code>gloo</code> on CPU to exercise the API surface.</p>
+<h3 id="lab-e7-setup">Setup</h3>
+<ol>
+<li>Hardware: two or more GPUs preferred; otherwise CPU with <code>gloo</code> backend for API practice.</li>
+<li>Install <code>torch&gt;=2.4</code> (for FSDP2 stable API) and <code>accelerate</code>.</li>
+<li>Workload: train a 60M-parameter GPT-style transformer on the Tiny Shakespeare character-level dataset. Use a 6-layer, 384-dim, 6-head config so a single-rank run completes in roughly 10 minutes per epoch on a modest GPU.</li>
+</ol>
+<h3 id="lab-e7-steps">Steps</h3>
+<ol>
+<li><strong>Step 1: Single-GPU baseline.</strong> Train for one epoch. Log peak memory, samples per second, and final validation loss. This is the reference.</li>
+<li><strong>Step 2: DDP migration.</strong> Wrap the model in <code>DistributedDataParallel</code>. Switch the dataloader to <code>DistributedSampler(dataset, num_replicas=world_size, rank=rank)</code> and call <code>sampler.set_epoch(epoch)</code> each epoch. Initialize with <code>dist.init_process_group(backend="nccl")</code>. Launch with <code>torchrun --nproc_per_node=2 train.py</code>. Confirm throughput scales near-linearly with world size on small batches and that final loss matches the baseline within 2 percent.</li>
+<li><strong>Step 3: Add gradient accumulation under DDP.</strong> Use <code>model.no_sync()</code> on the inner micro-batches to skip the gradient all-reduce until the last micro-batch. Measure the gain (one all-reduce per K micro-batches instead of K).</li>
+<li><strong>Step 4: FSDP2 migration.</strong> Replace the DDP wrap with <code>fully_shard(model, mp_policy=MixedPrecisionPolicy(param_dtype=torch.bfloat16))</code>. Compare peak memory per rank against DDP (expect roughly a 3x reduction at this scale because both parameters and optimizer state are sharded). Throughput will drop slightly; quantify the trade-off.</li>
+<li><strong>Step 5: Activation checkpointing.</strong> Wrap each transformer block with <code>torch.utils.checkpoint.checkpoint</code>. Re-measure peak memory and step time. Expect a 30 to 40 percent memory drop in exchange for roughly 30 percent slower steps.</li>
+<li><strong>Step 6: Accelerate rewrite.</strong> Rewrite the loop using <code>Accelerator</code>. Confirm that the same single source file launches correctly via <code>accelerate launch --multi_gpu</code> and via <code>accelerate launch --num_processes=1</code> without changes. Count lines deleted versus added.</li>
+</ol>
+<h3 id="lab-e7-stretch">Stretch Goals</h3>
+<ul>
+<li>Add hybrid sharding: shard within a node, replicate across nodes. On a 4-GPU machine, use <code>FSDP2</code> with sharding group size 2 to simulate.</li>
+<li>Profile the all-reduce step with <code>torch.profiler</code>, identify the bucketing strategy, and explain in one paragraph why DDP overlaps all-reduce with backward.</li>
+<li>Save and load a checkpoint via <code>torch.distributed.checkpoint</code> (DCP) instead of <code>state_dict</code>. Demonstrate resharding from 2 ranks to 1 rank when loading.</li>
+</ul>
+<h3 id="lab-e7-expected">Expected Output</h3>
+<p><em>Expected time: 6 to 8 hours. Difficulty: advanced. Artifact: three working training scripts (single-GPU, DDP, FSDP2) plus the Accelerate version, with a benchmark table comparing all four on the same workload.</em></p>
+</div>
+
+<details class="bibliography-collapsible">
+<summary><strong>Further Reading</strong></summary>
+<section class="bibliography">
+<h3 id="distributed-refs">Distributed Training References</h3>
+<div class="bib-entry-card">
+<div class="bib-ref">Li, S. et al. (2020). "PyTorch Distributed: Experiences on Accelerating Data Parallel Training." <em>VLDB 2020</em>. <a href="https://arxiv.org/abs/2006.15704" rel="noopener" target="_blank">arXiv:2006.15704</a>. <span class="bib-note">The DDP paper. Explains gradient bucketing, overlap with backward, and the rationale for one-process-per-GPU.</span></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Zhao, Y. et al. (2023). "PyTorch FSDP: Experiences on Scaling Fully Sharded Data Parallel." <em>VLDB 2023</em>. <a href="https://arxiv.org/abs/2304.11277" rel="noopener" target="_blank">arXiv:2304.11277</a>. <span class="bib-note">The FSDP paper. Covers sharding strategies, mixed precision, activation checkpointing, and the empirical scaling behavior at thousand-GPU scale.</span></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Rajbhandari, S. et al. (2020). "ZeRO: Memory Optimizations Toward Training Trillion Parameter Models." <em>SC20</em>. <a href="https://arxiv.org/abs/1910.02054" rel="noopener" target="_blank">arXiv:1910.02054</a>. <span class="bib-note">The DeepSpeed ZeRO paper, which articulated the sharding strategy FSDP inherits. The clearest exposition of why sharding optimizer state matters at scale.</span></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://huggingface.co/docs/accelerate" rel="noopener" target="_blank">Hugging Face Accelerate Documentation.</a> The library's user guide, including launcher, config wizard, and worked examples for DDP, FSDP, and DeepSpeed back ends.</div>
+</div>
+</section>
+</details>
+
+<nav class="chapter-nav">
+<a class="prev" href="section-e.6.html"><span class="nav-label">Previous</span><span class="nav-num">Section E.6</span><span class="nav-title">Mixed Precision</span></a>
+<a class="up" href="index.html"><span class="nav-label">In Appendix</span><span class="nav-num">Appendix E</span><span class="nav-title">PyTorch Reference</span></a>
+<a class="next" href="section-e.8.html"><span class="nav-label">Next</span><span class="nav-num">Section E.8</span><span class="nav-title">Performance: Compile, Profile, Snapshot</span></a>
+</nav>
+<footer><p>Fifteenth Edition, 2026 · <a href="../../toc.html">Contents</a></p></footer>
+</main>
+</body>
+</html>

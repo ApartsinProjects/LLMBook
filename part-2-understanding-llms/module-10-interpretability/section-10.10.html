@@ -220,6 +220,91 @@ gtag('config', 'G-PWPHBQL2VL');
         Both vLLM and TGI natively support GPTQ models. Point the server at a GPTQ-quantized model
         and specify the quantization format.
     </p>
+<figure>
+<svg viewBox="0 0 740 280" xmlns="http://www.w3.org/2000/svg" style="font-family:'Segoe UI',sans-serif;max-width:100%;height:auto;">
+<rect width="740" height="280" fill="#ffffff"/>
+<text x="370" y="22" font-size="13" font-weight="700" text-anchor="middle" fill="#1a1a2e">GPTQ vs AWQ: two recipes, same 4-bit serving target</text>
+<g transform="translate(20,45)">
+<rect width="340" height="220" rx="8" fill="#fff3e0" stroke="#a67c1a" stroke-width="2"/>
+<text x="170" y="22" font-size="12" font-weight="700" text-anchor="middle" fill="#a67c1a">GPTQ: per-column Hessian compensation</text>
+<g font-size="10">
+<text x="20" y="48" fill="#1a1a2e">1. compute H = X&#7488;X on calibration acts</text>
+<text x="20" y="68" fill="#1a1a2e">2. for each column j of W:</text>
+<text x="36" y="84" fill="#5a4a3a">round w&#11388; to nearest INT4 level</text>
+<text x="36" y="100" fill="#5a4a3a">push error &#948;&#11388; into columns &gt; j via H&#8315;&#185;</text>
+<text x="20" y="124" fill="#1a1a2e">3. repeat for all layers (sequential)</text>
+<text x="20" y="156" font-style="italic" fill="#5a4a3a">Strength: provably near-optimal MSE</text>
+<text x="20" y="172" font-style="italic" fill="#5a4a3a">Cost: ~4 hours for 70B on one GPU</text>
+<text x="20" y="188" font-style="italic" fill="#5a4a3a">Needs: 128-sample C4 calibration</text>
+<text x="20" y="206" font-weight="700" fill="#a67c1a">Best when: max quality on 1 model</text>
+</g>
+</g>
+<g transform="translate(380,45)">
+<rect width="340" height="220" rx="8" fill="#e3e8f5" stroke="#3d4d8a" stroke-width="2"/>
+<text x="170" y="22" font-size="12" font-weight="700" text-anchor="middle" fill="#3d4d8a">AWQ: per-channel activation-aware scaling</text>
+<g font-size="10">
+<text x="20" y="48" fill="#1a1a2e">1. measure |x&#11388;| from calibration acts</text>
+<text x="20" y="68" fill="#1a1a2e">2. learn per-channel scale s&#11388; that protects</text>
+<text x="36" y="84" fill="#5a4a3a">salient (high-magnitude) channels</text>
+<text x="20" y="108" fill="#1a1a2e">3. quantize: W&#770; = Q(W &#183; diag(s)) &#183; diag(s)&#8315;&#185;</text>
+<text x="20" y="124" fill="#1a1a2e">4. all layers in parallel</text>
+<text x="20" y="156" font-style="italic" fill="#5a4a3a">Strength: ~4x faster than GPTQ</text>
+<text x="20" y="172" font-style="italic" fill="#5a4a3a">Cost: 30-60 min for 70B</text>
+<text x="20" y="188" font-style="italic" fill="#5a4a3a">Needs: small calibration set</text>
+<text x="20" y="206" font-weight="700" fill="#3d4d8a">Best when: many models, fast turnaround</text>
+</g>
+</g>
+</svg>
+<figcaption><strong>Figure K.4.0</strong>: GPTQ and AWQ pursue the same 4-bit target with different mechanics. GPTQ minimizes per-layer output error by sequentially rounding each weight column and using the inverse Hessian to compensate the rounding error onto not-yet-quantized columns. AWQ instead identifies which weight channels matter most (by measuring activation magnitudes on calibration data) and applies a per-channel scaling factor that gives those channels more of the available 4-bit range. Both achieve roughly the same perplexity at 4-bit; AWQ runs about 4x faster and is the pragmatic choice for production pipelines that quantize many models.</figcaption>
+</figure>
+<p>The GPTQ update rule that drives the column-by-column loop above is:</p>
+<div class="math-block">
+$$\delta_j = \frac{w_j - \text{quant}(w_j)}{[H^{-1}]_{jj}}, \qquad w_k \leftarrow w_k - \delta_j \cdot [H^{-1}]_{jk} \text{ for } k &gt; j$$
+</div>
+<p>Here <span class="math">$H = X^{T} X$</span> is the Hessian of the layer's squared error against calibration activations <span class="math">$X$</span>. The first term rounds the current column, the second redistributes the rounding error onto remaining columns to keep the layer's output close to the FP16 reference. AWQ's complementary objective, in contrast, picks the scale that minimizes the activation-weighted quantization error:</p>
+<div class="math-block">
+$$s^{*} = \arg\min_{s} \mathbb{E}\big[\, \| \text{quant}(W \cdot \text{diag}(s)) \cdot \text{diag}(s)^{-1} \cdot x - W x \|^{2} \,\big]$$
+</div>
+<p>The activation-weighting is what makes AWQ "activation-aware": channels that consistently produce large <span class="math">$x$</span> get larger <span class="math">$s$</span>, hence more of the 4-bit dynamic range.</p>
+<div class="code-block-wrapper">
+<pre><code class="language-python">from transformers import AutoModelForCausalLM, AutoTokenizer, GPTQConfig
+
+# End-to-end GPTQ quantization of Llama-3.1-8B to 4 bits with C4 calibration.
+# AutoGPTQ runs the per-column Hessian compensation; transformers wraps the loop.
+model_id = "meta-llama/Llama-3.1-8B-Instruct"
+tok = AutoTokenizer.from_pretrained(model_id)
+
+gptq_cfg = GPTQConfig(
+    bits=4,                # target precision
+    group_size=128,        # per-128-weight scale, standard sweet spot
+    desc_act=True,         # process columns in activation order for quality
+    dataset="c4",          # 128 samples of WebText-style English by default
+    tokenizer=tok,
+)
+
+# This call triggers the actual quantization (~10-30 min on a single A100).
+model = AutoModelForCausalLM.from_pretrained(
+    model_id,
+    quantization_config=gptq_cfg,
+    device_map="auto",
+)
+model.save_pretrained("./llama-3.1-8b-gptq-int4")
+tok.save_pretrained("./llama-3.1-8b-gptq-int4")
+# The saved directory now contains INT4 weights + FP16 scales + zero-points,
+# ~5.5 GB total (vs ~16 GB FP16). vLLM / TGI can load it directly:
+#   vllm serve ./llama-3.1-8b-gptq-int4 --quantization gptq</code></pre>
+<p class="figure-caption"><strong>Code Fragment K.4.0</strong>: Quantizing Llama-3.1-8B to 4 bits with AutoGPTQ via Hugging Face Transformers. The <code>desc_act=True</code> flag processes columns in descending order of activation magnitude, which lets the Hessian compensation absorb more error in the earlier-quantized columns. The result is a single self-contained checkpoint that vLLM, TGI, and SGLang can serve with a one-flag change.</p>
+</div>
+<div class="callout numeric-example">
+<div class="callout-title">Numeric Example: GPTQ vs AWQ vs FP16 on Llama-3.1-8B (A100, WikiText-2)</div>
+<p>A side-by-side run on a single A100, calibration = 128 C4 samples, generation = greedy, batch = 1:</p>
+<ul>
+<li><strong>FP16 baseline:</strong> 6.14 perplexity, 42.3 tokens/sec, 16.1 GB VRAM.</li>
+<li><strong>GPTQ 4-bit (group 128, desc_act):</strong> 6.41 perplexity (+0.27, +4.4%), 95.7 tokens/sec (+126% throughput), 4.8 GB VRAM (3.4x smaller).</li>
+<li><strong>AWQ 4-bit (GEMM kernel):</strong> 6.38 perplexity (+0.24, +3.9%), 102.3 tokens/sec (+142% throughput), 4.5 GB VRAM (3.6x smaller).</li>
+</ul>
+<p>For a 70B model the same recipes typically lose less than 2% perplexity at 4-bit; the quality gap shrinks with scale because larger models have more redundancy to absorb the quantization noise. The throughput win comes from cutting weight-memory traffic by 4x; LLM decode is memory-bandwidth-bound (see <a href="../module-09-inference-optimization/section-9.3.html">Section 9.3</a>), so 4x fewer bytes to read translates directly into roughly 2x more tokens per second.</p>
+</div>
 <div class="code-block-wrapper">
 <pre><code class="pygments-highlighted lang-bash"><span class="c1"># Serve a GPTQ model with vLLM</span>
 vllm<span class="w"> </span>serve<span class="w"> </span>TheBloke/Llama-2-70B-Chat-GPTQ<span class="w"> </span><span class="se">\</span>

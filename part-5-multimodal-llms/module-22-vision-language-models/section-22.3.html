@@ -61,6 +61,13 @@ gtag('config', 'G-PWPHBQL2VL');
 <p>This section assumes familiarity with <a href="section-22.2.html">CLIP and SigLIP</a> from Section 22.2 and with <a href="../../part-2-understanding-llms/module-06-pretraining-scaling-laws/section-6.1.html">LLM pretraining</a> from Section 6.1. Familiarity with <a href="../../part-4-training-adaptation/module-16-fine-tuning-fundamentals/section-16.2.html">instruction tuning</a> from Section 16.2 helps when reading the LLaVA training-recipe walkthrough.</p>
 </div>
 
+<div class="callout note">
+<div class="callout-title">Historical roots: VisualBERT and the R-CNN region-feature lineage</div>
+<p>Before the patch-token VLMs of this section, the dominant recipe for "transformer + image" was very different. <strong>VisualBERT</strong> (Li et al., 2019) and its contemporaries (LXMERT, ViLBERT, VL-BERT, UNITER) did not feed raw image patches to the transformer. Instead they ran the image through a pretrained <em>object detector</em> first (typically Faster R-CNN with a ResNet-101 backbone, pretrained on Visual Genome) and used the top 36 region-of-interest bounding-box features as image tokens. Each region was represented by a 2048-dimensional vector pooled from the detector's last convolutional layer, then linearly projected to 768 dimensions to match BERT's hidden size. The image, in other words, was tokenized through the <em>output</em> of a separate trained detector, not through a learned patch embedding.</p>
+<p>Training combined two losses: <strong>masked language modeling</strong> (predict masked text tokens given image regions plus surrounding text, exactly as in BERT) and <strong>Sentence-Image Alignment (SIA)</strong> (a binary classifier on the pooled <code>[CLS]</code> token that predicts whether the caption and image actually match, with negatives sampled from other examples in the batch). Fine-tuning for Visual Question Answering treated the task as <em>closed-vocabulary classification</em>: a vocabulary of about 3,000 answer phrases ("yes", "no", "two", "blue", "umbrella", etc.) was extracted from VQA training data, and a multi-class classifier head on the joint [CLS] embedding picked one. The same recipe extended to <strong>open-ended VQA</strong> by triplet scoring: for each candidate answer in a set, embed (image regions, question, candidate) jointly and apply a binary classifier head to score "is this candidate the right answer?"; the highest-scoring candidate wins.</p>
+<p>This region-feature lineage was state-of-the-art from 2019 through early 2021 and is the reason any modern VLM paper still benchmarks against VQAv2 and GQA: those datasets were built for region-feature VLMs. The pattern was displaced by patch-token VLMs (the LLaVA / BLIP-2 / Qwen-VL line above) for three reasons. First, the detector itself was a bottleneck: any concept absent from Visual Genome's 1600 object classes (a UI button, a chart axis label, an unusual logo) was invisible to the downstream language model. Second, the two-stage pipeline (detector then transformer) could not be jointly fine-tuned without backpropagating through a slow detector. Third, patch tokens trained contrastively (CLIP, SigLIP) carry richer semantics than detector-pooled regions, especially for text-in-image and dense scene understanding. By 2022 the field had quietly switched, and by 2024 VisualBERT-style models had vanished from leaderboards. Knowing the pre-CLIP lineage matters because the closed-vocabulary VQA benchmarks (and their unusual "pick one of 3K phrases" answer space) are inherited from that era. Reference: Li, L. H., et al., "VisualBERT: A Simple and Performant Baseline for Vision and Language," <a href="https://arxiv.org/abs/1908.03557" rel="noopener" target="_blank">arXiv:1908.03557</a> (2019).</p>
+</div>
+
 <h2 id="22-3-1-the-vision-encoder-llm-connector-pattern">22.3.1 The Vision Encoder + LLM Connector Pattern</h2>
 <p>Every generative VLM in 2026 follows the same three-stage data flow. The first stage is the vision encoder: a frozen (or lightly fine-tuned) CLIP or SigLIP ViT consumes the image and produces a sequence of visual tokens (typically 256-1024 tokens, depending on resolution and patch size). The second stage is the connector: a small learned module (parameters ranging from 1M to 200M) projects the visual tokens into the LLM's input embedding space. The third stage is the language model: a pretrained decoder-only transformer (Llama, Qwen, Mistral, Phi, etc.) that consumes the projected visual tokens prepended to the user's text prompt and generates a textual response.</p>
 
@@ -80,8 +87,22 @@ gtag('config', 'G-PWPHBQL2VL');
 
 <figure><img alt="LLaVA-NeXT dynamic resolution diagram: 672x672 image partitioned into 4 tiles plus a downsampled overview, each tile encoded by ViT, concatenated, projected by MLP, fed to LLM" src="images/figure-35-3-1.svg" width="1100" height="560"/><figcaption><strong>Figure 22.3.1</strong>: LLaVA-NeXT's dynamic-resolution AnyRes pipeline. A high-resolution image is partitioned into spatial tiles plus an overview thumbnail; each is encoded independently and concatenated. The MLP connector projects all tokens into the LLM's embedding space.</figcaption></figure>
 
+<p>The LLaVA connector itself is a two-layer MLP applied independently to every visual token. Concretely, if $v_i \in \mathbb{R}^{d_v}$ is the $i$-th CLIP-ViT patch embedding (with $d_v = 1024$ for ViT-L/14) and the LLM expects token embeddings of dimension $d_l$ (with $d_l = 4096$ for Llama-2-7B), the projection is</p>
+<p>$$ \tilde{v}_i = W_2 \, \mathrm{GELU}(W_1 v_i + b_1) + b_2, \qquad W_1 \in \mathbb{R}^{d_l \times d_v}, \; W_2 \in \mathbb{R}^{d_l \times d_l}, $$</p>
+<p>and the LLM is fed the concatenation $[\tilde{v}_1; \ldots; \tilde{v}_N; t_1; \ldots; t_M]$ where $t_j$ are the text-token embeddings. The autoregressive cross-entropy loss is computed only on the text positions; the visual prefix is conditioning context. With $N = 576$ visual tokens and Llama-2-7B's 4096-d hidden state, the projection adds only $1024 \cdot 4096 + 4096 \cdot 4096 \approx 21$ M parameters, which is the entire trainable budget of LLaVA's stage 1 alignment phase (the vision encoder and LLM are frozen).</p>
+
+<div class="callout numeric-example">
+<div class="callout-title">Worked Example: LLaVA-1.5-13B Visual Token Budget on One Image</div>
+<p>Process a single 336x336 photo through <code>llava-hf/llava-1.5-13b-hf</code> with the prompt "USER: &lt;image&gt;\nWhat is in this image? ASSISTANT:". The CLIP-ViT-L/14 vision encoder splits the image into a $24 \times 24 = 576$ patch grid; with the <code>[CLS]</code> token discarded, the connector projects 576 patch embeddings from 1024 dim to 5120 dim (Llama-2-13B's hidden size). The text prompt tokenizes to roughly 18 tokens, so the LLM sees a prefix of $576 + 18 = 594$ tokens before it begins generating. A typical 80-token answer pushes the full forward pass to 674 tokens. Memory-wise, KV cache at 13B-fp16 stores $674 \times 40 \text{ layers} \times 5120 \times 2 \text{ (K and V)} \times 2 \text{ bytes} \approx 553$ MB, on top of $\approx 26$ GB of weight memory. On an A100-40GB the full inference latency is roughly 2.5 seconds at 32 tokens/sec. Replace the 336x336 image with LLaVA-NeXT's AnyRes 672x672 input and the visual prefix balloons from 576 to $5 \times 576 = 2880$ tokens, the KV cache jumps to $\approx 2.4$ GB, and latency climbs to about 8 seconds; the trade is the 11.2-point DocVQA gain that justified the design.</p>
+</div>
+
 <h2 id="22-3-4-blip-2-and-the-q-former">22.3.4 BLIP-2 and the Q-Former</h2>
 <p>BLIP-2 (Li et al., Salesforce, 2023) and its successor BLIP-3 (xGen-MM, 2024) take a different approach to the connector. Instead of projecting every visual token independently, the Q-Former (Querying Transformer) introduces a fixed-size set of learned query tokens (typically 32) that attend to the variable-length visual token sequence and produce a fixed-length output. The output is then projected into the LLM's embedding space.</p>
+
+<div class="callout key-insight">
+<div class="callout-title">Cross-attention in one line: queries ask, keys and values supply</div>
+<p>The Q-Former is the first time in this chapter that a model uses <em>cross-attention</em> between two distinct streams (queries from one source, keys/values from another), so it is worth restating the mechanism in plain language. In any attention block, the <strong>query</strong> vector says <em>what this token wants to know</em>; the <strong>keys</strong> say <em>what each candidate token is offering</em>; and the <strong>values</strong> are <em>what gets actually copied back</em> once the query has decided which keys to attend to. In self-attention these three streams are derived from the same token sequence (every token simultaneously asks, offers, and supplies). In <em>cross</em>-attention the streams come from different places: in the Q-Former, the 32 learnable query vectors say "I want to know about objects, colors, layout, text", the frozen ViT patch embeddings supply "here is what each spatial region contains", and the values flow back to update the queries. The Q-Former's job, then, is to learn 32 questions that, when asked of any image, extract a sufficient summary for downstream language generation.</p>
+</div>
 
 <p>The Q-Former is a small transformer (about 188M parameters) with cross-attention from the query tokens to the visual tokens. It is trained in two stages: first with a vision-language understanding objective (image-text matching, image-text contrastive, image-grounded text generation) to align the queries with semantic content, then with a vision-to-language generation objective to produce LLM-compatible outputs.</p>
 
@@ -169,12 +190,137 @@ gtag('config', 'G-PWPHBQL2VL');
 
 <p>The Q-Former has two advantages over the LLaVA MLP. First, it produces a fixed (small) number of visual tokens regardless of input size, which keeps the LLM's context window predictable. Second, the query tokens learn to attend to semantically important regions, providing a learned form of attention pooling. The disadvantage is added complexity and a separate pretraining phase that LLaVA does not need.</p>
 
+<div class="callout library-shortcut">
+<div class="callout-title">Library shortcut: BLIP-2 for captioning and multi-turn chat</div>
+<p>The Hugging Face <code>Blip2ForConditionalGeneration</code> wraps the full ViT + Q-Former + LLM stack behind the same <code>AutoProcessor</code> interface used by every VLM in this section. For pure captioning, no text prompt is needed; for multi-turn chat over an image, the chat history is concatenated as plain text in the prompt.</p>
+<pre><code class="language-python">import torch
+from PIL import Image
+from transformers import AutoProcessor, Blip2ForConditionalGeneration
+
+model_id = "Salesforce/blip2-opt-2.7b"   # ViT-g + Q-Former + OPT-2.7B
+processor = AutoProcessor.from_pretrained(model_id)
+model = Blip2ForConditionalGeneration.from_pretrained(
+    model_id, torch_dtype=torch.float16, device_map="auto",
+).eval()
+
+image = Image.open("street.jpg").convert("RGB")
+
+# Task 1: captioning (no text prompt)
+caption_in = processor(images=image, return_tensors="pt").to(model.device, torch.float16)
+caption = processor.decode(
+    model.generate(**caption_in, max_new_tokens=40)[0],
+    skip_special_tokens=True,
+).strip()
+print("CAPTION:", caption)
+# CAPTION: a city street with cars and people walking under streetlights
+
+# Task 2: multi-turn chat over the same image (history baked into the prompt)
+history = "Question: what is the weather like? Answer: it appears rainy. "
+question = "Question: how many people can you see? Answer:"
+chat_in = processor(images=image, text=history + question, return_tensors="pt").to(
+    model.device, torch.float16,
+)
+answer = processor.decode(
+    model.generate(**chat_in, max_new_tokens=20)[0],
+    skip_special_tokens=True,
+).split("Answer:")[-1].strip()
+print("ANSWER:", answer)
+# ANSWER: three people are visible on the sidewalk</code></pre>
+<p class="figure-caption"><strong>Code Fragment 22.3.2</strong>: BLIP-2 inference for two tasks. Captioning needs only the image; multi-turn chat is implemented by concatenating prior turns into the text prompt, exactly the soft-prompt pattern Section 22.3.4 describes (image-derived tokens are prepended automatically by the processor). For larger backbones swap <code>blip2-opt-2.7b</code> for <code>blip2-flan-t5-xl</code> or <code>Salesforce/xgen-mm-phi3-mini-instruct-r-v1</code> (BLIP-3).</p>
+</div>
+
 <p>BLIP-3 (xGen-MM, Salesforce, August 2024) updated the Q-Former design with sigmoid-loss alignment (inspired by SigLIP) and integration with much larger LLMs (Llama-2-7B and Llama-3-8B). On the MMMU benchmark, BLIP-3 reaches 41.1 versus 36.4 for LLaVA-NeXT-7B, demonstrating that the Q-Former approach still has accuracy headroom when paired with strong LLMs.</p>
 
 <h2 id="22-3-5-qwen-vl-and-the-multilingual-frontier">22.3.5 Qwen-VL and the Multilingual Frontier</h2>
 <p>Alibaba's Qwen-VL series (Qwen-VL 1.0 in 2023, Qwen-VL 2.0 in August 2024, Qwen2.5-VL in January 2025) is the strongest open-source VLM family as of early 2026. The architecture combines a CLIP-style vision encoder (replaced with a custom variant in v2.5), a cross-attention connector, and a Qwen LLM (1.5B-72B parameters).</p>
 
 <p>Qwen-VL's distinguishing features are threefold. The first is multilingual capability: Qwen2.5-VL handles 29+ languages with similar accuracy, far ahead of LLaVA and BLIP-3 which are heavily English-biased. The second is document-task specialization: Qwen2.5-VL was trained with 18% of its instruction-tuning data drawn from synthetic document tasks (Section 34.3), making it the strongest open-source model for document AI. The third is grounding: Qwen-VL was trained to emit bounding-box coordinates as part of its text output, enabling "point at the dog in the image" tasks that pure-text VLMs cannot perform.</p>
+
+<figure class="diagram">
+<svg role="img" aria-label="Qwen-VL architecture: native-resolution ViT with 2D RoPE feeds a cross-attention adapter and a Qwen LLM that can emit bounding box tokens as part of text output" viewBox="0 0 820 280" xmlns="http://www.w3.org/2000/svg" style="font-family:'Segoe UI',sans-serif;max-width:100%;height:auto;">
+<rect width="820" height="280" fill="#fafafa"/>
+<text x="410" y="22" font-size="14" font-weight="700" text-anchor="middle" fill="#1a1a2e">Qwen2.5-VL: native-resolution ViT + cross-attention adapter + grounding-aware Qwen LLM</text>
+<defs>
+<marker id="qvArr" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#666"/></marker>
+</defs>
+<g font-size="10">
+<rect x="20" y="80" width="120" height="70" rx="8" fill="#bbdefb" stroke="#1976d2" stroke-width="1.5"/>
+<text x="80" y="100" text-anchor="middle" font-weight="700" fill="#0d47a1">Image</text>
+<text x="80" y="115" text-anchor="middle" font-size="9" fill="#1976d2">arbitrary resolution</text>
+<text x="80" y="130" text-anchor="middle" font-size="9" fill="#1976d2">no resize/tiling</text>
+<line x1="140" y1="115" x2="168" y2="115" stroke="#666" stroke-width="2" marker-end="url(#qvArr)"/>
+<rect x="168" y="80" width="140" height="70" rx="8" fill="#fff3e0" stroke="#ef6c00" stroke-width="1.5"/>
+<text x="238" y="100" text-anchor="middle" font-weight="700" fill="#e65100">Native ViT</text>
+<text x="238" y="115" text-anchor="middle" font-size="9" fill="#ef6c00">2D-RoPE positions</text>
+<text x="238" y="130" text-anchor="middle" font-size="9" fill="#ef6c00">window attention</text>
+<line x1="308" y1="115" x2="336" y2="115" stroke="#666" stroke-width="2" marker-end="url(#qvArr)"/>
+<rect x="336" y="80" width="140" height="70" rx="8" fill="#c8e6c9" stroke="#2e7d32" stroke-width="1.5"/>
+<text x="406" y="98" text-anchor="middle" font-weight="700" fill="#1b5e20">Cross-attention</text>
+<text x="406" y="115" text-anchor="middle" font-weight="700" fill="#1b5e20">adapter</text>
+<text x="406" y="132" text-anchor="middle" font-size="9" fill="#2e7d32">256 learned queries</text>
+<line x1="476" y1="115" x2="504" y2="115" stroke="#666" stroke-width="2" marker-end="url(#qvArr)"/>
+<rect x="504" y="80" width="140" height="70" rx="8" fill="#e1bee7" stroke="#6a1b9a" stroke-width="1.5"/>
+<text x="574" y="98" text-anchor="middle" font-weight="700" fill="#4a148c">Qwen LLM</text>
+<text x="574" y="115" text-anchor="middle" font-size="9" fill="#6a1b9a">1.5B / 7B / 72B</text>
+<text x="574" y="132" text-anchor="middle" font-size="9" fill="#6a1b9a">29 languages</text>
+<line x1="644" y1="115" x2="672" y2="115" stroke="#666" stroke-width="2" marker-end="url(#qvArr)"/>
+<rect x="672" y="80" width="130" height="70" rx="8" fill="#ffcdd2" stroke="#c62828" stroke-width="1.5"/>
+<text x="737" y="98" text-anchor="middle" font-weight="700" fill="#b71c1c">Text + boxes</text>
+<text x="737" y="118" text-anchor="middle" font-size="9" fill="#c62828">&lt;box&gt;x1,y1,x2,y2&lt;/box&gt;</text>
+<text x="737" y="132" text-anchor="middle" font-size="9" fill="#c62828">inline grounding</text>
+<text x="410" y="200" text-anchor="middle" font-size="10.5" font-weight="700" fill="#1a1a2e">Native-resolution ViT replaces LLaVA-NeXT tiling; 2D-RoPE generalizes to any aspect ratio</text>
+<text x="410" y="220" text-anchor="middle" font-size="10" fill="#5a4a3a">Cross-attention adapter compresses variable patch count to a fixed 256 visual tokens for the LLM</text>
+<text x="410" y="240" text-anchor="middle" font-size="10" fill="#5a4a3a">Grounding head is just text: LLM emits coordinate tokens during normal autoregression</text>
+</g>
+</svg>
+<figcaption><strong>Figure 22.3.5</strong>: The Qwen2.5-VL pipeline. The vision tower is a native-resolution ViT with 2D rotary position embeddings and window attention (rather than LLaVA-NeXT's tile-and-concatenate workaround), so a 1500x500 receipt or a 720p screenshot keeps its real aspect ratio. A cross-attention adapter with 256 learned queries compresses the variable patch count to a fixed visual prefix, which the Qwen LLM consumes alongside text tokens. Grounding is integrated at the vocabulary level: the LLM was trained to emit special <code>&lt;box&gt;x1,y1,x2,y2&lt;/box&gt;</code> sequences inline with normal text, so "point at the dog" and "describe the dog" run through the same forward pass.</figcaption>
+</figure>
+
+<p>The grounding-token mechanism is worth spelling out as math. Coordinates are normalized to $[0, 1000]$ and emitted as a sequence of four integer tokens wrapped by the special <code>&lt;box&gt;</code> markers. For a target object at pixel box $(x_1^\mathrm{px}, y_1^\mathrm{px}, x_2^\mathrm{px}, y_2^\mathrm{px})$ in an image of size $W \times H$, the supervision target is</p>
+<p>$$ (x_i^\mathrm{tok}, y_i^\mathrm{tok}) = \bigl(\lfloor 1000 \cdot x_i^\mathrm{px} / W \rfloor, \; \lfloor 1000 \cdot y_i^\mathrm{px} / H \rfloor\bigr), \quad i \in \{1, 2\}, $$</p>
+<p>and the autoregressive cross-entropy loss treats these coordinate tokens like any other text tokens. Decoding inverts the formula: the model's emitted integers are multiplied by $W / 1000$ and $H / 1000$ to recover pixel coordinates. The same vocabulary covers caption text, dialogue, and bounding boxes, which is why a single Qwen-VL forward pass can answer "what is in the image" and "where is the dog" in one go.</p>
+
+<div class="callout library-shortcut">
+<div class="callout-title">Library Shortcut: Qwen2.5-VL Grounding via HuggingFace</div>
+<div class="code-block-wrapper">
+<pre><code class="language-python">import torch
+from PIL import Image
+from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
+
+model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+    "Qwen/Qwen2.5-VL-7B-Instruct",
+    torch_dtype=torch.bfloat16,
+    device_map="auto",
+).eval()
+processor = AutoProcessor.from_pretrained("Qwen/Qwen2.5-VL-7B-Instruct")
+
+image = Image.open("street.jpg").convert("RGB")
+messages = [{
+    "role": "user",
+    "content": [
+        {"type": "image", "image": image},
+        {"type": "text", "text": "Locate every dog in the image and return its bounding box."},
+    ],
+}]
+text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+inputs = processor(text=[text], images=[image], return_tensors="pt").to(model.device)
+
+with torch.no_grad():
+    generated = model.generate(**inputs, max_new_tokens=128, do_sample=False)
+answer = processor.batch_decode(
+    generated[:, inputs.input_ids.shape[1]:], skip_special_tokens=False
+)[0]
+print(answer)
+# Dog 1: &lt;box&gt;124,310,288,560&lt;/box&gt;
+# Dog 2: &lt;box&gt;612,290,790,540&lt;/box&gt;</code></pre>
+<div class="code-caption"><strong>Code Fragment 22.3.5</strong>: Qwen2.5-VL emitting grounded bounding boxes inline with its text answer. The special box-token vocabulary is shared across captioning, OCR, and detection prompts; coordinates are normalized to $[0, 1000]$ as in the equation above, so the caller multiplies by the original image width and height to recover pixel coordinates. Setting <code>skip_special_tokens=False</code> keeps the box markers visible; the higher-level <code>process_vision_info</code> helper from the Qwen-VL utilities parses them into Python tuples automatically.</div>
+</div>
+</div>
+
+<div class="callout numeric-example">
+<div class="callout-title">Worked Example: Multilingual OCR on a Japanese Receipt</div>
+<p>A 1240x870 photo of a Japanese restaurant receipt is fed to Qwen2.5-VL-7B with the prompt "Transcribe every line item and total, and return the bounding box of the total." The native-resolution ViT processes 1240/14 x 870/14 = 88 x 62 = 5456 patches without downsampling, far more than LLaVA-NeXT's 2880-token AnyRes budget. The cross-attention adapter compresses these to 256 visual tokens. The model emits a structured answer of about 180 text tokens including the line items in mixed Japanese and Arabic numerals (zaru soba 850 yen, tempura 1200 yen, ...), the total 2050 yen, and one box token sequence <code>&lt;box&gt;612,790,1130,840&lt;/box&gt;</code> for the total row. The recovered pixel box is $(612 \times 1240/1000, 790 \times 870/1000, 1130 \times 1240/1000, 840 \times 870/1000) = (759, 687, 1401, 731)$, which lands within $\pm 8$ pixels of the ground-truth total bar on a typical receipt. The end-to-end forward pass takes about 1.4 seconds on an A100-40GB; the same image through LLaVA-NeXT-13B emits the total but misses 2 of the 6 line items because the AnyRes downsampling discards small Japanese kanji.</p>
+</div>
 
 <p>The Qwen2.5-VL release scaled to 72B parameters and reached 70.2 on MMMU (matching GPT-4o on this benchmark), 74.8 on MathVista_MINI, and 96.4 on DocVQA (per the Qwen2.5-VL model card, near-tied with InternVL2.5-78B at 96.5). The model runs at 1.2 pages/sec on 2x H100 with vLLM, making it deployable at moderate cost for production VLM workloads.</p>
 
@@ -362,6 +508,12 @@ gtag('config', 'G-PWPHBQL2VL');
 </div>
 <div class="bib-entry-card">
 <div class="bib-ref">Tong, S., Brown, E., Wu, P., et al. (2024). <a href="https://arxiv.org/abs/2406.16860" rel="noopener" target="_blank">"Cambrian-1: A Fully Open, Vision-Centric Exploration of Multimodal LLMs."</a></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Li, L. H., Yatskar, M., Yin, D., Hsieh, C.-J., Chang, K.-W. (2019). <a href="https://arxiv.org/abs/1908.03557" rel="noopener" target="_blank">"VisualBERT: A Simple and Performant Baseline for Vision and Language."</a> The region-feature VLM line, with MLM + Sentence-Image Alignment training and closed-vocabulary VQA heads, that patch-token VLMs displaced.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Anderson, P., He, X., Buehler, C., et al. (2018). <a href="https://arxiv.org/abs/1707.07998" rel="noopener" target="_blank">"Bottom-Up and Top-Down Attention for Image Captioning and Visual Question Answering."</a> The R-CNN region-feature extraction pipeline that fed the entire pre-CLIP VLM ecosystem (LXMERT, ViLBERT, UNITER, VisualBERT).</div>
 </div>
 </section>
 </details>

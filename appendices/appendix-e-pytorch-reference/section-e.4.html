@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-PWPHBQL2VL"></script>
+<script>
+window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', 'G-PWPHBQL2VL');
+</script>
+
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<meta content="Section E.4: The Data Pipeline. Dataset, IterableDataset, DataLoader, collate_fn, samplers, and webdataset for streaming." name="description"/>
+<title>Section E.4: The Data Pipeline | Building Conversational AI with LLMs and Agents</title>
+<link href="../../styles/book.css" rel="stylesheet"/>
+<link href="../../styles/pygments.css" rel="stylesheet"/>
+<link href="../../vendor/katex/katex.min.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/katex/katex.min.js"></script>
+<script defer="" onload="renderMathInElement(document.body, {
+            delimiters: [
+                {left: '$$', right: '$$', display: true},
+                {left: '$', right: '$', display: false}
+            ],
+            throwOnError: false
+        });" src="../../vendor/katex/contrib/auto-render.min.js"></script>
+<link href="../../vendor/prism/prism-theme.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/prism/prism-bundle.min.js"></script>
+<script defer="" src="../../scripts/book.js"></script>
+<link href="../../pagefind/pagefind-ui.css" rel="stylesheet"/>
+<script defer="" src="../../pagefind/pagefind-ui.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
+
+<header class="chapter-header">
+<nav class="header-nav">
+<a class="book-title-link" href="../../index.html">Building Conversational AI with LLMs and Agents</a>
+<a class="toc-link" href="../../toc.html" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+</nav>
+<div class="header-search">
+<div id="search"></div>
+</div>
+
+<div class="page-breadcrumb" data-pagefind-meta="chapter"><a href="../index.html">Appendices</a><span class="bc-sep">›</span><a href="index.html">Appendix E: PyTorch Reference</a></div>
+<h1>The Data Pipeline</h1><div class="page-current">Section E.4</div>
+
+</header>
+<main class="content" id="main-content"><span class="pagefind-meta-injected" data-pagefind-meta="part:Building Conversational AI with LLMs and Agents" hidden=""></span><span class="pagefind-meta-injected" data-pagefind-meta="chapter:Appendix E: PyTorch Reference" hidden=""></span>
+
+<p>A modern GPU can devour tens of thousands of samples per second. Whether the training loop actually achieves that throughput depends almost entirely on the data pipeline. PyTorch ships a two-class abstraction that handles this cleanly: a <code>Dataset</code> owns on-disk format and per-sample loading, and a <code>DataLoader</code> wraps the dataset to provide shuffling, batching, and parallel prefetching. This section covers both classes plus the supporting cast of samplers, collate functions, and streaming-data tools.</p>
+
+<h2 id="map-style">Map-Style Datasets</h2>
+
+<p>The most common dataset type is the map-style dataset: a class that implements <code>__len__</code> (so <code>len(ds)</code> works) and <code>__getitem__(idx)</code> (so <code>ds[i]</code> works). Indices are integers in the range <code>[0, len(ds))</code>, and the return value is whatever the model expects per sample, conventionally a tuple <code>(features, label)</code>.</p>
+
+<div class="code-block-wrapper">
+<pre><code class="language-python">import torch
+from torch.utils.data import Dataset
+
+class ToyDataset(Dataset):
+    def __init__(self, X, y):
+        self.features = X
+        self.labels = y
+
+    def __len__(self):
+        return self.labels.shape[0]
+
+    def __getitem__(self, index):
+        return self.features[index], self.labels[index]
+
+X = torch.tensor([[-1.2, 3.1], [-0.9, 2.9], [-0.5, 2.6],
+                  [ 2.3, -1.1], [ 2.7, -1.5]])
+y = torch.tensor([0, 0, 0, 1, 1])
+
+ds = ToyDataset(X, y)
+print(len(ds), ds[0])
+</code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> 5 (tensor([-1.2000,  3.1000]), tensor(0))</div>
+<div class="code-caption"><strong>Code Fragment E.4.1:</strong> The minimal map-style dataset. Three dunder methods (<code>__init__</code>, <code>__len__</code>, <code>__getitem__</code>) are the entire required interface.</div>
+</div>
+
+<p>The real work usually lives inside <code>__getitem__</code>: read an image from disk, decode it, apply transforms, tokenize text, or build features. PyTorch's design philosophy is that this per-sample work happens lazily on demand, so a dataset can represent terabytes of disk-resident data without using any RAM at construction time. The <code>torchvision.datasets</code> and <code>datasets</code> (Hugging Face) libraries provide ready-made map-style datasets for common public corpora.</p>
+
+<h2 id="iterable">IterableDataset for Streaming</h2>
+
+<p><code>IterableDataset</code> is the alternative type for data that cannot be indexed cheaply: a network stream, a generator, a log file being tailed. The interface is a single method <code>__iter__</code> that yields samples one at a time. Iterable datasets do not have a length and cannot be shuffled by the DataLoader; any necessary shuffling has to happen inside <code>__iter__</code> (typically by reading into a small buffer and shuffling that).</p>
+
+<p>The subtle gotcha is that iterable datasets need extra care under multi-worker DataLoaders. Each worker process gets its own copy of the dataset and would, by default, iterate the entire stream. The fix is to call <code>torch.utils.data.get_worker_info()</code> inside <code>__iter__</code> and shard the stream by worker id, so worker 0 gets every <em>n</em>th sample starting at 0, worker 1 starts at 1, and so on. The <code>webdataset</code> library (covered below) handles this sharding automatically.</p>
+
+<h2 id="dataloader">The DataLoader</h2>
+
+<div class="diagram-container">
+<img alt="A sequence diagram showing the main GPU trainer process requesting batches from two worker processes, which call __getitem__ in parallel, pass samples through collate_fn into a pinned-memory prefetch buffer, then return ready batches to the main loop" src="images/dataloader-sequence.png"/>
+<p class="figure-caption"><strong>Figure E.4.1</strong>: The DataLoader pipeline runs worker fetch, collate, and prefetch in parallel with the GPU step so the next batch is ready before the current one finishes.</p>
+</div>
+
+<p><code>DataLoader</code> wraps any dataset and produces an iterator of batches. The constructor takes the dataset and a battery of keyword arguments that control how batches are assembled and delivered. Knowing what each argument does and when to change it from its default is the difference between a CPU-bound training loop and a GPU-saturated one.</p>
+
+<div class="code-block-wrapper">
+<pre><code class="language-python">from torch.utils.data import DataLoader
+
+train_loader = DataLoader(
+    dataset=ds,
+    batch_size=64,
+    shuffle=True,            # randomize order each epoch
+    num_workers=4,           # background processes for fetch/decode
+    pin_memory=True,         # speeds up host -&gt; GPU transfer
+    persistent_workers=True, # keep worker processes alive across epochs
+    prefetch_factor=2,       # batches each worker pre-loads
+    drop_last=True,          # drop the incomplete trailing batch
+)
+
+for features, labels in train_loader:
+    # features, labels are tensors of shape (batch_size, ...)
+    ...
+</code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> (no stdout; loader yields batches)</div>
+<div class="code-caption"><strong>Code Fragment E.4.2:</strong> A production-grade DataLoader. The key arguments are explained below.</div>
+</div>
+
+<dl>
+<dt><code>batch_size</code></dt>
+<dd>Number of samples per batch. Choose to fit comfortably in GPU memory; profile with smaller values first if uncertain.</dd>
+<dt><code>shuffle</code></dt>
+<dd>Randomize order each epoch (training only; off for validation and test).</dd>
+<dt><code>num_workers</code></dt>
+<dd>Number of background processes that call <code>__getitem__</code> in parallel. A common starting point is the number of CPU cores divided by the number of GPUs on the host. Set to 0 (the default) only for trivially small datasets where worker startup overhead dominates.</dd>
+<dt><code>pin_memory</code></dt>
+<dd>Allocate batches in page-locked host memory so transfer to the GPU is faster and can overlap with compute. Always set to <code>True</code> when training on GPU.</dd>
+<dt><code>persistent_workers</code></dt>
+<dd>Keep the worker processes alive between epochs instead of respawning them. Substantial speedup for short epochs.</dd>
+<dt><code>prefetch_factor</code></dt>
+<dd>How many batches each worker prepares ahead of demand. The default of 2 is fine for most workloads; increase if the GPU stalls waiting for data.</dd>
+<dt><code>drop_last</code></dt>
+<dd>Drop the final incomplete batch. Setting this to <code>True</code> keeps the per-batch statistics constant, which matters for batch norm and for gradient noise that depends on batch size.</dd>
+</dl>
+
+<div class="callout warning">
+<div class="callout-title">Warning: num_workers on Windows and in Notebooks</div>
+<p>Multi-process workers use the <code>spawn</code> start method on Windows, which re-imports the main script in each worker. Any code that runs at module level (training launch, model construction, file writes) will execute once per worker, causing duplicate work and sometimes deadlocks. The fix is the standard Python guard: wrap the training launch in <code>if __name__ == "__main__":</code>. In Jupyter notebooks, multi-worker loaders sometimes hang because the inter-process queues do not survive cell re-execution; restart the kernel before retrying, or set <code>num_workers=0</code> and accept the slowdown during interactive development.</p>
+</div>
+
+<h2 id="collate">collate_fn: Custom Batch Assembly</h2>
+
+<p>The DataLoader's default behavior is to stack a list of per-sample tuples into a tuple of batched tensors: a list of <code>(tensor_of_shape_X, label)</code> becomes <code>(tensor_of_shape_(B, *X), tensor_of_shape_(B,))</code>. This works when every sample has the same shape. For variable-length data (NLP sequences, audio clips, point clouds), the per-sample shapes differ and the default collate raises an error. The fix is a custom <code>collate_fn</code> that knows how to pad or pack the variable-length axis.</p>
+
+<div class="code-block-wrapper">
+<pre><code class="language-python">import torch
+from torch.nn.utils.rnn import pad_sequence
+from torch.utils.data import DataLoader
+
+def collate_pad(batch):
+    """Pad variable-length sequences to the max length in the batch."""
+    seqs, labels = zip(*batch)
+    lengths = torch.tensor([len(s) for s in seqs])
+    padded = pad_sequence(seqs, batch_first=True, padding_value=0)
+    return padded, lengths, torch.stack(labels)
+
+# Each sample is a (variable-length tensor, scalar label).
+samples = [(torch.arange(n + 3), torch.tensor(n % 2)) for n in range(8)]
+
+loader = DataLoader(samples, batch_size=4, collate_fn=collate_pad)
+padded, lengths, labels = next(iter(loader))
+print(padded.shape, lengths, labels)
+</code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> torch.Size([4, 6]) tensor([3, 4, 5, 6]) tensor([0, 1, 0, 1])</div>
+<div class="code-caption"><strong>Code Fragment E.4.3:</strong> A custom <code>collate_fn</code> for variable-length sequences. The function receives a list of per-sample tuples and returns the batched tensors of choice.</div>
+</div>
+
+<h2 id="samplers">Samplers</h2>
+
+<p>Under the hood, the DataLoader gets indices from a <code>Sampler</code>. The default sampler is <code>SequentialSampler</code> when <code>shuffle=False</code> and <code>RandomSampler</code> when <code>shuffle=True</code>. Three specialized samplers are worth knowing:</p>
+
+<ul>
+<li><strong><code>WeightedRandomSampler(weights, num_samples)</code></strong>: draws indices with probability proportional to the supplied weights. Used to oversample rare classes or hard examples without modifying the dataset.</li>
+<li><strong><code>SubsetRandomSampler(indices)</code></strong>: shuffles a fixed subset of indices. Useful for cross-validation folds or for training on a curated slice.</li>
+<li><strong><code>DistributedSampler(dataset, num_replicas, rank)</code></strong>: shards indices across distributed-training workers so each rank sees a disjoint slice of the data. Mandatory for <a href="section-e.7.html">DistributedDataParallel</a> training; the partner call <code>sampler.set_epoch(epoch)</code> must be made every epoch so the random shuffle differs across epochs.</li>
+</ul>
+
+<div class="callout practical-example">
+<div class="callout-title">Practical Example: Oversampling a Rare Class</div>
+<p>With a 95/5 binary label imbalance, the model may learn to predict the majority class almost exclusively. Without changing the dataset, build per-sample weights inversely proportional to class frequency (rare class gets weight 19, majority class weight 1), pass them to <code>WeightedRandomSampler</code> with <code>num_samples=len(dataset)</code> and <code>replacement=True</code>, and the DataLoader will deliver roughly balanced batches. Combine with <code>shuffle=False</code> in the DataLoader (the sampler already handles randomization). Cross-reference: <a href="../../part-2-understanding-llms/module-06-pretraining-scaling-laws/index.html">Chapter 6</a> discusses related curriculum-style data weighting at pretraining scale.</p>
+</div>
+
+<div class="callout library-shortcut">
+<div class="callout-title">Library Shortcut: Hugging Face Datasets for Public Corpora</div>
+<p>For any dataset that already lives on the Hub, do not write a custom <code>Dataset</code> class. <code>load_dataset</code> returns a memory-mapped Arrow-backed object that supports streaming, mapping, filtering, and direct PyTorch-tensor return. The <code>.with_format("torch")</code> call turns it into a drop-in DataLoader source.</p>
+<pre><code class="language-python">from datasets import load_dataset
+from torch.utils.data import DataLoader
+
+ds = load_dataset("imdb", split="train").with_format("torch")
+loader = DataLoader(ds, batch_size=32, shuffle=True, num_workers=4,
+                    pin_memory=True)
+</code></pre>
+</div>
+
+<h2 id="webdataset">Large-Scale Streaming: webdataset</h2>
+
+<p>Once datasets cross the multi-terabyte threshold (think LAION, RedPajama, or any web-scale image-text corpus), the map-style pattern stops working. Random access becomes I/O-bound, file-system metadata costs dominate, and decompression of individual files is wasteful. The <code>webdataset</code> library packages samples as POSIX tar shards (each containing tens of thousands of samples) and streams them sequentially, which is dramatically faster on local disks, network filesystems, and cloud object storage.</p>
+
+<p>A <code>webdataset.WebDataset</code> object exposes an <code>IterableDataset</code> that yields samples from one shard at a time. Transformations are chained via a fluent API: <code>WebDataset(urls).decode("pil").to_tuple("jpg", "json").map_tuple(preprocess, identity)</code>. Sharding across DataLoader workers is automatic; sharding across distributed-training ranks requires passing the rank and world size to a wrapper. For datasets up to a few hundred gigabytes the map-style pattern is fine; beyond that, webdataset (or a similar sharded streaming library) becomes essential.</p>
+
+<div class="callout warning">
+<div class="callout-title">Warning: Iterable Datasets and Epochs</div>
+<p>An iterable dataset has no canonical "end of epoch." It is whatever the iterator decides to stop emitting. For training loops that expect a fixed number of steps per epoch, set the total number of steps explicitly and break out of the inner loop when reached, rather than relying on the iterator to terminate. For evaluation, structure the iterable dataset to emit a known finite slice (one shard, one validation file) so the validation loop can run to completion deterministically.</p>
+</div>
+
+<div class="callout key-takeaway">
+<div class="callout-title">Key Takeaway</div>
+<p>The data pipeline splits cleanly into two responsibilities: the <code>Dataset</code> knows how to load one sample, and the <code>DataLoader</code> knows how to assemble many samples into batches and deliver them in parallel. Most performance problems trace back to <code>num_workers</code> being too low, <code>pin_memory</code> being off, or a per-sample preprocessing step that should have been moved to the GPU. For variable-length data, write a custom <code>collate_fn</code>; for imbalanced data, use <code>WeightedRandomSampler</code>; for distributed training, use <code>DistributedSampler</code> with <code>set_epoch</code>; for web-scale data, switch to <code>webdataset</code> or a similar sharded streaming library.</p>
+</div>
+
+<div class="callout exercise">
+<div class="callout-title">Exercise E.4.1: Padded Collate for Variable-Length Sequences</div>
+<p><strong>Objective.</strong> Write a custom <code>collate_fn</code> for ragged tensors, the single most common interview question for ML engineers.</p>
+<p><strong>Task.</strong> Build a <code>Dataset</code> that yields 1000 sequences with lengths drawn uniformly from <code>[10, 100]</code> and integer token ids in <code>[0, 32000)</code>. Write <code>collate_fn(batch)</code> that returns a dict with: <code>input_ids</code> of shape <code>(B, T_max)</code> right-padded with token 0, <code>attention_mask</code> of shape <code>(B, T_max)</code>, and <code>lengths</code> of shape <code>(B,)</code>. Use <code>torch.nn.utils.rnn.pad_sequence</code> to confirm your output. Run with <code>num_workers=4</code> and verify on three batches.</p>
+<p><strong>Stretch.</strong> Add bucket-sampling: group sequences within 10 percent of each other in length to minimize padding waste. Measure the average <code>T_max</code> per batch with and without bucketing.</p>
+</div>
+
+<div class="callout exercise">
+<div class="callout-title">Exercise E.4.2: Profile a DataLoader Bottleneck</div>
+<p><strong>Objective.</strong> Diagnose the most common training-throughput problem: a starved GPU.</p>
+<p><strong>Task.</strong> Build a synthetic <code>Dataset</code> whose <code>__getitem__</code> calls <code>time.sleep(0.01)</code> to simulate a slow per-sample transform. Wrap a 1000-sample run with a simple timer for <code>num_workers in [0, 2, 4, 8]</code>, each with <code>batch_size=32</code> and <code>pin_memory=True</code>. Tabulate samples per second. Then add <code>prefetch_factor=4</code> and re-measure.</p>
+<p><strong>Expected outcome.</strong> Throughput should scale near-linearly up to the CPU core count, then plateau. The plateau is the data-pipeline ceiling; if your GPU can consume faster than that, the GPU is starved and you need more workers or simpler per-sample work.</p>
+</div>
+
+<details class="bibliography-collapsible">
+<summary><strong>Further Reading</strong></summary>
+<section class="bibliography">
+<h3 id="data-foundational">Official Documentation</h3>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://pytorch.org/docs/stable/data.html" rel="noopener" target="_blank">PyTorch Documentation: torch.utils.data.</a> The complete reference for <code>Dataset</code>, <code>IterableDataset</code>, <code>DataLoader</code>, and every built-in sampler.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://pytorch.org/tutorials/intermediate/data_loading_tutorial.html" rel="noopener" target="_blank">PyTorch Tutorial: Writing Custom Datasets, DataLoaders, and Transforms.</a> The recommended walkthrough; covers the dataset, transform, and dataloader trio with a concrete image example.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://github.com/webdataset/webdataset" rel="noopener" target="_blank">Breuel, T. WebDataset GitHub repository.</a> The reference implementation of POSIX-tar streaming for PyTorch. README contains a thorough walkthrough.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://huggingface.co/docs/datasets" rel="noopener" target="_blank">Hugging Face Datasets Documentation.</a> Library that wraps thousands of public datasets in a PyTorch-compatible interface; convenient when reproducing published benchmarks.</div>
+</div>
+</section>
+</details>
+
+<nav class="chapter-nav">
+<a class="prev" href="section-e.3.html"><span class="nav-label">Previous</span><span class="nav-num">Section E.3</span><span class="nav-title">nn.Module Patterns</span></a>
+<a class="up" href="index.html"><span class="nav-label">In Appendix</span><span class="nav-num">Appendix E</span><span class="nav-title">PyTorch Reference</span></a>
+<a class="next" href="section-e.5.html"><span class="nav-label">Next</span><span class="nav-num">Section E.5</span><span class="nav-title">Training Loop Deep Dive</span></a>
+</nav>
+<footer><p>Fifteenth Edition, 2026 · <a href="../../toc.html">Contents</a></p></footer>
+</main>
+</body>
+</html>

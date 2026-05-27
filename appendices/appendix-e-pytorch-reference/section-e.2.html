@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-PWPHBQL2VL"></script>
+<script>
+window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', 'G-PWPHBQL2VL');
+</script>
+
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<meta content="Section E.2: Autograd Internals. The computational graph, requires_grad, backward(), detach, no_grad, custom autograd Functions, and hooks." name="description"/>
+<title>Section E.2: Autograd Internals | Building Conversational AI with LLMs and Agents</title>
+<link href="../../styles/book.css" rel="stylesheet"/>
+<link href="../../styles/pygments.css" rel="stylesheet"/>
+<link href="../../vendor/katex/katex.min.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/katex/katex.min.js"></script>
+<script defer="" onload="renderMathInElement(document.body, {
+            delimiters: [
+                {left: '$$', right: '$$', display: true},
+                {left: '$', right: '$', display: false}
+            ],
+            throwOnError: false
+        });" src="../../vendor/katex/contrib/auto-render.min.js"></script>
+<link href="../../vendor/prism/prism-theme.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/prism/prism-bundle.min.js"></script>
+<script defer="" src="../../scripts/book.js"></script>
+<link href="../../pagefind/pagefind-ui.css" rel="stylesheet"/>
+<script defer="" src="../../pagefind/pagefind-ui.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
+
+<header class="chapter-header">
+<nav class="header-nav">
+<a class="book-title-link" href="../../index.html">Building Conversational AI with LLMs and Agents</a>
+<a class="toc-link" href="../../toc.html" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+</nav>
+<div class="header-search">
+<div id="search"></div>
+</div>
+
+<div class="page-breadcrumb" data-pagefind-meta="chapter"><a href="../index.html">Appendices</a><span class="bc-sep">›</span><a href="index.html">Appendix E: PyTorch Reference</a></div>
+<h1>Autograd Internals</h1><div class="page-current">Section E.2</div>
+
+</header>
+<main class="content" id="main-content"><span class="pagefind-meta-injected" data-pagefind-meta="part:Building Conversational AI with LLMs and Agents" hidden=""></span><span class="pagefind-meta-injected" data-pagefind-meta="chapter:Appendix E: PyTorch Reference" hidden=""></span>
+
+<figure class="illustration">
+<img alt="A friendly cartoon detective with a magnifying glass tracing glowing footprints backward through a colorful forest of mathematical computation trees, illustrating reverse-mode automatic differentiation walking the computational graph" src="images/autograd-detective-footprints.png"/>
+<figcaption>The backward pass is a detective story: every forward operation leaves a footprint, and autograd retraces them in reverse to assign gradient credit.</figcaption>
+</figure>
+
+<p>Autograd is the engine that makes PyTorch a deep learning framework rather than a fast tensor library. Every operation performed on a tensor that requires gradients is recorded in a dynamic computational graph; calling <code>loss.backward()</code> then walks that graph in reverse, applying the chain rule to compute gradients of the loss with respect to every leaf parameter. Without autograd, every gradient in every model would have to be derived and coded by hand; with autograd, the framework does that work automatically, every time.</p>
+
+<p>This section explains how the engine works under the hood, when to use the various ways of controlling it, and how to extend it with custom operations and hooks. The mathematical justification for the chain rule itself is covered in <a href="../appendix-a-mathematical-foundations/section-a.3.html">Appendix A.3 (Calculus for Machine Learning)</a>; here the focus is on the mechanics PyTorch exposes.</p>
+
+<h2 id="graph">The Computational Graph</h2>
+
+<p>A tensor that participates in a differentiable computation carries two pieces of extra state. The first is the boolean flag <code>requires_grad</code>; if true, autograd will track operations on this tensor. The second is the <code>grad_fn</code> attribute, which points to a node in the dynamic graph that records the operation that produced this tensor and holds references to the upstream tensors needed to compute the local gradient.</p>
+
+<p>Leaf tensors (model parameters, typically) have <code>requires_grad=True</code> and <code>grad_fn=None</code> because no operation produced them. Intermediate tensors have <code>requires_grad=True</code> only if at least one of their inputs did, and their <code>grad_fn</code> records the producing op (for example <code>AddmmBackward0</code> for the result of a linear layer). The graph is built on the fly during the forward pass and discarded after each backward pass; that is what "dynamic computation graph" means.</p>
+
+<div class="code-block-wrapper">
+<pre><code class="language-python">import torch
+
+w = torch.tensor([1.5], requires_grad=True)       # leaf parameter
+b = torch.tensor([0.3], requires_grad=True)       # leaf parameter
+x = torch.tensor([2.0])                            # leaf data, no grad
+
+z = x * w + b                                       # intermediate
+a = torch.sigmoid(z)                                # intermediate
+loss = (a - 1.0) ** 2                               # scalar output
+
+print("w.grad_fn:", w.grad_fn)
+print("z.grad_fn:", z.grad_fn)
+print("a.grad_fn:", a.grad_fn)
+print("loss.grad_fn:", loss.grad_fn)
+</code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> w.grad_fn: None
+z.grad_fn: &lt;AddBackward0 object at 0x...&gt;
+a.grad_fn: &lt;SigmoidBackward0 object at 0x...&gt;
+loss.grad_fn: &lt;PowBackward0 object at 0x...&gt;</div>
+<div class="code-caption"><strong>Code Fragment E.2.1:</strong> Inspecting the <code>grad_fn</code> chain reveals the operations that built each tensor. Leaf parameters have no <code>grad_fn</code>; intermediates record the producing op so the backward pass can replay it.</div>
+</div>
+
+<h2 id="backward">backward() and Gradient Accumulation</h2>
+
+<p>Calling <code>loss.backward()</code> traverses the graph from <code>loss</code> back to every leaf with <code>requires_grad=True</code>, computing partial derivatives by the chain rule and writing them into the leaf's <code>.grad</code> attribute. A scalar loss requires no arguments. A non-scalar output requires a <code>gradient=</code> argument of the same shape, which is multiplied element-wise with the implicit upstream gradient (typically used for advanced cases like Jacobian-vector products).</p>
+
+<p>A subtle and important behavior: <code>.grad</code> <em>accumulates</em>. Each call to <code>backward()</code> adds the new gradient to whatever is already in <code>.grad</code>. This is by design; it enables gradient accumulation across multiple forward passes (useful for simulating a larger batch). It also means that in a normal training loop, <code>optimizer.zero_grad()</code> must be called before every backward pass to clear stale gradients. Forgetting this is the most common training-loop bug.</p>
+
+<div class="callout warning">
+<div class="callout-title">Warning: zero_grad with set_to_none=True</div>
+<p>Since PyTorch 1.7, <code>optimizer.zero_grad(set_to_none=True)</code> (the default in newer versions) sets each gradient to <code>None</code> instead of zeroing it in place. This is faster because it skips the memory write and lets the next backward pass allocate fresh storage. The semantics are identical from the loss's perspective: an uninitialized gradient is treated as zero. However, code that reads <code>param.grad</code> directly (e.g., custom logging) must handle the <code>None</code> case explicitly. If a third-party library depends on <code>param.grad</code> being a zero tensor, fall back to <code>set_to_none=False</code>.</p>
+</div>
+
+<p>The other way to compute gradients is <code>torch.autograd.grad(outputs, inputs)</code>, which returns the gradients directly without writing them to <code>.grad</code>. This is useful when computing gradients with respect to specific tensors (rather than all parameters) or when implementing meta-learning, second-order methods, or implicit-differentiation tricks. By default <code>grad()</code> consumes the graph; pass <code>retain_graph=True</code> to keep it for additional gradient calls, and <code>create_graph=True</code> to enable differentiation of the gradient itself (for Hessians and other higher-order quantities).</p>
+
+<h2 id="control">Controlling Gradient Tracking</h2>
+
+<p>Gradient tracking costs both memory (intermediate activations must be retained for the backward pass) and compute (every op records its backward function). Disabling tracking when it is not needed is a major optimization, especially during inference and validation. PyTorch offers three mechanisms for this, each with a different scope.</p>
+
+<p>The first is <code>tensor.detach()</code>: a method that returns a new tensor sharing storage with the original but with <code>requires_grad=False</code> and no <code>grad_fn</code>. The original is unchanged. <code>detach()</code> is the surgical tool: it removes one specific tensor from the graph. The canonical use is for logging, where <code>loss.detach()</code> records the scalar value without retaining the backward graph.</p>
+
+<p>The second is the context manager <code>torch.no_grad()</code>: every tensor produced inside the <code>with</code> block has <code>requires_grad=False</code> regardless of its inputs. This is the standard wrapper for inference and validation passes; it cuts memory use roughly in half because no activations are kept around.</p>
+
+<div class="code-block-wrapper">
+<pre><code class="language-python">import torch
+
+model = torch.nn.Linear(50, 3)
+X = torch.rand(8, 50)
+
+# Inference: do not build the graph.
+model.eval()
+with torch.no_grad():
+    logits = model(X)
+    probs = torch.softmax(logits, dim=1)
+
+print(logits.requires_grad, logits.grad_fn)
+</code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> False None</div>
+<div class="code-caption"><strong>Code Fragment E.2.2:</strong> Using <code>torch.no_grad()</code> for inference. The output tensor has no <code>grad_fn</code> and no autograd machinery was built behind it, freeing both memory and compute.</div>
+</div>
+
+<p>The third is <code>torch.set_grad_enabled(bool)</code>: a context manager (or function) that toggles tracking globally inside its scope. The form <code>with torch.set_grad_enabled(is_train):</code> is useful inside a function that handles both training and evaluation, so the same loop body can be reused for both.</p>
+
+<p>A related tool is <code>torch.inference_mode()</code>, a newer and stricter version of <code>no_grad()</code> that disables view tracking and a few other autograd bookkeeping mechanisms for extra speed. Use it for pure inference workloads where no tensor produced inside the block will ever participate in training; otherwise stick with <code>no_grad()</code>.</p>
+
+<h2 id="custom-function">Custom Autograd Functions</h2>
+
+<p>The full power of autograd is exposed through <code>torch.autograd.Function</code>, the base class that defines what it means to be a differentiable operation. Subclassing it requires implementing two static methods: <code>forward(ctx, *inputs)</code> computes the forward output and stashes anything needed for the backward pass on <code>ctx</code>; <code>backward(ctx, *grad_outputs)</code> retrieves the saved tensors and computes the gradients of each input.</p>
+
+<div class="code-block-wrapper">
+<pre><code class="language-python">import torch
+
+class ScaledReLU(torch.autograd.Function):
+    """ReLU multiplied by a scalar `alpha`, with custom backward."""
+
+    @staticmethod
+    def forward(ctx, x, alpha):
+        ctx.save_for_backward(x)
+        ctx.alpha = alpha
+        return alpha * torch.relu(x)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        (x,) = ctx.saved_tensors
+        grad_input = grad_output * ctx.alpha * (x &gt; 0).to(grad_output.dtype)
+        # Inputs: x, alpha. alpha is not a Tensor, so return None for it.
+        return grad_input, None
+
+
+x = torch.randn(4, requires_grad=True)
+y = ScaledReLU.apply(x, 2.0).sum()
+y.backward()
+print(x.grad)
+</code></pre>
+<div class="code-output"><span class="output-label"><strong>Output (example):</strong></span> tensor([2., 0., 2., 0.])</div>
+<div class="code-caption"><strong>Code Fragment E.2.3:</strong> A custom autograd Function. Use this pattern to inject hand-derived gradients, to wrap a non-differentiable C++ kernel, or to implement straight-through estimators for quantized layers.</div>
+</div>
+
+<div class="callout practical-example">
+<div class="callout-title">Practical Example: When to Write a Custom Function</div>
+<p>The two situations that justify a custom <code>Function</code> are: (1) the forward op involves a non-PyTorch call (a C++ extension, a black-box library, a custom CUDA kernel) whose gradient PyTorch cannot infer; and (2) the natural-form gradient is numerically much more stable than what autograd would compute symbolically (the classic example is the gradient of <code>log(1 + exp(x))</code>, which collapses to <code>sigmoid(x)</code> rather than a chain of unstable intermediates). Outside these cases, let PyTorch derive the gradient; it is almost always faster to develop and rarely slower to run.</p>
+</div>
+
+<div class="callout library-shortcut">
+<div class="callout-title">Library Shortcut: torch.func for Per-Sample Gradients and Jacobians</div>
+<p>When the goal is per-sample gradients, Jacobians, or vmapped function transforms, skip the hand-rolled <code>autograd.grad</code> calls and reach for <code>torch.func</code> (the in-tree successor to <code>functorch</code>). The transforms <code>grad</code>, <code>jacrev</code>, <code>jacfwd</code>, <code>hessian</code>, and <code>vmap</code> compose freely and avoid the bookkeeping of <code>create_graph=True</code> recursion.</p>
+<pre><code class="language-python">from torch.func import grad, vmap
+
+def loss_fn(params, x, y):
+    return ((params @ x - y) ** 2).sum()
+
+# Per-sample gradients: vmap the single-sample grad over the batch axis.
+per_sample_grad = vmap(grad(loss_fn), in_dims=(None, 0, 0))(params, X, y)
+</code></pre>
+</div>
+
+<h2 id="hooks">Hooks: Inspecting and Modifying the Graph</h2>
+
+<p>Hooks are callbacks that fire during the forward or backward pass without changing the model's source code. They are the diagnostic tool of choice for inspecting activations, gradients, and parameter updates in a running model. Three types exist on <code>nn.Module</code>: <code>register_forward_pre_hook</code> (fires before forward), <code>register_forward_hook</code> (fires after forward, sees inputs and outputs), and <code>register_full_backward_hook</code> (fires during backward, sees gradient inputs and outputs). Each returns a handle whose <code>.remove()</code> method detaches the hook.</p>
+
+<p>Tensor-level hooks are even finer-grained. <code>tensor.register_hook(fn)</code> calls <code>fn(grad)</code> every time a gradient flows through that tensor and lets <code>fn</code> return a modified gradient (or <code>None</code> to leave it untouched). This is the right level for gradient clipping or noise injection on a specific intermediate.</p>
+
+<div class="code-block-wrapper">
+<pre><code class="language-python">import torch
+import torch.nn as nn
+
+model = nn.Sequential(nn.Linear(8, 16), nn.ReLU(), nn.Linear(16, 4))
+
+activations = {}
+def save_act(name):
+    def hook(module, inputs, output):
+        activations[name] = output.detach()
+    return hook
+
+handles = [
+    model[0].register_forward_hook(save_act("linear_0")),
+    model[2].register_forward_hook(save_act("linear_1")),
+]
+
+_ = model(torch.randn(2, 8))
+for k, v in activations.items():
+    print(k, tuple(v.shape))
+
+for h in handles:
+    h.remove()
+</code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> linear_0 (2, 16)
+linear_1 (2, 4)</div>
+<div class="code-caption"><strong>Code Fragment E.2.4:</strong> Forward hooks for activation inspection. The hooks are removed after use so they do not slow down subsequent forward passes or hold tensors alive past their useful lifetime.</div>
+</div>
+
+<div class="callout warning">
+<div class="callout-title">Warning: Hooks Can Leak Memory</div>
+<p>Saving <code>output</code> in a closure captures the entire computation graph that produced it. If the saved value is not detached (or wrapped in <code>no_grad()</code> upstream), the hook will retain activations across iterations and the training loop will OOM after a few steps. Always store <code>output.detach()</code> or <code>output.detach().cpu()</code> inside a hook. Similarly, register and remove hooks within the same logical scope; forgotten hooks accumulate.</p>
+</div>
+
+<div class="callout fun-note">
+<div class="callout-title">A Slightly Forgetful PyTorch Module</div>
+<p>Every batch, the graph is rebuilt from scratch and demolished after backward. PyTorch is, in effect, a model with severe short-term memory loss: it remembers only the current forward pass, and the moment you call <code>backward()</code> it cheerfully forgets everything. This is a feature (dynamic shapes! Python control flow!), not a bug, but it does explain why <code>retain_graph=True</code> feels like asking the framework to take notes.</p>
+</div>
+
+<h2 id="anomaly">Anomaly Detection</h2>
+
+<p>When a backward pass produces NaN or Inf gradients, the most useful debugging aid is <code>torch.autograd.set_detect_anomaly(True)</code>. With anomaly detection on, PyTorch records the Python stack trace of every forward op and replays it whenever a non-finite gradient is detected during the backward pass, so the offending operation can be identified precisely. The cost is significant slowdown, so this is a debugging tool rather than a production setting. <a href="section-e.9.html">Section E.9</a> walks through the full NaN-hunting workflow.</p>
+
+<div class="callout key-takeaway">
+<div class="callout-title">Key Takeaway</div>
+<p>Autograd is a record-and-replay engine: every operation on a tensor with <code>requires_grad=True</code> appends a node to a dynamic graph, and <code>backward()</code> replays the graph in reverse using the chain rule. The three tools for controlling the graph (<code>detach</code>, <code>no_grad</code>, <code>set_grad_enabled</code>) are essential for keeping memory in check during inference and logging. Custom <code>Function</code> subclasses handle the rare cases where autograd cannot derive a gradient, and hooks are the universal mechanism for inspecting what is flowing through a model without modifying its source.</p>
+</div>
+
+<div class="callout exercise">
+<div class="callout-title">Exercise E.2.1: Verify a Hand-Derived Gradient</div>
+<p><strong>Objective.</strong> Confirm that autograd matches a closed-form derivative.</p>
+<p><strong>Task.</strong> Define <code>f(x) = (x ** 3 - 2 * x).sum()</code>. For <code>x = torch.randn(8, requires_grad=True)</code>, compute the gradient via <code>backward()</code>, then compare against the analytic gradient <code>3 * x.detach() ** 2 - 2</code> using <code>torch.allclose</code>. Repeat for <code>f(x) = torch.sigmoid(x).sum()</code>; the analytic gradient is <code>sig * (1 - sig)</code>.</p>
+<p><strong>Stretch.</strong> Use <code>torch.autograd.gradcheck</code> with double precision to validate a small custom function against numerical differences. Read the docstring for the <code>eps</code> and <code>atol</code> arguments.</p>
+</div>
+
+<div class="callout exercise">
+<div class="callout-title">Exercise E.2.2: Detach, no_grad, and a Logging Hook</div>
+<p><strong>Objective.</strong> Practice the three primary tools for controlling the autograd graph.</p>
+<p><strong>Task.</strong> Build a 3-layer MLP and a tiny training step. Then: (a) wrap the validation forward pass in <code>torch.no_grad()</code> and confirm with <code>torch.cuda.memory_allocated()</code> that activation memory does not grow; (b) register a backward hook on the first linear layer that prints the gradient's L2 norm; (c) <code>detach()</code> the output of layer two before passing it to layer three and verify that layer-one parameters receive zero gradient.</p>
+<p><strong>Expected outcome.</strong> The hook fires once per backward call, prints a positive scalar in the normal case, and prints zero for the layer that is starved of gradient by the detach.</p>
+</div>
+
+<details class="bibliography-collapsible">
+<summary><strong>Further Reading</strong></summary>
+<section class="bibliography">
+<h3 id="autograd-foundational">Autograd Documentation and Theory</h3>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://pytorch.org/docs/stable/notes/autograd.html" rel="noopener" target="_blank">PyTorch Notes: Autograd Mechanics.</a> The official deep dive into how autograd records and replays operations. Mandatory reading for anyone writing custom layers.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://pytorch.org/tutorials/beginner/blitz/autograd_tutorial.html" rel="noopener" target="_blank">PyTorch Tutorial: A Gentle Introduction to Autograd.</a> The introductory walkthrough; useful for building intuition before reading the mechanics notes.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Baydin, A. G. et al. (2018). "Automatic Differentiation in Machine Learning: a Survey." <em>JMLR</em>. <a href="https://arxiv.org/abs/1502.05767" rel="noopener" target="_blank">arXiv:1502.05767</a>. <span class="bib-note">Comprehensive survey of automatic differentiation; explains forward-mode vs reverse-mode and why deep learning frameworks use the latter.</span></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://pytorch.org/docs/stable/notes/extending.html" rel="noopener" target="_blank">PyTorch Notes: Extending PyTorch.</a> The reference for writing custom <code>autograd.Function</code> subclasses, including the subtle rules about <code>save_for_backward</code> and double-backward support.</div>
+</div>
+</section>
+</details>
+
+<nav class="chapter-nav">
+<a class="prev" href="section-e.1.html"><span class="nav-label">Previous</span><span class="nav-num">Section E.1</span><span class="nav-title">Tensors</span></a>
+<a class="up" href="index.html"><span class="nav-label">In Appendix</span><span class="nav-num">Appendix E</span><span class="nav-title">PyTorch Reference</span></a>
+<a class="next" href="section-e.3.html"><span class="nav-label">Next</span><span class="nav-num">Section E.3</span><span class="nav-title">nn.Module Patterns</span></a>
+</nav>
+<footer><p>Fifteenth Edition, 2026 · <a href="../../toc.html">Contents</a></p></footer>
+</main>
+</body>
+</html>

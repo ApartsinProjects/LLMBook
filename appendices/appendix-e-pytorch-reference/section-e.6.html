@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-PWPHBQL2VL"></script>
+<script>
+window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', 'G-PWPHBQL2VL');
+</script>
+
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<meta content="Section E.6: Mixed Precision. AMP autocast, GradScaler, bfloat16 vs fp16, and common AMP pitfalls." name="description"/>
+<title>Section E.6: Mixed Precision | Building Conversational AI with LLMs and Agents</title>
+<link href="../../styles/book.css" rel="stylesheet"/>
+<link href="../../styles/pygments.css" rel="stylesheet"/>
+<link href="../../vendor/katex/katex.min.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/katex/katex.min.js"></script>
+<script defer="" onload="renderMathInElement(document.body, {
+            delimiters: [
+                {left: '$$', right: '$$', display: true},
+                {left: '$', right: '$', display: false}
+            ],
+            throwOnError: false
+        });" src="../../vendor/katex/contrib/auto-render.min.js"></script>
+<link href="../../vendor/prism/prism-theme.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/prism/prism-bundle.min.js"></script>
+<script defer="" src="../../scripts/book.js"></script>
+<link href="../../pagefind/pagefind-ui.css" rel="stylesheet"/>
+<script defer="" src="../../pagefind/pagefind-ui.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
+
+<header class="chapter-header">
+<nav class="header-nav">
+<a class="book-title-link" href="../../index.html">Building Conversational AI with LLMs and Agents</a>
+<a class="toc-link" href="../../toc.html" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+</nav>
+<div class="header-search">
+<div id="search"></div>
+</div>
+
+<div class="page-breadcrumb" data-pagefind-meta="chapter"><a href="../index.html">Appendices</a><span class="bc-sep">›</span><a href="index.html">Appendix E: PyTorch Reference</a></div>
+<h1>Mixed Precision</h1><div class="page-current">Section E.6</div>
+
+</header>
+<main class="content" id="main-content"><span class="pagefind-meta-injected" data-pagefind-meta="part:Building Conversational AI with LLMs and Agents" hidden=""></span><span class="pagefind-meta-injected" data-pagefind-meta="chapter:Appendix E: PyTorch Reference" hidden=""></span>
+
+<figure class="illustration">
+<img alt="Two friendly anthropomorphic clocks of different sizes side by side in a sunny cartoon workshop, ticking at different speeds with motion lines, while a relaxed scientist watches contentedly representing how fp32 and bf16 coexist in the same training step" src="images/mixed-precision-two-clocks.png"/>
+<figcaption>Mixed precision keeps two clocks in the same workshop: a fast, lightweight half-precision tick for the heavy math and a slow, careful float32 tick for the values that must not drift.</figcaption>
+</figure>
+
+<p>Modern accelerators run half-precision arithmetic two to eight times faster than single precision and use half the memory per tensor. Mixed-precision training exploits this without sacrificing convergence: most operations execute in float16 or bfloat16, while a small set of numerically sensitive ones (loss, softmax, layer norm, weight updates) stay in float32. The result is a training run that fits a larger model in the same memory and finishes substantially faster, with model quality nearly indistinguishable from full-precision training.</p>
+
+<p>This section covers PyTorch's Automatic Mixed Precision (AMP) machinery, the differences between the two half-precision formats, when the gradient scaler is required, and the half-dozen pitfalls that bite practitioners moving from FP32 to AMP for the first time. <a href="../../part-2-understanding-llms/module-09-inference-optimization/section-9.1.html">Chapter 9</a> covers the related but distinct topic of low-precision <em>inference</em> via post-training quantization.</p>
+
+<h2 id="why-mixed">Why Mixed Precision Works</h2>
+
+<p>The motivation is hardware. NVIDIA's Tensor Cores (Volta and later), AMD's Matrix Cores (RDNA3 and later), Apple Silicon's Neural Engine, and Google's TPUs all expose dedicated matrix-multiply units that run at half precision dramatically faster than the general-purpose float32 path. On an A100, a float16 matmul achieves roughly 312 TFLOPS versus 19.5 TFLOPS for float32; the difference is large enough that mixed-precision training is the default for any serious workload.</p>
+
+<p>The catch is numeric range. Float16 has 5 exponent bits, giving a representable range of roughly <span class="math">$\pm 6 \times 10^{4}$</span> and a smallest positive normal of <span class="math">$\approx 6 \times 10^{-5}$</span>. Many gradient values, especially in deep networks late in training, fall below that smallest value and silently round to zero. Bfloat16 has 8 exponent bits (the same as float32), giving the same range as float32 but only 7 bits of mantissa precision. Mixed-precision training keeps the weights, gradients, and optimizer state in float32 (the master copy) while the forward and backward passes run in the half-precision format the hardware prefers.</p>
+
+<h2 id="autocast">torch.autocast: The Forward-Pass Wrapper</h2>
+
+<p>PyTorch's <code>torch.autocast</code> is a context manager that automatically chooses the right precision for each operation inside its scope. It is a thin layer around the operator dispatch system: <code>matmul</code> and <code>conv</code> run in the chosen half precision, while <code>softmax</code>, <code>log</code>, <code>exp</code>, and the loss reduction stay in float32. The user does not need to manually cast tensors; <code>autocast</code> inserts the conversions transparently.</p>
+
+<div class="code-block-wrapper">
+<pre><code class="language-python">import torch
+
+device = "cuda"
+model = NeuralNetwork(50, 10).to(device)
+optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
+
+for features, labels in train_loader:
+    features = features.to(device, non_blocking=True)
+    labels   = labels.to(device, non_blocking=True)
+
+    optimizer.zero_grad(set_to_none=True)
+    with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+        logits = model(features)
+        loss = torch.nn.functional.cross_entropy(logits, labels)
+
+    loss.backward()
+    optimizer.step()
+</code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> (no stdout; training runs ~2x faster on Ampere or newer GPUs with no scaler needed)</div>
+<div class="code-caption"><strong>Code Fragment E.6.1:</strong> bfloat16 mixed-precision training with <code>torch.autocast</code>. No gradient scaler is required because bfloat16 has the same exponent range as float32; underflow is essentially impossible.</div>
+</div>
+
+<p>The <code>device_type</code> argument selects which dispatch table to use; the most common values are <code>"cuda"</code>, <code>"cpu"</code>, and <code>"xpu"</code> (Intel). The <code>dtype</code> argument selects the half-precision format: <code>torch.float16</code> or <code>torch.bfloat16</code> on CUDA; <code>torch.bfloat16</code> on CPU (with the BF16 ISA extension); MPS supports both. The <code>autocast</code> scope should wrap the forward pass and the loss computation; the backward pass and the optimizer step happen outside it so that gradients land in float32 storage.</p>
+
+<h2 id="bf16-vs-fp16">bfloat16 vs float16</h2>
+
+<p>For new code, the choice is almost always bfloat16. Its float32-equivalent range means gradients do not underflow, the gradient scaler (covered below) is not needed, and training rarely requires any recipe changes from the float32 baseline. The only downsides are slightly less precision than float16 (7 vs 10 mantissa bits) and lack of support on pre-Ampere NVIDIA GPUs (V100 and older).</p>
+
+<p>Float16, by contrast, has a wider hardware install base (every GPU from Pascal onward) and slightly better precision per bit, but its narrow exponent range demands gradient scaling. The exact recipe is to multiply the loss by a large constant before <code>backward()</code> (so gradients are pulled up into the representable range), then unscale them before clipping or the optimizer step. PyTorch's <code>torch.amp.GradScaler</code> automates this, dynamically adjusting the scale factor to be as large as possible without causing overflow.</p>
+
+<div class="code-block-wrapper">
+<pre><code class="language-python">import torch
+
+scaler = torch.amp.GradScaler("cuda")
+
+for features, labels in train_loader:
+    features = features.to(device, non_blocking=True)
+    labels   = labels.to(device, non_blocking=True)
+
+    optimizer.zero_grad(set_to_none=True)
+    with torch.autocast(device_type="cuda", dtype=torch.float16):
+        logits = model(features)
+        loss = torch.nn.functional.cross_entropy(logits, labels)
+
+    # Scale the loss to lift gradients into the float16 range.
+    scaler.scale(loss).backward()
+    # Unscale before clipping (clipping reads .grad directly).
+    scaler.unscale_(optimizer)
+    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+    # step() and update() handle non-finite gradients gracefully.
+    scaler.step(optimizer)
+    scaler.update()
+</code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> (no stdout; gradients are scaled and unscaled transparently)</div>
+<div class="code-caption"><strong>Code Fragment E.6.2:</strong> float16 mixed-precision training with the gradient scaler. The four extra lines (<code>scaler.scale</code>, <code>scaler.unscale_</code>, <code>scaler.step</code>, <code>scaler.update</code>) are what distinguishes a working FP16 recipe from a broken one.</div>
+</div>
+
+<div class="callout key-insight">
+<div class="callout-title">Key Insight: bfloat16 Is the Default for Large Models</div>
+<p>Every major open-weight LLM since 2022 (Llama, Falcon, Mistral, Qwen, DeepSeek) has been trained in bfloat16. The reason is operational simplicity: no scaler tuning, no overflow-induced training restarts, no per-recipe quirks. The slightly lower precision of bfloat16 has not been shown to harm convergence at scale, and the engineering reliability is worth more than the precision difference. Reach for float16 only on hardware that lacks bfloat16 support (Volta-generation V100s) or in cases where bit-for-bit reproduction of a published float16 recipe is required.</p>
+</div>
+
+<h2 id="pitfalls">Common AMP Pitfalls</h2>
+
+<p>Five mistakes account for the majority of AMP-related training failures.</p>
+
+<dl>
+<dt>Using float16 without the scaler</dt>
+<dd>Gradients silently underflow to zero; training appears to start but loss does not decrease. The fix is to add <code>GradScaler</code>; the alternative is to switch to bfloat16, which sidesteps the issue.</dd>
+
+<dt>Calling <code>clip_grad_norm_</code> on scaled gradients</dt>
+<dd>The clipping threshold is interpreted against gradients that are still scaled up by the loss scaler. Either the clip threshold has to be multiplied by the current scale (fragile), or, much better, <code>scaler.unscale_(optimizer)</code> must be called before clipping. The pattern is in Code Fragment E.6.2 above.</dd>
+
+<dt>Loss computation inside autocast on tiny values</dt>
+<dd>Some loss functions accumulate many tiny intermediate values whose sum is dominated by precision loss in float16. Wrap the loss in <code>with torch.autocast(device_type="cuda", enabled=False):</code> after the forward pass (the activations are already half-precision; only the reduction needs to escape) to force float32 accumulation.</dd>
+
+<dt>NaN in a single batch propagating to all parameters</dt>
+<dd>One overflow in a forward pass produces NaN logits, NaN loss, NaN gradients, and NaN parameters after the next step. The scaler's <code>scaler.step</code> already skips parameter updates when any gradient is non-finite, so float16 training tolerates the occasional overflow. With bfloat16, ensure the training loop checks <code>torch.isfinite(loss)</code> and skips the step when not. Anomaly detection (Section E.9) helps localize the source.</dd>
+
+<dt>Saving and loading checkpoints across precisions</dt>
+<dd>Mixed-precision training keeps a float32 master copy of weights. The state dict therefore contains float32 tensors regardless of the autocast format. This is correct: do not save half-precision weights for resumption; doing so loses precision that float32 master copies are designed to preserve. For deployment, a separate cast-to-half-precision step is fine and is what most inference servers do.</dd>
+</dl>
+
+<div class="callout warning">
+<div class="callout-title">Warning: BatchNorm and FP16 Still Need Care</div>
+<p>BatchNorm's running statistics live in float32 by default, but the per-batch mean and variance are computed in whatever precision the input is. Under aggressive FP16 with a large batch, the variance can underflow when intermediate sums in the running average are tiny. Workarounds: wrap the BatchNorm forward in <code>autocast(enabled=False)</code>, switch to <code>nn.SyncBatchNorm</code> for distributed training (which does its arithmetic in float32), or replace BatchNorm with LayerNorm or GroupNorm. As with gradient accumulation (Section E.5), modern transformer training avoids BatchNorm and the problem disappears.</p>
+</div>
+
+<h2 id="memory">Memory Savings</h2>
+
+<p>Mixed precision halves the memory used by activations (the largest contributor for moderate batch sizes), but does <em>not</em> halve total memory: parameters, gradients, and optimizer state still live in float32. For a transformer trained with AdamW, the memory breakdown is approximately 4 bytes per parameter for weights, 4 bytes for gradients, 8 bytes for Adam's two momentum buffers, and a variable amount for activations. AMP shrinks the activation cost and may shrink the gradient cost, but the optimizer state remains the limiting factor for the largest models. The fix for that is sharded optimizer state, covered in <a href="section-e.7.html">Section E.7</a> on distributed training.</p>
+
+<div class="callout key-takeaway">
+<div class="callout-title">Key Takeaway</div>
+<p>Mixed precision is the single largest performance lever in modern PyTorch training. Wrap the forward pass in <code>torch.autocast(device_type="cuda", dtype=torch.bfloat16)</code>, leave the backward pass and optimizer step outside, and the training loop runs two to four times faster with no other changes. On hardware that lacks bfloat16 support, use float16 with <code>GradScaler</code> and remember to <code>scaler.unscale_(optimizer)</code> before gradient clipping. For new code on Ampere or newer GPUs, prefer bfloat16: it has the operational simplicity of full precision and most of the speed of float16.</p>
+</div>
+
+<div class="callout exercise">
+<div class="callout-title">Exercise E.6.1: AMP Throughput and Accuracy Sanity</div>
+<p><strong>Objective.</strong> Confirm with measurements that AMP delivers the expected speed-up without hurting validation accuracy.</p>
+<p><strong>Task.</strong> Take the Lab E.5 training loop on FashionMNIST and run three configurations: float32 baseline, float16 with <code>GradScaler</code>, bfloat16 (if supported). For each, log: tokens or samples per second, peak GPU memory (<code>torch.cuda.max_memory_allocated()</code>), and final validation accuracy. Tabulate the three side by side.</p>
+<p><strong>Expected outcome.</strong> AMP runs 1.5x to 3x faster (hardware-dependent) with peak activation memory roughly halved. Final accuracy should be within 0.5 absolute percentage points of the float32 baseline. If accuracy diverges, inspect for NaN; see Section E.9 for the recipe.</p>
+</div>
+
+<div class="callout exercise">
+<div class="callout-title">Exercise E.6.2: When AMP Is the Wrong Answer</div>
+<p><strong>Objective.</strong> Recognize the two situations where AMP causes problems and apply the textbook fixes.</p>
+<p><strong>Task.</strong> (a) Add a custom loss that calls <code>torch.log(x.sum())</code> with very small <code>x</code> values. Run with AMP and observe a NaN. Fix by wrapping the loss computation in <code>torch.autocast(..., enabled=False)</code>. (b) Add gradient clipping by global norm to a float16 AMP loop without calling <code>scaler.unscale_(optimizer)</code> first. Observe that the clip threshold is being applied to scaled gradients (effectively no clipping at all). Fix by unscaling, clipping, then <code>scaler.step</code>.</p>
+<p><strong>Hint.</strong> The AMP rule of thumb: reductions, log, and exp are float32 territory; matmuls and convolutions are float16 or bfloat16 territory.</p>
+</div>
+
+<details class="bibliography-collapsible">
+<summary><strong>Further Reading</strong></summary>
+<section class="bibliography">
+<h3 id="amp-refs">Mixed Precision References</h3>
+<div class="bib-entry-card">
+<div class="bib-ref">Micikevicius, P. et al. (2018). "Mixed Precision Training." <em>ICLR 2018</em>. <a href="https://arxiv.org/abs/1710.03740" rel="noopener" target="_blank">arXiv:1710.03740</a>. <span class="bib-note">The foundational paper that introduced loss scaling and the master-weights pattern. Required reading to understand <em>why</em> AMP works.</span></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://pytorch.org/docs/stable/amp.html" rel="noopener" target="_blank">PyTorch Documentation: Automatic Mixed Precision.</a> The canonical reference for <code>torch.autocast</code> and <code>torch.amp.GradScaler</code>, including a table of which ops are autocast to which precision.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Kalamkar, D. et al. (2019). "A Study of BFLOAT16 for Deep Learning Training." <em>arXiv:1905.12322</em>. <a href="https://arxiv.org/abs/1905.12322" rel="noopener" target="_blank">arXiv:1905.12322</a>. <span class="bib-note">Empirical case for bfloat16: matches FP32 training quality on a wide range of tasks while keeping FP32's exponent range.</span></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://pytorch.org/docs/stable/notes/numerical_accuracy.html" rel="noopener" target="_blank">PyTorch Notes: Numerical Accuracy.</a> Discussion of float16, bfloat16, and TF32 numerical behavior in PyTorch. Useful when reproducibility across hardware matters.</div>
+</div>
+</section>
+</details>
+
+<nav class="chapter-nav">
+<a class="prev" href="section-e.5.html"><span class="nav-label">Previous</span><span class="nav-num">Section E.5</span><span class="nav-title">Training Loop Deep Dive</span></a>
+<a class="up" href="index.html"><span class="nav-label">In Appendix</span><span class="nav-num">Appendix E</span><span class="nav-title">PyTorch Reference</span></a>
+<a class="next" href="section-e.7.html"><span class="nav-label">Next</span><span class="nav-num">Section E.7</span><span class="nav-title">Distributed Training</span></a>
+</nav>
+<footer><p>Fifteenth Edition, 2026 · <a href="../../toc.html">Contents</a></p></footer>
+</main>
+</body>
+</html>
