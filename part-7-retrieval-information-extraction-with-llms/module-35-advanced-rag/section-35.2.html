@@ -102,6 +102,49 @@ gtag('config', 'G-PWPHBQL2VL');
  documents that provide necessary background context, which is then combined with results from the
  specific query. compares these three query transformation strategies.</p>
 <p>A worked HyDE pass illustrates why "hypothetical and wrong" can still help. User query: "How does a transformer's KV cache reduce inference cost?" HyDE step 1: ask the LLM to <em>write</em> a fake passage as if it were the answer ("The KV cache stores previously computed key and value tensors so that during autoregressive decoding the model can skip recomputation for prior tokens, reducing complexity from O(n^2) to O(n) per step..."). HyDE step 2: embed that hypothetical passage, not the original question. The embedding now lives in "answer space," surrounded by real passages with similar phrasing. Even if the fake passage gets a fact wrong (say, it confuses K with V), the embedding is closer to actual technical explanations than the original question's embedding was, and the retriever surfaces better documents.</p>
+
+<p>HyDE can be written compactly as a two-step transformation of the retrieval query. Let $q$ be the user query, $f_\mathrm{LLM}$ a hypothetical-passage generator (one or many samples), $E$ the document embedding model, and $\mathrm{sim}$ the index's similarity metric. Standard dense retrieval scores the corpus as $s_\mathrm{dense}(d) = \mathrm{sim}(E(q), E(d))$. HyDE instead samples $N$ hypothetical answers $\tilde{d}_i = f_\mathrm{LLM}(q)$ and scores documents against their mean embedding:</p>
+<div class="math-block">$$ s_\mathrm{HyDE}(d) = \mathrm{sim}\!\left(\frac{1}{N} \sum_{i=1}^{N} E(\tilde{d}_i),\; E(d)\right). $$</div>
+<p>Setting $N = 1$ is the cheap default; $N = 4$ to $8$ averages out factual errors in any single hypothetical passage and is the typical published recipe. The mean-embedding pool is what makes the retriever robust to the "K versus V confusion" failure: a single wrong hypothesis lands near "encoder attention", but four wrong-but-related hypotheses average toward the centroid of "KV cache and inference cost" passages.</p>
+
+<div class="code-block-wrapper">
+<pre><code class="language-python">from openai import OpenAI
+
+client = OpenAI()
+HYDE_PROMPT = (
+    "Write a short, technical paragraph that directly answers the user's "
+    "question as if you were quoting it from a documentation page. Do not "
+    "say 'I don't know'. Be confident even if uncertain about specifics."
+)
+
+def hyde_retrieve(query: str, collection, k: int = 5, n_samples: int = 4):
+    """HyDE: generate N hypothetical answers, embed their mean, then retrieve."""
+    hypothetical_passages = []
+    for _ in range(n_samples):
+        resp = client.chat.completions.create(
+            model="gpt-4o-mini",
+            temperature=0.8,
+            messages=[
+                {"role": "system", "content": HYDE_PROMPT},
+                {"role": "user", "content": query},
+            ],
+        )
+        hypothetical_passages.append(resp.choices[0].message.content.strip())
+
+    # Embed each hypothetical passage; mean them to get a robust query vector.
+    embeds = collection._embed(hypothetical_passages)  # (n_samples, d)
+    mean_embed = embeds.mean(axis=0, keepdims=True)    # (1, d)
+
+    hits = collection.query(query_embeddings=mean_embed.tolist(),
+                            n_results=k)
+    return list(zip(hits["documents"][0], hits["metadatas"][0]))</code></pre>
+<div class="code-caption"><strong>Code Fragment 35.2.2a</strong>: HyDE retrieval in roughly 20 lines. Steps: generate $N$ hypothetical passages at <code>temperature=0.8</code> so they diverge enough to average usefully; embed each through the same model used for the index; mean the embeddings to form the HyDE query vector; query the vector store. Set <code>n_samples=1</code> for the cheap variant, <code>n_samples=4</code> for the published recipe. The hypothetical passages do not need to be factually correct; only their topical neighborhood matters for retrieval.</div>
+</div>
+
+<div class="callout numeric-example">
+<div class="callout-title">Worked Example: HyDE Recall@10 Lift on a Technical FAQ</div>
+<p>Take a 50,000-chunk internal documentation corpus and a 200-query evaluation set with hand-annotated relevant chunks. Vanilla dense retrieval with <code>text-embedding-3-small</code> (1536 dim) achieves recall@10 of 0.61 on the evaluation set; the failures cluster around short conceptual questions like "Why is the KV cache useful?" where the query is 6 tokens and the gold passages are 200-word explanations. Running HyDE with $N = 4$ hypothetical passages from <code>gpt-4o-mini</code> lifts recall@10 to 0.74, a 13-point absolute gain, at a cost of 4 extra LLM calls per query (about 35 ms each at the OpenAI batch endpoint) plus 4 embedding calls. Total added latency: roughly 280 ms per query, total added cost: about $0.0012 per query at 2026 pricing. For comparison, the same evaluation set sees recall@10 jump from 0.61 to 0.69 with single-sample HyDE ($N = 1$) at one-quarter the cost; the marginal benefit of $N = 2 \to 4$ is real but flattens fast. Production teams typically ship $N = 1$ HyDE under their latency budget and reserve $N = 4$ for offline evaluation runs.</p>
+</div>
 <!-- SVG: Query Transformation Strategies -->
 <div class="diagram-container">
 <svg aria-label="Diagram: 1.3 Step-Back Prompting" font-family="Segoe UI, system-ui, sans-serif" role="img" viewbox="0 -10 760 350" xmlns="http://www.w3.org/2000/svg">
