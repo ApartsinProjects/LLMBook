@@ -139,6 +139,11 @@ gtag('config', 'G-PWPHBQL2VL');
 <div class="math-block">$$ N = \left\lfloor \frac{F - 16}{s} + 1 \right\rfloor \cdot \left\lfloor \frac{100 T - 16}{s} + 1 \right\rfloor = 12 \cdot \left\lfloor \frac{100 T - 16}{10} + 1 \right\rfloor. $$</div>
 <p>For the canonical AudioSet clip ($T = 10$ s) this gives $12 \cdot 99 = 1188$ patch tokens, plus the <code>[CLS]</code> token for a 1189-token input sequence into the ViT-Base encoder. Self-attention then costs $O(1189^2 \cdot 768) \approx 1.1 \times 10^9$ FLOPs per layer, or about 13 GFLOPs across the 12 encoder layers, comparable to a standard ViT-B/16 on a 224x224 image.</p>
 
+<div class="callout numeric-example">
+<div class="callout-title">Worked Example: AST Patch Grid for a 10 s / 16 kHz / 16x16 Setup</div>
+<p>Take a 10-second clip sampled at 16 kHz and the standard AST front-end: 25 ms window, 10 ms hop, 128 mel bins. The number of frames along the time axis is $T_{\text{frames}} = \lfloor (160{,}000 - 400) / 160 \rfloor + 1 = 998$ at the 100 Hz frame rate, which the implementation pads to a round 1000. The log-mel spectrogram is therefore a $128 \times 1000$ image of "pixels". Splitting it into $16 \times 16$ patches with stride $s = 10$ in both axes gives a time-axis count of $\lfloor (1000 - 16)/10 \rfloor + 1 = 99$ patches and a frequency-axis count of $\lfloor (128 - 16)/10 \rfloor + 1 = 12$ patches, for a $T \times F = 99 \times 12 = 1188$ patch grid. Prepending the <code>[CLS]</code> token brings the encoder input to 1189 tokens, each of which is a 768-dim embedding after the linear projection step. The same clip at 8 kHz would halve the spectrogram width and roughly halve the patch count to 600 tokens, illustrating that token budget scales linearly with input sample rate and inversely with patch stride.</p>
+</div>
+
 <div class="callout library-shortcut">
 <div class="callout-title">Library Shortcut: AST Audio Event Classification via HuggingFace</div>
 <div class="code-block-wrapper">
@@ -330,6 +335,11 @@ print(transcripts[0])
 <figcaption><strong>Figure 20.0.3.1</strong>: Whisper's multitask training format, drawn as a directed graph of special control tokens. The decoder always starts from <code>&lt;|startoftranscript|&gt;</code> (SOT) and branches based on which token is generated next. The same parameter set serves transcription, translation, voice activity detection, and timestamped output, controlled entirely by which token sequence is fed to the decoder. This is what makes Whisper a multitask model in the same sense that T5 is multitask: one set of weights, many tasks selected at inference.</figcaption>
 </figure>
 
+<div class="callout numeric-example">
+<div class="callout-title">Worked Example: One 15-Second Whisper Transcription</div>
+<p>Feed a 15-second 16 kHz monologue ("The library opens at nine on weekdays and closes promptly at six.") into <code>openai/whisper-small</code>. The pad-or-truncate step lifts the clip to the canonical 30 seconds (480,000 samples), the front-end produces an $80 \times 3000$ log-mel spectrogram, and the two stride-2 convs halve the time axis to 1500 encoder frames. The decoder begins with the four-token prefix <code>[&lt;|startoftranscript|&gt;, &lt;|en|&gt;, &lt;|transcribe|&gt;, &lt;|notimestamps|&gt;]</code> and autoregresses one BPE token at a time. The 13-word output tokenizes to 16 BPE pieces, which together with the four prefix tokens and the terminal <code>&lt;|endoftext|&gt;</code> gives a 21-token decoder run. The full decoded sequence is <code>&lt;|startoftranscript|&gt;&lt;|en|&gt;&lt;|transcribe|&gt;&lt;|notimestamps|&gt; The library opens at nine on weekdays and closes promptly at six.&lt;|endoftext|&gt;</code>, and on a single CPU core <code>generate</code> returns in roughly 1.5 seconds, dominated by the 17 decoder forward passes (each $\approx 90$ ms) and a single encoder pass over the 1500 audio frames ($\approx 200$ ms). The padding to 30 seconds is wasted compute on the encoder but is what allows the same checkpoint to handle any clip up to that length without architectural changes.</p>
+</div>
+
 <p>Training uses standard token-level cross-entropy on (audio, transcript) pairs with the appropriate control tokens prefixed. Evaluation reports <strong>Word Error Rate</strong> (WER):</p>
 <div class="math-block">$$\mathrm{WER} = \frac{S + I + D}{N},$$</div>
 <p>where $S$ is the number of substitutions, $I$ insertions, $D$ deletions in the predicted transcript relative to the ground truth of length $N$ words. The Wagner-Fischer dynamic-programming algorithm computes the minimum-edit alignment in $O(NM)$ time. Whisper large-v3 achieves single-digit WER on most English benchmarks and remains competitive on most of the 96 supported languages, though performance degrades for very low-resource languages.</p>
@@ -386,6 +396,23 @@ print(processor.batch_decode(generated_ids, skip_special_tokens=True)[0])</code>
 <li>Removing all blank symbols.</li>
 </ol>
 <p>For example, the ground-truth transcript "CHAPTER SIXTEEN" might correspond to a frame-wise prediction like <code>"CHAAAAAPTT*ERRR/SS*IX*T*EE*EEN"</code> (where <code>*</code> is blank and <code>/</code> is the word-break or space symbol), which collapses under the rule to "CHAPTER SIXTEEN". The blank symbol is what enables the model to "stay silent" for a frame without inserting a spurious character, and it also separates intentional repeats (the double-L in "HELLO" is represented as <code>H*E*L*L*O</code> with a blank between the two L's so they are not merged).</p>
+
+<p>PyTorch ships the loss as a built-in module that consumes frame-wise log-probabilities and the unaligned target sequence; the implementation runs the forward-backward dynamic program internally so the user never spells it out:</p>
+<div class="code-block-wrapper">
+<pre><code class="language-python">import torch
+
+T, N, V = 50, 1, 28               # 50 frames, batch 1, 26 letters + blank + space
+log_probs = torch.randn(T, N, V).log_softmax(dim=-1)   # (T, N, V)
+targets   = torch.tensor([[8, 5, 12, 12, 15]])         # "HELLO" as label IDs
+input_lengths  = torch.full((N,), T, dtype=torch.long)
+target_lengths = torch.tensor([5])
+
+ctc = torch.nn.CTCLoss(blank=0, zero_infinity=True)
+loss = ctc(log_probs, targets, input_lengths, target_lengths)
+loss.backward()                   # gradients flow into log_probs
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 20.0.3.6</strong>: A minimal <code>torch.nn.CTCLoss</code> call. The input is $(T, N, V)$ log-probabilities (frames by batch by vocabulary including the blank symbol indexed at <code>blank=0</code>), the target is an unaligned label sequence, and the explicit length tensors handle padded batches. <code>zero_infinity=True</code> clamps the rare case where no alignment exists (input shorter than target). The forward-backward summation is internal; the user only supplies log-probs and labels.</div>
+</div>
 
 <div class="callout numeric-example">
 <div class="callout-title">Worked Example: CTC Collapse on "HELLO"</div>

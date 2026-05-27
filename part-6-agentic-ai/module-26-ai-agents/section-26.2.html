@@ -157,9 +157,52 @@ gtag('config', 'G-PWPHBQL2VL');
   E3 = Calculator["$E1 - $E2"]
 Solver(question, $E1, $E2, $E3): &lt;final answer&gt;</code></pre>
 <p>A separate <strong>executor</strong> walks the plan in order, dispatches each tool call (substituting any <code>$Ei</code> with the result of step $i$), and stores the result back in a results dictionary. After all calls return, a separate <strong>solver</strong> LLM call receives the original question together with the populated <code>$E1, $E2, ...</code> values and writes the final natural-language answer. Because the planner runs only once and the solver only once, ReWoo uses far fewer LLM calls than plan-and-execute for tasks with $k$ tool calls (two LLM calls plus $k$ tool calls, rather than $1 + k$ replan checks). The trade-off is that ReWoo cannot adapt when an intermediate result invalidates a later step: the plan is committed up front. This makes ReWoo the right choice for <em>predictable</em> compound queries (multi-hop fact lookups, financial calculations from API data, ETL-style aggregations) and a poor choice for exploratory tasks where every observation might rewrite the plan. In LangGraph, ReWoo is the cleanest three-node graph in this section: <code>planner</code> &rarr; <code>executor</code> &rarr; <code>solver</code>, no conditional edges needed.</p>
+<div class="code-block-wrapper">
+<pre><code class="language-python">import re
+
+def rewoo(question, llm, tools):
+    """Planner -> worker (executor) -> solver, with $Ei variable substitution."""
+    plan = llm(f"Write a numbered plan for: {question}\n"
+               f"Each line: Ei = tool_name[args]. Tools: {list(tools)}")
+    results = {}
+    for line in plan.splitlines():
+        m = re.match(r"\s*(E\d+)\s*=\s*(\w+)\[(.+)\]", line)
+        if not m:
+            continue
+        var, tool, args = m.groups()
+        for k, v in results.items():
+            args = args.replace(f"${k}", str(v))   # variable substitution
+        results[var] = tools[tool](args)
+    return llm(f"Question: {question}\nEvidence: {results}\nAnswer:")
+</code></pre>
+<p class="figure-caption"><strong>Code Fragment 26.2.6</strong>: ReWoo's three roles in one function. The planner is invoked once, the worker walks the plan substituting <code>$Ei</code> placeholders with prior tool results, and the solver synthesizes the final answer. Total LLM calls scale as $2$ rather than $1 + k$ regardless of plan length.</p>
+</div>
 <div class="callout fun-note">
 <div class="callout-title">Historical note: Baby-AGI, the first viral autonomous agent</div>
 <p>Months before the planning patterns above were named in papers, <strong>Baby-AGI</strong> (Yohei Nakajima, March 2023) shipped them all in roughly 100 lines of Python and went viral on Twitter. The architecture was the simplest possible decomposition of an autonomous loop into three sub-modules: a <em>task-creation</em> agent that proposed new subtasks given the objective and the latest result, a <em>task-prioritization</em> agent that re-ordered the task queue, and a <em>task-execution</em> agent that pulled the next task and ran it (with an optional retrieval step against a vector store of past results). Baby-AGI did not have ReWoo's variable-substitution discipline, plan-and-execute's replanning, or LATS's tree search; in practice it often spent hours looping over poorly-prioritised subtasks. But it was the first widely-shared open-source implementation of a "give the model a goal and walk away" loop, and almost every framework in this chapter (AutoGPT, LangChain's plan-and-execute, CrewAI's sequential process, the OpenAI Agents SDK's handoff pattern) has at least one design decision that is traceable to a lesson learned by reading Baby-AGI's task queue overflow.</p>
+<div class="code-block-wrapper">
+<pre><code class="language-python">from collections import deque
+
+def baby_agi(objective, llm, max_steps=10):
+    """Three-role autonomous loop: create -> prioritize -> execute."""
+    queue = deque([f"Develop a first plan for: {objective}"])
+    history = []
+    for _ in range(max_steps):
+        if not queue:
+            break
+        task = queue.popleft()                              # execute
+        result = llm(f"Objective: {objective}\nTask: {task}\nResult:")
+        history.append((task, result))
+        new_tasks = llm(f"Given result '{result}', list new subtasks "
+                        f"toward objective. One per line.").splitlines()
+        queue.extend(t.strip("-* ") for t in new_tasks if t.strip())
+        ranked = llm(f"Reorder tasks by importance for '{objective}': "
+                     f"{list(queue)}").splitlines()
+        queue = deque(t.strip("-* 1234567890.") for t in ranked if t.strip())
+    return history
+</code></pre>
+<p class="figure-caption"><strong>Code Fragment 26.2.7</strong>: Baby-AGI's three roles in one loop. Each iteration runs the head of the queue (execution), asks the LLM to propose follow-up subtasks (creation), then asks the LLM to re-rank the entire queue (prioritization). The whole architecture fits in roughly twenty lines because the LLM does all of the planning, ordering, and execution work.</p>
+</div>
 </div>
 <h3 id="plan-and-execute-architecture">Plan-and-Execute Architecture</h3>
 <div class="callout algorithm">
@@ -271,6 +314,25 @@ graph.add_edge("synthesize", END)
 <h2 id="26-2-2-tree-of-thoughts-and-lats">26.2.2 Tree of Thoughts and LATS</h2>
 <p>Tree of Thoughts (ToT) extends chain-of-thought prompting by exploring multiple reasoning paths simultaneously. Instead of committing to a single chain of reasoning, the agent generates several candidate next steps, evaluates each one's promise using the LLM as a heuristic, and selects the most promising branch to continue exploring. This is particularly effective for problems where the first approach attempted is unlikely to be optimal, such as creative writing, mathematical proofs, or complex code refactoring.
  </p>
+<p>The ToT loop is short enough to write in a dozen lines of Python pseudocode: generate $k$ candidate next thoughts, score each with the LLM, expand the best, repeat. The snippet below uses a simple beam (keep top $b$ at every depth) and stops when a candidate self-reports a final answer.</p>
+<div class="code-block-wrapper">
+<pre><code class="language-python">def tree_of_thoughts(problem, llm, depth=3, k=3, beam=2):
+    """Generate -> evaluate -> expand -> select best across `depth` levels."""
+    frontier = [(problem, 0.0)]  # (partial_path, cumulative_score)
+    for _ in range(depth):
+        scored = []
+        for path, prior in frontier:
+            children = llm.generate(f"{path}\nPropose {k} next steps:", n=k)
+            for child in children:
+                score = float(llm.score(f"Rate this step 1-10:\n{child}"))
+                scored.append((path + "\n" + child, prior + score))
+        frontier = sorted(scored, key=lambda x: -x[1])[:beam]  # keep top-b
+        if any("FINAL:" in p for p, _ in frontier):
+            break
+    return max(frontier, key=lambda x: x[1])[0]
+</code></pre>
+<p class="figure-caption"><strong>Code Fragment 26.2.5</strong>: Minimal Tree of Thoughts driver. The four lines inside the depth loop are the generate, evaluate, expand, and select primitives that ToT shares with classical beam search; replacing <code>llm.score</code> with a UCB1 bandit and adding a backprop step turns this into LATS.</p>
+</div>
 <p>LATS (Zhou et al., 2024) takes this further by applying Monte Carlo tree search (MCTS) principles. Each node in the tree represents a state (the agent's observations and actions so far). MCTS runs four operations per iteration: <em>selection</em> (descend from root using a UCB-style score that balances exploit and explore), <em>expansion</em> (generate child action candidates with the LLM), <em>evaluation</em> (simulate or use the LLM as a value model on the new state), and <em>backpropagation</em> (update the value estimates of ancestors). LATS also augments each rollout with verbal self-reflection so subsequent iterations avoid known failure modes. LATS has shown strong results on challenging benchmarks like HumanEval and WebShop, where the search-based approach discovers solutions that greedy single-path agents miss.
  </p>
 <div class="callout note">
