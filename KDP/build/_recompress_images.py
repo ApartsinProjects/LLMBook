@@ -42,9 +42,15 @@ OXIPNG = _find_tool(
 if not MOZJPEG or not OXIPNG:
     print(f"[WARN] tools missing: mozjpeg={MOZJPEG}, oxipng={OXIPNG}")
 
-# MozJPEG: progressive (-prog), trellis quant on, q=82 (visually similar to
-# libjpeg q=88 but smaller). --strip removes EXIF/iCC profile metadata.
-MOZJPEG_ARGS = ["-quality", "82", "-progressive"]
+# MozJPEG: BASELINE (-baseline) — Kindle's KFX renderer cannot reliably
+# decode progressive JPEGs and silently fails KDP ingestion with the
+# "processing failed" symptom after a 15-30 min delay. epub-optimizer
+# (sharp + mozjpeg) also emits progressive by default; this step runs
+# AFTER it and overwrites with baseline, fixing both layers at once.
+# Trellis quant on, q=82 (visually similar to libjpeg q=88 but smaller).
+# DO NOT change -baseline back to -progressive without re-reading
+# html2kpd/LESSONS.md L-COVER-IMG.
+MOZJPEG_ARGS = ["-quality", "82", "-baseline"]
 
 # OxiPNG: -o 4 (most aggressive non-zopfli), --strip safe (drop ancillary
 # chunks like EXIF, color profiles, gamma — keep only safe-to-display data).

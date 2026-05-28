@@ -588,6 +588,32 @@ def step_optimize() -> int:
     except Exception as _e:
         warn(f"kindle-css sanitizer failed (non-fatal): {_e}")
 
+    # Step 7d: KDP-specific post-build patches (all three are mandatory; see
+    # html2kpd LESSONS.md L-COVER-IMG, L-SVG-STYLE, and LESSONS #54).
+    # Each is independently idempotent. Total runtime ~5 seconds.
+    try:
+        import subprocess
+        for script, label in [
+            ("fix_cover_kdp_heuristic.py", "cover-heuristic"),
+            ("fix_cover_image_kdp.py",      "cover-image"),
+            ("fix_svg_style_kdp.py",        "svg-style"),
+        ]:
+            script_path = BUILD_DIR / script
+            if not script_path.exists():
+                warn(f"[kdp-fix] {script} not found; skip")
+                continue
+            print(f"  [kdp-fix:{label}] running {script}")
+            cp = subprocess.run(
+                [sys.executable, str(script_path), str(epub)],
+                capture_output=True, text=True,
+            )
+            for line in cp.stdout.splitlines():
+                print(f"    {line}")
+            if cp.returncode != 0:
+                warn(f"[kdp-fix:{label}] exit {cp.returncode}; {cp.stderr[:200]}")
+    except Exception as _e:
+        warn(f"kdp post-build patches failed (non-fatal): {_e}")
+
     new_size = epub.stat().st_size
     pct = new_size / raw_size * 100
     saved = (raw_size - new_size) / 1024 / 1024
