@@ -23,7 +23,16 @@ DESCRIPTION = "Code block has no associated <div class=\"code-caption\">"
 Issue = namedtuple("Issue", ["priority", "check_id", "filepath", "line", "message"])
 
 PRE_RE = re.compile(r'<pre\b[^>]*>(.*?)</pre>', re.DOTALL | re.IGNORECASE)
-CAPTION_RE = re.compile(r'class="code-caption"|<figcaption\b', re.IGNORECASE)
+# Accept either of the historically used caption forms (both ship valid
+# captions; only true MISSING cases should flag):
+#   <div class="code-caption">  (canonical)
+#   <p class="figure-caption">  (legacy form from earlier editions; the
+#                                build pipeline keeps it as-is)
+#   <figcaption>                (semantic HTML5 form)
+CAPTION_RE = re.compile(
+    r'class="(?:code-caption|figure-caption)"|<figcaption\b',
+    re.IGNORECASE,
+)
 CALLOUT_OPEN_RE = re.compile(
     r'<div\s+class="callout\s+(lab|key-insight|library-shortcut|hands-on|production-pattern|numeric-example|exercise)"',
     re.IGNORECASE,
