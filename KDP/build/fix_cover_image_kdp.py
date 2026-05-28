@@ -32,11 +32,15 @@ from PIL import Image
 
 
 def reencode_baseline(jpeg_bytes: bytes) -> bytes:
+    """Convert progressive JPEG to baseline. Quality chosen to MATCH the
+    content JPEG quality (q=68) so we don't inflate file sizes during the
+    progressive->baseline conversion. Was q=92 in early Edition 16 builds,
+    which bloated each re-encoded file by ~50%."""
     img = Image.open(io.BytesIO(jpeg_bytes))
     if img.mode != 'RGB':
         img = img.convert('RGB')
     out = io.BytesIO()
-    img.save(out, format='JPEG', quality=92, progressive=False, optimize=True)
+    img.save(out, format='JPEG', quality=68, progressive=False, optimize=True)
     return out.getvalue()
 
 

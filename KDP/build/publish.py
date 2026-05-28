@@ -511,17 +511,16 @@ def step_optimize() -> int:
     shutil.copy2(epub, raw_backup)
 
     log = LOG_DIR / f"optimize_{ts()}.log"
-    # Quality-conscious settings: optimizer defaults (jpg=70 / png=0.6) lose
-    # too much fidelity on diagrams and photos. png=0.85 keeps diagrams crisp.
-    # jpg=72 MATCHES html2pub's source encode (html2pub.toml jpeg_quality): the
-    # source JPEGs are already q72, so re-encoding at a higher q (the old 80)
-    # only inflated file size with zero visual gain. Matching at 72 stores them
-    # efficiently at the same visual quality and keeps the book under 40 MB.
+    # Edition 16+ size optimization (Phase 1+2 size reduction):
+    # jpg=65 (was 72): ~10-15% smaller JPEGs at visually-similar quality
+    #   on e-ink. Combined with MozJPEG q=68 (which now actually beats this)
+    #   and the 1000 px dimension cap in _recompress_images.py.
+    # png=0.85: keep diagrams crisp.
     rc, out = run([
         "node", str(opt_js),
         "-i", str(epub),
         "-o", str(optimized),
-        "--jpg-quality", "72",
+        "--jpg-quality", "65",
         "--png-quality", "0.85",
         "--lang", "en",
         "--clean",
@@ -588,12 +587,14 @@ def step_optimize() -> int:
     except Exception as _e:
         warn(f"kindle-css sanitizer failed (non-fatal): {_e}")
 
-    # Step 7d: KDP-specific post-build patches (all three are mandatory; see
+    # Step 7d: KDP-specific post-build patches (all four are mandatory; see
     # html2kpd LESSONS.md L-COVER-IMG, L-SVG-STYLE, and LESSONS #54).
-    # Each is independently idempotent. Total runtime ~5 seconds.
+    # fix_png_to_jpeg_kdp.py is Phase 2 size-reduction (Edition 16+).
+    # Each is independently idempotent. Total runtime ~5-10 seconds.
     try:
         import subprocess
         for script, label in [
+            ("fix_png_to_jpeg_kdp.py",      "png-to-jpeg"),
             ("fix_cover_kdp_heuristic.py", "cover-heuristic"),
             ("fix_cover_image_kdp.py",      "cover-image"),
             ("fix_svg_style_kdp.py",        "svg-style"),

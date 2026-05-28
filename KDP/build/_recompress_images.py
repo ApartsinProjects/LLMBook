@@ -47,10 +47,18 @@ if not MOZJPEG or not OXIPNG:
 # "processing failed" symptom after a 15-30 min delay. epub-optimizer
 # (sharp + mozjpeg) also emits progressive by default; this step runs
 # AFTER it and overwrites with baseline, fixing both layers at once.
-# Trellis quant on, q=82 (visually similar to libjpeg q=88 but smaller).
-# DO NOT change -baseline back to -progressive without re-reading
-# html2kpd/LESSONS.md L-COVER-IMG.
-MOZJPEG_ARGS = ["-quality", "82", "-baseline"]
+# q=68: undercuts epub-optimizer's q=65 floor only when trellis-quant
+# wins; otherwise epub-optimizer's bytes survive (already baseline-safe
+# because fix_cover_image_kdp.py runs after as belt-and-suspenders).
+MOZJPEG_ARGS = ["-quality", "68", "-baseline"]
+
+# Phase 1 size-reduction (Edition 16+): downsample content JPEGs whose
+# long edge exceeds MAX_CONTENT_JPEG_PX. Kindle's reading area is at most
+# ~1600 px on the Scribe; 1000 px gives ~140 ppi at full image width,
+# which matches paperback print quality and stays sharp on e-ink.
+# Cover is explicitly exempt (KDP wants the canonical 1600x2560 ideal).
+MAX_CONTENT_JPEG_PX = 1000
+COVER_EXEMPT_NAMES = {"cover.jpg", "cover.jpeg"}
 
 # OxiPNG: -o 4 (most aggressive non-zopfli), --strip safe (drop ancillary
 # chunks like EXIF, color profiles, gamma — keep only safe-to-display data).
@@ -64,8 +72,9 @@ CACHE_ROOT = Path.home() / "Tools" / "img-tools" / "cache" / "recompress"
 CACHE_ROOT.mkdir(parents=True, exist_ok=True)
 
 # Encode tool-args into cache key namespace so an args change invalidates.
+# Also include the resize cap so changes to MAX_CONTENT_JPEG_PX invalidate.
 _ARGS_FINGERPRINT_JPG = hashlib.sha256(
-    ("mozjpeg|" + "|".join(MOZJPEG_ARGS)).encode()
+    ("mozjpeg|" + "|".join(MOZJPEG_ARGS) + f"|maxpx={MAX_CONTENT_JPEG_PX}").encode()
 ).hexdigest()[:8]
 _ARGS_FINGERPRINT_PNG = hashlib.sha256(
     ("oxipng|" + "|".join(OXIPNG_ARGS)).encode()
@@ -105,9 +114,47 @@ def _cache_store(input_bytes: bytes, output_bytes: bytes, fmt: str) -> None:
 _CACHE_STATS = {"jpg_hits": 0, "jpg_miss": 0, "png_hits": 0, "png_miss": 0}
 
 
+def _maybe_downsample_jpeg(p: Path) -> bool:
+    """Phase 1: downsample content JPEGs whose long edge exceeds threshold.
+    Cover is exempt. Writes back to p as baseline JPEG q=92 (MozJPEG re-encodes
+    at the final quality). Returns True if downsample happened.
+    """
+    if p.name.lower() in COVER_EXEMPT_NAMES:
+        return False
+    try:
+        from PIL import Image
+        with Image.open(p) as im:
+            im.load()
+            w, h = im.size
+            if max(w, h) <= MAX_CONTENT_JPEG_PX:
+                return False
+            scale = MAX_CONTENT_JPEG_PX / max(w, h)
+            new_w = max(1, int(round(w * scale)))
+            new_h = max(1, int(round(h * scale)))
+            if im.mode != 'RGB':
+                im = im.convert('RGB')
+            im_resized = im.resize((new_w, new_h), Image.Resampling.LANCZOS)
+            # Write back as baseline JPEG q=92; MozJPEG step will re-encode at q=78
+            im_resized.save(p, format='JPEG', quality=92,
+                            progressive=False, optimize=False)
+        return True
+    except Exception:
+        return False
+
+
 def _recompress_jpeg(p: Path) -> int:
-    """Returns bytes saved (negative if larger). Uses content-addressed cache."""
+    """Returns bytes saved (negative if larger). Uses content-addressed cache.
+
+    Phase 1: if image is content (not cover) and long edge > MAX_CONTENT_JPEG_PX,
+    downsample BEFORE MozJPEG. Cache key uses post-downsample bytes so cache
+    hits remain valid across rebuilds.
+    """
     orig = p.stat().st_size
+
+    # Phase 1: downsample (cover-exempt) before cache lookup so cache key
+    # represents the actually-encoded image, not the source.
+    _maybe_downsample_jpeg(p)
+
     input_bytes = p.read_bytes()
 
     # Cache lookup first
