@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-PWPHBQL2VL"></script>
+<script>
+window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', 'G-PWPHBQL2VL');
+</script>
+
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<meta content="Section 39.2: Streaming Audio Architectures" name="description"/>
+<title>Section 39.2: Streaming Audio Architectures | Building Conversational AI with LLMs and Agents</title>
+<link href="../../styles/book.css" rel="stylesheet"/>
+<link href="../../styles/pygments.css" rel="stylesheet"/>
+<link href="../../vendor/prism/prism-theme.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/prism/prism-bundle.min.js"></script>
+<script defer="" src="../../scripts/book.js"></script>
+<link href="../../pagefind/pagefind-ui.css" rel="stylesheet"/>
+<script defer="" src="../../pagefind/pagefind-ui.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
+
+<header class="chapter-header">
+<nav class="header-nav">
+<a class="book-title-link" href="../../index.html">Building Conversational AI with LLMs and Agents</a>
+<a class="toc-link" href="../../toc.html" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+</nav>
+<div class="header-search">
+<div id="search"></div>
+</div>
+<div class="page-breadcrumb" data-pagefind-meta="chapter"><a href="../index.html">Part VIII: Conversational AI with LLMs</a><span class="bc-sep">›</span><a href="index.html">Chapter 39</a></div>
+<h1>Streaming Audio Architectures</h1><div class="page-current">Section 39.2</div>
+</header>
+<main class="content" id="main-content"><span class="pagefind-meta-injected" data-pagefind-meta="part:Part VIII: Conversational AI with LLMs" hidden=""></span><span class="pagefind-meta-injected" data-pagefind-meta="chapter:Chapter 39" hidden=""></span>
+<blockquote class="epigraph">
+<p>"Anything over 300 milliseconds feels like a phone call. Anything under 200 feels like a conversation."</p>
+<span class="agent-avatar-inline" style="background-color: #f39c12;"><img alt="Echo" height="28" src="../../front-matter/images/agents/echo.png" width="28"/></span><cite>Echo, <span class="agent-desc">Streaming-Live AI Agent</span></cite>
+</blockquote>
+<div class="callout big-picture">
+<div class="callout-title">Big Picture</div>
+<p>A streaming audio conversation with a model is an unforgiving real-time system. Every millisecond from user speech to model audio output is perceived by the user, and budgets above ~700ms feel awkward. This section walks through the architecture of a streaming audio loop: voice activity detection, frame chunking, codec choice, the LLM's first-token latency, and the synthesized audio's time-to-first-byte. It also covers the harder problem of interruption: the user starts speaking mid-response, and the agent must stop, listen, and resume gracefully. The patterns here apply equally to pipeline architectures (Whisper plus LLM plus TTS) and to native realtime APIs like GPT-4o Realtime (<a href="section-39.3.html">Section 39.3</a>) and Gemini Live.</p>
+</div>
+<div class="prerequisites">
+<h2 id="prerequisites">Prerequisites</h2>
+<p>This section assumes the conceptual background of <a href="../../part-5-multimodal-llms/module-22-vision-language-models/index.html">Section 37.1</a> (pipeline vs native) and basic familiarity with WebSocket protocols. Audio codec basics from <a href="../../part-5-multimodal-llms/module-20-audio-music-generation/index.html">Chapter 20</a> are helpful but not required.</p>
+</div>
+<figure class="illustration">
+<img alt="Block diagram of a streaming audio loop showing microphone, VAD, chunker, ASR or audio encoder, LLM, TTS or audio decoder, jitter buffer, speaker, with latency annotations" src="images/fig-38.1.1-streaming-audio-loop.svg" width="1100" height="540"/>
+<figcaption><strong>Figure 39.2.1</strong>: The streaming audio loop. Each box adds latency; the goal is to overlap as much as possible so that the model can begin synthesizing a response before the user finishes speaking, and the user hears the response before the model finishes generating it.</figcaption>
+</figure>
+<h2 id="40-2-1-the-latency-budget">39.2.1 The End-to-End Latency Budget</h2>
+<div class="callout fun-note">
+<div class="callout-title">Fun Fact</div>
+<p>Voice conversational systems live or die by latency below 700 milliseconds, the threshold above which humans perceive a delay as awkward. The number comes from a 1970s study on telephone switching latency and has been silently embedded in every voice product spec since, including the iPhone Siri team's original launch criteria.</p>
+</div>
+<p>The total latency a user perceives is the time from the end of their utterance to the moment they hear the first audible word of the response. Breaking it down for a typical pipeline:</p>
+<figure>
+<table>
+<thead>
+<tr><th scope="col">Stage</th><th scope="col">Typical Pipeline Latency</th><th scope="col">Typical Native Realtime Latency</th><th scope="col">Notes</th></tr>
+</thead>
+<tbody>
+<tr><td>VAD end-of-speech detection</td><td>200 to 500 ms</td><td>100 to 300 ms</td><td>Tunable with silence threshold</td></tr>
+<tr><td>Audio encoding (codec)</td><td>20 to 40 ms</td><td>20 to 40 ms</td><td>Opus or PCM-16</td></tr>
+<tr><td>Network round-trip</td><td>30 to 100 ms</td><td>30 to 100 ms</td><td>Geographic proximity matters</td></tr>
+<tr><td>ASR finalization</td><td>200 to 800 ms</td><td>n/a (audio fed directly)</td><td>Eliminated by native models</td></tr>
+<tr><td>LLM time-to-first-token</td><td>200 to 600 ms</td><td>150 to 400 ms</td><td>Includes prompt processing</td></tr>
+<tr><td>TTS time-to-first-byte</td><td>100 to 400 ms</td><td>20 to 80 ms</td><td>Native models start streaming audio tokens directly</td></tr>
+<tr><td>Speaker jitter buffer</td><td>50 to 150 ms</td><td>50 to 150 ms</td><td>Smooths network jitter</td></tr>
+<tr><td><strong>Total end-to-end</strong></td><td><strong>800 to 2400 ms</strong></td><td><strong>320 to 1100 ms</strong></td><td>Native wins by ~600 ms typical</td></tr>
+</tbody>
+</table>
+<figcaption><strong>Table 39.2.2</strong>: Latency budget for a pipeline vs native realtime audio stack. The single largest source of savings in native realtime is the elimination of the ASR finalization step plus the streamable audio output.</figcaption>
+</figure>
+<div class="callout key-insight">
+<div class="callout-title">Key Insight: Overlap is the real lever</div>
+<p>Listed sequentially, the latencies add up. In a well-engineered loop they overlap: ASR runs incrementally while the user is still speaking, the LLM begins generating once it sees a coherent partial transcript, and TTS begins synthesizing as soon as the LLM emits the first sentence. End-to-end perceived latency in a well-overlapped pipeline can come in below 800 ms despite the listed sum. Native realtime APIs overlap aggressively by design (audio in, audio out, no discrete stages), which is why their floor is so low.</p>
+</div>
+<h2 id="40-2-2-voice-activity-detection">39.2.2 Voice Activity Detection (VAD)</h2>
+<p>VAD decides when the user has finished speaking. Two flavors dominate:</p>
+<ul>
+<li><strong>Energy-based VAD</strong>: classical signal processing. Watches the audio RMS energy and declares end-of-speech after a silence threshold. Fast and predictable but fooled by background noise.</li>
+<li><strong>Neural VAD</strong>: a small ML model (Silero VAD, WebRTC VAD, or the integrated VAD in modern realtime APIs) classifies each 20 to 30 ms frame as speech or silence. More accurate, especially in noisy environments. Silero VAD is the open-source default in 2026; it runs in ~0.5 ms per frame on CPU.</li>
+</ul>
+<p>The critical tuning parameter is the <em>silence threshold</em>: how long of a silent stretch ends a turn. Short thresholds (200 ms) make the agent feel responsive but trigger false interruptions when the user pauses mid-thought. Long thresholds (800 ms) avoid false interruptions but make the agent feel sluggish. Production systems typically use 400 to 600 ms with adaptive tuning based on conversational state.</p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># Silero VAD inference loop for an incoming PCM-16 audio stream.</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+
+<span class="n">model</span><span class="p">,</span> <span class="n">utils</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">hub</span><span class="o">.</span><span class="n">load</span><span class="p">(</span>
+    <span class="s2">"snakers4/silero-vad"</span><span class="p">,</span> <span class="s2">"silero_vad"</span><span class="p">,</span> <span class="n">force_reload</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">SAMPLE_RATE</span> <span class="o">=</span> <span class="mi">16000</span>
+<span class="n">FRAME_MS</span> <span class="o">=</span> <span class="mi">30</span>
+<span class="n">FRAME_SAMPLES</span> <span class="o">=</span> <span class="n">SAMPLE_RATE</span> <span class="o">*</span> <span class="n">FRAME_MS</span> <span class="o">//</span> <span class="mi">1000</span>
+<span class="n">SILENCE_END_MS</span> <span class="o">=</span> <span class="mi">500</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">TurnDetector</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">silence_ms</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">in_speech</span> <span class="o">=</span> <span class="kc">False</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">feed</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">frame</span><span class="p">):</span>
+        <span class="n">prob</span> <span class="o">=</span> <span class="n">model</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">from_numpy</span><span class="p">(</span><span class="n">frame</span><span class="p">)</span><span class="o">.</span><span class="n">float</span><span class="p">(),</span> <span class="n">SAMPLE_RATE</span><span class="p">)</span><span class="o">.</span><span class="n">item</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">prob</span> <span class="o">&gt;</span> <span class="mf">0.5</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">in_speech</span> <span class="o">=</span> <span class="kc">True</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">silence_ms</span> <span class="o">=</span> <span class="mi">0</span>
+            <span class="k">return</span> <span class="s2">"speech"</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">silence_ms</span> <span class="o">+=</span> <span class="n">FRAME_MS</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">in_speech</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">silence_ms</span> <span class="o">&gt;=</span> <span class="n">SILENCE_END_MS</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">in_speech</span> <span class="o">=</span> <span class="kc">False</span>
+            <span class="k">return</span> <span class="s2">"end_of_turn"</span>
+        <span class="k">return</span> <span class="s2">"silence"</span></code></pre>
+<div class="code-caption"><strong>Code Fragment 39.2.1:</strong> A minimal turn detector using Silero VAD. Each incoming 30 ms PCM-16 frame is classified; after 500 ms of continuous silence following speech, an end-of-turn event fires. Production systems augment this with energy thresholding and grammar-aware end-of-utterance prediction.</div>
+</div>
+<h2 id="40-2-3-streaming-asr-or-direct-audio-tokens">39.2.3 Streaming ASR or Direct Audio Tokens</h2>
+<p>Pipeline architectures need a streaming ASR. The 2026 production choices:</p>
+<ul>
+<li><strong>Whisper (faster-whisper, distil-whisper)</strong>: offline-quality model adapted for streaming with sliding-window inference. Latency 200 to 600 ms per chunk; accuracy high.</li>
+<li><strong>Deepgram Nova-3</strong>: hosted commercial streaming ASR with sub-300 ms TTFB on English.</li>
+<li><strong>NVIDIA Riva Parakeet</strong>: production-grade streaming ASR optimized for on-prem deployment, sub-150 ms TTFB.</li>
+<li><strong>AssemblyAI Universal-2</strong>: hosted, sub-200 ms TTFB with timestamps and speaker diarization.</li>
+</ul>
+<p>Native realtime APIs (GPT-4o Realtime, Gemini Live) skip the ASR step entirely. Audio frames are tokenized by an integrated audio codec and fed directly to the LLM. This eliminates the ASR finalization latency entirely; the LLM sees and reacts to the audio stream as it arrives, with no separate transcript stage.</p>
+<h2 id="40-2-4-tts-or-direct-audio-output">39.2.4 TTS or Direct Audio Output</h2>
+<p>On the output side, pipeline architectures need a streaming TTS:</p>
+<ul>
+<li><strong>ElevenLabs Turbo v2.5</strong>: ~200 ms TTFB, high-quality voices, supports voice cloning.</li>
+<li><strong>OpenVoice v2 / XTTS-v2</strong>: open-source, ~300 ms TTFB on a single GPU.</li>
+<li><strong>Cartesia Sonic</strong>: 2025-launched commercial TTS with sub-100 ms TTFB.</li>
+<li><strong>Kokoro</strong>: 2025 open-source TTS, ~80M parameters, CPU-runnable, ~150 ms TTFB.</li>
+</ul>
+<p>Native models emit audio tokens directly from the LLM, decoded by an integrated codec (SoundStream-style for GPT-4o, similar for Gemini Live). TTFB is bottlenecked only by the LLM's first-token latency plus the codec decoder, typically 50 to 100 ms once the LLM begins emitting.</p>
+<h2 id="40-2-5-interruption-handling">39.2.5 Interruption Handling</h2>
+<p>The hardest part of streaming audio is interruption: the user starts speaking while the agent is mid-sentence. Three things must happen near-simultaneously:</p>
+<div class="callout key-insight">
+<div class="callout-title">Key Insight: Mental Model: The Walkie-Talkie vs. the Phone Call</div>
+<p>Think of pre-2024 voice assistants as walkie-talkies and modern realtime APIs as phone calls. On a walkie-talkie, one party transmits, the other waits, and "barging in" is technically impossible. Alexa, Google Assistant, and the original Siri all behaved this way: the user spoke a sentence, the assistant processed and replied, and an interrupt was a hard reset. On a real phone call, both sides can speak at once; the conversation has to detect, suppress its own audio, and remember exactly what the other side actually heard before the talk-over started. OpenAI's Realtime API (October 2024) and Google's Live API are phone calls. The InterruptionManager class below exists because phone-call dynamics require the model to track "what audio actually reached the user's ears," which on a walkie-talkie was always either everything or nothing.</p>
+<p><em>Where this model breaks down:</em> on a phone call, both parties keep their own audio history; in a voice agent, the LLM has to reconstruct what it said from forced-alignment timestamps, because the model itself has no ears.</p>
+</div>
+<ol>
+<li><strong>Detect</strong>: VAD recognizes the user's speech onset over the agent's voice (this is harder than it sounds; echo cancellation is essential).</li>
+<li><strong>Stop</strong>: the agent's audio output truncates, the LLM stops generating, and the speaker buffer flushes.</li>
+<li><strong>Preserve context</strong>: the agent must remember what it had said so far so its next response can pick up coherently.</li>
+</ol>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># Interruption handler: cancel in-flight LLM and TTS, flush</span>
+<span class="c1"># speaker buffer, record what was actually heard by the user.</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">InterruptionManager</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">llm_handle</span><span class="p">,</span> <span class="n">tts_handle</span><span class="p">,</span> <span class="n">speaker</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">llm</span> <span class="o">=</span> <span class="n">llm_handle</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">tts</span> <span class="o">=</span> <span class="n">tts_handle</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">speaker</span> <span class="o">=</span> <span class="n">speaker</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">spoken_text</span> <span class="o">=</span> <span class="s2">""</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">on_user_speech_detected</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c1"># 1. Cancel in-flight generation tasks</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">llm</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">tts</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>
+        <span class="c1"># 2. Compute what audio has actually reached the user's ears</span>
+        <span class="n">played_samples</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">speaker</span><span class="o">.</span><span class="n">samples_played_so_far</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">speaker</span><span class="o">.</span><span class="n">flush</span><span class="p">()</span>
+        <span class="c1"># 3. Map played samples back to the corresponding text fragment.</span>
+        <span class="c1"># TTS forced-alignment timestamps make this exact.</span>
+        <span class="n">words_heard</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">tts</span><span class="o">.</span><span class="n">words_up_to_sample</span><span class="p">(</span><span class="n">played_samples</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">spoken_text</span> <span class="o">=</span> <span class="s2">" "</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">words_heard</span><span class="p">)</span>
+        <span class="c1"># 4. Append the truncated agent turn to the conversation</span>
+        <span class="c1"># history so the next response can refer back to it.</span>
+        <span class="n">conversation</span><span class="o">.</span><span class="n">add_assistant_turn</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">spoken_text</span> <span class="o">+</span> <span class="s2">" [interrupted]"</span><span class="p">)</span></code></pre>
+<div class="code-caption"><strong>Code Fragment 39.2.2:</strong> Interruption handler. The trick is preserving the truncated history: append only what the user actually heard, marked as interrupted, so the model knows to pick up cleanly.</div>
+</div>
+<div class="callout note">
+<div class="callout-title">Note: Server-side VAD in realtime APIs</div>
+<p>GPT-4o Realtime and Gemini Live both ship with optional server-side VAD that handles interruption automatically. The server detects user speech, cancels the in-flight response, and updates conversation history. This is much simpler than rolling your own and is the default in 2026 production code. The trade-off: server VAD is a black box; if its tuning does not match your acoustic conditions, you may get false interruptions that are hard to debug.</p>
+</div>
+<h2 id="40-2-6-echo-cancellation-and-acoustics">39.2.6 Echo Cancellation and Acoustic Hygiene</h2>
+<p>When the user and agent share a physical space (laptop speaker, phone speaker), the agent's voice can be picked up by the user's microphone. Without echo cancellation, the agent hears itself and interrupts itself in a feedback loop. WebRTC's AEC3 (acoustic echo canceller, v3) is the de facto solution; it ships in Chrome, Firefox, and most realtime SDKs. For Python-based stacks, the speechmatics-py and livekit-agents libraries integrate AEC3.</p>
+<div class="callout under-the-hood">
+<div class="callout-title">Under the Hood: Acoustic echo cancellation (AEC)</div>
+<p>Echo cancellation works because the system already knows the signal it is about to play. AEC feeds the loudspeaker's output (the reference signal) into an adaptive filter that estimates the acoustic path from speaker to microphone, the room's delay and reflections. It convolves the reference with that estimated impulse response to predict the echo, then subtracts the prediction from the microphone signal, leaving mostly the user's voice. The filter coefficients are updated continuously with a gradient rule such as normalized least-mean-squares so the estimate tracks the changing room. A residual nonlinear suppressor cleans up what the linear filter misses, which is why AEC stops a voice agent from interrupting itself.</p>
+</div>
+<p>For headset users, the problem evaporates; for phone calls and speakerphone use, AEC3 is non-negotiable. Test the full loop with a speaker and a microphone in the same room before launch, and watch for hallucinated interruptions that indicate echo bleed-through.</p>
+<div class="callout warning">
+<div class="callout-title">Warning: The acoustic gotchas list</div>
+<p>Streaming audio failures cluster around acoustics, not models: open laptop speakers without AEC produce phantom interruptions; the user's keyboard typing triggers VAD; an HVAC system creates persistent silence-floor that confuses energy-based VAD. Always test on real consumer devices in noisy environments before launch. The "perfect" audio loop on a quiet developer workstation is meaningless for production.</p>
+</div>
+<h2 id="40-2-7-deployment-topology">39.2.7 Deployment Topology and Network Hygiene</h2>
+<p>Network latency is the easiest source of audio-loop slowdown to fix. Three patterns:</p>
+<ul>
+<li><strong>Edge-deployed VAD and codec</strong>: run VAD and audio encoding in the user's browser or edge function. The server only sees compressed frames after a turn boundary.</li>
+<li><strong>WebRTC for media, WebSocket for control</strong>: WebRTC's low-latency UDP transport handles the audio stream; a parallel WebSocket carries text messages and tool invocations.</li>
+<li><strong>Geographic routing</strong>: route the user to the nearest model endpoint. OpenAI, Google, and Anthropic all have multi-region inference; a Sydney user routed to a US endpoint loses 200+ ms to round-trip.</li>
+</ul>
+<div class="callout practical-example">
+<div class="callout-title">Real-World Scenario: A Voice-Driven Cooking Assistant</div>
+<p><strong>Who:</strong> A 2025 connected-kitchen startup shipping a voice cooking assistant that runs on a counter tablet.</p>
+<p><strong>Situation:</strong> The assistant read recipes step by step, took follow-up questions ("how much salt?"), and had to feel as fast as a human reading aloud.</p>
+<p><strong>Problem:</strong> The first prototype routed all audio through the US-east server cluster, producing 1.6 seconds of perceived latency, which felt slow during step-by-step instructions.</p>
+<p><strong>Dilemma:</strong> Push more work to the device (engineering cost, model footprint on commodity tablet hardware) or keep the server-centric path and try to shave server-side latency through model and region tweaks.</p>
+<p><strong>Decision:</strong> They moved the latency-dominant stages to the device and only sent compressed end-of-turn audio to the server.</p>
+<p><strong>How:</strong> VAD and an audio codec ran in the browser via WebAssembly; only end-of-turn audio chunks were sent to the server; the response audio was streamed back through Cartesia Sonic and decoded with WebRTC playout.</p>
+<p><strong>Result:</strong> End-to-end perceived latency dropped to 480 ms and customer NPS for the voice feature rose from 32 to 68.</p>
+<p><strong>Lesson:</strong> <strong>For consumer voice products, pushing VAD and codec to the edge is one of the highest-ROI latency moves available, because it removes a fixed network round trip from every turn.</strong></p>
+</div>
+<div class="callout key-insight">
+<div class="callout-title">Key Insight</div>
+<p>Streaming audio is a latency-engineering problem with VAD, network, codec, model, and decoder budgets that must overlap. Native realtime APIs (GPT-4o, Gemini Live) collapse the pipeline stages and hit ~320 ms TTFB; pipeline architectures with aggressive overlap can reach 800 ms. Interruption handling is the hardest mechanic, and modern realtime APIs ship it as a built-in. Echo cancellation and edge-deployed VAD are non-optional for consumer-grade voice UX.</p>
+</div>
+<div class="callout self-check">
+<div class="callout-title">Self-Check</div>
+<div class="quiz-question"><strong>Q1:</strong> Why does a native realtime API hit ~320 ms TTFB while a well-optimized pipeline floors at ~800 ms? Identify the two stages that natively-streamed audio eliminates.</div>
+<details>
+<summary>Show Answer</summary>
+<div class="answer">Native realtime APIs eliminate two discrete stages from the budget: ASR finalization (typically 200 to 800 ms in a pipeline) and the separate TTS time-to-first-byte (100 to 400 ms). Native models tokenize incoming audio frames with an integrated codec and feed them directly to the LLM, and they emit audio tokens that an integrated decoder converts to PCM in 20 to 80 ms. Removing both the transcript-finalization step and the standalone TTS spin-up accounts for roughly the 500 to 600 ms gap between the two architectures.</div>
+</details>
+<div class="quiz-question"><strong>Q2:</strong> The agent's voice triggers a false interruption when the user's phone is on speakerphone. What is the root cause and what mitigation lives where in the stack?</div>
+<details>
+<summary>Show Answer</summary>
+<div class="answer">The root cause is acoustic echo: the agent's audio leaves the speaker, bounces back into the microphone, and the VAD classifies that returning signal as a new user utterance. The mitigation is acoustic echo cancellation; WebRTC's AEC3 is the de facto solution and runs at the audio capture layer, before VAD sees any frames. It must live on the device or in the media pipeline ahead of VAD, not in the model or the server logic, because by the time the bleed-through reaches the VAD it is indistinguishable from real speech.</div>
+</details>
+<div class="quiz-question"><strong>Q3:</strong> Sketch how you would overlap ASR finalization with LLM prompt processing in a pipeline architecture. What information lets the LLM start generating before ASR finalizes?</div>
+<details>
+<summary>Show Answer</summary>
+<div class="answer">Streaming ASR systems emit partial hypotheses (rolling transcripts) long before the final commit. The pipeline can feed each stable partial into the LLM's prompt-processing path so that key-value cache for the prefix is already warmed when the final transcript arrives. The LLM begins generating as soon as the partial is confident enough (often after the first few stable tokens), using the partial transcript plus dialogue context. The final ASR commit either matches the partial (no work wasted) or differs slightly, in which case the system can either continue or restart from the divergence point.</div>
+</details>
+<div class="quiz-question"><strong>Q4:</strong> Your voice agent feels slow but every measured stage is within budget. What metric should you instrument that you might not have so far?</div>
+<details>
+<summary>Show Answer</summary>
+<div class="answer">Instrument end-to-end perceived latency: the wall-clock time from end-of-user-speech (the VAD end-of-turn event) to first audible sample at the speaker. Per-stage budgets can all pass while the integration between stages adds queuing, buffering, or scheduling delays that nobody measures. Adding a single timestamp at each handoff (VAD end, ASR final, LLM first token, TTS first byte, speaker first sample) and a single end-to-end span tying them together exposes whether the loss is in a stage or in the seams between stages.</div>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 39.2.1: Measure end-to-end voice latency <span class="exercise-type coding" title="Coding">Coding</span></div>
+<p>Build a minimal voice loop: mic capture, Silero VAD, streaming Whisper, an LLM call, and Piper TTS. Instrument timestamps at five points: VAD end-of-turn, ASR final token, LLM first token, TTS first byte, speaker first sample. Run 20 utterances and report p50 and p95 for the four stage deltas plus the end-to-end perceived latency.</p>
+<details><summary>Answer Sketch</summary>
+<p>Typical numbers on a single GPU: VAD-to-ASR delta ~100 to 200 ms, ASR-to-LLM-first-token ~200 to 500 ms (depends on the model), LLM-first-to-TTS-first-byte ~50 to 100 ms, TTS-first-byte-to-speaker ~30 to 80 ms. End-to-end p95 ideally under 1.5 seconds for natural conversation; over 2 seconds feels broken. The stage where you should optimize first is the largest one; usually LLM TTFT or the wait for ASR final.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 39.2.2: VAD threshold sweep <span class="exercise-type coding" title="Coding">Coding</span></div>
+<p>Record 10 short utterances (1 to 5 seconds each) in a quiet environment and 10 more with background music. Run Silero VAD at end-of-turn thresholds {200ms, 500ms, 1000ms} and measure (a) false barge-ins (cuts the user off) and (b) end-of-turn latency. Find the threshold that minimizes total error.</p>
+<details><summary>Answer Sketch</summary>
+<p>200ms: many false barge-ins from the user's natural pauses (counting under 5 false cuts is hard). 1000ms: zero barge-ins but every turn adds 0.5 to 1 second of dead air, making the conversation feel sluggish. 500ms is the canonical sweet spot for clean audio. With background music, the noise floor pushes the optimum toward 700 to 1000ms because VAD picks up music as speech. Lesson: tune per environment, not globally.</p>
+</details>
+</div>
+<div class="whats-next">
+<h2 id="what-comes-next">What Comes Next</h2>
+<p><a href="section-39.3.html">Section 39.3: Gemini Live and GPT-4o Realtime API</a> walks through the specific WebSocket protocols, session management, and function-calling integration for the two leading native realtime APIs.</p>
+</div>
+<details class="bibliography-collapsible">
+<summary><strong>Further Reading</strong></summary>
+<section class="bibliography">
+<h3 id="vad-and-streaming-asr">VAD and Streaming ASR</h3>
+<div class="bib-entry-card">
+<div class="bib-ref">Silero Team. (2024). "Silero VAD: pretrained enterprise-grade Voice Activity Detector (VAD)." <a href="https://github.com/snakers4/silero-vad" rel="noopener" target="_blank">github.com/snakers4/silero-vad</a></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Bain, M., Huh, J., Han, T., &amp; Zisserman, A. (2023). "WhisperX: Time-Accurate Speech Transcription of Long-Form Audio." <em>Interspeech</em>. <a href="https://arxiv.org/abs/2303.00747" rel="noopener" target="_blank">arXiv:2303.00747</a></div>
+</div>
+<h3 id="realtime-apis">Native Realtime APIs</h3>
+<div class="bib-entry-card">
+<div class="bib-ref">OpenAI. (2024). "Introducing the Realtime API." <a href="https://openai.com/index/introducing-the-realtime-api/" rel="noopener" target="_blank">openai.com/index/introducing-the-realtime-api</a></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">Google. (2024). "Gemini Live: A new way to converse with Gemini." <a href="https://blog.google/products/gemini/made-by-google-gemini-ai-updates/" rel="noopener" target="_blank">blog.google/products/gemini/gemini-ai-updates</a></div>
+</div>
+<h3 id="open-source-realtime-stack">Open-Source Realtime</h3>
+<div class="bib-entry-card">
+<div class="bib-ref">Defossez, A., Mazare, L., Orsini, M., et al. (2024). "Moshi: A speech-text foundation model for real-time dialogue." Kyutai. <a href="https://arxiv.org/abs/2410.00037" rel="noopener" target="_blank">arXiv:2410.00037</a></div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">LiveKit. (2024). "LiveKit Agents: Framework for building realtime AI applications." <a href="https://docs.livekit.io/agents/" rel="noopener" target="_blank">docs.livekit.io/agents</a></div>
+</div>
+<h3 id="codec-tts">Streaming TTS</h3>
+<div class="bib-entry-card">
+<div class="bib-ref">Cartesia. (2024). "Sonic: A blazing-fast generative voice model." <a href="https://cartesia.ai/blog/2024-05-sonic" rel="noopener" target="_blank">cartesia.ai/blog/2024-05-sonic</a></div>
+</div>
+</section>
+</details>
+<nav class="chapter-nav">
+<a class="prev" href="section-39.1.html"><span class="nav-label">Previous</span><span class="nav-num">Section 39.1</span><span class="nav-title">Voice Agents and Speech Interfaces</span></a>
+<a class="up" href="index.html"><span class="nav-label">In Chapter</span><span class="nav-num">Chapter 39</span><span class="nav-title">Voice and Realtime Multimodal Assistants</span></a>
+<a class="next" href="section-39.3.html"><span class="nav-label">Next</span><span class="nav-num">Section 39.3</span><span class="nav-title">Gemini Live and GPT-4o Realtime API</span></a>
+</nav>
+<footer><p>Sixteenth Edition, 2026 · <a href="../../toc.html">Contents</a></p></footer>
+</main>
+</body>
+</html>
