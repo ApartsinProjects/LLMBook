@@ -39,22 +39,17 @@ def _key(target: str) -> str | None:
     """Produce a stable key from a target href so toc.html refs and
     nav.xhtml refs (which live at different depths) can be compared.
 
-    Strategy: collapse "../../" chains and take the trailing pattern
-        part-N-*/module-M-*/section-X.Y.html
-        part-N-*/module-M-*/index.html
-        part-N-*/index.html
-        appendices/appendix-K-*/(index|section-K.N).html
-        capstone/index.html
-        front-matter/<name>.html
-    Returns None for non-content refs (css, js, images).
+    Strategy: collapse "../../" chains, normalize html2pub's spine-flattened
+    form (EPUB/chapters/ch_NNNN_<slug>.xhtml) back to the canonical source
+    pattern. Returns None for non-content refs (css, js, images).
     """
-    if not target.endswith(".html"):
+    if not target.endswith((".html", ".xhtml")):
         return None
-    # Strip ../ chain
     while target.startswith("../"):
         target = target[3:]
     while target.startswith("./"):
         target = target[2:]
+
     # Match canonical patterns
     patterns = [
         r"(part-\d+-[^/]+/module-\d+-[^/]+/(?:section-[\d.]+|index)\.html)",

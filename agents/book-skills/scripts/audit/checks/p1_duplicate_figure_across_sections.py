@@ -22,7 +22,9 @@ DESCRIPTION = "Same Figure label used in multiple section files"
 Issue = namedtuple("Issue", ["priority", "check_id", "filepath", "line", "message"])
 
 FIG_RE = re.compile(
-    r'<figcaption[^>]*>(?:<[^>]+>)?\s*<strong>\s*Figure\s+(\d+\.\d+\.\d+[a-z]?)',
+    # Negative lookahead `(?!\.\d)` prevents matching "Figure 20.0.1" as a
+    # prefix of "Figure 20.0.1.1". Optional letter suffix allowed.
+    r'<figcaption[^>]*>(?:<[^>]+>)?\s*<strong>\s*Figure\s+(\d+\.\d+\.\d+[a-z]?)(?!\.\d)(?!\d)',
     re.IGNORECASE,
 )
 

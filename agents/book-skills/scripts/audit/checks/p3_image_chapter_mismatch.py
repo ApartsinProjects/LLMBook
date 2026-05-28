@@ -45,6 +45,19 @@ def run(filepath, html, context):
     if not images_dir.is_dir():
         return issues
 
+    # Only flag mismatches that are ACTUALLY referenced from this chapter's
+    # HTML (an unreferenced mismatched file is dead weight; other checks
+    # handle that). Drops the historic-noise count from ~193 to the
+    # actionable subset.
+    refs = set()
+    for f in parent.glob("*.html"):
+        try:
+            text = f.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
+        for m in re.finditer(r'src="images/([^"]+)"', text):
+            refs.add(m.group(1).split("?")[0].split("#")[0])
+
     for img in images_dir.iterdir():
         if not img.is_file():
             continue
@@ -53,11 +66,14 @@ def run(filepath, html, context):
             continue
         prefix_kind = pm.group(1)
         filename_ch_num = int(pm.group(2))
-        if filename_ch_num != module_ch_num:
-            issues.append(Issue(
-                PRIORITY, CHECK_ID, filepath, 1,
-                f"images/{img.name}: {prefix_kind} prefix {filename_ch_num} "
-                f"!= module chapter {module_ch_num} (rename to "
-                f"{prefix_kind}-{module_ch_num}.{img.name.split('.', 2)[1] if '.' in img.name else ''}* ?)"
-            ))
+        if filename_ch_num == module_ch_num:
+            continue
+        if img.name not in refs:
+            continue
+        issues.append(Issue(
+            PRIORITY, CHECK_ID, filepath, 1,
+            f"images/{img.name}: {prefix_kind} prefix {filename_ch_num} "
+            f"!= module chapter {module_ch_num} (referenced from HTML; "
+            f"rename file + update src for consistency)"
+        ))
     return issues
