@@ -78,6 +78,7 @@ def run(filepath, html, context):
         or 'module-61-scale-tools' in mod_lower
         or 'module-36-retrieval-tools' in mod_lower
         or 'module-41-conv-ai-tools' in mod_lower
+        or 'module-40-conv-ai-tools' in mod_lower
         or 'module-56-responsible-ai-tools' in mod_lower
     )
 
