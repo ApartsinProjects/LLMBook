@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-PWPHBQL2VL"></script>
+<script>
+window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', 'G-PWPHBQL2VL');
+</script>
+
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<meta content="Section 26.5a: Agent Cost Control, Permissions, Recovery &amp; End-to-End Wiring. Per-request token budgets and cascade routing, the permissions gate and audit log, recovery patterns (checkpoint, idempotency, rollback), and the complete AgentSystem skeleton tying eight components into one handle() method." name="description"/>
+<title>Section 26.5a: Agent Cost Control, Permissions, Recovery &amp; End-to-End Wiring</title>
+<link href="../../styles/book.css" rel="stylesheet"/>
+<link href="../../styles/pygments.css" rel="stylesheet"/>
+<link href="../../vendor/prism/prism-theme.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/prism/prism-bundle.min.js"></script>
+<script defer="" src="../../scripts/book.js"></script>
+<link href="../../pagefind/pagefind-ui.css" rel="stylesheet"/>
+<script defer="" src="../../pagefind/pagefind-ui.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
+
+<header class="chapter-header">
+<nav class="header-nav">
+<a class="book-title-link" href="../../index.html">Building Conversational AI with LLMs and Agents</a>
+<a class="toc-link" href="../../toc.html" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+</nav>
+<div class="header-search">
+<div id="search"></div>
+</div>
+
+<div class="page-breadcrumb" data-pagefind-meta="chapter"><a href="../index.html">Part VI: Agentic AI</a><span class="bc-sep">›</span><a href="index.html">Chapter 26: AI Agent Foundations</a></div>
+<h1>Agent Cost Control, Permissions, Recovery &amp; End-to-End Wiring</h1><div class="page-current">Section 26.5a</div>
+
+</header>
+<main class="content" id="main-content"><span class="pagefind-meta-injected" data-pagefind-meta="part:Part VI: Agentic AI" hidden=""></span><span class="pagefind-meta-injected" data-pagefind-meta="chapter:Chapter 26: AI Agent Foundations" hidden=""></span>
+<blockquote class="epigraph">
+<p>"A budget the model can ignore is not a budget. A permission the model can talk its way around is not a permission."</p>
+<span class="agent-avatar-inline" style="background-color: #2c3e50;"><img alt="Deploy" height="28" src="../../front-matter/images/agents/dropout.png" width="28"/></span><cite>Deploy, <span class="agent-desc">Production-Hardened AI Agent</span></cite>
+</blockquote>
+<div class="callout big-picture">
+<div class="callout-title">Big Picture</div>
+<p>This section continues from <a href="section-26.5.html">Section 26.5</a>, which introduced the eight-component reference architecture and built the Planner, Tool Router, Execution Sandbox, and the resilience primitives (rate limiting, circuit breakers, graceful degradation). Here we cover the four remaining concerns that turn that scaffolding into a production system: per-request token budgets and cascade routing, the Permissions Gate with audit logging, recovery patterns (checkpoint and resume, idempotent actions, rollback), and the end-to-end <code>AgentSystem</code> wiring that ties everything together in a single <code>handle()</code> method.</p>
+</div>
+<div class="prerequisites">
+<h2 id="prerequisites">Prerequisites</h2>
+<p>This section continues from <a href="section-26.5.html">Section 26.5</a>. Familiarity with the eight-component architecture, the Planner, Tool Router, Execution Sandbox, and CircuitBreaker code from there is assumed.</p>
+</div>
+<h2 id="26-5-5-cost-control-token-budgeting-and-cascade-routing">26.5.5 Cost Control: Token Budgeting and Cascade Routing</h2>
+<p>Agent systems can consume tokens at an alarming rate. A single complex request might trigger dozens of LLM calls across planning, tool selection, evaluation, and replanning. Without explicit cost control, a runaway agent loop can burn through an entire monthly API budget in minutes. The Cost Controller addresses this with two mechanisms: per-request token budgets and cascade routing.</p>
+<h3 id="per-request-token-budgets">Per-Request Token Budgets</h3>
+<p>Each <code>AgentRequest</code> carries a <code>max_budget_usd</code> field. The Cost Controller tracks cumulative spending across all LLM calls and tool invocations within a single request. Before each LLM call, the controller checks the remaining budget. If the remaining budget is too low for the planned call, the agent must either abort or switch to a cheaper strategy.</p>
+<h3 id="cascade-routing">Cascade Routing</h3>
+<p>Cascade routing sends requests to the cheapest adequate model first and only escalates to more expensive models when the cheaper one cannot produce a satisfactory result. For example, simple tool selection might use <code>gpt-4o-mini</code> at <span>&#36;</span>0.15 per million input tokens, while complex multi-step planning escalates to <code>claude-sonnet-4-20250514</code> or <code>o3</code>. The evaluator's quality score determines whether escalation is needed.</p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">ModelTier</span><span class="p">:</span>
+    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">model_id</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">cost_per_1k_input</span><span class="p">:</span> <span class="nb">float</span>
+    <span class="n">cost_per_1k_output</span><span class="p">:</span> <span class="nb">float</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">CostController</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Tracks spending and routes to the cheapest adequate model."""</span>
+    <span class="n">TIERS</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="n">ModelTier</span><span class="p">(</span><span class="s2">"fast"</span><span class="p">,</span> <span class="s2">"gpt-4o-mini"</span><span class="p">,</span> <span class="mf">0.00015</span><span class="p">,</span> <span class="mf">0.0006</span><span class="p">),</span>
+        <span class="n">ModelTier</span><span class="p">(</span><span class="s2">"balanced"</span><span class="p">,</span> <span class="s2">"claude-sonnet-4-20250514"</span><span class="p">,</span> <span class="mf">0.003</span><span class="p">,</span> <span class="mf">0.015</span><span class="p">),</span>
+        <span class="n">ModelTier</span><span class="p">(</span><span class="s2">"powerful"</span><span class="p">,</span> <span class="s2">"o3"</span><span class="p">,</span> <span class="mf">0.01</span><span class="p">,</span> <span class="mf">0.04</span><span class="p">),</span>
+    <span class="p">]</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_spent</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">record_cost</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">session_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">cost_usd</span><span class="p">:</span> <span class="nb">float</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_spent</span><span class="p">[</span><span class="n">session_id</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_spent</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">session_id</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">)</span> <span class="o">+</span> <span class="n">cost_usd</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">can_afford</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">session_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">budget</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">estimated</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_spent</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">session_id</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">)</span> <span class="o">+</span> <span class="n">estimated</span> <span class="o">&lt;=</span> <span class="n">budget</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">select_tier</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">session_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">budget</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+                    <span class="n">min_tier</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"fast"</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">"""Cheapest tier at or above min_tier within budget."""</span>
+        <span class="n">started</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="k">for</span> <span class="n">tier</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">TIERS</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">tier</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="n">min_tier</span><span class="p">:</span> <span class="n">started</span> <span class="o">=</span> <span class="kc">True</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">started</span><span class="p">:</span> <span class="k">continue</span>
+            <span class="n">estimated</span> <span class="o">=</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">tier</span><span class="o">.</span><span class="n">cost_per_1k_input</span> <span class="o">+</span> <span class="mf">0.5</span> <span class="o">*</span> <span class="n">tier</span><span class="o">.</span><span class="n">cost_per_1k_output</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">can_afford</span><span class="p">(</span><span class="n">session_id</span><span class="p">,</span> <span class="n">budget</span><span class="p">,</span> <span class="n">estimated</span><span class="p">):</span>
+                <span class="k">return</span> <span class="n">tier</span>
+        <span class="k">return</span> <span class="kc">None</span>  <span class="c1"># Budget exhausted</span></code></pre>
+<div class="code-caption"><strong>Code Fragment 26.5a.1:</strong> Cost Controller with cascade routing. Per-session token budgets prevent runaway spending, while cascade routing tries cheaper models first.</div>
+</div>
+<div class="callout key-insight">
+<div class="callout-title">Key Insight</div>
+<p>Cascade routing often saves 60 to 80% of API costs with minimal quality degradation. In practice, most agent steps (simple tool dispatch, formatting results, short follow-up questions) do not require the most capable model. Reserve expensive models for the planning phase and for recovery after evaluation failures. Measure your cascade hit rate (the percentage of calls handled by the cheapest tier) as a key operational metric.</p>
+</div>
+<h2 id="26-5-6-permissions-model">26.5.6 Permissions Model</h2>
+<p>The Permissions Gate enforces security at three levels: user-level access (who can use the agent), tool-level access control lists (which tools a given user can invoke), and action-level constraints (what parameters are allowed). Every tool invocation passes through the gate before reaching the sandbox. This is especially important for agents that can execute code, send emails, modify databases, or access external services.</p>
+<p>Audit logging is the companion to access control. Every permission check, whether it passes or fails, is logged with a timestamp, user ID, tool name, and the decision. This log serves both security auditing and debugging purposes. When an agent produces an unexpected result, the audit log reveals exactly which tools it invoked and in what order.</p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">datetime</span><span class="w"> </span><span class="kn">import</span> <span class="n">datetime</span><span class="p">,</span> <span class="n">timezone</span>
+<span class="n">audit_log</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="s2">"agent.audit"</span><span class="p">)</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">PermissionsGate</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Enforces tool-level access control with audit trail."""</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">acl</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]]):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_acl</span> <span class="o">=</span> <span class="n">acl</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">check</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">user_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">user_perms</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+              <span class="n">tool_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">tool_args</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+        <span class="n">required</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_acl</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">tool_name</span><span class="p">,</span> <span class="p">[])</span>
+        <span class="n">allowed</span> <span class="o">=</span> <span class="nb">all</span><span class="p">(</span><span class="n">p</span> <span class="ow">in</span> <span class="n">user_perms</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">required</span><span class="p">)</span>
+        <span class="n">audit_log</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+            <span class="s2">"permission_check | </span><span class="si">%s</span><span class="s2"> | user=</span><span class="si">%s</span><span class="s2"> | tool=</span><span class="si">%s</span><span class="s2"> | "</span>
+            <span class="s2">"required=</span><span class="si">%s</span><span class="s2"> | granted=</span><span class="si">%s</span><span class="s2"> | args_keys=</span><span class="si">%s</span><span class="s2">"</span><span class="p">,</span>
+            <span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">(</span><span class="n">timezone</span><span class="o">.</span><span class="n">utc</span><span class="p">)</span><span class="o">.</span><span class="n">isoformat</span><span class="p">(),</span>
+            <span class="n">user_id</span><span class="p">,</span> <span class="n">tool_name</span><span class="p">,</span> <span class="n">required</span><span class="p">,</span> <span class="n">allowed</span><span class="p">,</span>
+            <span class="nb">list</span><span class="p">(</span><span class="n">tool_args</span><span class="o">.</span><span class="n">keys</span><span class="p">()),</span>
+        <span class="p">)</span>
+        <span class="k">return</span> <span class="n">allowed</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">filter_tools</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">user_perms</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span> <span class="n">tools</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">]):</span>
+<span class="w">        </span><span class="sd">"""Return only tools the user is allowed to invoke."""</span>
+        <span class="k">return</span> <span class="p">[</span><span class="n">t</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">tools</span>
+                <span class="k">if</span> <span class="nb">all</span><span class="p">(</span><span class="n">p</span> <span class="ow">in</span> <span class="n">user_perms</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">t</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"permissions"</span><span class="p">,</span> <span class="p">[]))]</span></code></pre>
+<div class="code-caption"><strong>Code Fragment 26.5a.2:</strong> Permissions Gate with audit logging. Every tool invocation is checked against user permissions and logged for compliance.</div>
+</div>
+<h2 id="26-5-7-recovery-patterns">26.5.7 Recovery Patterns</h2>
+<p>Failures in agent systems are inevitable. Tools time out, APIs return errors, and LLMs produce invalid outputs. The Recovery Handler implements three patterns that keep the agent operational despite failures.</p>
+<h3 id="checkpoint-and-resume">Checkpoint and Resume</h3>
+<p>After each successful step, the agent saves a checkpoint containing the current plan state, all completed step results, and the accumulated context. If a later step fails and the agent must restart, it resumes from the last checkpoint rather than repeating all previous work. This is particularly valuable for long-running tasks that span many tool calls.</p>
+<h3 id="idempotent-actions">Idempotent Actions</h3>
+<p>Tools should be designed so that repeating the same call produces the same result without harmful side effects. For example, a "create file" tool should check whether the file already exists before creating it. When idempotent design is not possible (such as sending an email), the agent should track which actions have been executed and skip them on retry.</p>
+<h3 id="rollback">Rollback</h3>
+<p>For operations that support undo (database transactions, file system changes, API operations with delete endpoints), the Recovery Handler can reverse completed steps when a later step makes the entire plan invalid. The key requirement is that each tool registers a rollback function alongside its forward function.</p>
+<div class="callout tip">
+<div class="callout-title">Tip</div>
+<p>Design your tools with recovery in mind from the start. Every tool should answer three questions: (1) Is this action idempotent? (2) Can it be rolled back? (3) What does a partial failure look like? Documenting these properties in the tool's metadata allows the Recovery Handler to make informed decisions automatically rather than relying on hardcoded retry logic.</p>
+</div>
+<h2 id="26-5-8-wiring-it-all-together">26.5.8 Wiring It All Together</h2>
+<p>The following code shows the complete agent system skeleton that wires all eight components into a single <code>AgentSystem</code> class. This is a minimal but functional implementation that you can use as a starting point for production systems. Each component is injected as a dependency, making it straightforward to swap implementations (for example, replacing the in-memory cost tracker with a Redis-backed one).</p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="k">class</span><span class="w"> </span><span class="nc">AgentSystem</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Wires all eight components into a production agent."""</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">planner</span><span class="p">:</span> <span class="n">Planner</span><span class="p">,</span>
+        <span class="n">tool_router</span><span class="p">:</span> <span class="n">ToolRouter</span><span class="p">,</span>
+        <span class="n">sandbox</span><span class="p">:</span> <span class="n">ExecutionSandbox</span><span class="p">,</span>
+        <span class="n">cost_ctrl</span><span class="p">:</span> <span class="n">CostController</span><span class="p">,</span>
+        <span class="n">perms_gate</span><span class="p">:</span> <span class="n">PermissionsGate</span><span class="p">,</span>
+        <span class="n">circuit_breaker</span><span class="p">:</span> <span class="n">CircuitBreaker</span><span class="p">,</span>
+        <span class="n">memory_manager</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">planner</span> <span class="o">=</span> <span class="n">planner</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">tool_router</span> <span class="o">=</span> <span class="n">tool_router</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">sandbox</span> <span class="o">=</span> <span class="n">sandbox</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cost_ctrl</span> <span class="o">=</span> <span class="n">cost_ctrl</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">perms_gate</span> <span class="o">=</span> <span class="n">perms_gate</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">circuit_breaker</span> <span class="o">=</span> <span class="n">circuit_breaker</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">memory_manager</span> <span class="o">=</span> <span class="n">memory_manager</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">handle</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">:</span> <span class="n">AgentRequest</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">AgentResponse</span><span class="p">:</span>
+        <span class="c1"># 1. Load memory context (if memory manager is configured)</span>
+        <span class="n">memory_context</span> <span class="o">=</span> <span class="s2">""</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">memory_manager</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="bp">self</span><span class="o">.</span><span class="n">memory_manager</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">request</span><span class="o">.</span><span class="n">session_id</span><span class="p">)</span>
+        <span class="c1"># 2. Build a plan</span>
+        <span class="n">available</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">perms_gate</span><span class="o">.</span><span class="n">filter_tools</span><span class="p">(</span><span class="n">request</span><span class="o">.</span><span class="n">permissions</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">tool_router</span><span class="o">.</span><span class="n">describe_all</span><span class="p">())</span>
+        <span class="n">plan</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">planner</span><span class="o">.</span><span class="n">create_plan</span><span class="p">(</span><span class="n">request</span><span class="p">,</span> <span class="n">memory_context</span><span class="p">,</span> <span class="n">available</span><span class="p">)</span>
+        <span class="c1"># 3. Execute each step with permission and budget checks</span>
+        <span class="n">total_cost</span><span class="p">,</span> <span class="n">completed</span><span class="p">,</span> <span class="n">failed</span> <span class="o">=</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span>
+        <span class="k">for</span> <span class="n">step</span> <span class="ow">in</span> <span class="n">plan</span><span class="o">.</span><span class="n">steps</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">circuit_breaker</span><span class="o">.</span><span class="n">is_open</span><span class="p">(</span><span class="n">step</span><span class="o">.</span><span class="n">tool_name</span><span class="p">):</span>
+                <span class="n">step</span><span class="o">.</span><span class="n">status</span> <span class="o">=</span> <span class="n">StepStatus</span><span class="o">.</span><span class="n">SKIPPED</span><span class="p">;</span> <span class="n">failed</span> <span class="o">+=</span> <span class="mi">1</span><span class="p">;</span> <span class="k">continue</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">perms_gate</span><span class="o">.</span><span class="n">check</span><span class="p">(</span><span class="n">request</span><span class="o">.</span><span class="n">user_id</span><span class="p">,</span> <span class="n">request</span><span class="o">.</span><span class="n">permissions</span><span class="p">,</span>
+                                            <span class="n">step</span><span class="o">.</span><span class="n">tool_name</span><span class="p">,</span> <span class="n">step</span><span class="o">.</span><span class="n">tool_args</span><span class="p">):</span>
+                <span class="n">step</span><span class="o">.</span><span class="n">status</span> <span class="o">=</span> <span class="n">StepStatus</span><span class="o">.</span><span class="n">FAILED</span><span class="p">;</span> <span class="n">failed</span> <span class="o">+=</span> <span class="mi">1</span><span class="p">;</span> <span class="k">continue</span>
+            <span class="n">ok</span><span class="p">,</span> <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">sandbox</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">tool_router</span><span class="o">.</span><span class="n">get_tool</span><span class="p">(</span><span class="n">step</span><span class="o">.</span><span class="n">tool_name</span><span class="p">),</span> <span class="n">step</span><span class="o">.</span><span class="n">tool_args</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">ok</span><span class="p">:</span>
+                <span class="n">step</span><span class="o">.</span><span class="n">status</span> <span class="o">=</span> <span class="n">StepStatus</span><span class="o">.</span><span class="n">SUCCESS</span><span class="p">;</span> <span class="n">step</span><span class="o">.</span><span class="n">result</span> <span class="o">=</span> <span class="n">result</span><span class="p">;</span> <span class="n">completed</span> <span class="o">+=</span> <span class="mi">1</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">circuit_breaker</span><span class="o">.</span><span class="n">record_success</span><span class="p">(</span><span class="n">step</span><span class="o">.</span><span class="n">tool_name</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">step</span><span class="o">.</span><span class="n">status</span> <span class="o">=</span> <span class="n">StepStatus</span><span class="o">.</span><span class="n">FAILED</span><span class="p">;</span> <span class="n">failed</span> <span class="o">+=</span> <span class="mi">1</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">circuit_breaker</span><span class="o">.</span><span class="n">record_failure</span><span class="p">(</span><span class="n">step</span><span class="o">.</span><span class="n">tool_name</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">AgentResponse</span><span class="p">(</span><span class="n">message</span><span class="o">=</span><span class="s2">"Completed."</span><span class="p">,</span> <span class="n">plan</span><span class="o">=</span><span class="n">plan</span><span class="p">,</span>
+                             <span class="n">total_cost_usd</span><span class="o">=</span><span class="n">total_cost</span><span class="p">,</span>
+                             <span class="n">steps_completed</span><span class="o">=</span><span class="n">completed</span><span class="p">,</span> <span class="n">steps_failed</span><span class="o">=</span><span class="n">failed</span><span class="p">)</span></code></pre>
+<div class="code-caption"><strong>Code Fragment 26.5a.3:</strong> Complete agent system skeleton wiring together the Planner, Tool Router, Sandbox, Cost Controller, Permissions Gate, and Circuit Breaker into a single <code>handle()</code> method.</div>
+</div>
+<h2 id="26-5-9-putting-it-into-practice">26.5.9 Putting It Into Practice</h2>
+<p>To see how the system skeleton comes together, consider a concrete scenario: a customer support agent that can look up orders, check inventory, issue refunds, and send emails. Each of these is a tool with specific permissions.</p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="kn">from</span><span class="w"> </span><span class="nn">openai</span><span class="w"> </span><span class="kn">import</span> <span class="n">AsyncOpenAI</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">lookup_order</span><span class="p">(</span><span class="n">order_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
+    <span class="k">return</span> <span class="p">{</span><span class="s2">"order_id"</span><span class="p">:</span> <span class="n">order_id</span><span class="p">,</span> <span class="s2">"status"</span><span class="p">:</span> <span class="s2">"shipped"</span><span class="p">,</span> <span class="s2">"total"</span><span class="p">:</span> <span class="mf">49.99</span><span class="p">}</span>
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">issue_refund</span><span class="p">(</span><span class="n">order_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">amount</span><span class="p">:</span> <span class="nb">float</span><span class="p">):</span>
+    <span class="k">return</span> <span class="p">{</span><span class="s2">"order_id"</span><span class="p">:</span> <span class="n">order_id</span><span class="p">,</span> <span class="s2">"refunded"</span><span class="p">:</span> <span class="n">amount</span><span class="p">,</span> <span class="s2">"success"</span><span class="p">:</span> <span class="kc">True</span><span class="p">}</span>
+
+<span class="n">router</span> <span class="o">=</span> <span class="n">ToolRouter</span><span class="p">()</span>
+<span class="n">router</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="s2">"lookup_order"</span><span class="p">,</span> <span class="n">lookup_order</span><span class="p">)</span>
+<span class="n">router</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="s2">"issue_refund"</span><span class="p">,</span> <span class="n">issue_refund</span><span class="p">,</span> <span class="n">required_permissions</span><span class="o">=</span><span class="p">[</span><span class="s2">"refunds"</span><span class="p">])</span>
+
+<span class="n">agent</span> <span class="o">=</span> <span class="n">AgentSystem</span><span class="p">(</span>
+    <span class="n">planner</span><span class="o">=</span><span class="n">Planner</span><span class="p">(</span><span class="n">AsyncOpenAI</span><span class="p">()),</span>
+    <span class="n">tool_router</span><span class="o">=</span><span class="n">router</span><span class="p">,</span>
+    <span class="n">sandbox</span><span class="o">=</span><span class="n">ExecutionSandbox</span><span class="p">(</span><span class="n">timeout_seconds</span><span class="o">=</span><span class="mf">15.0</span><span class="p">),</span>
+    <span class="n">cost_ctrl</span><span class="o">=</span><span class="n">CostController</span><span class="p">(),</span>
+    <span class="n">perms_gate</span><span class="o">=</span><span class="n">PermissionsGate</span><span class="p">({</span><span class="s2">"lookup_order"</span><span class="p">:</span> <span class="p">[],</span> <span class="s2">"issue_refund"</span><span class="p">:</span> <span class="p">[</span><span class="s2">"refunds"</span><span class="p">]}),</span>
+    <span class="n">circuit_breaker</span><span class="o">=</span><span class="n">CircuitBreaker</span><span class="p">(),</span>
+<span class="p">)</span>
+
+<span class="n">request</span> <span class="o">=</span> <span class="n">AgentRequest</span><span class="p">(</span>
+    <span class="n">user_id</span><span class="o">=</span><span class="s2">"agent-42"</span><span class="p">,</span> <span class="n">session_id</span><span class="o">=</span><span class="s2">"sess-001"</span><span class="p">,</span>
+    <span class="n">message</span><span class="o">=</span><span class="s2">"Check if order ORD-123 is shipped and refund it if so."</span><span class="p">,</span>
+    <span class="n">permissions</span><span class="o">=</span><span class="p">[</span><span class="s2">"read"</span><span class="p">,</span> <span class="s2">"refunds"</span><span class="p">],</span> <span class="n">max_budget_usd</span><span class="o">=</span><span class="mf">0.50</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">response</span> <span class="o">=</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">agent</span><span class="o">.</span><span class="n">handle</span><span class="p">(</span><span class="n">request</span><span class="p">))</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">response</span><span class="o">.</span><span class="n">message</span><span class="p">)</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> Completed.
+Order ORD-123 was confirmed as shipped (status: shipped, total $49.99). Refund of $49.99 issued successfully. Two tool calls used; total cost $0.012.</div>
+<div class="code-caption"><strong>Code Fragment 26.5a.4:</strong> Wire the AgentSystem together: register concrete tools (lookup_order, issue_refund) with the ToolRouter, attach a permission policy, and dispatch a sample user request. The output is a full trace from plan to per-step results.</div>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 26.5a.1: Cost Dashboard <span class="exercise-type coding" title="Coding">Coding</span></div>
+<p>Extend the <code>CostController</code> to track per-model-tier spending and per-tool spending separately. Add a method <code>get_cost_breakdown(session_id)</code> that returns a dictionary with keys "by_tier" and "by_tool", each mapping to sub-dictionaries of costs.</p>
+<details open="">
+<summary>Answer Sketch</summary>
+<p>Add two more dictionaries alongside <code>_spent</code>: <code>_by_tier[session_id][tier_name]</code> and <code>_by_tool[session_id][tool_name]</code>. Update <code>record_cost()</code> to accept <code>tier_name</code> and <code>tool_name</code> parameters and increment the appropriate counters.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 26.5a.2: Checkpoint System <span class="exercise-type coding" title="Coding">Coding</span></div>
+<p>Implement a <code>CheckpointManager</code> that saves agent state after each successful step and can resume from the last checkpoint. Use JSON serialization to persist the plan state and completed step results to a file. Add a <code>resume(session_id)</code> method to <code>AgentSystem</code>.</p>
+<details open="">
+<summary>Answer Sketch</summary>
+<p>Create a <code>CheckpointManager</code> class that writes <code>{session_id}.json</code> after each successful step, containing the serialized <code>AgentPlan</code> and the index of the last completed step. In <code>AgentSystem.handle()</code>, check for an existing checkpoint at the start. If found, deserialize the plan and skip steps that are already marked as <code>SUCCESS</code>.</p>
+</details>
+</div>
+<div class="callout key-takeaway">
+<div class="callout-title">Key Takeaways</div>
+<ul>
+<li><strong>Per-request token budgets</strong> prevent runaway costs; <strong>cascade routing</strong> optimizes cost by trying cheaper models first (saves 60-80% in practice).</li>
+<li><strong>The Permissions Gate</strong> enforces tool-level ACLs and emits an audit log entry on every check, granting or denying.</li>
+<li><strong>Recovery rests on three patterns:</strong> checkpoint and resume, idempotent actions, and tool-level rollback. Design tools with these in mind from day one.</li>
+<li><strong>The full AgentSystem</strong> is a thin <code>handle()</code> method that composes the eight injected components; swap any one (e.g., in-memory cost tracker for Redis) without touching the others.</li>
+</ul>
+</div>
+<div class="callout self-check">
+<div class="callout-title">Self-Check</div>
+<div class="quiz-question"><strong>Q1:</strong> Why does cascade routing typically save 60 to 80% of API costs without large quality loss?</div>
+<details><summary>Show Answer</summary><div class="answer">
+<p>Most agent steps (simple tool dispatch, formatting results, short follow-up questions) do not require the most capable model. The cheaper tier handles them adequately, and only planning and recovery escalate to expensive models. Measure the cascade hit rate (percentage of calls handled by the cheapest tier) as a key operational metric.</p>
+</div></details>
+<div class="quiz-question"><strong>Q2:</strong> What three properties should every tool document for the Recovery Handler?</div>
+<details><summary>Show Answer</summary><div class="answer">
+<p>(1) Is the action idempotent? (2) Can it be rolled back? (3) What does a partial failure look like? Documenting these in the tool's metadata lets the Recovery Handler make informed decisions automatically instead of relying on hardcoded retry logic.</p>
+</div></details>
+</div>
+<div class="whats-next">
+<h2 id="what-comes-next">What Comes Next</h2>
+<p>The next section, <a href="section-26.6.html">Section 26.6: Memory Architecture for Agents</a>, focuses on the agent-specific slice of LLM memory: plan and scratchpad memory for multi-step tasks, tool-call history, episodic memory of completed tasks, and agent-state checkpointing for resumability.</p>
+</div>
+<details class="bibliography-collapsible">
+<summary><strong>Further Reading</strong></summary>
+<section class="bibliography">
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://arxiv.org/abs/2406.12045" rel="noopener" target="_blank">Kapoor, S., Stroebl, B., Siber, Z.S., et al. (2024). "AI Agents That Matter." <em>arXiv preprint</em>.</a> Analyzes the gap between benchmark performance and production reliability, offering practical guidance on cost-performance trade-offs for deployed agent systems.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://arxiv.org/abs/2401.13178" rel="noopener" target="_blank">Zhang, C., Yang, K., Hu, S., et al. (2024). "AppAgent: Multimodal Agents as Smartphone Users." <em>arXiv preprint</em>.</a> Demonstrates end-to-end agent deployment for GUI interaction, illustrating production concerns like action grounding, error recovery, and execution sandboxing.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref"><a href="https://blog.nelhage.com/post/transformers-for-software-engineers/" rel="noopener" target="_blank">Nelhage, N. (2024). "Transformers for Software Engineers."</a> Practical engineering perspective on building reliable systems with LLMs, covering rate limiting, circuit breakers, and other patterns essential for production agent deployments.</div>
+</div>
+</section>
+</details>
+<nav class="chapter-nav">
+<a class="prev" href="section-26.5.html"><span class="nav-label">Previous</span><span class="nav-num">Section 26.5</span><span class="nav-title">End-to-End Agent System Architecture</span></a>
+<a class="up" href="index.html"><span class="nav-label">In Chapter</span><span class="nav-num">Chapter 26</span><span class="nav-title">AI Agent Foundations</span></a>
+<a class="next" href="section-26.6.html"><span class="nav-label">Next</span><span class="nav-num">Section 26.6</span><span class="nav-title">Memory Architecture for Agents</span></a>
+</nav>
+<footer><p>Sixteenth Edition, 2026 · <a href="../../toc.html">Contents</a></p></footer>
+</main>
+</body>
+</html>

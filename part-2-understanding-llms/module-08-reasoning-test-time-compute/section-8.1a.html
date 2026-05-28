@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-PWPHBQL2VL"></script>
+<script>
+window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', 'G-PWPHBQL2VL');
+</script>
+
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<meta content="Section 8.1a: KV Cache Growth in Reasoning Models, PRMs vs ORMs &amp; Exercises. Memory arithmetic for long thinking traces, process vs outcome reward models, and exercises on test-time compute design." name="description"/>
+<title>Section 8.1a: KV Cache Growth, PRMs vs ORMs &amp; Exercises | Building Conversational AI</title>
+<link href="../../styles/book.css" rel="stylesheet"/>
+<link href="../../styles/pygments.css" rel="stylesheet"/>
+<link href="../../vendor/katex/katex.min.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/katex/katex.min.js"></script>
+<script defer="" onload="renderMathInElement(document.body, {
+ delimiters: [
+ {left: '$$', right: '$$', display: true},
+ {left: '$', right: '$', display: false}
+ ],
+ throwOnError: false
+ });" src="../../vendor/katex/contrib/auto-render.min.js"></script>
+<link href="../../vendor/prism/prism-theme.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/prism/prism-bundle.min.js"></script>
+<script defer="" src="../../scripts/book.js"></script>
+<link href="../../pagefind/pagefind-ui.css" rel="stylesheet"/>
+<script defer="" src="../../pagefind/pagefind-ui.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
+
+<header class="chapter-header">
+<nav class="header-nav">
+<a class="book-title-link" href="../../index.html">Building Conversational AI with LLMs and Agents</a>
+<a class="toc-link" href="../../toc.html" title="Table of Contents"><span class="toc-icon">&#9776;</span> Contents</a>
+</nav>
+<div class="header-search">
+<div id="search"></div>
+</div>
+
+<div class="page-breadcrumb" data-pagefind-meta="chapter"><a href="../index.html">Part II: Understanding LLMs</a><span class="bc-sep">&#8250;</span><a href="index.html">Chapter 8: Reasoning Models &amp; Test-Time Compute</a></div>
+<h1>KV Cache Growth, PRMs vs ORMs &amp; Exercises</h1><div class="page-current">Section 8.1a</div>
+
+</header>
+<main class="content" id="main-content"><span class="pagefind-meta-injected" data-pagefind-meta="part:Part II: Understanding LLMs" hidden=""></span><span class="pagefind-meta-injected" data-pagefind-meta="chapter:Chapter 8: Reasoning Models &amp; Test-Time Compute" hidden=""></span>
+<div class="callout big-picture">
+<div class="callout-title">Big Picture</div>
+<p>This section continues from <a href="section-8.1.html">Section 8.1</a>, which introduced the two kinds of compute, the Snell et al. framework, the four mechanisms of test-time compute, the economics of thinking, the historical path from chain-of-thought to reasoning models, and when to use test-time compute. Here we turn to the two engineering realities that matter most when you actually deploy a reasoning model: KV cache growth under long thinking traces, and the choice between Process and Outcome Reward Models for scoring those traces. The section closes with exercises that consolidate the full test-time-compute picture.</p>
+</div>
+<div class="prerequisites">
+<h2 id="prerequisites">Prerequisites</h2>
+<p>This section continues from <a href="section-8.1.html">Section 8.1</a>. Familiarity with the four mechanisms of test-time compute (extended CoT, hidden thinking, explicit thinking, tree search), the Snell et al. compute-optimality framework, and the basic chain-of-thought paradigm covered there is assumed.</p>
+</div>
+<p>Having framed why test-time compute matters in <a href="section-8.1.html">Section 8.1</a>, we now look at the two engineering realities that govern production deployment: how the KV cache explodes under long reasoning traces, and how PRMs and ORMs differ in how they score those traces.</p>
+<h2 id="8-1-7-kv-cache-growth-in-reasoning-models">8.1.7 KV cache Growth in Reasoning Models</h2>
+<p>One of the most consequential engineering challenges with reasoning models is memory. Every token the model generates, including every thinking token, must be stored in the KV cache during the generation pass. For standard chat models generating 200 to 500 tokens, this is manageable. For reasoning models generating 5,000 to 50,000 thinking tokens, it becomes a serious infrastructure problem. (For the technical mechanics of KV cache and its relationship to inference optimization, see <a href="../module-09-inference-optimization/section-9.3.html">Section 9.3</a>.)</p>
+<h3 id="8-1-7-1-the-memory-arithmetic">8.1.7.1 The Memory Arithmetic</h3>
+<p>The KV cache stores key and value tensors for every token in the context. For a transformer with <span class="math">$L$</span> layers, <span class="math">$H$</span> key-value heads, and head dimension <span class="math">$d_h$</span>, the KV cache memory per token is:</p>
+<div class="math-block">$$\text{Memory per token} = 2 \times L \times H \times d_h \times \text{bytes per element}$$</div>
+<p>The factor of 2 accounts for both keys and values. For a model using Grouped Query Attention (GQA), the number of KV heads is smaller than the number of query heads, which reduces this cost proportionally.</p>
+<div class="callout practical-example">
+<div class="callout-title">Real-World Scenario: 70B Model with 50,000 Thinking Tokens</div>
+<p>Consider a 70B parameter model using GQA with the following typical configuration:</p>
+<ul>
+<li>Layers: 80</li>
+<li>KV heads (GQA): 8 (query heads: 64)</li>
+<li>Head dimension: 128</li>
+<li>Precision: fp16 (2 bytes per element)</li>
+</ul>
+<p>KV cache per token: 2 (K+V) x 80 (layers) x 8 (KV heads) x 128 (head dim) x 2 (bytes) = <strong>327,680 bytes</strong> per token, or about 320 KB per token.</p>
+<p>For 50,000 thinking tokens: 50,000 x 320 KB = <strong>16 GB</strong> of KV cache, for a single request. A standard 80 GB A100 can serve roughly 5 concurrent requests of this depth. For comparison, a standard 500-token chat response uses only 160 MB of KV cache (100x less).</p>
+<p>If the GQA ratio is larger (e.g., 4 KV heads instead of 8), the memory roughly halves, but the order of magnitude remains the same: long reasoning traces consume gigabytes of GPU memory per request.</p>
+</div>
+<h3 id="8-1-7-2-serving-implications">8.1.7.2 Serving Implications</h3>
+<p>These numbers have direct consequences for how reasoning model deployments are architected:</p>
+<ul>
+<li><strong>Throughput collapse:</strong> A GPU that serves 200 concurrent standard chat requests can serve as few as 2 to 5 concurrent reasoning requests at maximum thinking depth. This means the effective cost per reasoning request is not just the token count difference but also the opportunity cost of blocked GPU capacity.</li>
+<li><strong>Prefill/decode phase imbalance:</strong> In standard inference, the prefill phase (processing the input prompt) is fast, and the decode phase (generating output tokens one by one) is the bottleneck. In reasoning models, the decode phase is enormously extended by thinking tokens, making decode the dominant cost by far.</li>
+<li><strong>Memory-bound vs. compute-bound:</strong> With tens of thousands of tokens in the KV cache, attention computation becomes memory-bandwidth-bound. The GPU spends most of its time reading KV cache tensors from HBM rather than performing matrix multiplications. FlashAttention and GQA (see <a href="../module-09-inference-optimization/section-9.3.html">Section 9.3</a>) are therefore especially valuable for reasoning models.</li>
+</ul>
+<h3 id="8-1-7-3-mitigation-strategies">8.1.7.3 Mitigation Strategies</h3>
+<p>Production deployments use several strategies to manage KV cache growth in reasoning models:</p>
+<ul>
+<li><strong>KV cache eviction after reasoning completes:</strong> Once the model emits the separator token (transitioning from thinking to answer), the thinking tokens are no longer needed for future generation. Their KV cache entries can be freed, recovering GPU memory before serving the next request. This is not possible during generation, but can happen between requests.</li>
+<li><strong>Thinking token compression:</strong> Research systems have explored compressing or summarizing the KV cache of thinking tokens into a smaller representation. This is an active research area and not yet widely deployed.</li>
+<li><strong>Budget caps:</strong> Most reasoning model APIs expose a "reasoning budget" or "thinking effort" parameter. Setting <code>thinking_tokens=1024</code> caps the maximum KV cache growth and prevents runaway costs on simple queries. OpenAI's o-series exposes <code>reasoning_effort</code> (low, medium, high); DeepSeek R1 supports explicit <code>max_tokens</code> caps on the thinking section. Always set a budget cap for production deployments.</li>
+<li><strong>Routing:</strong> The most effective mitigation is simply not sending easy queries to reasoning models. A difficulty router (see Section 4.2) prevents most requests from incurring thinking token overhead at all.</li>
+</ul>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="kn">import</span><span class="w"> </span><span class="nn">anthropic</span>
+<span class="n">client</span> <span class="o">=</span> <span class="n">anthropic</span><span class="o">.</span><span class="n">Anthropic</span><span class="p">()</span>
+<span class="c1"># Using Claude's extended thinking with a budget cap to limit KV cache growth.</span>
+<span class="c1"># budget_tokens limits the maximum thinking tokens, directly capping memory usage.</span>
+<span class="n">response</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">messages</span><span class="o">.</span><span class="n">create</span><span class="p">(</span>
+    <span class="n">model</span><span class="o">=</span><span class="s2">"claude-opus-4-5"</span><span class="p">,</span>
+    <span class="n">max_tokens</span><span class="o">=</span><span class="mi">16000</span><span class="p">,</span>
+    <span class="n">thinking</span><span class="o">=</span><span class="p">{</span>
+    <span class="s2">"type"</span><span class="p">:</span> <span class="s2">"enabled"</span><span class="p">,</span>
+    <span class="s2">"budget_tokens"</span><span class="p">:</span> <span class="mi">2048</span> <span class="c1"># cap thinking tokens: reduces memory from ~640 MB to ~26 MB</span>
+    <span class="c1"># for a 70B-equivalent model. Default can be up to 10000.</span>
+    <span class="p">},</span>
+    <span class="n">messages</span><span class="o">=</span><span class="p">[{</span>
+    <span class="s2">"role"</span><span class="p">:</span> <span class="s2">"user"</span><span class="p">,</span>
+    <span class="s2">"content"</span><span class="p">:</span> <span class="s2">"Prove that the square root of 2 is irrational."</span>
+    <span class="p">}]</span>
+    <span class="p">)</span>
+<span class="c1"># Response includes both thinking blocks and text blocks</span>
+<span class="k">for</span> <span class="n">block</span> <span class="ow">in</span> <span class="n">response</span><span class="o">.</span><span class="n">content</span><span class="p">:</span>
+    <span class="k">if</span> <span class="n">block</span><span class="o">.</span><span class="n">type</span> <span class="o">==</span> <span class="s2">"thinking"</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Thinking (</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">block</span><span class="o">.</span><span class="n">thinking</span><span class="p">)</span><span class="si">}</span><span class="s2"> chars): </span><span class="si">{</span><span class="n">block</span><span class="o">.</span><span class="n">thinking</span><span class="p">[:</span><span class="mi">200</span><span class="p">]</span><span class="si">}</span><span class="s2">..."</span><span class="p">)</span>
+    <span class="k">elif</span> <span class="n">block</span><span class="o">.</span><span class="n">type</span> <span class="o">==</span> <span class="s2">"text"</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Answer: </span><span class="si">{</span><span class="n">block</span><span class="o">.</span><span class="n">text</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span></code></pre>
+<div class="code-caption"><strong>Code Fragment 8.1.3a:</strong> Setting a <code>budget_tokens</code> cap on extended thinking using the Anthropic Python SDK. The cap directly limits KV cache memory growth. For a 70B-equivalent model, cutting thinking from 10,000 to 2,048 tokens reduces per-request KV cache from roughly 3.2 GB to 655 MB.</div>
+</div>
+<h2 id="prm-orm">8.1.8 Process Reward Models vs. Outcome Reward Models</h2>
+<p>Every reasoning strategy that involves evaluation (best-of-N, tree search, and RL training of reasoning models) requires a reward model. Not all reward models are created equal. The choice between an <strong>outcome reward model (ORM)</strong> and a <strong>process reward model (PRM)</strong> fundamentally affects what can be achieved.</p>
+<h3 id="8-1-outcome-reward-models">8.1 Outcome Reward Models</h3>
+<p>An ORM scores the final answer only. Given a problem and a complete reasoning trace plus final answer, the ORM outputs a single scalar: how good is this answer? ORMs are relatively easy to train because labels are at the answer level: for math problems, you can automatically verify whether the final numerical answer is correct. For code, you can run tests. The feedback is binary and abundant.</p>
+<p>The limitation of ORMs is <strong>sparse signal</strong>. If a 50-step reasoning chain arrives at the wrong answer, the ORM assigns a low score to the entire chain, but provides no information about which of the 50 steps went wrong. This makes ORMs poorly suited for tree search (you cannot prune a bad branch until you reach the end of it) and for training (the gradient signal does not flow back to the specific reasoning step that caused the error).</p>
+<h3 id="8-1-8-2-process-reward-models">8.1.8.2 Process Reward Models</h3>
+<p>A PRM scores each individual reasoning step. Given a problem and the reasoning trace up to step <span class="math">$k$</span>, the PRM outputs a score for whether step <span class="math">$k$</span> was correct and productive. This provides <strong>dense, step-level supervision</strong>: the model receives a signal at every step, not just at the end.</p>
+<p>The foundational work is Lightman et al. (2023), "Let's Verify Step by Step," which introduced the PRM800K dataset: 800,000 step-level human annotations on math reasoning traces. Their key finding was that <strong>PRMs substantially outperform ORMs on hard math benchmarks</strong>, particularly when used for best-of-N selection. Given N candidate solutions, a PRM can score each step of each solution and select the one with the highest minimum step score (the weakest link), which is a more reliable quality signal than the final-answer score alone.</p>
+<div class="callout key-insight">
+<div class="callout-title">Key Insight: Why PRM is Better for Tree Search</div>
+<p>The critical advantage of PRMs for tree search is <strong>early pruning</strong> (a search-time technique distinct from weight pruning, which is covered in <a class="concept-link" href="../module-09-inference-optimization/section-9.7.html">Section 9.7</a>). In a tree search over a 20-step math proof, a PRM can detect that step 3 is incorrect and prune the entire subtree rooted at that branch, before generating the remaining 17 steps. An ORM cannot do this: it must wait until a branch is fully completed before scoring it. Since the number of nodes in a tree grows exponentially with depth, early pruning saves enormous amounts of compute. This is why tree search without a PRM is often no better than best-of-N, while tree search with a PRM can be significantly better.</p>
+</div>
+<div class="comparison-table">
+<div class="comparison-table-title"><strong>Table 8.1.3b:</strong> <em>ORM vs. PRM Comparison (as of 2026).</em></div>
+<table>
+<thead>
+<tr>
+<th scope="col">Property</th>
+<th scope="col">Outcome Reward Model (ORM)</th>
+<th scope="col">Process Reward Model (PRM)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>What it scores</td>
+<td>Final answer only</td>
+<td>Each reasoning step</td>
+</tr>
+<tr>
+<td>Training data</td>
+<td>Answer-level labels (automatic for math/code)</td>
+<td>Step-level labels (requires human annotation or automated step verification)</td>
+</tr>
+<tr>
+<td>Training cost</td>
+<td>Low (automatic labels)</td>
+<td>High (step annotations are expensive)</td>
+</tr>
+<tr>
+<td>Signal density</td>
+<td>Sparse (one signal per full trace)</td>
+<td>Dense (one signal per reasoning step)</td>
+</tr>
+<tr>
+<td>Useful for best-of-N</td>
+<td>Yes (adequate)</td>
+<td>Yes (better)</td>
+</tr>
+<tr>
+<td>Useful for tree search</td>
+<td>Poor (cannot prune early)</td>
+<td>Excellent (enables early branch pruning)</td>
+</tr>
+<tr>
+<td>Useful for RL training</td>
+<td>Yes (standard RLHF)</td>
+<td>Yes (richer gradient signal)</td>
+</tr>
+<tr>
+<td>Key limitation</td>
+<td>Cannot identify which step caused failure</td>
+<td>Step-level labels are expensive and may be inconsistent</td>
+</tr>
+</tbody>
+</table>
+</div>
+<h3 id="8-1-8-3-automated-prm-training">8.1.8.3 Automated PRM Training</h3>
+<p>The cost of step-level human annotation has motivated research into automated PRM training. Two approaches have shown promise:</p>
+<ul>
+<li><strong>Monte Carlo rollout estimation:</strong> For a given partial reasoning trace ending at step <span class="math">$k$</span>, generate many complete solutions (rollouts) from step <span class="math">$k$</span> forward. The fraction of rollouts that arrive at the correct final answer estimates the probability that step <span class="math">$k$</span> is on a path to success. This probability is used as the step-level label. The DeepSeek-R1 team used this technique to generate PRM training data at scale.</li>
+<li><strong>LLM-as-critic:</strong> Use a separate language model to evaluate whether each reasoning step is logically valid. This is cheaper than human annotation but introduces the risk of the critic having the same biases as the generator. Best practice is to use a different model family for the critic than for the generator.</li>
+</ul>
+<p>For the RL training context (how PRMs and ORMs connect to PPO, GRPO, and DPO during reasoning model training), see <a href="../../part-4-training-adaptation/module-18-alignment-rlhf-dpo/section-18.1.html">Section 18.1</a>.</p>
+<!-- Key Takeaways -->
+<div class="callout self-check">
+<div class="callout-title">Self-Check</div>
+<div class="quiz-question">
+<strong>Exercise 1 (Level 1):</strong> A company processes 100,000 customer support tickets daily. 85% are simple FAQ-type questions, 10% require moderate reasoning (e.g., interpreting return policies for edge cases), and 5% require complex multi-step reasoning (e.g., tracing order issues across multiple systems). Design a routing strategy that minimizes total cost while maintaining high accuracy on all three tiers. Estimate the relative cost compared to sending all queries to a reasoning model.
+ </div>
+<details>
+<summary>Show Answer</summary>
+<div class="answer">
+<p>A three-tier routing strategy:</p>
+<ul>
+<li><strong>Tier 1 (85K queries/day):</strong> Route to GPT-4o-mini or similar fast, cheap model. These are FAQ lookups that need no reasoning. Estimated cost: ~<span>&#36;</span>0.001/query = <span>&#36;</span>85/day.</li>
+<li><strong>Tier 2 (10K queries/day):</strong> Route to GPT-4o or Claude Sonnet. Moderate reasoning is handled well by standard frontier models. Estimated cost: ~<span>&#36;</span>0.01/query = <span>&#36;</span>100/day.</li>
+<li><strong>Tier 3 (5K queries/day):</strong> Route to o3-mini with medium reasoning effort. Complex multi-step analysis. Estimated cost: ~<span>&#36;</span>0.05/query = <span>&#36;</span>250/day.</li>
+</ul>
+<p>Total daily cost with routing: ~<span>&#36;</span>435/day. If all 100K queries were sent to o3-mini: ~<span>&#36;</span>5,000/day. The routing strategy saves roughly 91% of inference costs. The difficulty classifier can be trained on a labeled sample of 5,000 tickets and typically achieves 90%+ routing accuracy with a simple fine-tuned classifier.</p>
+</div>
+</details>
+<div class="quiz-question">
+<strong>Exercise 2 (Level 2):</strong> Explain why test-time compute scaling shows logarithmic returns for best-of-N sampling but can show super-logarithmic returns for tree search methods. What property of tree search enables this advantage?
+ </div>
+<details>
+<summary>Show Answer</summary>
+<div class="answer">
+<p>Best-of-N sampling generates N independent solutions, each drawn from the same distribution. Because the samples are independent, the probability of at least one correct solution is 1 - (1-p)^N, where p is the per-sample success probability. This expression grows quickly at first but slows as N increases (logarithmic in effective accuracy gain per additional sample).</p>
+<p>Tree search, by contrast, uses information from partial evaluations to guide future computation. If a reward model detects that the first reasoning step is wrong, tree search prunes that entire branch and redirects compute to more promising paths. This means tree search avoids the "repeated mistakes" problem of best-of-N, where many of the N independent samples might fail in the same way. The ability to prune early means that each additional unit of compute is spent more efficiently, particularly on hard problems where the correct solution requires finding a specific sequence of reasoning steps. This conditional information reuse is the property that enables super-logarithmic returns.</p>
+</div>
+</details>
+<div class="quiz-question">
+<strong>Exercise 3 (Level 3, Research):</strong> The Snell et al. framework assumes a fixed inference compute budget and optimizes the split between model size and test-time computation. Propose an extension to this framework that incorporates a <em>latency constraint</em> in addition to the compute budget. How does the latency constraint change the optimal allocation, and what new trade-offs emerge?
+ </div>
+<details>
+<summary>Show Answer</summary>
+<div class="answer">
+<p>A latency-constrained extension would add a wall-clock time bound T_max to the optimization. The key new trade-off is between <strong>parallelism and sequential depth</strong>:</p>
+<ul>
+<li>Best-of-N sampling is highly parallelizable: with sufficient GPUs, N samples can be generated in the same wall-clock time as one sample. Under a latency constraint, this makes best-of-N attractive because it can use more compute without increasing latency.</li>
+<li>Extended chain-of-thought is inherently sequential: each token depends on all previous tokens. A 5,000-token thinking chain cannot be parallelized and takes 50x longer than a 100-token response. Under tight latency constraints, this limits the maximum reasoning depth.</li>
+<li>Tree search offers a middle ground: different branches can be explored in parallel (like best-of-N), but the depth of each branch can be adapted (like extended CoT).</li>
+</ul>
+<p>The modified framework would have three variables: model size N, number of parallel samples K, and maximum sequential reasoning depth D, subject to both C_total = f(N, K, D) and T_wall = g(N, D). This creates a Pareto frontier in (cost, latency, accuracy) space. In practice, the latency constraint often eliminates deep sequential reasoning for interactive applications, pushing the optimal strategy toward parallel best-of-N with moderate model sizes.</p>
+</div>
+</details>
+</div>
+<div class="callout research-frontier">
+<div class="callout-title">Research Frontier</div>
+<p>The optimal allocation of test-time compute remains an active research problem. Snell et al. (2024) showed that compute-optimal inference requires adapting strategy to problem difficulty, but the question of <em>how</em> to estimate difficulty before solving the problem is unresolved. Recent work on "scaling test-time compute with an approximate value function" (DeepMind, 2025) explores using lightweight models to predict how much thinking a query needs. Separately, "s1: Simple Test-Time Scaling" (Muennighoff et al., 2025) demonstrated that even simple budget-forcing techniques can significantly improve reasoning, suggesting that the full complexity of MCTS may not always be necessary. The emerging consensus is that adaptive compute routing, where different queries receive different inference budgets, will become standard in production LLM deployments.</p>
+</div>
+<h2 id="exercises">Exercises</h2>
+<div class="callout exercise">
+<div class="callout-title">Exercise 8.1.1: Chain-of-Thought fundamentals <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+<p>What is chain-of-thought (CoT) prompting, and why does asking a model to 'think step by step' improve performance on reasoning tasks? Give an example where CoT helps and one where it does not.</p>
+<details>
+<summary>Answer Sketch</summary>
+<p>CoT prompting instructs the model to generate intermediate reasoning steps before the final answer. It helps because: (1) it breaks complex problems into simpler sub-problems. (2) Each step conditions on previous steps, allowing error detection and correction. (3) It allocates more compute (tokens) to harder problems. Helps: multi-step math ('A train travels 60mph for 2.5 hours, how far?'). Does not help: simple factual recall ('What is the capital of France?') or tasks where the answer is immediate and reasoning adds no value. CoT can actually hurt on simple tasks by introducing unnecessary complexity.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 8.1.2: Zero-shot vs. few-shot CoT <span class="exercise-type coding" title="Coding">Coding</span></div>
+<p>Compare zero-shot CoT ('Let's think step by step') with few-shot CoT (providing worked examples) on 10 grade-school math problems. Which approach achieves higher accuracy, and by how much?</p>
+<details>
+<summary>Answer Sketch</summary>
+<p>Few-shot CoT typically outperforms zero-shot CoT by 5 to 15 percentage points because the worked examples demonstrate the specific reasoning format the model should follow. Zero-shot CoT still significantly outperforms direct answering (by 10 to 30 points). The quality of few-shot examples matters: examples should demonstrate the exact type of reasoning needed and use a consistent format. Poorly chosen examples can actually reduce accuracy.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 8.1.3: CoT faithfulness <span class="exercise-type conceptual" title="Conceptual">Conceptual</span></div>
+<p>When a model generates a chain-of-thought, it might reach the correct answer through incorrect reasoning, or the visible reasoning might not reflect the model's actual computation. Explain the 'faithfulness' problem and why it matters for trust in AI systems.</p>
+<details>
+<summary>Answer Sketch</summary>
+<p>Faithfulness means the stated reasoning actually caused the final answer. Research shows models sometimes: (1) reach correct answers despite flawed reasoning steps (lucky cancellation of errors). (2) Generate post-hoc rationalizations rather than genuine reasoning (the answer was determined first, then justified). (3) Arrive at answers through internal computations not reflected in the text. This matters because: users rely on reasoning traces to verify answers; if the traces are unreliable, verification is illusory. For high-stakes applications (medical diagnosis, legal reasoning), unfaithful CoT creates a false sense of transparency.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 8.1.4: Structured reasoning prompts <span class="exercise-type analysis" title="Analysis">Analysis</span></div>
+<p>Compare three structured reasoning approaches: (1) chain-of-thought, (2) tree-of-thought (exploring multiple reasoning paths), and (3) plan-then-execute (outline the approach before solving). For a complex word problem, which approach produces the best results?</p>
+<details>
+<summary>Answer Sketch</summary>
+<p>CoT: linear reasoning, one path forward. Best for straightforward multi-step problems. Tree-of-thought: explores multiple approaches, backtracks from dead ends. Best for problems with multiple valid solution strategies (e.g., game playing, creative problem-solving). Plan-then-execute: first generates a high-level plan, then follows it step by step. Best for problems requiring strategic thinking before detailed computation (e.g., proofs, code design). For a complex word problem with potential traps, plan-then-execute often works best because identifying the right approach before computing prevents going down wrong paths.</p>
+</details>
+</div>
+<div class="callout exercise">
+<div class="callout-title">Exercise 8.1.5: Reasoning verification <span class="exercise-type coding" title="Coding">Coding</span></div>
+<p>Implement a simple 'verify-then-revise' pipeline: (1) generate a chain-of-thought solution, (2) prompt the same model to verify each step, (3) if errors are found, regenerate from the error point. Test on 20 math problems and measure whether verification improves accuracy.</p>
+<details>
+<summary>Answer Sketch</summary>
+<p>The pipeline: generate solution, then prompt 'Check each step of the following solution for errors: [solution]'. If the verifier finds an error, regenerate from that step with the error flagged. Expected result: verification improves accuracy by 5 to 10 points, but the verifier itself is imperfect (catches ~60% of errors, sometimes flags correct steps as wrong). This is still valuable because the combined error rate (generator AND verifier both wrong) is lower than either alone. The fundamental limitation: the verifier uses the same model, so systematic biases affect both generation and verification.</p>
+</details>
+</div>
+<div class="whats-next">
+<h3 id="what-s-next">What's Next?</h3>
+<p>In the next section, <a href="section-8.2.html">Section 8.2: Reasoning Model Architectures: o1, o3, R1, QwQ</a>, we survey the specific reasoning models that implement this paradigm: OpenAI's o-series, DeepSeek R1, Google Gemini 2.5 thinking mode, and others.</p>
+</div>
+<details class="bibliography-collapsible">
+<summary><strong>Further Reading</strong></summary>
+<section class="bibliography">
+<h3 id="prm-and-orm">PRMs, ORMs, and KV Cache</h3>
+<div class="bib-entry-card">
+<div class="bib-ref">Lightman, H. et al. (2023). <a href="https://arxiv.org/abs/2305.20050" rel="noopener" target="_blank">"Let's Verify Step by Step."</a> <em>arXiv preprint arXiv:2305.20050</em>. Introduced the PRM800K dataset of 800,000 step-level human annotations and demonstrated that process reward models substantially outperform outcome reward models for selecting correct mathematical reasoning traces. The foundational reference for understanding PRMs.</div>
+</div>
+<div class="bib-entry-card">
+<div class="bib-ref">DeepSeek-AI. (2025). <a href="https://arxiv.org/abs/2501.12948" rel="noopener" target="_blank">"DeepSeek-R1: Incentivizing Reasoning Capability in LLMs via Reinforcement Learning."</a> <em>arXiv preprint arXiv:2501.12948</em>. Describes the training of DeepSeek-R1, including the pure RL approach (R1-Zero), the GRPO training algorithm, and the explicit thinking token architecture using <code>&lt;think&gt;</code> tags. The Monte Carlo rollout estimation technique for automated PRM training is described here.</div>
+</div>
+</section>
+</details>
+<nav class="chapter-nav">
+<a class="prev" href="section-8.1.html"><span class="nav-label">Previous</span><span class="nav-num">Section 8.1</span><span class="nav-title">Test-Time Compute Paradigm</span></a>
+<a class="up" href="index.html"><span class="nav-label">In Chapter</span><span class="nav-num">Chapter 8</span><span class="nav-title">Reasoning Models &amp; Test-Time Compute</span></a>
+<a class="next" href="section-8.2.html"><span class="nav-label">Next</span><span class="nav-num">Section 8.2</span><span class="nav-title">Reasoning Model Architectures: o1, o3, R1, QwQ</span></a>
+</nav>
+<footer><p>Sixteenth Edition, 2026 &middot; <a href="../../toc.html">Contents</a></p></footer>
+</main>
+</body>
+</html>
