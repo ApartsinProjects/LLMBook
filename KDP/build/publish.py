@@ -315,27 +315,33 @@ def step_structural_validate() -> int:
     return rc
 
 
-def step_epubcheck(java: Path, jar: Path) -> int:
-    step("EPUB schema validation (epubcheck)")
+def step_epubcheck(java: Path, jar: Path, strict: bool = False) -> int:
+    """Run EPUBCheck. If `strict=True`, also pass --failonwarnings and -u
+    so any warning OR usage-level finding counts as failure. Use strict mode
+    AFTER post-build patches to catch property corruption (OPF-027 etc.)
+    that our patches could have introduced (e.g. rendition:wide bug from
+    fix_fxl_filenames.py keyword scrub corrupting rendition:spread)."""
+    step("EPUB schema validation (epubcheck)" + (" [STRICT]" if strict else ""))
     epub = OUTPUT_DIR / "building-conversational-ai-llms-agents.epub"
-    log = VALIDATION_DIR / "epubcheck_report.txt"
+    log = VALIDATION_DIR / ("epubcheck_strict_report.txt" if strict else "epubcheck_report.txt")
     # Use a project-local Java temp dir so we don't depend on the system
     # %TEMP% having free space (C: drive can be tight on Windows).
     java_tmp = LOG_DIR / "java-tmp"
     java_tmp.mkdir(parents=True, exist_ok=True)
     print(f"  java:      {java}")
     print(f"  epubcheck: {jar}")
-    rc, out = run(
-        [str(java), f"-Djava.io.tmpdir={java_tmp}", "-jar", str(jar), str(epub)],
-        log,
-    )
+    cmd = [str(java), f"-Djava.io.tmpdir={java_tmp}", "-jar", str(jar)]
+    if strict:
+        cmd += ["--failonwarnings", "-u"]
+    cmd.append(str(epub))
+    rc, out = run(cmd, log)
     # epubcheck prints a final summary line; show last 30 lines
     tail = out.splitlines()[-30:]
     print("  " + "\n  ".join(tail))
     if rc == 0:
         ok(f"epubcheck PASSED -> {log.relative_to(PROJECT_ROOT)}")
     else:
-        warn(f"epubcheck reported issues -> see {log.relative_to(PROJECT_ROOT)}")
+        fail(f"epubcheck FAILED -> see {log.relative_to(PROJECT_ROOT)}")
     return rc
 
 
@@ -917,15 +923,27 @@ def main(argv: list[str] | None = None) -> int:
         if rc != 0:
             final_rc = rc
         # Re-validate the optimized EPUB - optimization shouldn't break anything
-        # but verifying is cheap and catches optimizer regressions
+        # but verifying is cheap and catches optimizer regressions AND any
+        # corruption introduced by the Step 7d post-build patches.
+        # This run uses STRICT mode (--failonwarnings -u) and is a HARD GATE
+        # because the post-build patches could in principle introduce
+        # OPF-027 / property-corruption errors that the default EPUBCheck
+        # would only warn about. The KDP "There was a problem processing
+        # your file" rejection on 2026-05-29 was caused by exactly this:
+        # the fix_fxl_filenames.py keyword scrub corrupted
+        # `rendition:spread` into `rendition:wide` (undefined property),
+        # which earlier EPUBCheck calls warned-but-let-ship. Hard gate
+        # now stops that class of regression at build time.
         elif not args.no_epubcheck:
             found = find_epubcheck_install()
             if found:
-                step("Post-optimize epubcheck")
-                rc = step_epubcheck(*found)
+                step("Post-optimize epubcheck [STRICT, HARD GATE]")
+                rc = step_epubcheck(*found, strict=True)
                 if rc != 0:
-                    warn("Optimized EPUB failed epubcheck; raw EPUB preserved at output/*.raw.epub")
-                    final_rc = rc
+                    fail("Optimized EPUB failed STRICT epubcheck; raw EPUB preserved at output/*.raw.epub")
+                    fail("This is a HARD GATE — the broken EPUB will NOT be shipped.")
+                    fail("See KDP/validation/epubcheck_strict_report.txt for details.")
+                    return 1
 
     # Deep quality audit (internal links, alt text, manifest/spine consistency,
     # SVG/math regression guards) - catches reader-facing issues EPUBCheck and
