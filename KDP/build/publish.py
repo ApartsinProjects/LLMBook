@@ -599,10 +599,12 @@ def step_optimize() -> int:
     try:
         import subprocess
         for script, label in [
+            ("fix_img_strip_dims.py",        "img-strip-dims"),
             ("fix_png_to_jpeg_kdp.py",      "png-to-jpeg"),
             ("fix_cover_kdp_heuristic.py", "cover-reflow"),
             ("fix_cover_image_kdp.py",      "cover-image"),
             ("fix_svg_style_kdp.py",        "svg-style"),
+            ("fix_opf_strip_rendition.py", "opf-strip-rendition"),
         ]:
             script_path = BUILD_DIR / script
             if not script_path.exists():

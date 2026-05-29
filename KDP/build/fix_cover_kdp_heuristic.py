@@ -41,20 +41,43 @@ COVER_XHTML_TEMPLATE = '''<?xml version='1.0' encoding='utf-8'?>
 <title>Cover</title>
 </head>
 <body>
-<div class="cover-page" style="text-align:center">
-<img src="{cover_src}" alt="{cover_alt}" style="max-width:100%;height:auto"/>
+<div class="cover-page">
+<p style="text-align:center"><img src="{cover_src}" alt="{cover_alt}" style="max-width:100%;height:auto"/></p>
 <h1 style="text-align:center;font-size:1.4em;margin-top:1em">{book_title}</h1>
 <p style="text-align:center;font-style:italic;margin-top:0.5em">{book_subtitle}</p>
-<p style="text-align:center;margin-top:1em">{authors}</p>
+<p style="text-align:center;margin-top:1em"><strong>{authors}</strong></p>
+<p style="text-align:center;margin-top:0.5em">Edition {edition}</p>
+<hr style="margin:2em 0"/>
+<p style="text-align:justify;margin-top:1em">{description}</p>
+<p style="text-align:center;margin-top:2em;font-size:0.9em">Copyright (c) {year} {authors}. All rights reserved.</p>
 </div>
 </body></html>
 '''
 
 
+DEFAULT_DESCRIPTION = (
+    'A practitioner guide for engineers, researchers, and students. '
+    'In this Sixteenth Edition you will find the mathematics of attention, '
+    'modern transformer architecture, training and fine-tuning techniques '
+    '(LoRA, QLoRA, RLHF, DPO, GRPO), multimodal models including audio and '
+    'speech (codecs, wav2vec, HuBERT, Whisper, CLAP), retrieval-augmented '
+    'generation, agentic systems and multi-agent orchestration, '
+    'LLM-powered recommender systems (TIGER, LLaRA, P5), evaluation and '
+    'observability, security and safety, systems at scale, LLMOps, and '
+    'industry applications across legal, cybersecurity, education, finance, '
+    'medicine, and more. The book spans 79 chapters across 15 parts plus '
+    'six reference appendices including a PyTorch reference and a '
+    'signal-processing primer for audio.'
+)
+
+
 def patch_epub(epub_path: Path,
                book_title: str = 'Building Conversational AI with LLMs and Agents',
                book_subtitle: str = 'From the mathematics of attention to production agent systems',
-               authors: str = 'Alexander Apartsin and Yehudit Aperstein') -> dict:
+               authors: str = 'Alexander Apartsin and Yehudit Aperstein',
+               edition: str = 'Sixteenth',
+               year: str = '2026',
+               description: str = DEFAULT_DESCRIPTION) -> dict:
     """Rewrite cover.xhtml to look reflowable and set spine linear='yes'."""
     stats = {'spine_linear_yes': False, 'cover_xhtml_rewritten': False,
              'cover_xhtml_size_before': 0, 'cover_xhtml_size_after': 0,
@@ -96,6 +119,9 @@ def patch_epub(epub_path: Path,
         book_title=book_title,
         book_subtitle=book_subtitle,
         authors=authors,
+        edition=edition,
+        year=year,
+        description=description,
     )
     stats['cover_xhtml_size_after'] = len(new_cover)
     stats['cover_xhtml_rewritten'] = True
@@ -139,11 +165,15 @@ def main():
     ap.add_argument('--subtitle',
                     default='From the mathematics of attention to production agent systems')
     ap.add_argument('--authors', default='Alexander Apartsin and Yehudit Aperstein')
+    ap.add_argument('--edition', default='Sixteenth')
+    ap.add_argument('--year', default='2026')
+    ap.add_argument('--description', default=DEFAULT_DESCRIPTION)
     args = ap.parse_args()
     if not args.epub.exists():
         sys.exit(f'EPUB not found: {args.epub}')
     print(f'Patching {args.epub}')
-    stats = patch_epub(args.epub, args.title, args.subtitle, args.authors)
+    stats = patch_epub(args.epub, args.title, args.subtitle, args.authors,
+                       args.edition, args.year, args.description)
     print(f'  spine linear="yes":      {stats["spine_linear_yes"]}')
     print(f'  cover.xhtml rewritten:   {stats["cover_xhtml_rewritten"]}')
     print(f'  body has visible text:   {stats["body_has_text"]}')
