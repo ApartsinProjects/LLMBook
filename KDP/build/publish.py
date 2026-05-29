@@ -625,30 +625,43 @@ def step_optimize() -> int:
     except Exception as _e:
         warn(f"kdp post-build patches failed (non-fatal): {_e}")
 
-    # Step 7e: KDP fixed-format classifier gate (added 2026-05-29 after
-    # KDP rejected an upload with "This content is a fixed format eBook").
-    # Hard gate: fails the build if ANY of the 6 known classifier triggers
-    # are present in cover.xhtml. See KDP/build/audit_kdp_fixed_layout_classifier.py
-    # for the full list.
+    # Step 7e: Three KDP fixed-format classifier hard gates (added 2026-05-29
+    # after KDP rejected an upload with "This content is a fixed format eBook").
+    # Each script exits non-zero on real findings; any failure halts the build.
+    # See html2kpd LESSONS.md L-COVER-REFLOW, L-FXL-KEYWORDS, L-IMG-PX-DIMS,
+    # L-WEB-CHROME, L-CSS-DISALLOWED for the catalogue of triggers.
     try:
-        classifier_audit = BUILD_DIR / "audit_kdp_fixed_layout_classifier.py"
-        if classifier_audit.exists():
-            print(f"  [kdp-classifier-gate] running audit_kdp_fixed_layout_classifier.py")
+        gates = [
+            ("audit_kdp_fixed_layout_classifier.py", "classifier-cover",
+             "cover.xhtml signals (body{margin:0}/image-only/linear=no/viewport-meta)"),
+            ("audit_hunt_fxl_cues.py",                "hunt-fxl-cues",
+             "13-pattern FXL cue hunt across every XHTML (canvas, page-spread, amzn-*, etc.)"),
+            ("audit_deep_scan.py",                    "deep-scan",
+             "25-check per-page anomaly scan (web chrome, banned tags, repeated boilerplate, etc.)"),
+        ]
+        for script, label, summary in gates:
+            audit_path = BUILD_DIR / script
+            if not audit_path.exists():
+                warn(f"[{label}] script not found at {audit_path}; skipping")
+                continue
+            print(f"  [{label}] {script}  — {summary}")
             cp = subprocess.run(
-                [sys.executable, str(classifier_audit), str(epub)],
+                [sys.executable, str(audit_path), str(epub)],
                 capture_output=True, text=True,
             )
-            for line in cp.stdout.splitlines():
+            # Print summary lines (last ~6) for context; full output on failure
+            tail_lines = cp.stdout.splitlines()[-6:]
+            for line in tail_lines:
                 print(f"    {line}")
             if cp.returncode != 0:
-                fail(f"[kdp-classifier-gate] KDP would reject this EPUB as fixed-format")
-                fail(f"   Fix: re-run KDP/build/fix_cover_kdp_heuristic.py {epub}")
-                fail(f"   See epub2kpf LESSONS.md L-COVER-REFLOW for the full diagnosis.")
+                fail(f"[{label}] FAILED — KDP would likely reject this EPUB")
+                # Dump full output so the operator can see what tripped
+                for line in cp.stdout.splitlines():
+                    print(f"    {line}")
+                fail(f"   See html2kpd LESSONS.md (L-COVER-REFLOW / L-FXL-* / L-WEB-CHROME / L-CSS-DISALLOWED)")
                 return 4
-        else:
-            warn(f"[kdp-classifier-gate] audit script not found; skipping")
     except Exception as _e:
-        warn(f"kdp classifier gate failed (non-fatal): {_e}")
+        warn(f"kdp classifier gates failed (non-fatal): {_e}")
 
     new_size = epub.stat().st_size
     pct = new_size / raw_size * 100
