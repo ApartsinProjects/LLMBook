@@ -149,8 +149,24 @@ def patch(epub_path: Path) -> dict:
                 # ALL dashes instead of underscores). This catches the same
                 # FXL keywords using the same letter-boundary semantics so
                 # we never partial-match "atomic" or "Comics" etc.
+                #
+                # CRITICAL: protect known EPUB-spec property values that
+                # happen to share a keyword (e.g. `<meta property="rendition:spread">`
+                # — "spread" here is a valid EPUB 3 rendition property, NOT
+                # an FXL filename keyword). Temporarily swap them out, do the
+                # scrub, then restore. Without this, the second-pass corrupts
+                # the OPF metadata into invalid property names like
+                # `rendition:wide` and EPUBCheck OPF-027 fails.
+                EPUB_SPEC_SENTINEL_SWAPS = {
+                    'rendition:spread':       '__EPUBSPEC_RENDITION_SPREAD__',
+                    'rendition:page-spread-': '__EPUBSPEC_PAGE_SPREAD_',
+                }
+                for needle, sentinel in EPUB_SPEC_SENTINEL_SWAPS.items():
+                    text = text.replace(needle, sentinel)
                 for pat, repl in REPLACEMENTS:
                     text = pat.sub(repl, text)
+                for needle, sentinel in EPUB_SPEC_SENTINEL_SWAPS.items():
+                    text = text.replace(sentinel, needle)
                 if text != orig:
                     stats['opf_refs_rewritten'] = len(basename_rename)
                     stats['manifest_ids_rewritten'] = len(id_rename)
