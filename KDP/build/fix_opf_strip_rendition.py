@@ -43,11 +43,13 @@ from pathlib import Path
 
 def patch(epub_path: Path, regen_uuid: bool = True) -> dict:
     stats = {
-        'removed_package_prefix': False,
+        'kept_package_prefix': False,
+        'restored_package_prefix': False,
         'removed_rendition_orientation': False,
         'removed_rendition_spread': False,
-        'kept_rendition_layout': False,
-        'removed_legacy_meta_cover': False,
+        'removed_rendition_layout': False,
+        'kept_legacy_meta_cover': False,
+        'restored_legacy_meta_cover': False,
         'old_uuid': '',
         'new_uuid': '',
         'ncx_uuid_synced': False,
@@ -60,13 +62,30 @@ def patch(epub_path: Path, regen_uuid: bool = True) -> dict:
 
     new_opf = opf
 
-    # 1. Strip rendition prefix from package element
-    new_opf2, n = re.subn(
-        r'\s+prefix="rendition:\s*http://www\.idpf\.org/vocab/rendition/#"',
-        '', new_opf)
-    if n:
-        stats['removed_package_prefix'] = True
-        new_opf = new_opf2
+    # REVISED 2026-05-29 (post-comparison with May 22 accepted EPUB):
+    # The May 22 EPUB that KDP ACCEPTED had:
+    #   * `prefix="rendition: http://www.idpf.org/vocab/rendition/#"` on package (KEPT)
+    #   * `<meta name="cover" content="cover-img"/>` legacy meta (KEPT)
+    #   * NO `<meta property="rendition:layout">` (layout meta ABSENT)
+    #   * NO `rendition:orientation` / `rendition:spread` metas
+    # So this patch now:
+    #   - KEEPS the prefix= declaration (used to remove; that may have hurt KDP)
+    #   - KEEPS legacy meta name="cover" (used to remove; KDP needs it for cover ID)
+    #   - REMOVES rendition:orientation / rendition:spread (FXL hints, unnecessary)
+    #   - REMOVES rendition:layout reflowable (mere presence may be FXL signal,
+    #     default is reflowable anyway)
+    # All four behaviors verified against the known-good May 22 -reflowable.epub.
+
+    # 1. KEEP prefix="rendition:..." on package element (was: strip)
+    if 'prefix="rendition' not in new_opf:
+        # Restore it if missing (older build pipeline may have omitted it)
+        new_opf = re.sub(
+            r'<package(\s+[^>]*?)version="3\.0"',
+            r'<package\1version="3.0" prefix="rendition: http://www.idpf.org/vocab/rendition/#"',
+            new_opf)
+        stats['restored_package_prefix'] = True
+    else:
+        stats['kept_package_prefix'] = True
 
     # 2. Remove rendition:orientation meta
     new_opf2, n = re.subn(
@@ -84,17 +103,28 @@ def patch(epub_path: Path, regen_uuid: bool = True) -> dict:
         stats['removed_rendition_spread'] = True
         new_opf = new_opf2
 
-    # 4. Verify rendition:layout is kept (we want it as positive signal)
-    if re.search(r'<meta property="rendition:layout">reflowable</meta>', new_opf):
-        stats['kept_rendition_layout'] = True
-
-    # 5. Remove legacy <meta name="cover" content="..."/>
+    # 4. Remove rendition:layout meta (May 22 accepted EPUB didn't have this;
+    #    mere presence is a "this book cares about layout" signal which KDP's
+    #    classifier may interpret as FXL-leaning). EPUB 3 default is reflowable.
     new_opf2, n = re.subn(
-        r'\s*<meta name="cover" content="[^"]+"\s*/>\s*',
+        r'\s*<meta property="rendition:layout">[^<]*</meta>\s*',
         '\n    ', new_opf)
     if n:
-        stats['removed_legacy_meta_cover'] = True
+        stats['removed_rendition_layout'] = True
         new_opf = new_opf2
+
+    # 5. KEEP legacy <meta name="cover" content="..."/> (was: remove)
+    #    KDP's KFX converter likely needs this for backward compatibility
+    #    to identify the cover image. The May 22 accepted EPUB had it.
+    if '<meta name="cover"' not in new_opf:
+        cover_id_m = re.search(r'<item[^>]+id="([^"]+)"[^>]*\bproperties="cover-image"', new_opf)
+        if cover_id_m:
+            cover_id = cover_id_m.group(1)
+            legacy = f'    <meta name="cover" content="{cover_id}"/>\n  '
+            new_opf = new_opf.replace('</metadata>', legacy + '</metadata>')
+            stats['restored_legacy_meta_cover'] = True
+    else:
+        stats['kept_legacy_meta_cover'] = True
 
     # 6. Regenerate UUID
     if regen_uuid:
@@ -157,11 +187,13 @@ def main():
         sys.exit(f'EPUB not found: {args.epub}')
     print(f'Patching {args.epub}')
     s = patch(args.epub, regen_uuid=not args.keep_uuid)
-    print(f'  removed package prefix:           {s["removed_package_prefix"]}')
+    print(f'  kept package prefix:              {s["kept_package_prefix"]}')
+    print(f'  restored package prefix:          {s["restored_package_prefix"]}')
     print(f'  removed rendition:orientation:    {s["removed_rendition_orientation"]}')
     print(f'  removed rendition:spread:         {s["removed_rendition_spread"]}')
-    print(f'  kept rendition:layout=reflowable: {s["kept_rendition_layout"]}')
-    print(f'  removed legacy meta name=cover:   {s["removed_legacy_meta_cover"]}')
+    print(f'  removed rendition:layout:         {s["removed_rendition_layout"]}')
+    print(f'  kept legacy meta name=cover:      {s["kept_legacy_meta_cover"]}')
+    print(f'  restored legacy meta name=cover:  {s["restored_legacy_meta_cover"]}')
     if s['new_uuid']:
         print(f'  UUID: {s["old_uuid"]}')
         print(f'        -> {s["new_uuid"]}')
