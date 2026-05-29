@@ -5,7 +5,7 @@ import os
 import re
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-SCAN_DIRS = ['KDP/build', 'KDP/html2pub/src']
+SCAN_DIRS = ['KDP/build', 'KDP/html2epub/src']
 
 PATTERNS = {
     'decompose':       r'\.decompose\(\)',

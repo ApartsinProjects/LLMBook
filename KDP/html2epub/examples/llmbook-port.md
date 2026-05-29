@@ -1,10 +1,10 @@
-# Migrating LLMBook to html2pub
+# Migrating LLMBook to html2epub
 
-This guide shows how the existing `KDP/build/build_epub.py` + `KDP/metadata/metadata.yaml` configuration maps onto a single `KDP/html2pub.toml`.
+This guide shows how the existing `KDP/build/build_epub.py` + `KDP/metadata/metadata.yaml` configuration maps onto a single `KDP/html2epub.toml`.
 
 ## Equivalent config
 
-Place this at `KDP/html2pub.toml`:
+Place this at `KDP/html2epub.toml`:
 
 ```toml
 [book]
@@ -85,7 +85,7 @@ drop_selectors = [
 
 # Cross-doc fragment hrefs to wisdom-council that point at slimmed agents.
 # Listed explicitly here because the LLMBook slim happens via a custom
-# transform in the existing pipeline; in html2pub you would either:
+# transform in the existing pipeline; in html2epub you would either:
 #   (a) keep using a project-specific pre-pass that drops the cards AND
 #       declares the dropped ids here, OR
 #   (b) drop this entirely and let those fragments resolve to the top of
@@ -105,20 +105,20 @@ epub_optimizer_path = "E:/Tools/epub-optimizer/dist/src/pipeline.js"
 repair_entities = true
 ```
 
-## What's NOT yet in html2pub vs. the LLMBook pipeline
+## What's NOT yet in html2epub vs. the LLMBook pipeline
 
-These remain bespoke to the LLMBook pipeline and would need to be ported as separate scripts (or added to a future html2pub version):
+These remain bespoke to the LLMBook pipeline and would need to be ported as separate scripts (or added to a future html2epub version):
 
-- `wisdom-council` slim transform that drops the 34 less-quoted agent cards. Easiest: keep `KDP/build/apply_source_fixes.py` style pre-pass that mutates the source HTML, or add a `[transforms.slim_wisdom_council] keep = [...]` table to html2pub.
+- `wisdom-council` slim transform that drops the 34 less-quoted agent cards. Easiest: keep `KDP/build/apply_source_fixes.py` style pre-pass that mutates the source HTML, or add a `[transforms.slim_wisdom_council] keep = [...]` table to html2epub.
 - `KDP/build/apply_source_fixes.py` regex source fixes (avatar dimensions, Pygments pre-tokenize, URL braces). Pygments is now built into `content.py`. Most others should be applied to source HTML once and committed.
 - `KDP/build/fix_double_escaped_entities.py` (`&amp;X;` -> `&X;`). Move into a build pre-pass.
-- `KDP/build/render_epub_samples.py` and `KDP/build/build_sample_pdf.py` (post-EPUB QA workflows). Out of scope for html2pub.
-- `KDP/build/publish.py` orchestrator that chains build -> validate -> optimize -> re-validate -> preview. Replace with a small shell script or Makefile that calls `html2pub build .` then runs EPUBCheck and `epub-optimizer`.
+- `KDP/build/render_epub_samples.py` and `KDP/build/build_sample_pdf.py` (post-EPUB QA workflows). Out of scope for html2epub.
+- `KDP/build/publish.py` orchestrator that chains build -> validate -> optimize -> re-validate -> preview. Replace with a small shell script or Makefile that calls `html2epub build .` then runs EPUBCheck and `epub-optimizer`.
 
 ## Migration steps
 
-1. Copy the TOML above into `KDP/html2pub.toml`.
-2. `cd KDP && pip install -e html2pub`
-3. `html2pub build .`
+1. Copy the TOML above into `KDP/html2epub.toml`.
+2. `cd KDP && pip install -e html2epub`
+3. `html2epub build .`
 4. Compare the produced EPUB to `KDP/output/building-conversational-ai-llms-agents.epub` (file sizes, chapter counts, spot-check a few chapters in Kindle Previewer).
 5. Once parity is confirmed, retire `KDP/build/build_epub.py` and `KDP/build/generate_spine.py`. Keep the source-fix and QA scripts (they remain useful).

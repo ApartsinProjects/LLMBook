@@ -1,6 +1,6 @@
 # Dropped-Resource References Cleanup Report
 
-Sweep of HTML book sources for text-only references to resources deleted in v9 (Appendix N "Master Reference Tables", Appendix P/AD/AI/AE/AF "Freshness Index"/"Pedagogy Kit"/"Production-Patterns Playbook", and the Glossary). Audit `.md` files, migration scripts, and `KDP/html2pub/tests/fixtures/` were excluded per scope.
+Sweep of HTML book sources for text-only references to resources deleted in v9 (Appendix N "Master Reference Tables", Appendix P/AD/AI/AE/AF "Freshness Index"/"Pedagogy Kit"/"Production-Patterns Playbook", and the Glossary). Audit `.md` files, migration scripts, and `KDP/html2epub/tests/fixtures/` were excluded per scope.
 
 ## Files Edited
 

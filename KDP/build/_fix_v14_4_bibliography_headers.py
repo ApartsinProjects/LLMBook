@@ -24,7 +24,7 @@ from bs4 import BeautifulSoup, NavigableString
 import sys
 
 ROOT = Path(__file__).resolve().parents[2]
-SKIP = ['node_modules', '.git', 'KDP/output', 'KDP/build', 'KDP/html2pub',
+SKIP = ['node_modules', '.git', 'KDP/output', 'KDP/build', 'KDP/html2epub',
         'pagefind', 'temp_epub', 'backup', 'source_fix_backups', 'templates']
 
 

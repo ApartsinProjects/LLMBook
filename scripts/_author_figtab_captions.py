@@ -72,7 +72,7 @@ SKIP_DIRS = {
     'node_modules', '.git', 'KDP', 'build', 'temp_ebook', 'temp_epub',
     'source_fix_backups', 'pagefind', 'templates', '.claude',
     '.book-update', 'vendor', 'scripts', 'docs', 'styles',
-    '.html2pub_cache', '_concept-figs', 'agents', 'tmp_whats_next',
+    '.html2epub_cache', '_concept-figs', 'agents', 'tmp_whats_next',
     'images', 'downloads',
 }
 

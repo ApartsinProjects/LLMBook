@@ -4,7 +4,7 @@ Used to give the Kindle EPUB reliable, pixel-identical math (Kindle's MathML
 support is gated on Enhanced Typesetting and breaks across apps; images render
 everywhere). The website is unaffected -- it keeps client-side KaTeX.
 
-Reads a manifest written by the html2pub build:
+Reads a manifest written by the html2epub build:
     .book-update/math-manifest.json  =  { key: {"tex": "...", "display": bool} }
 Renders each entry (KaTeX HTML output, the same as the website) and writes:
     .book-update/math-png-cache/<key>.png   (pngquant-compressed)

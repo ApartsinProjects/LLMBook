@@ -1,4 +1,4 @@
-"""TOML config loader and validator for html2pub."""
+"""TOML config loader and validator for html2epub."""
 from __future__ import annotations
 
 import sys
@@ -12,7 +12,7 @@ else:  # pragma: no cover
     import tomli as tomllib
 
 
-CONFIG_FILENAME = "html2pub.toml"
+CONFIG_FILENAME = "html2epub.toml"
 
 
 @dataclass

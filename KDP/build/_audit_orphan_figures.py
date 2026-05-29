@@ -35,13 +35,13 @@ SKIP_DIRS = {
     ".github",
     "pagefind",
     "temp_epub",
-    ".html2pub_cache",
+    ".html2epub_cache",
     "vendor",
     "source_fix_backups",
 }
 
 # Inside KDP/, skip build artifacts only — still scan KDP/index.html etc.
-KDP_SKIP_SUBDIRS = {"build", "output", "html2pub"}
+KDP_SKIP_SUBDIRS = {"build", "output", "html2epub"}
 
 CONTENT_TAGS = {"img", "svg", "pre", "table", "iframe", "canvas", "video", "audio", "object"}
 CONTENT_CLASS_HINTS = {"diagram-container", "mermaid", "katex-display", "math-block"}
@@ -61,7 +61,7 @@ def should_skip(path: Path) -> bool:
     parts = set(path.parts)
     if parts & SKIP_DIRS:
         return True
-    # KDP build / output / html2pub subtrees
+    # KDP build / output / html2epub subtrees
     try:
         idx = path.parts.index("KDP")
     except ValueError:

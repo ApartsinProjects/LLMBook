@@ -17,7 +17,7 @@ from pathlib import Path
 
 REPO = Path("E:/Projects/BookBlogsHome/LLMBook")
 SKIP_DIRS = {
-    "node_modules", ".git", "KDP/output", "KDP/build", "KDP/html2pub",
+    "node_modules", ".git", "KDP/output", "KDP/build", "KDP/html2epub",
     "pagefind", "temp_epub", "backup", "source_fix_backups",
 }
 

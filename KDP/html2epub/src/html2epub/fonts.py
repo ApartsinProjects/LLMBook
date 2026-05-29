@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from html2pub.config import FontsSpec
+from html2epub.config import FontsSpec
 
 FONT_MIME = {
     ".woff2": "font/woff2",

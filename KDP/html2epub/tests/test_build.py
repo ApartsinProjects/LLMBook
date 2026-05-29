@@ -11,7 +11,7 @@ HERE = Path(__file__).resolve().parent
 SRC = HERE.parent / "src"
 sys.path.insert(0, str(SRC))
 
-from html2pub import builder, config as config_mod, validators  # noqa: E402
+from html2epub import builder, config as config_mod, validators  # noqa: E402
 
 FIXTURE = HERE / "fixtures" / "tiny_book"
 

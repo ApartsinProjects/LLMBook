@@ -129,7 +129,7 @@ Source markers:
 
 Why HTML comments specifically:
 
-- Valid HTML; existing render pipeline (Pagefind, html2pub) sees them as comments and ignores them. Browsers ignore them. Search ignores them. Authors can hand-edit alongside.
+- Valid HTML; existing render pipeline (Pagefind, html2epub) sees them as comments and ignores them. Browsers ignore them. Search ignores them. Authors can hand-edit alongside.
 - A `<!--ref:foo-->` is trivially regex-findable for the render script.
 - Diff-friendly: a yaml change that renumbers section 4.7 -> 4.8 triggers a clean diff in every consumer file ("`Section 4.7`" -> "`Section 4.8`" near the same line).
 - No invented HTML grammar, no JS dependency, no client-side fetch.

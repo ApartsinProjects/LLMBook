@@ -14,7 +14,7 @@ SKIP_DIRS = {
     ".git",
     "KDP/output",
     "KDP/build",
-    "KDP/html2pub",
+    "KDP/html2epub",
     "pagefind",
     "temp_epub",
     "backup",

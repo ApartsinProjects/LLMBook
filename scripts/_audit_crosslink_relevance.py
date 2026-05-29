@@ -38,7 +38,7 @@ EXCLUDE_DIR_NAMES = {
     "KDP", ".claude", "node_modules", "build",
     "pagefind", "templates", "vendor", "scripts", "agents",
     "downloads", "images", "_concept-figs", "__pycache__",
-    "styles", ".git", ".github", ".html2pub_cache",
+    "styles", ".git", ".github", ".html2epub_cache",
     ".book-update",
 }
 EXCLUDE_PREFIXES = ("temp_", "source_fix_backups")

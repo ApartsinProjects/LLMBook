@@ -45,7 +45,7 @@ def aggregate_dirs(dirs):
             sp = str(p).replace('\\', '/')
             if any(s in sp for s in ['node_modules', 'temp_epub', 'output',
                                       'backup', 'agents/', 'templates/',
-                                      'KDP/html2pub/', 'KDP/build/']):
+                                      'KDP/html2epub/', 'KDP/build/']):
                 continue
             try:
                 c = p.read_text(encoding='utf-8')

@@ -4,7 +4,7 @@ from pathlib import Path
 from collections import Counter
 
 ROOT = Path(__file__).resolve().parent.parent.parent
-SKIP = ('KDP/build/source_fix_backups', 'KDP/html2pub/tests', 'pagefind',
+SKIP = ('KDP/build/source_fix_backups', 'KDP/html2epub/tests', 'pagefind',
         'node_modules', 'temp_epub', '.git', 'venv', 'templates')
 
 

@@ -35,7 +35,7 @@ GLOSSARY_DIR = REPO / "appendices" / "appendix-f-glossary"
 SKIP_DIRS = {
     "node_modules", ".git", "KDP", "pagefind", "temp_epub", "backup",
     "source_fix_backups", "_exercise_payloads", "agents", "templates",
-    "vendor", "scripts", "styles", ".html2pub_cache", "downloads",
+    "vendor", "scripts", "styles", ".html2epub_cache", "downloads",
 }
 
 # Hand-picked top-tier concepts. Each entry: text alias -> glossary gl-id.

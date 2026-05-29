@@ -1,6 +1,6 @@
 """Edition bump utility.
 
-Sweeps content HTML + html2pub.toml + KDP/metadata/metadata.yaml for the
+Sweeps content HTML + html2epub.toml + KDP/metadata/metadata.yaml for the
 current edition string and updates everything in one pass. Also bumps
 the publication_date and dcterms:modified meta.
 
@@ -34,8 +34,8 @@ def main() -> int:
     src, dst, date = args.src, args.dst, args.date
     year = date[:4]
 
-    # 1. Update html2pub.toml
-    toml_path = ROOT / "html2pub.toml"
+    # 1. Update html2epub.toml
+    toml_path = ROOT / "html2epub.toml"
     if toml_path.exists():
         text = toml_path.read_text(encoding="utf-8")
         new = text.replace(f'edition = "{src}"', f'edition = "{dst}"')
@@ -43,7 +43,7 @@ def main() -> int:
                      f'publication_date = "{date}"', new)
         if new != text and not args.dry_run:
             toml_path.write_text(new, encoding="utf-8")
-        print(f"html2pub.toml: {'(dry-run) would update' if args.dry_run else 'updated'}")
+        print(f"html2epub.toml: {'(dry-run) would update' if args.dry_run else 'updated'}")
 
     # 2. Update KDP/metadata/metadata.yaml if present
     yaml_path = ROOT / "KDP" / "metadata" / "metadata.yaml"

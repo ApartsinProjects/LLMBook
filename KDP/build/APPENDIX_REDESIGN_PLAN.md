@@ -397,7 +397,7 @@ Approximately 5 string edits per page, 6 pages = 30 edits.
 P0 first (low blast radius, fixes user-facing weirdness).
 P1 in a single atomic batch (rename + xref + nav + toc); attempt
 within one branch and verify with the existing
-`_audit_appendix_chain.py`, `_audit_broken_hrefs.py`, and html2pub
+`_audit_appendix_chain.py`, `_audit_broken_hrefs.py`, and html2epub
 build before merging.
 P2 as separate follow-up branches.
 

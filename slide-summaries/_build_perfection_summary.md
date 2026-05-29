@@ -19,7 +19,7 @@
 ## What was not changed
 
 - No HTML body content was rewritten. The 4 broken-frag fixes are href-only.
-- No `html2pub.toml` config change. The math pipeline was already configured correctly; it just needed the missing PNGs.
+- No `html2epub.toml` config change. The math pipeline was already configured correctly; it just needed the missing PNGs.
 - No regression risk: EPUBCheck was already clean and remains clean; math PNGs were bundled at the same DPI and CSS as the existing 297.
 
 ## Cost

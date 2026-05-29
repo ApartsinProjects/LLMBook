@@ -6,7 +6,7 @@ from typing import Iterable
 
 from bs4 import BeautifulSoup, NavigableString
 
-from html2pub.config import TransformsSpec
+from html2epub.config import TransformsSpec
 
 SVG_NS = "http://www.w3.org/2000/svg"
 UNWANTED_TAGS = ["script", "noscript"]

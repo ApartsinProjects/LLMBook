@@ -365,7 +365,7 @@ def main() -> None:
     for sig, paths in sorted_heads[:3]:
         sample = ", ".join(short_path(p) for p in paths[:3])
         print(f"     - signature {sig}: {len(paths)} files (e.g. {sample})")
-    print("     Fix: extract head into _includes/head.html partial OR generate at build via html2pub.")
+    print("     Fix: extract head into _includes/head.html partial OR generate at build via html2epub.")
 
     # Opportunity 2: PagefindUI init
     print("\n[02] PagefindUI initialization <script> block at bottom of every section file.")
@@ -382,7 +382,7 @@ def main() -> None:
         sample = ", ".join(short_path(p) for p in short_footer_examples[t][:3])
         print(f"     - x{n}: {t[:80]!r} (e.g. {sample})")
     print("     Fix: replace each occurrence with a single <footer data-include='_includes/footer.html'>")
-    print("          OR have html2pub stamp from a Jinja template; remove edition string from every file.")
+    print("          OR have html2epub stamp from a Jinja template; remove edition string from every file.")
 
     # Opportunity 4: edition strings duplicated
     print("\n[04] Edition strings ('Fifteenth Edition' / 'Fourteenth Edition') hard-coded across files.")
@@ -488,7 +488,7 @@ def main() -> None:
                     distinct_paths.add(src)
         print(f"     - {name}: referenced from {len(fps)} files via {len(distinct_paths)} distinct relative paths")
     print("     Fix: if same logical image, host once at /images/<name>.png and reference via root-relative.")
-    print("          The build (html2pub) can rewrite to relative paths for EPUB.")
+    print("          The build (html2epub) can rewrite to relative paths for EPUB.")
 
     # Opportunity 15: CSS magic colors in book.css that should be vars
     print("\n[15] Hex colors in styles/book.css used many times (should be CSS variables).")

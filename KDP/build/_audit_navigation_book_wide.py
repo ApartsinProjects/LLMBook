@@ -11,7 +11,7 @@ import re
 from bs4 import BeautifulSoup
 
 ROOT = Path(__file__).resolve().parents[2]
-SKIP = ['node_modules', '.git', 'output', 'backup', 'KDP/build', 'KDP/html2pub',
+SKIP = ['node_modules', '.git', 'output', 'backup', 'KDP/build', 'KDP/html2epub',
         'pagefind', 'temp_epub', 'agents/', 'templates/']
 
 

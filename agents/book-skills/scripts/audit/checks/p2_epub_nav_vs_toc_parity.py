@@ -39,7 +39,7 @@ def _key(target: str) -> str | None:
     """Produce a stable key from a target href so toc.html refs and
     nav.xhtml refs (which live at different depths) can be compared.
 
-    Strategy: collapse "../../" chains, normalize html2pub's spine-flattened
+    Strategy: collapse "../../" chains, normalize html2epub's spine-flattened
     form (EPUB/chapters/ch_NNNN_<slug>.xhtml) back to the canonical source
     pattern. Returns None for non-content refs (css, js, images).
     """
@@ -50,7 +50,7 @@ def _key(target: str) -> str | None:
     while target.startswith("./"):
         target = target[2:]
 
-    # html2pub flattens spine entries to chapters/ch_NNNN_<slug>.xhtml where
+    # html2epub flattens spine entries to chapters/ch_NNNN_<slug>.xhtml where
     # <slug> joins the source path with '-' (and replaces '/' with '-').
     # Recognized forms in the LLMBook EPUB:
     #   ch_NNNN_front-matter-<name>.xhtml   -> front-matter/<name>.html
@@ -161,7 +161,7 @@ def run(filepath, html, context):
                             f"Failed to read nav.xhtml from {epub_path.name}: {e}"))
         return issues
 
-    # html2pub builds nav.xhtml from spine (section files) only; the source
+    # html2epub builds nav.xhtml from spine (section files) only; the source
     # toc.html also links to chapter/part LANDING pages. That's by design,
     # not a defect. Compare only the OVERLAP-eligible pages:
     #   - section-X.Y.html (chapter sections)
@@ -182,7 +182,7 @@ def run(filepath, html, context):
     toc_targets = {t for t in toc_targets if _is_eligible(t)}
     nav_targets = {t for t in nav_targets if _is_eligible(t)}
 
-    # Tolerate Kindle filename-length truncation: html2pub truncates spine
+    # Tolerate Kindle filename-length truncation: html2epub truncates spine
     # filenames over some length, so a toc.html entry "part-9-...-module-45-
     # tools-of-the-trade/section-45.1.html" may appear in the EPUB nav as
     # "part-9-...-module-45-tools-of-the-trade-section" (chopped). Build a

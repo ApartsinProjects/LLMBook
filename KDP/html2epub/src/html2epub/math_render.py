@@ -12,7 +12,7 @@ from pathlib import Path
 
 from bs4 import BeautifulSoup, NavigableString
 
-from html2pub.config import MathSpec
+from html2epub.config import MathSpec
 
 RENDER_SCRIPT = Path(__file__).parent / "render_math.js"
 

@@ -7,9 +7,9 @@ Before:
 After:
     <footer><p>{{book.edition}}, {{book.publication_year}} &middot; ...
 
-The matching build hook (_html2pub_hooks.templatize_metadata) substitutes
+The matching build hook (_html2epub_hooks.templatize_metadata) substitutes
 these placeholders from metadata.yaml at build time. Next edition bump
-only touches metadata.yaml + html2pub.toml; no source HTML touch.
+only touches metadata.yaml + html2epub.toml; no source HTML touch.
 
 Run: python _fix_v14_2_templatize_metadata.py [--dry-run | --apply]
 """
@@ -19,7 +19,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[2]
 SKIP = ['node_modules', '.git', 'output', 'backup', 'KDP/build',
-        'KDP/html2pub', 'pagefind', 'temp_epub', 'agents/', 'templates/',
+        'KDP/html2epub', 'pagefind', 'temp_epub', 'agents/', 'templates/',
         'source_fix_backups', 'scripts/_exercise_payloads']
 
 

@@ -28,7 +28,7 @@ OUT_PATH = ROOT / "internal-link-audit.md"
 # Directories to skip wholesale anywhere in the tree.
 EXCLUDE_DIR_NAMES = {
     "KDP", ".claude", "scripts", "node_modules", "pagefind", "templates",
-    "vendor", "images", ".git", ".github", ".html2pub_cache", "agents",
+    "vendor", "images", ".git", ".github", ".html2epub_cache", "agents",
     "styles", "downloads", "_concept-figs",
 }
 # Excluded prefixes (substring on the path component).

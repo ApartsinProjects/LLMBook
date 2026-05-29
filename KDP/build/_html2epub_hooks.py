@@ -1,11 +1,11 @@
-"""Project-specific html2pub hooks for the LLMBook.
+"""Project-specific html2epub hooks for the LLMBook.
 
-Wired via html2pub.toml:
+Wired via html2epub.toml:
 
     [plugins]
-    post_process_html = "_html2pub_hooks.post_process"
+    post_process_html = "_html2epub_hooks.post_process"
 
-Adds the transforms that html2pub doesn't know about (Pygments syntax
+Adds the transforms that html2epub doesn't know about (Pygments syntax
 highlighting, wisdom-council slim, code-block normalization, wide-table
 wrapping, etc.) — these were in the legacy KDP/build/build_epub.py and
 must run on every chapter for the EPUB to look right.
@@ -310,14 +310,14 @@ def wrap_wide_tables(soup: BeautifulSoup, min_cols: int = 6) -> int:
 
 # ----------------------------------------------------------------------
 # v13.6: Strip the "Wide Table (N columns) - On narrow screens..."
-# prose note that html2pub's content.py:276 wrap_wide_tables() injects
+# prose note that html2epub's content.py:276 wrap_wide_tables() injects
 # before every wide table. User reports this text leaks into book as
 # visible content. The note adds zero information for the reader
 # (the table is right there); the .complex-table CSS class remains
 # on the table itself for any styling needs.
 # ----------------------------------------------------------------------
 def strip_wide_table_notes(soup: BeautifulSoup) -> int:
-    """Remove .complex-table-note divs injected by html2pub library."""
+    """Remove .complex-table-note divs injected by html2epub library."""
     n = 0
     for note in soup.find_all("div", class_="complex-table-note"):
         note.decompose()
@@ -793,7 +793,7 @@ def fix_img_for_kindle(soup: BeautifulSoup) -> int:
     return n
 
 
-# Master entrypoint called from html2pub builder
+# Master entrypoint called from html2epub builder
 # ----------------------------------------------------------------------
 def fix_svg_viewbox(soup: BeautifulSoup) -> int:
     """SVG attribute is `viewBox` (camelCase per the SVG spec). Browsers
@@ -817,9 +817,9 @@ def templatize_metadata(soup: BeautifulSoup, cfg) -> int:
     placeholders in HTML text with the canonical values from metadata.
 
     Source HTML uses placeholders so the next edition bump touches only
-    metadata.yaml + html2pub.toml — no flag-day across 392 source files.
+    metadata.yaml + html2epub.toml — no flag-day across 392 source files.
     """
-    # Resolve values from cfg (html2pub passes the parsed [book] table)
+    # Resolve values from cfg (html2epub passes the parsed [book] table)
     book_meta = {}
     if hasattr(cfg, 'get'):
         book_meta = cfg.get('book') or {}
@@ -867,7 +867,7 @@ def post_process(soup: BeautifulSoup, src_rel: str, cfg) -> None:
     # causing visible empty space at top of every <pre>)
     strip_code_block_whitespace(soup)
     wrap_wide_tables(soup, min_cols=4)  # lowered from 6: 5-col tables also overflow Kindle
-    strip_wide_table_notes(soup)  # v13.6: strip prose note html2pub injects
+    strip_wide_table_notes(soup)  # v13.6: strip prose note html2epub injects
     # v13.14: dedent_overindented_code disabled — KPV reported E21018 after
     # enabling it. The text manipulation breaks something in the XHTML.
     slim_chapter_index_sections_list(soup, src_rel)

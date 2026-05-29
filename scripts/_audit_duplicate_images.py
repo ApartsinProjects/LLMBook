@@ -66,7 +66,7 @@ def should_skip(path: Path) -> bool:
     for part in path.parts:
         if part in SKIP_DIR_NAMES:
             return True
-        # Skip any dot-prefixed directory (.git, .claude, .html2pub_cache,
+        # Skip any dot-prefixed directory (.git, .claude, .html2epub_cache,
         # .github, .vscode, etc.) — these are tooling/build artifacts.
         if part.startswith(".") and part not in (".", ".."):
             return True

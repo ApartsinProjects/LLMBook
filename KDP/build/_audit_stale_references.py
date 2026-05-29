@@ -9,7 +9,7 @@ import re
 
 ROOT = Path(__file__).resolve().parents[2]
 SKIP = ['node_modules', '.git', 'output', 'backup', 'KDP/build',
-        'KDP/html2pub', 'pagefind', 'temp_epub', 'agents/', 'templates/']
+        'KDP/html2epub', 'pagefind', 'temp_epub', 'agents/', 'templates/']
 
 
 def is_skip(p):

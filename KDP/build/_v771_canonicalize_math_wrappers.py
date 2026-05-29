@@ -13,7 +13,7 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
-SKIP = ('KDP/build/source_fix_backups', 'KDP/html2pub/tests',
+SKIP = ('KDP/build/source_fix_backups', 'KDP/html2epub/tests',
         'pagefind', 'node_modules', 'temp_epub', '.git', 'venv')
 
 

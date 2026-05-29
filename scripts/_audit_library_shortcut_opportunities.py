@@ -52,7 +52,7 @@ EXCLUDE_DIRS = {
     "pagefind",
     "templates",
     ".git",
-    ".html2pub_cache",
+    ".html2epub_cache",
     ".github",
     "build",
     "dist",

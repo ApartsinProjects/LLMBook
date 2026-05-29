@@ -6,7 +6,7 @@
    as plain text on Kindle (where decorative banners look broken).
 
 2. about-authors photo overlaps text in Kindle because the inline
-   <style> block with display:flex .author-card was stripped by html2pub
+   <style> block with display:flex .author-card was stripped by html2epub
    when bundling the chapter (which strips inline styles for CSS
    isolation). Add equivalent rules to epub_overrides.css so they apply.
 
@@ -120,11 +120,11 @@ if old_gold in s:
     print('  [override .part-label gold -> slate]')
 
 # Add .author-card / .author-photo rules so about-authors page renders
-# correctly without the inline <style> block (which html2pub strips).
+# correctly without the inline <style> block (which html2epub strips).
 # Use simple side-by-side layout that works on Kindle.
 author_css_block = '''
 /* About the Authors layout (replaces inline <style> in about-authors.html
- * which html2pub strips). Kindle does not reliably support display:flex,
+ * which html2epub strips). Kindle does not reliably support display:flex,
  * so use a simple float layout: photo floats left, bio text wraps around.
  */
 .author-card {
@@ -244,14 +244,14 @@ new_uuid = str(uuid.uuid5(uuid.NAMESPACE_OID,
 new_uuid_full = f'urn:uuid:{new_uuid}'
 print(f'  [new identifier] {new_uuid_full}')
 
-# Update html2pub.toml
-h2p = ROOT / 'html2pub.toml'
+# Update html2epub.toml
+h2p = ROOT / 'html2epub.toml'
 s = h2p.read_text(encoding='utf-8')
 new_s = re.sub(r'identifier = "urn:uuid:[a-f0-9-]+"',
                f'identifier = "{new_uuid_full}"', s)
 if new_s != s:
     h2p.write_text(new_s, encoding='utf-8')
-    print(f'  [updated html2pub.toml identifier]')
+    print(f'  [updated html2epub.toml identifier]')
 
 # Update KDP/metadata/metadata.yaml
 mp = ROOT / 'KDP' / 'metadata' / 'metadata.yaml'

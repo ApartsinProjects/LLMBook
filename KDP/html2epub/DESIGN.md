@@ -1,20 +1,20 @@
-# html2pub — Design
+# html2epub — Design
 
-`html2pub` is a generalized, reusable Python tool that converts a directory tree of source HTML files into a publishable EPUB 3. It is extracted from the LLMBook KDP build pipeline (`KDP/build/build_epub.py`) and made generic so any HTML book can be converted with a single TOML config and one CLI invocation.
+`html2epub` is a generalized, reusable Python tool that converts a directory tree of source HTML files into a publishable EPUB 3. It is extracted from the LLMBook KDP build pipeline (`KDP/build/build_epub.py`) and made generic so any HTML book can be converted with a single TOML config and one CLI invocation.
 
 ## Architecture overview
 
 The tool is a single Python package with one CLI entry point:
 
 ```
-html2pub build <project-dir>
+html2epub build <project-dir>
 ```
 
-It reads `html2pub.toml` from the project directory, discovers source HTML files (either via an explicit spine manifest or via configurable glob patterns), processes each chapter, then assembles a valid EPUB 3 using `ebooklib`. The pipeline is deliberately linear so that intermediate failures are diagnosable.
+It reads `html2epub.toml` from the project directory, discovers source HTML files (either via an explicit spine manifest or via configurable glob patterns), processes each chapter, then assembles a valid EPUB 3 using `ebooklib`. The pipeline is deliberately linear so that intermediate failures are diagnosable.
 
 Pipeline phases:
 
-1. **Config** (`config.py`) — load and validate `html2pub.toml`; resolve all paths relative to the project root.
+1. **Config** (`config.py`) — load and validate `html2epub.toml`; resolve all paths relative to the project root.
 2. **Spine** (`spine.py`) — produce an ordered list of HTML file paths from either an explicit manifest, a list of file globs, or auto-discovery (front-matter / parts / capstone / appendices).
 3. **Per-chapter cleanup** (`content.py`) — for each HTML file: strip `<script>`/`<noscript>`, drop oversized inline `<style>` blocks, sanitize illegal URL characters in id attributes and url() refs, dedupe element IDs, drop orphan fragment refs, normalize code-block contents, apply Pygments highlighting, render math.
 4. **Math** (`math_render.py`) — extract `$$...$$`, `\(...\)`, `\[...\]`, and `<span class="math">` blocks; batch-render via Node + KaTeX (`render_math.js`); replace originals with rendered HTML+MathML.
@@ -51,7 +51,7 @@ The original `build_epub.py` hardcoded:
 
 ## Migration path
 
-Replacing the LLMBook `KDP/build/*` set with `html2pub` is a one-file change for the user: write `KDP/html2pub.toml` with the LLMBook's existing metadata + content paths + transform knobs, then run `html2pub build KDP/`. The original Python files become reference-only. See `examples/llmbook-port.md` for a worked example.
+Replacing the LLMBook `KDP/build/*` set with `html2epub` is a one-file change for the user: write `KDP/html2epub.toml` with the LLMBook's existing metadata + content paths + transform knobs, then run `html2epub build KDP/`. The original Python files become reference-only. See `examples/llmbook-port.md` for a worked example.
 
 ## Lessons baked into the generic code
 
@@ -63,4 +63,4 @@ Replacing the LLMBook `KDP/build/*` set with `html2pub` is a one-file change for
 
 ## Bug noted in the LLMBook pipeline (not fixed there)
 
-In `KDP/build/build_epub.py` `build_toc()`, the function shadows the outer `parts` (the chapter map) with a local `parts = src_rel.split("/")` inside the elif branches — this could subtly corrupt the TOC for chapters where the path-split disagrees with the by-part bucket. The hierarchical nav.xhtml builder is unaffected because it uses different variable names. `html2pub` uses unique local names throughout.
+In `KDP/build/build_epub.py` `build_toc()`, the function shadows the outer `parts` (the chapter map) with a local `parts = src_rel.split("/")` inside the elif branches — this could subtly corrupt the TOC for chapters where the path-split disagrees with the by-part bucket. The hierarchical nav.xhtml builder is unaffected because it uses different variable names. `html2epub` uses unique local names throughout.

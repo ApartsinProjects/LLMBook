@@ -7,8 +7,8 @@ JSON detail: `KDP/build/AUDIT_orphan_figures.json`
 ## Scope
 
 Scanned every `.html` file under the repository root, excluding `node_modules`,
-`.git`, `.github`, `pagefind`, `temp_epub`, `.html2pub_cache`, `vendor`,
-`KDP/build`, `KDP/output`, `KDP/html2pub`, and every `source_fix_backups`
+`.git`, `.github`, `pagefind`, `temp_epub`, `.html2epub_cache`, `vendor`,
+`KDP/build`, `KDP/output`, `KDP/html2epub`, and every `source_fix_backups`
 subtree.
 
 ## What we look for

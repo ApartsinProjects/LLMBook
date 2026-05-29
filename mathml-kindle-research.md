@@ -109,7 +109,7 @@ The KDP Community thread "MathML shows well on Kindle Previewer 3 but not elsewh
 
 KaTeX issue [#2219 "Display mode doesn't work for MathML output"](https://github.com/KaTeX/KaTeX/issues/2219) documents that with `{displayMode: true, output: 'mathml'}` the resulting MathML does not request displaystyle, so renderers (including KPV3) lay out the equation as inline-style with cramped scripts. PR #2220 ostensibly fixed this. **Action**: re-check that our installed KaTeX version emits `displaystyle="true"` on display math; older KaTeX 0.11.x does not.
 
-KaTeX issues [#820](https://github.com/KaTeX/KaTeX/issues/820) and [#593](https://github.com/KaTeX/KaTeX/issues/593) describe how KaTeX's default `htmlAndMathml` output hides MathML for screen readers via CSS, which means many EPUB toolchains take the HTML branch instead of the MathML branch unless explicitly told to emit MathML only. We use `output: "mathml"` per our html2pub configuration (verified in test EPUB), so this is fine, but is worth double-checking.
+KaTeX issues [#820](https://github.com/KaTeX/KaTeX/issues/820) and [#593](https://github.com/KaTeX/KaTeX/issues/593) describe how KaTeX's default `htmlAndMathml` output hides MathML for screen readers via CSS, which means many EPUB toolchains take the HTML branch instead of the MathML branch unless explicitly told to emit MathML only. We use `output: "mathml"` per our html2epub configuration (verified in test EPUB), so this is fine, but is worth double-checking.
 
 ### "Enhanced Typesetting required" toggle
 
@@ -129,7 +129,7 @@ Three concrete experiments, ranked by expected impact and ease:
 
 ### Experiment A: re-emit MathML with `<semantics>` + `<annotation encoding="application/x-tex">`
 
-Switch the KaTeX call in our html2pub pipeline to enable annotation, e.g.:
+Switch the KaTeX call in our html2epub pipeline to enable annotation, e.g.:
 
 ```js
 katex.renderToString(tex, {

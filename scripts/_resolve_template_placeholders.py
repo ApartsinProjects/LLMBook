@@ -3,7 +3,7 @@
 Why this exists:
     `_fix_v14_2_templatize_metadata.py` replaced edition/year strings with
     `{{book.edition}}` / `{{book.publication_year}}` so the EPUB build hook
-    (`_html2pub_hooks.templatize_metadata`) could substitute them at build
+    (`_html2epub_hooks.templatize_metadata`) could substitute them at build
     time. That works for the EPUB pipeline.
 
     The static web at llmbook.apartsin.com is served directly from these
@@ -20,7 +20,7 @@ Why this exists:
     We're picking A because it's a one-line round-trip and the web
     publishing cadence is slower than the EPUB cadence.
 
-Reads canonical values from html2pub.toml's [book] table; falls back to
+Reads canonical values from html2epub.toml's [book] table; falls back to
 hard-coded defaults if the toml is missing or malformed.
 
 Run from project root:
@@ -37,13 +37,13 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def load_canonical_values() -> dict[str, str]:
-    """Read [book] section of html2pub.toml. Fall back to defaults if absent."""
+    """Read [book] section of html2epub.toml. Fall back to defaults if absent."""
     defaults = {
         "edition": "Fourteenth Edition",
         "publication_date": "2026-05-15",
         "title": "Building Conversational AI with LLMs and Agents",
     }
-    toml_path = ROOT / "html2pub.toml"
+    toml_path = ROOT / "html2epub.toml"
     if not toml_path.exists():
         return defaults
     try:

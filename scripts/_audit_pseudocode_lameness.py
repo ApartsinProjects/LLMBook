@@ -51,7 +51,7 @@ REPORT_PATH = ROOT / "pseudocode-lameness-audit.md"
 
 EXCLUDE_DIRS = {
     "KDP", ".claude", "scripts", "node_modules", "pagefind",
-    "templates", ".git", ".html2pub_cache", ".github",
+    "templates", ".git", ".html2epub_cache", ".github",
 }
 EXCLUDE_PREFIXES = ("temp_",)
 EXCLUDE_CONTAINS = ("backups",)

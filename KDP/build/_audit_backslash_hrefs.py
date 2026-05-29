@@ -4,7 +4,7 @@ and break EPUB navigation in some readers."""
 import re
 from pathlib import Path
 
-SKIP = ['node_modules', '.git', 'output', 'backup', 'KDP/build', 'KDP/html2pub',
+SKIP = ['node_modules', '.git', 'output', 'backup', 'KDP/build', 'KDP/html2epub',
         'pagefind', 'temp_epub', 'agents/', 'templates/']
 ROOT = Path(__file__).resolve().parents[2]
 

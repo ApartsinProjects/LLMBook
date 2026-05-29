@@ -1,6 +1,6 @@
 """Find every equation in the book that KaTeX fails to render.
 
-Replicates html2pub.math_render's extraction (branch 1: span/div.math /
+Replicates html2epub.math_render's extraction (branch 1: span/div.math /
 .math-block via get_text; branch 2: $$..$$ / \\(..\\) / \\[..\\] in text nodes)
 and the _rewrite_tex pre-pass, then runs each through the SAME render_math.js.
 Reports items whose output contains class="katex-error" (KaTeX could not parse).
@@ -14,10 +14,10 @@ import sys, json, subprocess, os
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / "KDP/html2pub/src"))
+sys.path.insert(0, str(ROOT / "KDP/html2epub/src"))
 
 from bs4 import BeautifulSoup  # noqa: E402
-from html2pub.math_render import _rewrite_tex, _strip_delim, RENDER_SCRIPT  # noqa: E402
+from html2epub.math_render import _rewrite_tex, _strip_delim, RENDER_SCRIPT  # noqa: E402
 
 KATEX = ROOT / "KDP/build/node_modules"
 

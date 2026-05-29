@@ -273,7 +273,7 @@ Need rewriting of "see Chapter 49 for ROI" → "see Chapter 56 for ROI" type pro
 95_regenerate_yaml_and_toc.py
 96_generate_redirect_map.py
 97_rebuild_search_index.py      (pagefind rebuild)
-98_rebuild_epub_kpf.py          (html2pub + Kindle Previewer 3)
+98_rebuild_epub_kpf.py          (html2epub + Kindle Previewer 3)
 99_verify_outcome.py
 ```
 

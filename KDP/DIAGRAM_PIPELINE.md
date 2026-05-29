@@ -203,7 +203,7 @@ For the ~10 plots showing scaling laws, training curves, evaluation results:
 
 ```python
 # Existing pattern - just consolidate into a reusable module
-from html2pub_matplotlib_helpers import save_publication_chart
+from html2epub_matplotlib_helpers import save_publication_chart
 save_publication_chart(x, y, kind="line", x_label="...", y_label="...", out=".../fig-6.2.svg")
 ```
 

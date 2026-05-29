@@ -47,7 +47,7 @@ import re
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 overrides = ROOT / 'KDP' / 'build' / 'epub_overrides.css'
-hooks = ROOT / 'KDP' / 'build' / '_html2pub_hooks.py'
+hooks = ROOT / 'KDP' / 'build' / '_html2epub_hooks.py'
 
 # ---------- A + H: Post-process hook for img cleanup ----------
 hs = hooks.read_text(encoding='utf-8')

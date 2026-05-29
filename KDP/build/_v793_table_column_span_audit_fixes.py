@@ -12,7 +12,7 @@ landscape pages with tables narrower than the v790 wrap threshold
 (6 cols), but still too wide to fit naturally in one column.
 
 Root cause:
-  - `wrap_wide_tables` in _html2pub_hooks.py only triggers at >= 6
+  - `wrap_wide_tables` in _html2epub_hooks.py only triggers at >= 6
     columns. Tables with 4-5 columns sit bare in the document.
   - In multi-column CSS contexts (Kindle Fire landscape, iPad), the
     browser/reader splits these tables column-by-column or row-by-row,

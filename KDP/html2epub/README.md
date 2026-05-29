@@ -1,4 +1,4 @@
-# html2pub
+# html2epub
 
 Convert a directory tree of source HTML files into a publishable EPUB 3.
 
@@ -7,15 +7,15 @@ Convert a directory tree of source HTML files into a publishable EPUB 3.
 ```bash
 pip install -e .
 cd my-book/
-html2pub build .
+html2epub build .
 ```
 
-`html2pub` looks for `html2pub.toml` in the project directory and uses it to drive the conversion: source paths, metadata, stylesheets, fonts, math rendering, image policy, and output location.
+`html2epub` looks for `html2epub.toml` in the project directory and uses it to drive the conversion: source paths, metadata, stylesheets, fonts, math rendering, image policy, and output location.
 
 ## Minimal config
 
 ```toml
-# html2pub.toml
+# html2epub.toml
 [book]
 title = "My Book"
 authors = ["Jane Doe"]
@@ -33,7 +33,7 @@ stylesheets = ["styles/book.css"]
 epub = "output/my-book.epub"
 ```
 
-Run `html2pub build .` and you get `output/my-book.epub`.
+Run `html2epub build .` and you get `output/my-book.epub`.
 
 ## Project layout
 
@@ -59,7 +59,7 @@ spine = "build/spine_manifest.json"
 
 ## Full config reference
 
-See `tests/fixtures/tiny_book/html2pub.toml` for a working example. Key sections:
+See `tests/fixtures/tiny_book/html2epub.toml` for a working example. Key sections:
 
 - `[book]` — OPF metadata: `title`, `subtitle`, `authors`, `language`, `identifier`, `publisher`, `rights`, `publication_date`, `description`, `keywords`.
 - `[content]` — `source_dir`, `spine`, and folder/glob conventions.
@@ -80,16 +80,16 @@ See `tests/fixtures/tiny_book/html2pub.toml` for a working example. Key sections
 ## CLI
 
 ```
-html2pub build [PROJECT_DIR]    # build the EPUB (default: cwd)
-html2pub build . --validate-only # validate config + assets, don't build
-html2pub validate <epub>         # check an existing EPUB
+html2epub build [PROJECT_DIR]    # build the EPUB (default: cwd)
+html2epub build . --validate-only # validate config + assets, don't build
+html2epub validate <epub>         # check an existing EPUB
 ```
 
 ## Troubleshooting (lessons from the LLMBook pipeline)
 
 These are the foot-guns the tool deliberately avoids; if you hit them in custom downstream tooling, here's why:
 
-1. **EPUB renders with browser default fonts / no CSS.** Cause: `ebooklib.epub.EpubHtml.set_content()` strips `<link rel="stylesheet">` tags from the head when wrapping HTML. Fix: register stylesheets via `ch.add_link()`. `html2pub` does this for every chapter; the smoke test in `tests/test_build.py` asserts each chapter ships with a stylesheet link.
+1. **EPUB renders with browser default fonts / no CSS.** Cause: `ebooklib.epub.EpubHtml.set_content()` strips `<link rel="stylesheet">` tags from the head when wrapping HTML. Fix: register stylesheets via `ch.add_link()`. `html2epub` does this for every chapter; the smoke test in `tests/test_build.py` asserts each chapter ships with a stylesheet link.
 
 2. **Math shows as raw `$$...$$` in EPUB readers.** Cause: EPUB readers strip JavaScript, so client-side KaTeX/MathJax never runs. Fix: pre-render server-side at build time. Set `[math].render = "katex"` and provide `katex_path`.
 
@@ -99,7 +99,7 @@ These are the foot-guns the tool deliberately avoids; if you hit them in custom 
 
 5. **Cross-document fragment links 404 after a build-time slim.** Cause: a transform removed an element id but other chapters still link to it. Fix: pre-record dropped IDs in `[transforms.fragment_drop]`; the builder rewrites cross-doc hrefs to drop the fragment so the link still lands at the top of the target page.
 
-6. **Edge `--print-to-pdf` produces a 1-page error.** (Out of scope for html2pub itself, but if you build PDFs from the EPUB chapters): use `--headless=new` (not legacy `--headless`), escape `&` in the `<title>`, and don't `unlink()` the temp HTML in a `finally:` block.
+6. **Edge `--print-to-pdf` produces a 1-page error.** (Out of scope for html2epub itself, but if you build PDFs from the EPUB chapters): use `--headless=new` (not legacy `--headless`), escape `&` in the `<title>`, and don't `unlink()` the temp HTML in a `finally:` block.
 
 ## Architecture
 

@@ -17,7 +17,7 @@ sys.stdout.reconfigure(encoding="utf-8")
 ROOT = Path("E:/Projects/BookBlogsHome/LLMBook")
 SKIP_DIRS = {"node_modules", ".git", "KDP", "build", "temp_ebook", "temp_epub",
              "source_fix_backups", "pagefind", "templates", ".claude",
-             ".book-update", "_concept-figs", ".html2pub_cache"}
+             ".book-update", "_concept-figs", ".html2epub_cache"}
 SKIP_FILE_SUFFIX = ("-audit.md", "-report.md")
 
 def should_skip(path):

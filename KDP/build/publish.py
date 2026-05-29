@@ -105,13 +105,13 @@ def check_prerequisites() -> int:
         print(f"    {PYTHON} -m pip install -r KDP/build/requirements.txt")
         return 3
 
-    # Required source files. The canonical builder is the html2pub
-    # package driven by html2pub.toml; build_epub.py is legacy and no
+    # Required source files. The canonical builder is the html2epub
+    # package driven by html2epub.toml; build_epub.py is legacy and no
     # longer invoked by this pipeline (kept for reference only).
     required = [
         KDP_DIR / "metadata" / "metadata.yaml",
         KDP_DIR / "cover" / "cover_kdp.jpg",
-        PROJECT_ROOT / "html2pub.toml",
+        PROJECT_ROOT / "html2epub.toml",
         BUILD_DIR / "epub_overrides.css",
         PROJECT_ROOT / "styles" / "book.css",
     ]
@@ -122,7 +122,7 @@ def check_prerequisites() -> int:
             fail(f"missing: {p.relative_to(PROJECT_ROOT)}")
             return 3
 
-    # Cross-check that html2pub.toml is in sync with metadata.yaml so the
+    # Cross-check that html2epub.toml is in sync with metadata.yaml so the
     # OPF identifier, publication_date, and edition surface correctly.
     rc = check_metadata_sync()
     if rc != 0:
@@ -132,7 +132,7 @@ def check_prerequisites() -> int:
 
 
 def check_metadata_sync() -> int:
-    """Verify html2pub.toml mirrors metadata.yaml on the fields that
+    """Verify html2epub.toml mirrors metadata.yaml on the fields that
     feed the EPUB OPF. Mismatches lead to KDP detecting the wrong edition
     or a stale publication date in the bundled metadata."""
     try:
@@ -145,7 +145,7 @@ def check_metadata_sync() -> int:
         warn("yaml/tomllib not available; skipping metadata-sync check")
         return 0
     meta_path = KDP_DIR / "metadata" / "metadata.yaml"
-    toml_path = PROJECT_ROOT / "html2pub.toml"
+    toml_path = PROJECT_ROOT / "html2epub.toml"
     try:
         meta = yaml.safe_load(meta_path.read_text(encoding="utf-8")) or {}
         with toml_path.open("rb") as fh:
@@ -179,9 +179,9 @@ def check_metadata_sync() -> int:
     if drift:
         for name, ymv, tmv in drift:
             fail(f"metadata drift: {name}: yaml={ymv!r} toml={tmv!r}")
-        print("  Sync html2pub.toml [book] with KDP/metadata/metadata.yaml.")
+        print("  Sync html2epub.toml [book] with KDP/metadata/metadata.yaml.")
         return 3
-    ok("metadata.yaml <-> html2pub.toml in sync")
+    ok("metadata.yaml <-> html2epub.toml in sync")
     return 0
 
 
@@ -262,7 +262,7 @@ def step_clean() -> None:
 
 def step_regen_spine() -> int:
     # LEGACY: spine_manifest.json feeds the old build_epub.py only. The active
-    # html2pub builder uses `spine = "auto"`, so this manifest is informational.
+    # html2epub builder uses `spine = "auto"`, so this manifest is informational.
     step("Regenerating spine manifest (legacy build_epub.py only)")
     rc, out = run([PYTHON, str(BUILD_DIR / "generate_spine.py")])
     if rc != 0:
@@ -278,14 +278,14 @@ def step_regen_spine() -> int:
 
 
 def step_build_epub(quick: bool) -> int:
-    step("Building EPUB (html2pub)")
-    # Canonical builder is the html2pub package (KDP/html2pub/), driven by html2pub.toml at the project root.
-    cmd = [PYTHON, "-m", "html2pub", "build", str(PROJECT_ROOT)]
+    step("Building EPUB (html2epub)")
+    # Canonical builder is the html2epub package (KDP/html2epub/), driven by html2epub.toml at the project root.
+    cmd = [PYTHON, "-m", "html2epub", "build", str(PROJECT_ROOT)]
     if quick:
-        warn("quick mode requested — html2pub honors [images] settings in html2pub.toml; "
+        warn("quick mode requested — html2epub honors [images] settings in html2epub.toml; "
              "for smaller files temporarily lower max_side/jpeg_quality and re-run.")
 
-    # Make project-local plugin module (_html2pub_hooks.py) importable
+    # Make project-local plugin module (_html2epub_hooks.py) importable
     import os as _os
     _env = _os.environ.copy()
     _bd = str(BUILD_DIR)
@@ -593,7 +593,7 @@ def step_optimize() -> int:
     # body{margin:0;padding:0} + hidden caption + linear="no"). The new
     # version REMOVES those signals and ADDS a visible title block + sets
     # linear="yes" so KDP's classifier sees a normal reflowable title page.
-    # See html2kpd LESSONS.md L-COVER-REFLOW for the full diagnosis.
+    # See epub2kpf LESSONS.md L-COVER-REFLOW for the full diagnosis.
     # After all patches, audit_kdp_fixed_layout_classifier.py runs as a
     # hard gate to catch any regression that would re-trigger the rejection.
     try:
@@ -643,7 +643,7 @@ def step_optimize() -> int:
             if cp.returncode != 0:
                 fail(f"[kdp-classifier-gate] KDP would reject this EPUB as fixed-format")
                 fail(f"   Fix: re-run KDP/build/fix_cover_kdp_heuristic.py {epub}")
-                fail(f"   See html2kpd LESSONS.md L-COVER-REFLOW for the full diagnosis.")
+                fail(f"   See epub2kpf LESSONS.md L-COVER-REFLOW for the full diagnosis.")
                 return 4
         else:
             warn(f"[kdp-classifier-gate] audit script not found; skipping")
@@ -846,7 +846,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--validate-only", action="store_true", help="Skip build; only run validators")
     p.add_argument("--no-epubcheck", action="store_true", help="Skip Java epubcheck even if available")
     p.add_argument("--no-optimize", action="store_true", help="Skip the epub-optimizer minification step")
-    p.add_argument("--regen-spine", action="store_true", help="Re-walk source tree to regenerate the legacy spine_manifest.json (not used by html2pub; build_epub.py only)")
+    p.add_argument("--regen-spine", action="store_true", help="Re-walk source tree to regenerate the legacy spine_manifest.json (not used by html2epub; build_epub.py only)")
     p.add_argument("--preview", action="store_true",
                    help="After build+validate, launch Kindle Previewer 3 GUI with the EPUB loaded "
                         "for interactive preview (Paperwhite, Oasis, Scribe, Fire, iOS, Android, Web Reader).")
@@ -872,8 +872,8 @@ def main(argv: list[str] | None = None) -> int:
         step_clean()
 
     if not args.validate_only:
-        # NOTE: the canonical builder (html2pub) discovers the spine itself via
-        # `spine = "auto"` in html2pub.toml and does NOT read spine_manifest.json.
+        # NOTE: the canonical builder (html2epub) discovers the spine itself via
+        # `spine = "auto"` in html2epub.toml and does NOT read spine_manifest.json.
         # generate_spine.py / spine_manifest.json are legacy (build_epub.py only).
         # So only regenerate the manifest when explicitly asked, instead of
         # auto-firing whenever the legacy file is absent.

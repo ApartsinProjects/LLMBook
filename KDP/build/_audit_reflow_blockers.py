@@ -45,7 +45,7 @@ from bs4 import BeautifulSoup  # type: ignore
 
 ROOT = Path(__file__).resolve().parents[2]  # E:/Projects/BookBlogsHome/LLMBook
 SKIP_PARTS = (
-    'node_modules', '/.git/', 'KDP/output', 'KDP/build', 'KDP/html2pub',
+    'node_modules', '/.git/', 'KDP/output', 'KDP/build', 'KDP/html2epub',
     'pagefind', 'temp_epub', 'source_fix_backups', 'venv', 'templates'
 )
 

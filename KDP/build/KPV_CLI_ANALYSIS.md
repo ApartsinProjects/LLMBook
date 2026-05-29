@@ -153,7 +153,7 @@ KPV detects these conditions during startup and proceeds with conversion. From C
 
 ### For build automation (CI / Claude / scripts)
 
-1. **Build the EPUB only.** Run `html2pub`, image optimization, EPUBCheck, structural lint, math/table audits. Do everything except KPV conversion.
+1. **Build the EPUB only.** Run `html2epub`, image optimization, EPUBCheck, structural lint, math/table audits. Do everything except KPV conversion.
 2. **Skip KPF generation in scripts.** Mark the EPUB as `*.epub` ready-for-KPV in build logs.
 3. **Use `kindlegen.exe` directly** if MOBI output is needed for legacy compatibility. This works headlessly.
 

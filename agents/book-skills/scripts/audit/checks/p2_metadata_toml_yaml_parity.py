@@ -1,7 +1,7 @@
-"""Check that html2pub.toml and KDP/metadata/metadata.yaml agree on
+"""Check that html2epub.toml and KDP/metadata/metadata.yaml agree on
 publication metadata.
 
-html2pub.toml drives the EPUB OPF (what Amazon ingests).
+html2epub.toml drives the EPUB OPF (what Amazon ingests).
 KDP/metadata/metadata.yaml is the documented source of truth for KDP
 submission. The publish.py pre-flight checks both files agree, but
 that check fires LATE (after build). This audit catches drift earlier.
@@ -25,7 +25,7 @@ from pathlib import Path
 
 PRIORITY = "P2"
 CHECK_ID = "METADATA_PARITY"
-DESCRIPTION = "html2pub.toml and KDP/metadata/metadata.yaml disagree on a publication field"
+DESCRIPTION = "html2epub.toml and KDP/metadata/metadata.yaml disagree on a publication field"
 
 Issue = namedtuple("Issue", ["priority", "check_id", "filepath", "line", "message"])
 
@@ -65,7 +65,7 @@ def run(filepath, html, context):
     if rel != "kdp/metadata/description.html":
         return issues  # only run once, on this trigger file
 
-    toml_path = book_root / "html2pub.toml"
+    toml_path = book_root / "html2epub.toml"
     yaml_path = book_root / "KDP" / "metadata" / "metadata.yaml"
     if not toml_path.exists() or not yaml_path.exists():
         return issues
@@ -74,7 +74,7 @@ def run(filepath, html, context):
         toml_data = tomllib.loads(toml_path.read_text(encoding="utf-8"))
     except Exception as e:
         issues.append(Issue(PRIORITY, CHECK_ID, filepath, 1,
-                            f"Failed to parse html2pub.toml: {e}"))
+                            f"Failed to parse html2epub.toml: {e}"))
         return issues
     try:
         yaml_data = _load_yaml_simple(yaml_path)
@@ -102,5 +102,5 @@ def run(filepath, html, context):
             continue
         if str(t).strip() != str(y).strip():
             issues.append(Issue(PRIORITY, CHECK_ID, filepath, 1,
-                                f"{field}: html2pub.toml={t!r} but metadata.yaml={y!r}"))
+                                f"{field}: html2epub.toml={t!r} but metadata.yaml={y!r}"))
     return issues

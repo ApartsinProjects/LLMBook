@@ -45,7 +45,7 @@ Usage
 Safety
 ------
 - The script refuses to touch any file outside the LLMBook source tree.
-- Skipped directories: node_modules, .git, KDP/output, KDP/build, KDP/html2pub,
+- Skipped directories: node_modules, .git, KDP/output, KDP/build, KDP/html2epub,
   pagefind, temp_epub, backup, source_fix_backups.
 - A `.bak` copy of each modified file is written before the new content
   replaces the original (only in --apply mode).
@@ -66,7 +66,7 @@ AUDIT_JSON = LLM_ROOT / 'KDP' / 'build' / 'AUDIT_code_indent.json'
 
 INCLUDE_PREFIXES = ('part-', 'appendices', 'front-matter', 'capstone')
 SKIP_FRAGMENTS = (
-    'node_modules', '.git', 'KDP/output', 'KDP/build', 'KDP/html2pub',
+    'node_modules', '.git', 'KDP/output', 'KDP/build', 'KDP/html2epub',
     'pagefind', 'temp_epub', 'backup', 'source_fix_backups',
 )
 

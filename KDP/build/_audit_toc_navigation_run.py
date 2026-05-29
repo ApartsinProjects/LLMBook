@@ -21,7 +21,7 @@ SKIP_DIRS = {
     'source_fix_backups',
 }
 SKIP_PATH_PREFIXES = [
-    'KDP/output', 'KDP/build', 'KDP/html2pub',
+    'KDP/output', 'KDP/build', 'KDP/html2epub',
     'scripts/_exercise_payloads',
     # The following are not "published" pages but contain template/marketing
     # HTML with placeholders or alternate layouts; excluding to keep the audit

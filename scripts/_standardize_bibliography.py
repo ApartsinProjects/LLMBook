@@ -42,7 +42,7 @@ BOOK_ROOT = Path(__file__).resolve().parent.parent
 SKIP_DIRS = {
     "node_modules", ".git", "KDP", "build", "temp_ebook", "temp_epub",
     "source_fix_backups", "pagefind", "templates", ".claude",
-    ".book-update", ".html2pub_cache", "_archive", "scripts", "agents",
+    ".book-update", ".html2epub_cache", "_archive", "scripts", "agents",
     "styles", "images", "__pycache__", "vendor", "_concept-figs",
     "tmp_whats_next", "downloads",
 }

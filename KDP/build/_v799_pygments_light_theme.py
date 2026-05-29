@@ -41,12 +41,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 PYG_PATH = ROOT / 'KDP/build/source_pygments.css'   # we'll write to source then bundle
 
-# Write the new pygments.css source. The html2pub builder includes
+# Write the new pygments.css source. The html2epub builder includes
 # this file via the EPUB pipeline. Find the actual source path.
 # (The builder may bundle from a default location; check default_overrides.css.)
 
 # Search for where pygments.css originates in the build
-HTML2PUB_PYG = ROOT / 'KDP/html2pub/src/html2pub' / 'pygments.css'
+HTML2PUB_PYG = ROOT / 'KDP/html2epub/src/html2epub' / 'pygments.css'
 KDP_BUILD_PYG = ROOT / 'KDP/build' / 'pygments.css'
 
 # Generate the CSS content
@@ -173,6 +173,6 @@ for cand in [HTML2PUB_PYG, KDP_BUILD_PYG]:
         written.append(cand)
         print(f'  WROTE: {cand}')
 
-# Also check inside the html2pub Python package directory
+# Also check inside the html2epub Python package directory
 print(f'\\nWrote new pygments.css ({len(NEW_CSS)} chars) to {len(written)} location(s).')
 print(f'Next: run publish.py to bundle into EPUB.')

@@ -5,7 +5,7 @@ import json
 import re
 from pathlib import Path
 
-from html2pub.config import Config
+from html2epub.config import Config
 
 
 _SECTION_RE = re.compile(r"section-(?:fm\.)?(\d+)\.(\d+)([a-z]?)$")
@@ -69,7 +69,7 @@ def build_spine(cfg: Config) -> list[dict]:
             continue
         filtered.append(ent)
     if n_dropped:
-        print(f"[html2pub] spine: dropped {n_dropped} redirect-stub page(s)")
+        print(f"[html2epub] spine: dropped {n_dropped} redirect-stub page(s)")
     return filtered
 
 

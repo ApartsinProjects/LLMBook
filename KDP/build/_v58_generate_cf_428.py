@@ -27,7 +27,7 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 SECTION = ROOT / "part-1-foundations/module-04-transformer-architecture/section-4.2.html"
 
 
-# Generated <pre> block (Pygments-highlighted-style classes match what html2pub
+# Generated <pre> block (Pygments-highlighted-style classes match what html2epub
 # produces during build, but we emit a plain <pre><code class="lang-python">...
 # block; the build pipeline's pygments hook will re-highlight on next publish.
 NEW_CODE_BLOCK = '''<div class="code-block-wrapper">

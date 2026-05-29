@@ -27,7 +27,7 @@ TOC  = ROOT / 'toc.html'
 # Skip patterns: never scan/touch these
 SKIP_DIRS = {'node_modules', '.git', 'pagefind', 'temp_epub',
              'source_fix_backups', 'backup'}
-SKIP_REL  = ('KDP/output', 'KDP/build', 'KDP/html2pub',
+SKIP_REL  = ('KDP/output', 'KDP/build', 'KDP/html2epub',
              'scripts/_exercise_payloads',
              'agents/', 'templates/', 'KDP/metadata/')
 

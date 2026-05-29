@@ -4,7 +4,7 @@ Sweep completed 2026-05-16. Trigger file: `part-11-applications-across-industrie
 
 ## Variants found (audit phase)
 
-Initial scan of 494 HTML files across the book (excluding `node_modules`, `.git`, `KDP`, `build`, `temp_ebook`, `temp_epub`, `source_fix_backups`, `pagefind`, `templates`, `.claude`, `.book-update`, `_concept-figs`, `.html2pub_cache`, `front-matter`, and audit/report `.md` files) produced 236 files with bibliography-related markup, distributed across these variants:
+Initial scan of 494 HTML files across the book (excluding `node_modules`, `.git`, `KDP`, `build`, `temp_ebook`, `temp_epub`, `source_fix_backups`, `pagefind`, `templates`, `.claude`, `.book-update`, `_concept-figs`, `.html2epub_cache`, `front-matter`, and audit/report `.md` files) produced 236 files with bibliography-related markup, distributed across these variants:
 
 1. **`<section class="bibliography"> + <h3>Bibliography and Further Reading</h3>` card layout** (185 files). Pattern:
    ```

@@ -57,7 +57,7 @@ REPORT_PATH = PROJECT_ROOT / "output-drift-audit.md"
 
 EXCLUDE_DIRS = {
     "KDP", ".claude", "scripts", "node_modules", "pagefind", "templates",
-    ".git", ".html2pub_cache", ".github", "agents", "vendor",
+    ".git", ".html2epub_cache", ".github", "agents", "vendor",
     "source_fix_backups", "__pycache__", "build", "temp_epub",
 }
 EXCLUDE_PREFIXES = ("temp_",)

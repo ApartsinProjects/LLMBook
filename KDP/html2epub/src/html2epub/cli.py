@@ -1,24 +1,24 @@
-"""html2pub command-line interface."""
+"""html2epub command-line interface."""
 from __future__ import annotations
 
 import argparse
 import sys
 from pathlib import Path
 
-from html2pub import __version__
-from html2pub import builder, config as config_mod, validators
+from html2epub import __version__
+from html2epub import builder, config as config_mod, validators
 
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
-        prog="html2pub",
+        prog="html2epub",
         description="Convert a directory of HTML files into a publishable EPUB 3.",
     )
-    p.add_argument("--version", action="version", version=f"html2pub {__version__}")
+    p.add_argument("--version", action="version", version=f"html2epub {__version__}")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     bp = sub.add_parser("build", help="Build the EPUB")
-    bp.add_argument("project_dir", nargs="?", default=".", help="Path to project dir (must contain html2pub.toml)")
+    bp.add_argument("project_dir", nargs="?", default=".", help="Path to project dir (must contain html2epub.toml)")
     bp.add_argument("--validate-only", action="store_true", help="Validate config + assets but don't build")
 
     vp = sub.add_parser("validate", help="Validate an existing EPUB file")

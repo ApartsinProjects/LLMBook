@@ -22,7 +22,7 @@ FIX
 ===
 Reverse: tables and rows default to `break-inside: avoid`. Only
 tables explicitly marked `.long-table` or wider than 6 columns
-(already wrapped in .table-wide-wrap by _html2pub_hooks.py) get
+(already wrapped in .table-wide-wrap by _html2epub_hooks.py) get
 `break-inside: auto`.
 
 Net behavior:
@@ -31,7 +31,7 @@ Net behavior:
   - Long tables (15-row hyperparameter table): split across pages
     so they don't push down with empty space above them.
   - Wide tables (>=6 cols): already get .table-wide-wrap from
-    _html2pub_hooks.py; that wrapper allows break-inside: auto
+    _html2epub_hooks.py; that wrapper allows break-inside: auto
     inside the wrapper (so wide tables can still be split if needed).
 """
 from pathlib import Path
@@ -82,7 +82,7 @@ table.long-table tr {
 }
 
 /* EXCEPTION: explicitly-wide tables (.table-wide-wrap is added
- * by _html2pub_hooks.py for tables >=6 cols). These can split
+ * by _html2epub_hooks.py for tables >=6 cols). These can split
  * because keeping them whole leaves a half-empty page when they
  * don't fit. */
 .table-wide-wrap,

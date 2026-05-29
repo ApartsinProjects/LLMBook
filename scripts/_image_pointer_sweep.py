@@ -24,7 +24,7 @@ actually edit HTML files.
 
 Excluded dirs:
   node_modules, .git, KDP, build, temp_ebook, temp_epub, source_fix_backups,
-  pagefind, templates, .claude, .book-update, .html2pub_cache, _concept-figs.
+  pagefind, templates, .claude, .book-update, .html2epub_cache, _concept-figs.
 """
 
 from __future__ import annotations
@@ -42,7 +42,7 @@ SKIP_DIR_NAMES = {
     "node_modules", ".git", "KDP", "build",
     "temp_ebook", "temp_epub", "source_fix_backups",
     "pagefind", "templates", ".claude", ".book-update",
-    ".html2pub_cache", "_concept-figs", "__pycache__",
+    ".html2epub_cache", "_concept-figs", "__pycache__",
     "scripts", "downloads", "agents", "vendor",
     "_imagegen_work",
 }

@@ -24,7 +24,7 @@ print('=== F1-F4: Add pygments-highlighted to code blocks ===')
 
 # Approach: find <code class="lang-X"> or <code class="language-X"> WITHOUT
 # pygments-highlighted, and add the class. The pygments syntax-highlight
-# hook in _html2pub_hooks.py runs at build time — we just need to mark
+# hook in _html2epub_hooks.py runs at build time — we just need to mark
 # them properly so the hook can process them.
 
 n_f = 0

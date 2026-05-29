@@ -41,7 +41,7 @@ OUT_JSON = ROOT / 'KDP' / 'build' / 'AUDIT_code_indent.json'
 
 INCLUDE_PREFIXES = ('part-', 'appendices', 'front-matter', 'capstone')
 SKIP_FRAGMENTS = (
-    'node_modules', '.git', 'KDP/output', 'KDP/build', 'KDP/html2pub',
+    'node_modules', '.git', 'KDP/output', 'KDP/build', 'KDP/html2epub',
     'pagefind', 'temp_epub', 'backup', 'source_fix_backups',
     'scripts/_exercise_payloads', 'agents/', 'templates/'
 )

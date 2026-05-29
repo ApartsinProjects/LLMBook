@@ -45,7 +45,7 @@ CSS_PATH = ROOT / "styles" / "book.css"
 
 EXCLUDE_DIRS = {
     "KDP", ".claude", "scripts", "node_modules", "pagefind",
-    "templates", ".git", ".html2pub_cache", ".github",
+    "templates", ".git", ".html2epub_cache", ".github",
     "build", "vendor", "downloads",
 }
 EXCLUDE_PREFIXES = ("temp_",)

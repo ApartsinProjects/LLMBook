@@ -41,7 +41,7 @@ AFTER <semantics> unwrapping.
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-hooks_path = ROOT / 'KDP/build/_html2pub_hooks.py'
+hooks_path = ROOT / 'KDP/build/_html2epub_hooks.py'
 hs = hooks_path.read_text(encoding='utf-8')
 
 INSERT_AFTER = '    for sem in soup.find_all("semantics"):\n        sem.unwrap()'

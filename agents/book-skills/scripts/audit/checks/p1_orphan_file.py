@@ -3,7 +3,7 @@ by the parent module-XX/index.html.
 
 Motivation: when a section is added by a subagent or wave, it might exist
 on disk but never get linked from the chapter index. EPUB build will still
-ship it (html2pub walks the filesystem) but readers using the chapter
+ship it (html2epub walks the filesystem) but readers using the chapter
 landing page will never find it.
 
 Conversely, a chapter-index entry pointing at a deleted section is caught

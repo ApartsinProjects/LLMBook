@@ -1,4 +1,4 @@
-"""EPUB assembly. The core of html2pub."""
+"""EPUB assembly. The core of html2epub."""
 from __future__ import annotations
 
 import io
@@ -11,13 +11,13 @@ from bs4 import BeautifulSoup
 from ebooklib import epub
 from PIL import Image
 
-from html2pub import content as content_mod
-from html2pub import math_render
-from html2pub import nav as nav_mod
-from html2pub.config import Config
-from html2pub.fonts import FONT_MIME, discover as discover_fonts, rewrite_katex_css_to_woff2
-from html2pub.images import ImageBundle, slugify, sniff_image_type
-from html2pub.spine import build_spine
+from html2epub import content as content_mod
+from html2epub import math_render
+from html2epub import nav as nav_mod
+from html2epub.config import Config
+from html2epub.fonts import FONT_MIME, discover as discover_fonts, rewrite_katex_css_to_woff2
+from html2epub.images import ImageBundle, slugify, sniff_image_type
+from html2epub.spine import build_spine
 
 DEFAULT_OVERRIDES_CSS = Path(__file__).parent / "default_overrides.css"
 
@@ -77,17 +77,17 @@ def _extract_title(soup: BeautifulSoup, fallback: str) -> str:
 
 def build(cfg: Config) -> Path:
     """Build the EPUB. Returns the output path."""
-    print(f"[html2pub] project root: {cfg.project_root}")
-    print(f"[html2pub] source dir: {cfg.content.source_dir}")
+    print(f"[html2epub] project root: {cfg.project_root}")
+    print(f"[html2epub] source dir: {cfg.content.source_dir}")
 
     spine_entries = build_spine(cfg)
     if not spine_entries:
-        raise RuntimeError("Spine is empty -- check [content] section of html2pub.toml")
-    print(f"[html2pub] spine entries: {len(spine_entries)}")
+        raise RuntimeError("Spine is empty -- check [content] section of html2epub.toml")
+    print(f"[html2epub] spine entries: {len(spine_entries)}")
 
     # Image cache: ~150ms per image saved on rebuilds when source unchanged
     # (832 images * 150ms = ~2 min savings per build).
-    cache_dir = cfg.project_root / ".html2pub_cache" / "images"
+    cache_dir = cfg.project_root / ".html2epub_cache" / "images"
     images = ImageBundle(
         source_root=cfg.content.source_dir,
         max_side=cfg.images.max_side,
@@ -113,7 +113,7 @@ def build(cfg: Config) -> Path:
     }
 
     # Build the body of every chapter
-    print("[html2pub] processing chapters...")
+    print("[html2epub] processing chapters...")
     chapter_xhtml: dict[str, str] = {}
     n_links_rewritten = 0
     n_links_dropped = 0
@@ -132,12 +132,12 @@ def build(cfg: Config) -> Path:
             mod_name, func_name = _post_name.rsplit(".", 1)
             _mod = importlib.import_module(mod_name)
             _hook_fn = getattr(_mod, func_name)
-            print(f"[html2pub] post_process plugin loaded: {_post_name}")
+            print(f"[html2epub] post_process plugin loaded: {_post_name}")
         except (ImportError, AttributeError, ValueError) as _e:
             raise RuntimeError(
                 f"plugins.post_process_html='{_post_name}' could not be loaded: {_e}. "
                 f"If the hook lives in a project-local file, ensure its directory is on "
-                f"PYTHONPATH before invoking html2pub."
+                f"PYTHONPATH before invoking html2epub."
             ) from _e
 
     for i, entry in enumerate(spine_entries):
@@ -255,24 +255,24 @@ def build(cfg: Config) -> Path:
         if (i + 1) % 25 == 0 or i == len(spine_entries) - 1:
             print(f"  [{i+1}/{len(spine_entries)}] {src_rel}")
 
-    print(f"[html2pub] links: {n_links_rewritten} rewritten, {n_links_dropped} dropped")
+    print(f"[html2epub] links: {n_links_rewritten} rewritten, {n_links_dropped} dropped")
     cache_str = ""
     if hasattr(images, "cache_hits") and (images.cache_hits or images.cache_misses):
         cache_str = f" (cache: {images.cache_hits} hits, {images.cache_misses} misses)"
-    print(f"[html2pub] images: {n_imgs_seen} seen, {len(images.bundled_bytes)} bundled, {len(images.skipped)} skipped{cache_str}")
+    print(f"[html2epub] images: {n_imgs_seen} seen, {len(images.bundled_bytes)} bundled, {len(images.skipped)} skipped{cache_str}")
     if n_math_rendered:
-        print(f"[html2pub] math: {n_math_rendered} expressions rendered via KaTeX")
+        print(f"[html2epub] math: {n_math_rendered} expressions rendered via KaTeX")
     if math_png_cache_dir is not None:
         manifest_path = cfg.project_root / ".book-update" / "math-manifest.json"
         manifest_path.parent.mkdir(parents=True, exist_ok=True)
         manifest_path.write_text(json.dumps(math_manifest, indent=0), encoding="utf-8")
         n_missing = len(math_manifest) - n_math_png
-        print(f"[html2pub] math-png: {n_math_png} swapped to PNG, "
+        print(f"[html2epub] math-png: {n_math_png} swapped to PNG, "
               f"{n_missing} awaiting cache (manifest: {len(math_manifest)} eqs -> "
               f"{manifest_path.relative_to(cfg.project_root)})")
 
     # ---- Assemble EPUB
-    print("[html2pub] assembling EPUB...")
+    print("[html2epub] assembling EPUB...")
     book = epub.EpubBook()
 
     ident = cfg.book.identifier
@@ -423,7 +423,7 @@ def build(cfg: Config) -> Path:
                 media_type=mime, content=asset_path.read_bytes(),
             ))
     if _bundled_css_assets:
-        print(f"[html2pub] bundled {len(_bundled_css_assets)} CSS-referenced asset(s)")
+        print(f"[html2epub] bundled {len(_bundled_css_assets)} CSS-referenced asset(s)")
 
     # EPUB overrides (user-supplied or built-in default)
     if cfg.styling.epub_overrides:
@@ -524,5 +524,5 @@ def build(cfg: Config) -> Path:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     epub.write_epub(str(out_path), book, {})
     size_mb = out_path.stat().st_size / (1024 * 1024)
-    print(f"[html2pub] wrote {out_path} ({size_mb:.2f} MB, {len(chapter_items)} chapters)")
+    print(f"[html2epub] wrote {out_path} ({size_mb:.2f} MB, {len(chapter_items)} chapters)")
     return out_path

@@ -49,7 +49,7 @@ CONTENT_OPF_TPL = '''<?xml version="1.0" encoding="UTF-8"?>
     <dc:identifier id="bookid">{uuid}</dc:identifier>
     <dc:title>Test: {title}</dc:title>
     <dc:language>en</dc:language>
-    <dc:creator>html2kpd test harness</dc:creator>
+    <dc:creator>epub2kpf test harness</dc:creator>
     <meta property="dcterms:modified">2026-05-15T00:00:00Z</meta>
   </metadata>
   <manifest>
@@ -168,7 +168,7 @@ def make_epub(slug, title, body_html):
     import uuid as uuid_mod
     out_path = OUT / f'test_{slug}.epub'
     # Deterministic UUID per slug
-    book_uuid = 'urn:uuid:' + str(uuid_mod.uuid5(uuid_mod.NAMESPACE_OID, f'html2kpd-test-{slug}'))
+    book_uuid = 'urn:uuid:' + str(uuid_mod.uuid5(uuid_mod.NAMESPACE_OID, f'epub2kpf-test-{slug}'))
     chapter_xhtml = CHAPTER_TPL.format(slug=slug, title=title, body=body_html)
     # Only declare mathml property if chapter has math content
     props = 'properties="mathml"' if '<math' in body_html else ''

@@ -22,7 +22,7 @@ What this patch now does (2026-05-29):
 The patched cover.xhtml looks like a normal title page (image + title
 block), which is the pattern KDP's classifier accepts as reflowable.
 
-Run AFTER html2pub builds the EPUB, BEFORE uploading.
+Run AFTER html2epub builds the EPUB, BEFORE uploading.
 """
 from __future__ import annotations
 import argparse

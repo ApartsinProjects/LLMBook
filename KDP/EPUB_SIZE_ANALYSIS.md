@@ -58,7 +58,7 @@ Below 20 MB and the 70% plan saturates. Above ~67 MB you make negative net royal
 
 Most of our 200+ KB images are Mermaid flowcharts/architectures that we currently render at `-w 1200 -s 3` to PNG. Mermaid can output SVG directly. SVG is text + math, compresses extremely well, and scales perfectly on Kindle Scribe / Kindle web. Kindle KFX has supported SVG since 2018. Risk: small (some old Kindle devices fall back to a poster image, but the SVG is still parsed).
 
-**Action:** Update `scripts/mermaid/generate_mermaid_diagrams.py` to emit `.svg` next to each `.png`. Then update `KDP/build/_html2pub_hooks.py` to prefer the `.svg` if present and the EPUB target supports it.
+**Action:** Update `scripts/mermaid/generate_mermaid_diagrams.py` to emit `.svg` next to each `.png`. Then update `KDP/build/_html2epub_hooks.py` to prefer the `.svg` if present and the EPUB target supports it.
 
 ### 2. Recompress the few oversized JPEGs  *(estimated save: 0.5–1 MB)*
 

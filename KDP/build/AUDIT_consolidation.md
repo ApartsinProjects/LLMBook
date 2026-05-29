@@ -1,12 +1,12 @@
 # HTML Consolidation Audit
 
 **Scope**: 396 HTML files under `E:/Projects/BookBlogsHome/LLMBook/`, excluding
-`node_modules/`, `.git/`, `KDP/output/`, `KDP/build/`, `KDP/html2pub/`,
+`node_modules/`, `.git/`, `KDP/output/`, `KDP/build/`, `KDP/html2epub/`,
 `pagefind/`, `temp_epub/`, `*/backup/`, `*/source_fix_backups/`, and
 `scripts/_exercise_payloads/`.
 
 **Trigger**: A recent "Thirteenth Edition" -> "Fourteenth Edition" bump
-touched 392 files. The canonical value lives in `html2pub.toml` and
+touched 392 files. The canonical value lives in `html2epub.toml` and
 `KDP/metadata/metadata.yaml` (`book.edition = "Fourteenth Edition"`,
 `book.publication_year = 2026`) but every chapter hardcodes it.
 
@@ -68,8 +68,8 @@ pattern appears in exactly one source file.
   `KDP/build/_v610_pagefind_inject.py`. Each is ~1,014 bytes.
 * Total duplicated payload: 389,694 bytes (~380 KB) repeating the same
   `new PagefindUI({...})` call.
-* html2pub already strips `<script>`/`<noscript>` (UNWANTED_TAGS in
-  `KDP/html2pub/src/html2pub/content.py`), so the script is only useful
+* html2epub already strips `<script>`/`<noscript>` (UNWANTED_TAGS in
+  `KDP/html2epub/src/html2epub/content.py`), so the script is only useful
   in the browse view. The fix is to extract a single
   `scripts/pagefind-init.js`, then write a single
   `<script defer src="../../scripts/pagefind-init.js"></script>` line.
@@ -78,11 +78,11 @@ pattern appears in exactly one source file.
 
 | Pattern                                              | Canonical source                                | Suggested template variable     | Replicas to update |
 | ---------------------------------------------------- | ----------------------------------------------- | -------------------------------- | ------------------ |
-| Edition string (`"Fourteenth Edition"`)              | `html2pub.toml` `[book] edition`                | `{{book.edition}}`               | 392                |
+| Edition string (`"Fourteenth Edition"`)              | `html2epub.toml` `[book] edition`                | `{{book.edition}}`               | 392                |
 | Publication year (`2026`)                            | `metadata.yaml` `book.publication_year`         | `{{book.publication_year}}`      | 387                |
 | Combined footer (`Fourteenth Edition, 2026`)         | derived: `{{book.edition}}, {{book.publication_year}}` | `{{footer.edition_line}}`  | 387                |
-| Book title                                           | `html2pub.toml` `[book] title`                  | `{{book.title}}`                 | 392 (639 occurrences) |
-| Subtitle                                             | `html2pub.toml` `[book] subtitle`               | `{{book.subtitle}}`              | 1 (room to grow)   |
+| Book title                                           | `html2epub.toml` `[book] title`                  | `{{book.title}}`                 | 392 (639 occurrences) |
+| Subtitle                                             | `html2epub.toml` `[book] subtitle`               | `{{book.subtitle}}`              | 1 (room to grow)   |
 | Author names                                         | `[[book.authors]]` blocks                       | `{{book.authors[*].name}}`       | 10                 |
 | Copyright line                                       | `metadata.yaml` `book.rights`                   | `{{book.rights}}`                | 6                  |
 | Per-chapter `<meta name="description">`              | per-file front-matter (kept inline)             | n/a                              | 331                |
@@ -112,9 +112,9 @@ Net consolidation gain: ~4 KB into `book.css`, ~23 KB into a new
 ## Recommended consolidation actions (priority order)
 
 1. **(P0) Stop hardcoding edition + year in 392 files.** Add build-time
-   templating to html2pub. Replace the footer literal with
+   templating to html2epub. Replace the footer literal with
    `<footer><p>{{book.edition}}, {{book.publication_year}} &middot; ...`.
-   `html2pub.toml` and `metadata.yaml` already carry both fields; the
+   `html2epub.toml` and `metadata.yaml` already carry both fields; the
    build pre-flight already cross-checks them.
 2. **(P0) Detect and fail loudly when source HTML hardcodes a stale
    edition.** A linter in `publish.py` that greps the source tree for
@@ -122,13 +122,13 @@ Net consolidation gain: ~4 KB into `book.css`, ~23 KB into a new
    recent 392-file flag-day.
 3. **(P1) Move the Pagefind init block into `scripts/pagefind-init.js`** and
    ship a one-liner `<script src>` from each chapter. ~380 KB delta in the
-   browse tree; zero effect on EPUB since html2pub strips scripts.
+   browse tree; zero effect on EPUB since html2epub strips scripts.
 4. **(P1) Lift inline `<style>` rules from `about-authors.html` and
    `appendix-ag-problem-solution-key/index.html` into `styles/book.css`.**
    Single source of truth and consistent visual treatment.
 5. **(P2) Header/footer partials.** A `templates/_header.html` and
    `templates/_footer.html` plus a Jinja-style include pass in
-   `html2pub` collapses 394 hand-replicated header blocks and 387
+   `html2epub` collapses 394 hand-replicated header blocks and 387
    footers into one each. Required for any future structural change
    (e.g., adding a "buy on Amazon" CTA, swapping the search icon).
 6. **(P2) Asset link partial.** `<link rel="stylesheet">`,
@@ -144,7 +144,7 @@ Net consolidation gain: ~4 KB into `book.css`, ~23 KB into a new
 
 ```
 KDP/metadata/metadata.yaml          # Single source of truth (already exists)
-html2pub.toml                       # Build config (already mirrors metadata)
+html2epub.toml                       # Build config (already mirrors metadata)
 KDP/build/templates/
     _header.html                    # NEW: chapter-header chrome partial
     _footer.html                    # NEW: footer chrome partial
@@ -156,8 +156,8 @@ styles/landing.css                  # NEW (optional): index.html chrome
 ```
 
 Build flow (build-time substitution):
-1. html2pub reads `metadata.yaml` -> `{book: {edition, publication_year, ...}}`.
-2. A new pre-pass in `KDP/build/_html2pub_hooks.py.post_process` walks the
+1. html2epub reads `metadata.yaml` -> `{book: {edition, publication_year, ...}}`.
+2. A new pre-pass in `KDP/build/_html2epub_hooks.py.post_process` walks the
    soup and substitutes `{{book.edition}}` / `{{book.publication_year}}` /
    `{{book.title}}` tokens.
 3. The same hook can `include` header/footer/asset partials, reading them
@@ -168,9 +168,9 @@ nightly script (`scripts/rebuild_chrome.py`) regenerates header/footer
 chrome from the partials whenever `metadata.yaml` or any partial
 changes. This eliminates the "392 files to bump" problem.
 
-## What html2pub can already template at build time
+## What html2epub can already template at build time
 
-Right now html2pub **does not** template HTML content; it only reads
+Right now html2epub **does not** template HTML content; it only reads
 config-level metadata (edition, title, rights, dates) and applies them to
 the OPF/NCX/nav.xhtml output. Source HTML body content is passed through
 verbatim except for the transforms in `content.py` (script stripping,
@@ -178,7 +178,7 @@ fragment-id sanitization, syntax highlighting, KaTeX render, image
 rewrite). Adding a template substitution pass to `content.py` is the
 smallest viable change:
 
-| Already templated in html2pub | NOT templated (currently hardcoded in HTML body) |
+| Already templated in html2epub | NOT templated (currently hardcoded in HTML body) |
 | ----------------------------- | ------------------------------------------------ |
 | `<dc:title>`, `<dc:creator>`, `<dc:rights>`, `<dc:date>`, `<dc:identifier>`, `<dc:subject>` (OPF metadata) | Edition text in `<footer>` (392 files) |
 | `<title>` (per-chapter)       | Book title in `<title>` and `<a class="book-title-link">` |
@@ -214,9 +214,9 @@ smallest viable change:
 ## File pointers (absolute paths)
 
 - Single source of truth (already exists): `E:/Projects/BookBlogsHome/LLMBook/KDP/metadata/metadata.yaml`
-- Build config (mirrors metadata): `E:/Projects/BookBlogsHome/LLMBook/html2pub.toml`
-- Build script (where templating pass should land): `E:/Projects/BookBlogsHome/LLMBook/KDP/build/_html2pub_hooks.py`
-- html2pub content transforms (where token substitution should hook in): `E:/Projects/BookBlogsHome/LLMBook/KDP/html2pub/src/html2pub/content.py`
+- Build config (mirrors metadata): `E:/Projects/BookBlogsHome/LLMBook/html2epub.toml`
+- Build script (where templating pass should land): `E:/Projects/BookBlogsHome/LLMBook/KDP/build/_html2epub_hooks.py`
+- html2epub content transforms (where token substitution should hook in): `E:/Projects/BookBlogsHome/LLMBook/KDP/html2epub/src/html2epub/content.py`
 - Legacy edition-bump script (proves the pain): `E:/Projects/BookBlogsHome/LLMBook/KDP/build/_v702_bump_footer_edition.py`
 - Pagefind injection script (proves we already template chrome programmatically): `E:/Projects/BookBlogsHome/LLMBook/KDP/build/_v610_pagefind_inject.py`
 - Source HTML templates (stale, says "Fifth Edition, 2026"): `E:/Projects/BookBlogsHome/LLMBook/templates/`

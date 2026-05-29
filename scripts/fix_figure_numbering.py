@@ -315,7 +315,7 @@ def main():
     else:
         files = sorted(ROOT.rglob("section-*.html"))
         skip = ("node_modules", "_archive", "vendor", "temp_epub",
-                "_concept-figs", "_html2pub_cache", "downloads", "pagefind",
+                "_concept-figs", "_html2epub_cache", "downloads", "pagefind",
                 "KDP")  # KDP/build/source_fix_backups holds historical snapshots
         files = [f for f in files if not any(s in f.parts for s in skip)]
 

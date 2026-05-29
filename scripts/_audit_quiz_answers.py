@@ -38,7 +38,7 @@ ROOT = Path(r"E:/Projects/BookBlogsHome/LLMBook")
 EXCLUDE_DIR_NAMES = {
     "node_modules", ".git", "KDP", "build", "temp_ebook", "temp_epub",
     "source_fix_backups", "pagefind", "templates", ".claude", ".book-update",
-    "vendor", "scripts", "docs", "styles", ".html2pub_cache", "agents",
+    "vendor", "scripts", "docs", "styles", ".html2epub_cache", "agents",
     "images", "_concept-figs", "downloads", ".github",
 }
 

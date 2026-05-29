@@ -423,7 +423,7 @@ A four-stage Python script `scripts/migrate_appendix_c_to_n.py` (no code, just s
 - Re-run any existing link checker (`scripts/check-internal-links.py` or similar).
 - Run `pagefind` index regeneration.
 - Confirm no broken hrefs (each href resolves to an existing file).
-- Optional: regenerate the KDP build to confirm html2pub still produces a valid EPUB.
+- Optional: regenerate the KDP build to confirm html2epub still produces a valid EPUB.
 
 ---
 
@@ -453,7 +453,7 @@ Already noted in Section C: module-06 grows to 19 sections (4x), module-21 grows
 
 ### Build pipeline risk
 
-- The `html2pub` toml config may have explicit appendix C-N references for ordering. **Mitigation**: audit `html2pub.toml` and `book_structure.yaml` as part of Stage 0.
+- The `html2epub` toml config may have explicit appendix C-N references for ordering. **Mitigation**: audit `html2epub.toml` and `book_structure.yaml` as part of Stage 0.
 
 ### Hot links from outside
 
@@ -470,7 +470,7 @@ Already noted in Section C: module-06 grows to 19 sections (4x), module-21 grows
 5. `pagefind` regenerates without error.
 6. `toc.html` reflects the new structure.
 7. `book_structure.yaml` reflects the new structure.
-8. The EPUB build (`html2pub`) succeeds end-to-end.
+8. The EPUB build (`html2epub`) succeeds end-to-end.
 
 ---
 
@@ -479,5 +479,5 @@ Already noted in Section C: module-06 grows to 19 sections (4x), module-21 grows
 - `E:/Projects/BookBlogsHome/LLMBook/book_structure.yaml`
 - `E:/Projects/BookBlogsHome/LLMBook/toc.html`
 - `E:/Projects/BookBlogsHome/LLMBook/appendices/index.html`
-- `E:/Projects/BookBlogsHome/LLMBook/html2pub.toml`
+- `E:/Projects/BookBlogsHome/LLMBook/html2epub.toml`
 - `E:/Projects/BookBlogsHome/LLMBook/part-4-training-adapting/module-21-tools-of-the-trade/index.html` (largest growth — bellwether)

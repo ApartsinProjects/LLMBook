@@ -40,7 +40,7 @@ REPO = Path("E:/Projects/BookBlogsHome/LLMBook")
 SKIP_DIRS = {
     "node_modules", ".git", "KDP", "pagefind", "temp_epub", "backup",
     "source_fix_backups", "_exercise_payloads", "agents", "templates",
-    "vendor", "scripts", "styles", ".html2pub_cache", "downloads",
+    "vendor", "scripts", "styles", ".html2epub_cache", "downloads",
 }
 
 # Concept aliases mapped to (target_id, target_path, title).
