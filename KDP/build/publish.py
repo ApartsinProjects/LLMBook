@@ -594,6 +594,8 @@ def step_optimize() -> int:
     # version REMOVES those signals and ADDS a visible title block + sets
     # linear="yes" so KDP's classifier sees a normal reflowable title page.
     # See html2kpd LESSONS.md L-COVER-REFLOW for the full diagnosis.
+    # After all patches, audit_kdp_fixed_layout_classifier.py runs as a
+    # hard gate to catch any regression that would re-trigger the rejection.
     try:
         import subprocess
         for script, label in [
@@ -617,6 +619,31 @@ def step_optimize() -> int:
                 warn(f"[kdp-fix:{label}] exit {cp.returncode}; {cp.stderr[:200]}")
     except Exception as _e:
         warn(f"kdp post-build patches failed (non-fatal): {_e}")
+
+    # Step 7e: KDP fixed-format classifier gate (added 2026-05-29 after
+    # KDP rejected an upload with "This content is a fixed format eBook").
+    # Hard gate: fails the build if ANY of the 6 known classifier triggers
+    # are present in cover.xhtml. See KDP/build/audit_kdp_fixed_layout_classifier.py
+    # for the full list.
+    try:
+        classifier_audit = BUILD_DIR / "audit_kdp_fixed_layout_classifier.py"
+        if classifier_audit.exists():
+            print(f"  [kdp-classifier-gate] running audit_kdp_fixed_layout_classifier.py")
+            cp = subprocess.run(
+                [sys.executable, str(classifier_audit), str(epub)],
+                capture_output=True, text=True,
+            )
+            for line in cp.stdout.splitlines():
+                print(f"    {line}")
+            if cp.returncode != 0:
+                fail(f"[kdp-classifier-gate] KDP would reject this EPUB as fixed-format")
+                fail(f"   Fix: re-run KDP/build/fix_cover_kdp_heuristic.py {epub}")
+                fail(f"   See html2kpd LESSONS.md L-COVER-REFLOW for the full diagnosis.")
+                return 4
+        else:
+            warn(f"[kdp-classifier-gate] audit script not found; skipping")
+    except Exception as _e:
+        warn(f"kdp classifier gate failed (non-fatal): {_e}")
 
     new_size = epub.stat().st_size
     pct = new_size / raw_size * 100
