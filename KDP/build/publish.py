@@ -587,15 +587,18 @@ def step_optimize() -> int:
     except Exception as _e:
         warn(f"kindle-css sanitizer failed (non-fatal): {_e}")
 
-    # Step 7d: KDP-specific post-build patches (all four are mandatory; see
-    # html2kpd LESSONS.md L-COVER-IMG, L-SVG-STYLE, and LESSONS #54).
-    # fix_png_to_jpeg_kdp.py is Phase 2 size-reduction (Edition 16+).
-    # Each is independently idempotent. Total runtime ~5-10 seconds.
+    # Step 7d: KDP-specific post-build patches.
+    # fix_cover_kdp_heuristic was REWRITTEN on 2026-05-29 after KDP rejected
+    # the previous version's output as "fixed format eBook" (it had set
+    # body{margin:0;padding:0} + hidden caption + linear="no"). The new
+    # version REMOVES those signals and ADDS a visible title block + sets
+    # linear="yes" so KDP's classifier sees a normal reflowable title page.
+    # See html2kpd LESSONS.md L-COVER-REFLOW for the full diagnosis.
     try:
         import subprocess
         for script, label in [
             ("fix_png_to_jpeg_kdp.py",      "png-to-jpeg"),
-            ("fix_cover_kdp_heuristic.py", "cover-heuristic"),
+            ("fix_cover_kdp_heuristic.py", "cover-reflow"),
             ("fix_cover_image_kdp.py",      "cover-image"),
             ("fix_svg_style_kdp.py",        "svg-style"),
         ]:
