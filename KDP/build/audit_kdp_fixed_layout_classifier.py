@@ -151,8 +151,15 @@ def main():
     print(f'EPUB: {args.epub}')
     findings = check_cover_for_classifier_triggers(args.epub)
 
+    # IMPORTANT (2026-05-29 revision):
+    # T2 (image-only body) and T3 (spine linear=no) are FALSE POSITIVES based
+    # on direct evidence from the May 22 -reflowable.epub (which KDP ACCEPTED).
+    # That EPUB has cover.xhtml = <body><img/></body> (image-only) AND was
+    # accepted as reflowable. So the LESSONS #54 theory was wrong: KDP WANTS
+    # image-only cover.xhtml. Only T1/T4/T5/T6 are genuine fixed-layout signals.
+    FALSE_POSITIVES = {'T2_image_only_body', 'T3_spine_linear_no'}
     hits = sum(1 for k, v in findings.items()
-               if k.startswith('T') and v is True)
+               if k.startswith('T') and v is True and k not in FALSE_POSITIVES)
     print()
     print('Cover fixed-layout classifier signal scan:')
     for key in ('T1_body_margin_zero', 'T2_image_only_body',
