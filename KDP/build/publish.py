@@ -286,6 +286,21 @@ def step_regen_spine() -> int:
 
 def step_build_epub(quick: bool) -> int:
     step("Building EPUB (html2epub)")
+    # PRE-BUILD: scrub proprietary fonts from SVG inline styles in source HTML.
+    # Without this, the epub-optimizer step (html-minifier-terser) mangles
+    # `<svg style="font-family:'Segoe UI',...,height:auto">` into broken
+    # garbage, causing KFX E06424 + E02208 cascade. Source-level fix because
+    # the corruption is unrecoverable post-optimizer. See
+    # fix_svg_inline_style_fonts.py docstring + book-skills audit plugin
+    # p0_svg_inline_style_font.py.
+    pre_fix = BUILD_DIR / "fix_svg_inline_style_fonts.py"
+    if pre_fix.exists():
+        print(f"  [pre-build] {pre_fix.name}")
+        cp = subprocess.run([PYTHON, str(pre_fix)], capture_output=True, text=True)
+        # Only show the last summary line to keep noise down
+        tail = (cp.stdout or "").strip().splitlines()[-3:]
+        for line in tail:
+            print(f"    {line}")
     # Canonical builder is the html2epub package (KDP/html2epub/), driven by html2epub.toml at the project root.
     cmd = [PYTHON, "-m", "html2epub", "build", str(PROJECT_ROOT)]
     if quick:
