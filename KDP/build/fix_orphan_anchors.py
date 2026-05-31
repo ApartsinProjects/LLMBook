@@ -85,6 +85,23 @@ def main() -> int:
             owners = id_index.get(target, [])
             owners = [o for o in owners if o != f]  # exclude self
             if not owners:
+                # SMART FALLBACK: same-file STALE-PREFIX heuristic.
+                # Section-number renumberings leave broken hrefs like
+                # `#9-5-2-unstructured-pruning` whose tail (`unstructured-pruning`)
+                # still matches an id `#9-7-2-unstructured-pruning` in the same
+                # file. Auto-find by matching trailing slug parts.
+                target_parts = target.split("-")
+                if len(target_parts) >= 3:
+                    tail_slug = "-".join(target_parts[2:])  # skip first 2 numeric parts
+                    candidates = [i for i in ids_in_this
+                                  if i.endswith("-" + tail_slug) or i == tail_slug]
+                    if len(candidates) == 1:
+                        fixes.append((anchor, f"(stale-prefix: ->#{candidates[0]})"))
+                        return f'{m.group(1)}#{candidates[0]}{m.group(3)}'
+                    elif len(candidates) > 1:
+                        report.append(f"AMBIGUOUS  {anchor}  (stale-prefix; {len(candidates)} matches "
+                                      f"by tail-slug: {candidates[:3]}...; needs manual review)")
+                        return m.group(0)
                 report.append(f"ORPHAN     {anchor}  (no source HTML file defines id={target!r})")
                 return m.group(0)
             if len(owners) > 1:
