@@ -652,6 +652,15 @@ def step_optimize() -> int:
             # (because they are generated at MATH_PNG_SCALE=3 DPI) and
             # inline equations break line flow.
             ("fix_math_png_sizing.py",       "math-png-sizing"),
+            # Aggressive image recompression on the BUILT EPUB.
+            # html2epub already runs Pillow at jpeg_quality=72 + max_side=900
+            # but Pillow uses libjpeg-turbo which is less efficient than
+            # mozjpeg at the same visual quality. This post-build pass
+            # re-encodes every JPG via sharp+mozjpeg at q=70 (visually
+            # matches Pillow q=78) and re-palette-optimizes PNGs not
+            # already optimized by rasterize_svgs_to_png. Typical savings:
+            # 2-5 MB on a 45 MB EPUB. Requires node + sharp installed.
+            ("fix_optimize_images_post.py",  "image-optimization"),
         ]:
             script_path = BUILD_DIR / script
             if not script_path.exists():
