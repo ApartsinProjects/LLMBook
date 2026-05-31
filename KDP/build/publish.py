@@ -626,6 +626,11 @@ def step_optimize() -> int:
             # warnings stand out. Source CSS is untouched (web build keeps
             # full styling).
             ("fix_kfx_epub_css.py",          "kfx-css-cleanup"),
+            # Fixes SVG <text font-size="N" font-family="Segoe UI"> attributes
+            # in Mermaid-generated diagrams that crash KFX Stage 2 with
+            # E02208 (px font-size) + E06424 (missing font). Field-tested:
+            # 8923 + 1042 occurrences fixed on a 37 MB book.
+            ("fix_kfx_svg_text_attrs.py",    "kfx-svg-text-attrs"),
         ]:
             script_path = BUILD_DIR / script
             if not script_path.exists():
