@@ -35,13 +35,24 @@ import zipfile
 from pathlib import Path
 
 
-# Properties to strip from any declaration block
+# Properties to strip from any declaration block.
+# Field-tested from KFX conversion.log warning patterns. Adding a new property
+# here zeroes-out its W00015 / W10026 occurrences for all future builds.
 STRIP_PROPS = (
+    # Sizing / box-model that KFX manages itself
     "box-sizing", "line-height",
-    "-webkit-column-break-inside", "-webkit-column-span", "-webkit-column-count",
+    # CSS columns - no Kindle support
+    "-webkit-column-break-inside", "-webkit-column-break-after",
+    "-webkit-column-break-before",
+    "-webkit-column-span", "-webkit-column-count",
     "-webkit-column-width", "-webkit-column-gap", "-webkit-column",
+    # Print-only - irrelevant for digital reading
     "-webkit-print-color-adjust", "print-color-adjust",
+    # Table/caption styling KFX rejects
     "caption-side",
+    # CSS float: KFX strips it anyway for reflowable books (W11007 trigger
+    # when on <table>). Safe to drop globally.
+    "float",
 )
 
 # Match a single CSS declaration like `prop: value;` or `prop:value` (no semi at end)
