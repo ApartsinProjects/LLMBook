@@ -31,19 +31,35 @@ import zipfile
 from pathlib import Path
 
 
-# Fonts that are Windows-only or otherwise unlikely to be bundled in any EPUB.
-# Mapped to a safe generic that KFX accepts.
+# Fonts unlikely to be present in the EPUB bundle. KFX (Kindle Format X)
+# erroring with E06424 ("Required font files not present") fires when any
+# font-family token does not resolve to either a generic name or a bundled
+# @font-face declaration, EVEN IF the list has a generic fallback last. We
+# therefore strip every non-bundled named font from font-family lists.
+#
+# Map: proprietary name -> safe generic substitute. If a list collapses to
+# nothing after stripping, normalize_family() falls back to the substitute
+# of the FIRST original item.
 PROPRIETARY_FONTS_MAP = {
+    # Windows-only / desktop-default fonts
     "Segoe UI":        "sans-serif",
     "Segoe Print":     "sans-serif",
     "Consolas":        "monospace",
-    "Courier New":     "monospace",
-    "Cambria":         "serif",
-    "Cambria Math":    "serif",
     "Calibri":         "sans-serif",
     "Trebuchet MS":    "sans-serif",
     "Lucida Console":  "monospace",
     "MS Gothic":       "sans-serif",
+    "Cambria":         "serif",
+    "Cambria Math":    "serif",
+    # Cross-platform system fonts (commonly listed as CSS fallbacks)
+    "Helvetica":       "sans-serif",
+    "Helvetica Neue":  "sans-serif",
+    "Arial":           "sans-serif",
+    "Georgia":         "serif",
+    "Times New Roman": "serif",
+    "Courier":         "monospace",
+    "Courier New":     "monospace",
+    "Liberation Mono": "monospace",
 }
 
 # Match `font-size="<NUMBER>"` or `font-size="<NUMBER>px"`
@@ -61,10 +77,17 @@ FONT_FAMILY_ATTR_RE = re.compile(
     r'(font-family=)(["\'])([^"\']+)(["\'])',
     re.IGNORECASE,
 )
-# Match `font-family: X, Y, Z` inside CSS declarations (rule body OR inline style)
+# Match `font-family: X, Y, Z` inside CSS declarations (rule body OR inline style).
 # Captures the FULL family list value so we can scan it for proprietary names.
+#
+# Terminators are `;` (declaration end), `}` (rule end), `>` (attribute end in
+# inline style="..." within a tag), or `!` (start of `!important`). Quotes
+# (single and double) are INTENTIONALLY allowed inside the capture because real
+# CSS values look like `font-family: 'Segoe UI', system-ui, sans-serif` and an
+# earlier regex that excluded quotes silently skipped every quoted proprietary
+# name (5348 Segoe UI / 1265 Cambria Math / 14753 Helvetica slipped through).
 FONT_FAMILY_CSS_RE = re.compile(
-    r'(font-family\s*:\s*)([^;}\n"\'>]+)',
+    r'(font-family\s*:\s*)([^;}>!]+)',
     re.IGNORECASE,
 )
 
