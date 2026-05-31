@@ -56,21 +56,36 @@ FONT_SIZE_STYLE_RE = re.compile(
     r'(font-size\s*:\s*)(\d+(?:\.\d+)?)\s*px',
     re.IGNORECASE,
 )
-# Match `font-family="X"` where X is a proprietary font
+# Match `font-family="X"` (SVG attribute form) where X is a font list
 FONT_FAMILY_ATTR_RE = re.compile(
     r'(font-family=)(["\'])([^"\']+)(["\'])',
+    re.IGNORECASE,
+)
+# Match `font-family: X, Y, Z` inside CSS declarations (rule body OR inline style)
+# Captures the FULL family list value so we can scan it for proprietary names.
+FONT_FAMILY_CSS_RE = re.compile(
+    r'(font-family\s*:\s*)([^;}\n"\'>]+)',
     re.IGNORECASE,
 )
 
 
 def normalize_family(value: str) -> str | None:
-    """If the first font in a family list is proprietary, swap to safe generic.
-    Returns the replacement string OR None if no change needed."""
-    # Take just the first family name (before any comma)
-    first = value.split(",")[0].strip().strip("'\"").strip()
-    if first in PROPRIETARY_FONTS_MAP:
-        return PROPRIETARY_FONTS_MAP[first]
-    return None
+    """Rewrite font-family list to remove proprietary fonts.
+
+    Scans ALL items in the comma-separated list (not just the first), drops
+    any proprietary entries, and returns the cleaned list. If the cleaned
+    list is empty, falls back to the proprietary-to-generic mapping of the
+    first item. Returns None if no change is needed.
+    """
+    items = [s.strip().strip("'\"").strip() for s in value.split(",")]
+    items = [s for s in items if s]
+    cleaned = [s for s in items if s not in PROPRIETARY_FONTS_MAP]
+    if cleaned == items:
+        return None  # nothing proprietary; leave alone
+    if not cleaned:
+        # all items were proprietary; map first item via the substitution table
+        cleaned = [PROPRIETARY_FONTS_MAP.get(items[0], "sans-serif")]
+    return ", ".join(cleaned)
 
 
 def patch_xhtml(text: str) -> tuple[str, int, int, int]:
@@ -105,6 +120,17 @@ def patch_xhtml(text: str) -> tuple[str, int, int, int]:
         return f'{m.group(1)}{m.group(2)}{repl}{m.group(4)}'
     text = FONT_FAMILY_ATTR_RE.sub(replace_ff, text)
 
+    # Also fix CSS-form font-family in inline style attributes + stylesheets
+    def replace_ff_css(m: re.Match) -> str:
+        nonlocal ff_attr
+        value = m.group(2)
+        repl = normalize_family(value)
+        if repl is None:
+            return m.group(0)
+        ff_attr += 1
+        return f'{m.group(1)}{repl}'
+    text = FONT_FAMILY_CSS_RE.sub(replace_ff_css, text)
+
     return text, fs_attr, fs_style, ff_attr
 
 
@@ -117,7 +143,7 @@ def patch_epub(epub_path: Path) -> dict:
          zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zout:
         for info in zin.infolist():
             data = zin.read(info.filename)
-            if info.filename.lower().endswith((".xhtml", ".html", ".svg")):
+            if info.filename.lower().endswith((".xhtml", ".html", ".svg", ".css")):
                 stats["files_scanned"] += 1
                 text = data.decode("utf-8", errors="replace")
                 new_text, n1, n2, n3 = patch_xhtml(text)
