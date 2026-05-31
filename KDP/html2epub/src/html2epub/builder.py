@@ -324,6 +324,25 @@ def build(cfg: Config) -> Path:
     book.add_metadata(None, "meta", "auto",
                       {"property": "rendition:spread"})
 
+    # KFX emits W10025 "primary-writing-mode and page-progression-direction
+    # attributes not available in OPF" if these are absent. Setting them
+    # explicitly silences the warning.
+    #
+    # CORRECT EPUB 3 syntax (NOT a bare meta property=):
+    #   * `page-progression-direction` is a SPINE ATTRIBUTE
+    #     (set below in spine generation), NOT a meta property.
+    #   * `primary-writing-mode` requires the `rendition:` namespace prefix
+    #     declared at the package level.
+    # Setting them as bare `<meta property="page-progression-direction">`
+    # triggers OPF-027 "Undefined property" because EPUB 3 has no such
+    # bare meta property.
+    #
+    # For now we leave both absent and accept the W10025 cosmetic warning
+    # rather than risk OPF-027 failures. Future improvement: inject
+    # `page-progression-direction="ltr"` as a real spine attribute via
+    # post-build OPF patch (ebooklib does not expose spine attrs).
+    ppd = getattr(cfg.book, "page_progression_direction", None) or "ltr"  # used by future spine-patch
+
     # Cover
     if cfg.cover.path:
         cover_path = (cfg.project_root / cfg.cover.path).resolve()

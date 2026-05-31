@@ -157,9 +157,16 @@ def patch(epub_path: Path) -> dict:
                 # scrub, then restore. Without this, the second-pass corrupts
                 # the OPF metadata into invalid property names like
                 # `rendition:wide` and EPUBCheck OPF-027 fails.
+                #
+                # 2026-05-31 BUG FIX: previous sentinels (`__EPUBSPEC_RENDITION_SPREAD__`)
+                # were themselves wrecked by the keyword scrub because the case-insensitive
+                # `_lb('spread')` pattern matches `SPREAD` between underscore boundaries,
+                # turning the sentinel into `__EPUBSPEC_RENDITION_wide__` and leaving
+                # it unrestored. New sentinels use a digit-substituted opaque token that
+                # contains NONE of the FXL keywords, so the scrub leaves it alone.
                 EPUB_SPEC_SENTINEL_SWAPS = {
-                    'rendition:spread':       '__EPUBSPEC_RENDITION_SPREAD__',
-                    'rendition:page-spread-': '__EPUBSPEC_PAGE_SPREAD_',
+                    'rendition:spread':       '__X9KPV_R3ND_SP9D_X9__',
+                    'rendition:page-spread-': '__X9KPV_R3ND_PG_SP9D_',
                 }
                 for needle, sentinel in EPUB_SPEC_SENTINEL_SWAPS.items():
                     text = text.replace(needle, sentinel)

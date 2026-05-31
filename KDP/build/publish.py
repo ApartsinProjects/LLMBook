@@ -218,10 +218,17 @@ def find_epubcheck_install() -> tuple[Path, Path] | None:
         if not d.exists():
             continue
         # Find epubcheck-*/epubcheck.jar
-        ec_jars = sorted(d.glob("epubcheck-*/epubcheck.jar")) + sorted(d.glob("epubcheck.jar"))
-        if not ec_jars:
+        # IMPORTANT: pick the NEWEST version (sorted() returns ascending,
+        # so 'epubcheck-5.2.1' precedes 'epubcheck-5.3.0'; use [-1] for newest).
+        # A bare epubcheck.jar in the dir root is treated as fallback (oldest).
+        ec_versioned = sorted(d.glob("epubcheck-*/epubcheck.jar"))
+        ec_bare = sorted(d.glob("epubcheck.jar"))
+        if ec_versioned:
+            ec_jar = ec_versioned[-1]  # newest version wins
+        elif ec_bare:
+            ec_jar = ec_bare[-1]
+        else:
             continue
-        ec_jar = ec_jars[0]
 
         # Find bundled JDK / JRE
         java_candidates = (
@@ -614,6 +621,11 @@ def step_optimize() -> int:
             ("fix_cover_image_kdp.py",      "cover-image"),
             ("fix_svg_style_kdp.py",        "svg-style"),
             ("fix_opf_strip_rendition.py", "opf-strip-rendition"),
+            # Strips KFX-ignored CSS (W00015 / W10023 / W11007 noise). Slims
+            # the KFX conversion log from ~70 MB to ~1 MB, letting real
+            # warnings stand out. Source CSS is untouched (web build keeps
+            # full styling).
+            ("fix_kfx_epub_css.py",          "kfx-css-cleanup"),
         ]:
             script_path = BUILD_DIR / script
             if not script_path.exists():
@@ -874,6 +886,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--no-kpv", action="store_true",
                    help="Skip the Kindle Previewer KFX conversion + qualitychecks gate "
                         "(headless; stricter than epubcheck; ~2-4 min). Auto-skipped in --quick.")
+    p.add_argument("--kpv", action="store_true",
+                   help="(LEGACY no-op) KPV gate is now default-on again. "
+                        "If KPV fails with 'Failed to ProcessEpub' / 'Failed to create temp directory', "
+                        "launch the GUI ('Kindle Previewer 3.exe') once interactively to initialize "
+                        "per-user state, then retry the build.")
     p.add_argument("--no-audit", action="store_true",
                    help="Skip the deep EPUB quality audit (scripts/audit_epub_quality.py).")
     args = p.parse_args(argv)
@@ -958,6 +975,14 @@ def main(argv: list[str] | None = None) -> int:
     # EPUBCheck and catches Kindle-only failures (E21018, E25001, ...). Runs on
     # the FINAL (optimized) EPUB. Slow (~2-4 min); auto-skipped in --quick (not
     # for submission) and skippable via --no-kpv.
+    #
+    # RE-ENABLED 2026-05-30 (default-on again):
+    # Earlier this day KPV3 CLI was failing with "Failed to ProcessEpub" + "Failed
+    # to create temp directory" on every conversion. Root cause turned out to be:
+    # KPV3 CLI mode silently requires that the GUI has been launched at least once
+    # per user profile to initialize per-user state. After running the GUI even
+    # for a few seconds, CLI conversions succeed normally. If you ever hit the
+    # same error chain again, just launch the GUI manually and retry.
     if not args.no_kpv and not args.quick:
         kpv_epub = OUTPUT_DIR / "building-conversational-ai-llms-agents.epub"
         if kpv_epub.exists():
@@ -972,6 +997,19 @@ def main(argv: list[str] | None = None) -> int:
         rc = step_archive_edition()
         if rc != 0:
             final_rc = rc
+
+    # Make a uniquely-named upload copy under KDP/output/uploads/. Every
+    # build gets a fresh filename (timestamp + git short SHA + size MB) so
+    # KDP cannot return a cached verdict on the previous upload. The
+    # canonical EPUB is left untouched. Cheap (single file copy).
+    if not args.validate_only:
+        upload_script = BUILD_DIR / "make_upload_copy.py"
+        canonical = OUTPUT_DIR / "building-conversational-ai-llms-agents.epub"
+        if upload_script.exists() and canonical.exists():
+            step("Stage upload copy with unique filename")
+            rc_u, out_u = run([PYTHON, str(upload_script), str(canonical)])
+            for line in out_u.splitlines():
+                print(f"  {line}")
 
     # Regenerate sample chapter PDF for landing page (cheap; ~5s)
     if not args.no_sample_pdf:
