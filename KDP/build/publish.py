@@ -1090,6 +1090,30 @@ def step_archive_edition() -> int:
     shutil.copy2(src, dest)
     sz = dest.stat().st_size
     ok(f"{dest.relative_to(PROJECT_ROOT)} ({sz / 1024 / 1024:.2f} MB)")
+
+    # Additionally: snapshot every build with a timestamp + short git hash so
+    # successive builds (even within one edition) never share a filename. This
+    # is what KDP expects on re-upload — the same filename can be cached/skipped
+    # by the upload UI, and it makes it impossible to diff two builds locally.
+    try:
+        from datetime import datetime
+        import subprocess as _sp
+        # YYYYMMDD-HHMM timestamp, no seconds (sortable, human-readable)
+        # Use file mtime not wall-clock for determinism
+        ts = datetime.fromtimestamp(src.stat().st_mtime).strftime("%Y%m%d-%H%M")
+        try:
+            git_hash = _sp.run(["git", "rev-parse", "--short=8", "HEAD"],
+                              capture_output=True, text=True, cwd=str(PROJECT_ROOT),
+                              timeout=10).stdout.strip()
+        except Exception:
+            git_hash = "nogit"
+        versioned_dir = OUTPUT_DIR / "editions" / label / "builds"
+        versioned_dir.mkdir(parents=True, exist_ok=True)
+        versioned = versioned_dir / f"building-conversational-ai-llms-agents-{label}-{ts}-{git_hash}.epub"
+        shutil.copy2(src, versioned)
+        ok(f"  versioned snapshot: {versioned.relative_to(PROJECT_ROOT)}")
+    except Exception as _e:
+        warn(f"  versioned snapshot failed (non-fatal): {_e}")
     return 0
 
 
