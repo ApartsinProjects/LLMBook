@@ -631,6 +631,12 @@ def step_optimize() -> int:
             # E02208 (px font-size) + E06424 (missing font). Field-tested:
             # 8923 + 1042 occurrences fixed on a 37 MB book.
             ("fix_kfx_svg_text_attrs.py",    "kfx-svg-text-attrs"),
+            # Adds explicit width/height HTML attrs to <img class="math-png-
+            # inline/display"> tags so the reader sizes them correctly.
+            # Without this, math PNGs render at 3x natural pixel size
+            # (because they are generated at MATH_PNG_SCALE=3 DPI) and
+            # inline equations break line flow.
+            ("fix_math_png_sizing.py",       "math-png-sizing"),
         ]:
             script_path = BUILD_DIR / script
             if not script_path.exists():
