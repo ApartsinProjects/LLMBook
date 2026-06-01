@@ -77,7 +77,12 @@ rl.on('close', async () => {
     beforeTotal += before;
     try {
       const input = fs.readFileSync(op.path);
-      let pipeline = sharp(input);
+      // keepIccProfile() preserves the ICC color profile through re-encode.
+      // Critical for cover.jpg (KDP requires sRGB-tagged cover); also good
+      // hygiene for any photo JPGs that may carry sRGB or Display-P3 tags.
+      // Without this, sharp strips ALL metadata by default and KDP rejects
+      // the upload with "There was a problem processing your file".
+      let pipeline = sharp(input).keepIccProfile();
       let outBuf;
       if (op.type === 'cover') {
         outBuf = await pipeline.jpeg({ quality: __COVER_QUALITY__,
