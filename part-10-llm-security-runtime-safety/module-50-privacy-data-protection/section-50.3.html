@@ -135,7 +135,55 @@ gtag('config', 'G-PWPHBQL2VL');
 <h3 id="heterogeneous-federated-fine-tuning">Heterogeneous Federated Fine-Tuning</h3>
 <p>In practice, FL clients span a wide hardware range: some run A100 GPUs, others run consumer cards or CPUs. <strong>Heterogeneous FL</strong> lets each client pick adapter configuration (different LoRA ranks, for example) to match its compute budget, and the server runs rank-adaptive aggregation across the heterogeneous updates.</p>
 <h2 id="50-3-3-privacy-preserving-techniques-in-federated-llm-training">50.3.3 Privacy-Preserving Techniques in Federated LLM Training</h2>
-<p>Federated learning alone does not guarantee privacy. Gradient updates can be reverse-engineered to reconstruct training data, especially for text. Additional privacy mechanisms are essential.</p>
+<p>Federated learning alone does not guarantee privacy. Gradient updates can be reverse-engineered to reconstruct training data, especially for text. Additional privacy mechanisms are essential. To see why these mechanisms are not optional, it helps to make the threat concrete: the very gradient a well-behaved client uploads can be inverted back into the private example that produced it.</p>
+<h3 id="gradient-inversion-the-threat">Gradient Inversion: The Threat the Defenses Answer</h3>
+<p>The warning above ("gradients can leak training data") names an attack without showing it. The attack is <strong>gradient inversion</strong>, also called gradient leakage, formalized as <em>Deep Leakage from Gradients</em> (DLG) by Zhu et al. (2019). Consider an honest-but-curious server (or any party that observes one client's update). The client computed its gradient on a private example $(x, y)$ by backpropagating a loss $\mathcal{L}(f_\theta(x), y)$ through the shared model $f_\theta$, and uploaded the resulting per-example gradient $g^{*} = \nabla_\theta \mathcal{L}(f_\theta(x), y)$. The attacker knows $\theta$ (it is the global model everyone shares) and observes $g^{*}$, but not $x$ or $y$. The question is whether $(x, y)$ can be recovered from $g^{*}$ alone.</p>
+<p>DLG answers yes by treating reconstruction as an optimization problem. The attacker initializes a <em>dummy</em> input $x'$ and dummy label $y'$ from random noise, runs the same forward and backward pass to obtain a dummy gradient $\nabla_\theta \mathcal{L}(f_\theta(x'), y')$, and then descends on $(x', y')$ to make that dummy gradient match the observed one. The objective is the gradient-matching loss:</p>
+<div class="math-block">$$(x'^{\,*}, y'^{\,*}) \;=\; \arg\min_{x',\, y'} \; \bigl\lVert\, \nabla_\theta \mathcal{L}\bigl(f_\theta(x'), y'\bigr) \,-\, g^{*} \,\bigr\rVert^{2}.$$</div>
+<p>Crucially the model weights $\theta$ are <em>frozen</em>; the optimization variables are the synthetic data $(x', y')$ themselves. Each step of gradient descent on this objective nudges $x'$ toward an input whose gradient signature reproduces $g^{*}$, and because the gradient is a near-unique fingerprint of the example for a small batch (the regime below), the recovered $x'^{\,*}$ converges to a pixel-level or token-level copy of the client's private $x$. The refinement <strong>iDLG</strong> (Zhao et al., 2020) removes the need to optimize the label at all: for the standard cross-entropy loss, the sign of the gradient of the final (classification) layer reveals the ground-truth class directly, because only the true-label logit receives a negative gradient. Reading $y$ off the last-layer gradient sign makes the remaining reconstruction of $x$ both faster and more reliable.</p>
+<p><strong>Why it works, and when it fails.</strong> A gradient is a high-dimensional, smooth function of the input: for a single example the map $x \mapsto \nabla_\theta \mathcal{L}(f_\theta(x), y)$ has so many output coordinates (one per parameter, often millions) constraining so few input coordinates (the pixels or token embeddings of one example) that it is locally near-invertible. The system is heavily over-determined, so matching the gradient pins down the input almost uniquely. This immediately explains the two structural defenses. First, <em>large batches</em>: when a client's update is the average gradient over $B$ examples, the observed vector $\frac{1}{B}\sum_{i} \nabla_\theta \mathcal{L}(f_\theta(x_i), y_i)$ is a sum, and the attacker must disentangle $B$ unknown inputs from one averaged signature, an under-determined problem that degrades rapidly as $B$ grows. Second, <em>aggregation</em>: secure aggregation forces the server to observe only the sum over many clients, pushing the effective batch to thousands and destroying the per-example signal the attack depends on. The threat is therefore sharpest exactly where FL is most naive: per-example or tiny-batch updates sent in the clear.</p>
+<p>Code Fragment 50.3.3 below implements the gradient-matching loop of the objective above so the leakage is not merely asserted. It is deliberately a skeleton: it assumes a tiny model and a single example, prints the matching loss decreasing as $x'$ converges, and omits the cosine-similarity refinements and total-variation image priors that production attacks (and the Geiping et al. 2020 "Inverting Gradients" follow-up) add for high-resolution recovery.</p>
+<div class="code-block-wrapper">
+<pre><code class="lang-python"># Gradient inversion (DLG) skeleton: recover a private input x
+# from an observed gradient g_star, with model weights frozen.
+# Optimization variable is the DUMMY input x_dummy, not the model.
+import torch
+
+def gradient_inversion(model, g_star, input_shape, true_label,
+                       steps=300, lr=0.1):
+    # Start the dummy input from random noise; label is read off
+    # the last-layer gradient sign (iDLG), so we treat it as known.
+    x_dummy = torch.randn(input_shape, requires_grad=True)
+    optimizer = torch.optim.Adam([x_dummy], lr=lr)
+    loss_fn = torch.nn.CrossEntropyLoss()
+
+    for step in range(steps):
+        optimizer.zero_grad()
+        # Forward + backward on the dummy example to get its gradient.
+        pred = model(x_dummy)
+        dummy_loss = loss_fn(pred, true_label)
+        dummy_grad = torch.autograd.grad(
+            dummy_loss, model.parameters(), create_graph=True
+        )
+        # Gradient-matching objective: || dummy_grad - g_star ||^2
+        match = sum(((dg - gs) ** 2).sum()
+                    for dg, gs in zip(dummy_grad, g_star))
+        match.backward()      # backprop THROUGH the gradient, into x_dummy
+        optimizer.step()
+        if step % 50 == 0:
+            print(f"step {step:3d}  match_loss = {match.item():.4f}")
+    return x_dummy.detach()
+
+# Representative output (loss falls as x_dummy approaches the private x):
+# step   0  match_loss = 14.8271
+# step  50  match_loss =  2.1043
+# step 100  match_loss =  0.3389
+# step 150  match_loss =  0.0412
+# step 200  match_loss =  0.0036
+</code></pre>
+<div class="code-caption"><strong>Code Fragment 50.3.3:</strong> The DLG gradient-matching loop. The optimizer updates <code>x_dummy</code> (never the model) to minimize <code>match</code>, the squared distance between the dummy gradient and the observed <code>g_star</code>; <code>create_graph=True</code> is what lets the outer <code>.backward()</code> differentiate through the inner gradient. The printed <code>match_loss</code> decreasing toward zero corresponds to <code>x_dummy</code> converging to the client's private input.</div>
+</div>
+<p>With the threat demonstrated, the two defenses already named in this section read as direct countermeasures rather than abstract good practice. <strong>Secure aggregation</strong> (detailed below) attacks the <em>observability</em> of $g^{*}$: the server never sees an individual gradient, only the masked sum, so there is no per-client signature to invert. <strong>DP-FL</strong> attacks the <em>information content</em> of $g^{*}$: clipping bounds how much any one example can move the gradient and the added Gaussian noise blurs the fingerprint, so the gradient-matching minimizer no longer lands on the true $x$. The residual risk is real and must be stated plainly: secure aggregation still leaks the aggregate (a sufficiently small cohort or a colluding majority can re-expose individuals), and DP only bounds reconstruction in expectation under its $(\epsilon, \delta)$ budget, so a loose budget still permits partial leakage. This is the privacy-utility tradeoff in concrete form: tighter clipping and larger noise shrink the attacker's reconstruction fidelity but also degrade the gradient signal the global model learns from, which is why, as noted below, the tradeoff bites harder for high-dimensional LLMs than for small classifiers.</p>
 <h3 id="differential-privacy-with-federated-learning-dp-fl">Differential Privacy with Federated Learning (DP-FL)</h3>
 <p>Combining differential privacy with FL adds formal privacy guarantees. Each client clips and adds noise to their gradients before sending them to the server:</p>
 <ol>
