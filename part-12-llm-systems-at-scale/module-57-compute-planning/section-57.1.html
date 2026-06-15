@@ -20,6 +20,15 @@ gtag('config', 'G-PWPHBQL2VL');
 <script defer="" src="../../scripts/book.js"></script>
 <link href="../../pagefind/pagefind-ui.css" rel="stylesheet"/>
 <script defer="" src="../../pagefind/pagefind-ui.js"></script>
+<link href="../../vendor/katex/katex.min.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/katex/katex.min.js"></script>
+<script defer="" onload="renderMathInElement(document.body, {
+ delimiters: [
+ {left: '$$', right: '$$', display: true},
+ {left: '$', right: '$', display: false}
+ ],
+ throwOnError: false
+ });" src="../../vendor/katex/contrib/auto-render.min.js"></script>
 </head>
 <body>
 <a class="skip-link" href="section-57.1.html#main-content">Skip to main content</a>
@@ -118,8 +127,65 @@ gtag('config', 'G-PWPHBQL2VL');
 <div class="callout-subtitle">reserve capacity in 30-day chunks, not in one-year contracts</div>
 <p>Frontier-model providers offer aggressive discounts (30-60%) for reserved capacity commitments. The tempting move is to sign a one-year contract for cost certainty. The smarter move in 2026 is 30-day commits: model prices have dropped 50%+ year-over-year for the cheap tier (Gemini Flash, GPT-mini, Claude Haiku), and locking in last year's prices for a year is rarely the right bet. Most providers allow monthly commits without a multi-year contract.</p>
 </div>
-<h2 id="57-1-5-what-comes-next">57.1.5 What comes next</h2>
-<p>Section 57.2 takes up the sizing math itself: given a model, a target latency, and a target QPS, how many GPUs do you actually need? Sections 46.3 and 46.4 cover the cloud-provider comparison and the breakeven analysis between API and self-hosting that closes Chapter 57.</p>
+<h2 id="57-1-5-a-worked-sizing-derivation">57.1.5 A worked sizing derivation: from model to GPU count</h2>
+<p>The vocabulary above turns a model into a hardware shopping list only once we can answer the operative question: how many GPUs does a given model at a given traffic level actually need? Section 57.2 develops the full Pareto treatment, but the section would leave the reader stranded if it deferred every number. Here we derive a self-contained estimate from four inputs (model shape, GPU memory, a decode-latency target, and a target QPS) and plug in concrete numbers for one tier so the reader can reproduce the arithmetic.</p>
+<p>The derivation has four steps. The first is the per-request memory footprint of the KV cache, which is what actually limits how many requests share a GPU. We reuse the part's KV-cache formula (the same one used for the 70B sizing in <a href="section-57.4.html">Section 57.4</a> and Exercise 27.14.3): for a context of $T$ tokens,</p>
+<p>$$\text{KV}_{\text{req}} = 2 \cdot L \cdot H_{kv} \cdot d_{\text{head}} \cdot T \cdot b$$</p>
+<p>where $L$ is the number of layers, $H_{kv}$ the number of key/value heads (under grouped-query attention this is smaller than the number of attention heads), $d_{\text{head}}$ the per-head dimension, $b$ the bytes per element (2 for fp16/bf16), and the leading factor of 2 counts the separate key and value tensors. The second step converts the GPU's free memory into a concurrency ceiling: after the weights are resident, the remaining memory divided by the per-request KV cost gives the maximum number of requests that can be in flight at once,</p>
+<p>$$N_{\text{concurrent}} = \left\lfloor \frac{M_{\text{gpu}} - M_{\text{weights}}}{\text{KV}_{\text{req}}} \right\rfloor .$$</p>
+<p>The third step turns concurrency into throughput. During autoregressive decode the server emits one token per request per forward pass, and a continuous-batching engine like vLLM runs a batch of $B \le N_{\text{concurrent}}$ requests through each pass in time $t_{\text{step}}$ (the per-token decode latency, memory-bandwidth bound, as established in <a href="../../part-2-understanding-llms/module-09-inference-optimization/index.html">Chapter 9</a>). A request that emits $G$ output tokens therefore occupies a batch slot for $G \cdot t_{\text{step}}$ seconds, and the per-GPU request throughput is</p>
+<p>$$\lambda_{\text{gpu}} = \frac{B}{G \cdot t_{\text{step}}} .$$</p>
+<p>The fourth step divides the target traffic by per-GPU throughput and adds headroom, because a GPU planned to 100% utilization has no slack for the long-context tail (Section 57.1.4) or for traffic bursts. With a utilization target $u$ (a headroom factor; $u = 0.7$ leaves 30% slack),</p>
+<p>$$N_{\text{gpu}} = \left\lceil \frac{\text{QPS}_{\text{target}}}{u \cdot \lambda_{\text{gpu}}} \right\rceil .$$</p>
+<p>Consider one concrete tier: an 8B model (Llama-3.1-8B: $L = 32$ layers, $H_{kv} = 8$ KV heads under GQA, $d_{\text{head}} = 128$) served in bf16 on a single 80 GB H100, at a context of $T = 8{,}000$ tokens, with $G = 256$ output tokens per request and a target of 50 QPS. The weights take $8 \times 10^9 \cdot 2 = 16$ GB. The per-request KV cache is</p>
+<p>$$\text{KV}_{\text{req}} = 2 \cdot 32 \cdot 8 \cdot 128 \cdot 8000 \cdot 2 = 1.05 \times 10^9 \ \text{bytes} \approx 0.98 \ \text{GB} .$$</p>
+<p>The free memory after weights is $80 - 16 = 64$ GB, so $N_{\text{concurrent}} = \lfloor 64 / 0.98 \rfloor = 65$ requests. Suppose the engine runs a steady decode batch of $B = 48$ (below the ceiling, leaving room for prefill and fragmentation) at a per-token decode latency of $t_{\text{step}} = 18$ ms, a representative bandwidth-bound figure for an 8B model on an H100. Then each request, emitting 256 tokens, holds its slot for $256 \cdot 0.018 = 4.6$ s, and</p>
+<p>$$\lambda_{\text{gpu}} = \frac{48}{256 \cdot 0.018} = \frac{48}{4.6} \approx 10.4 \ \text{req/s} .$$</p>
+<p>At a utilization target of $u = 0.7$, one H100 sustains $0.7 \cdot 10.4 \approx 7.3$ QPS of usable throughput, so the fleet needs</p>
+<p>$$N_{\text{gpu}} = \left\lceil \frac{50}{7.3} \right\rceil = \lceil 6.85 \rceil = 7 \ \text{H100s} .$$</p>
+<p>Seven GPUs for 50 QPS of an 8B model at 8K context: the number is dominated by the decode-latency term, not the memory term (the memory ceiling of 65 concurrent requests is never the binding constraint here, because the batch the latency budget allows is far smaller). That is the typical regime for short-to-medium contexts, and it is why <a href="section-57.4.html">Section 57.4</a> spends its effort on batching and KV-cache reuse rather than on raw memory. The relationship inverts at very long context, where $\text{KV}_{\text{req}}$ grows linearly in $T$ and the concurrency ceiling becomes binding.</p>
+<p>Code Fragment 1 packages this derivation as a runnable sizing function so the reader can vary the model shape, context length, and latency target and watch the GPU count move.</p>
+<div class="code-block-wrapper">
+<pre><code class="language-python"># GPU sizing estimate for online LLM serving.
+# Chains the four steps from the derivation above:
+# KV-cache per request -> concurrency ceiling -> per-GPU throughput -> fleet size.
+import math
+
+def gpus_needed(
+    params: float,        # model parameter count, e.g. 8e9
+    layers: int,          # transformer layers L
+    kv_heads: int,        # key/value heads H_kv (GQA-aware)
+    head_dim: int,        # per-head dimension d_head
+    context: int,         # context length T in tokens
+    out_tokens: int,      # generated tokens per request G
+    gpu_mem_gb: float,    # GPU memory budget M_gpu
+    decode_ms: float,     # per-token decode latency t_step in ms
+    batch: int,           # steady decode batch B
+    target_qps: float,    # target queries per second
+    bytes_per_param: int = 2,  # bf16 weights
+    util: float = 0.7,    # headroom factor u
+) -> int:
+    weights_gb = params * bytes_per_param / 1e9
+    kv_req_gb = 2 * layers * kv_heads * head_dim * context * 2 / 1e9
+    free_gb = gpu_mem_gb - weights_gb
+    n_concurrent = math.floor(free_gb / kv_req_gb)
+    eff_batch = min(batch, n_concurrent)  # cannot batch past the memory ceiling
+    per_request_s = out_tokens * decode_ms / 1000
+    lambda_gpu = eff_batch / per_request_s  # requests per second per GPU
+    return math.ceil(target_qps / (util * lambda_gpu))
+
+n = gpus_needed(
+    params=8e9, layers=32, kv_heads=8, head_dim=128,
+    context=8000, out_tokens=256, gpu_mem_gb=80,
+    decode_ms=18, batch=48, target_qps=50,
+)
+print(f"GPUs needed: {n}")</code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> GPUs needed: 7
+</div>
+<div class="code-caption"><strong>Code Fragment 1:</strong> A self-contained sizing estimate for the 8B-on-H100 tier worked above. The function chains the four derivation steps and returns 7 for the stated inputs; lowering <code>decode_ms</code> or raising <code>batch</code> drops the count, while raising <code>context</code> eventually makes the memory ceiling (<code>n_concurrent</code>) the binding term. It is a planning estimate, not a load test: <a href="section-57.2.html">Section 57.2</a> refines it with prefill cost, the latency-throughput Pareto frontier, and measured per-token latency curves.</div>
+</div>
+<h2 id="57-1-6-what-comes-next">57.1.6 What comes next</h2>
+<p>Section 57.2 takes up the sizing math itself in full: given a model, a target latency, and a target QPS, how many GPUs do you actually need once prefill cost and the latency-throughput frontier are accounted for? Sections 46.3 and 46.4 cover the cloud-provider comparison and the breakeven analysis between API and self-hosting that closes Chapter 57.</p>
 <div class="callout whats-next">
 <div class="callout-title">What's Next</div>
 <p>Sizing starts with planning, but the next operational question is how to integrate the compute plan with the rest of your enterprise: data flow, identity, change management. Continue to <a href="section-57.2.html">Section 57.2: Enterprise Integration Patterns for LLM Systems</a>.</p>
