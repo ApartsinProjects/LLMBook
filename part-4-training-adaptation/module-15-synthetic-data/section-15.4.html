@@ -17,6 +17,15 @@ gtag('config', 'G-PWPHBQL2VL');
 <title>Section 15.4: LLM-Assisted Labeling &amp; Active Learning</title>
 <link href="../../styles/book.css" rel="stylesheet"/>
 <link href="../../styles/pygments.css" rel="stylesheet"/>
+<link href="../../vendor/katex/katex.min.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/katex/katex.min.js"></script>
+<script defer="" onload="renderMathInElement(document.body, {
+            delimiters: [
+                {left: '$$', right: '$$', display: true},
+                {left: '$', right: '$', display: false}
+            ],
+            throwOnError: false
+        });" src="../../vendor/katex/contrib/auto-render.min.js"></script>
 <link href="../../vendor/prism/prism-theme.css" rel="stylesheet"/>
 <script defer="" src="../../vendor/prism/prism-bundle.min.js"></script>
 <script defer="" src="../../scripts/book.js"></script>
@@ -244,6 +253,60 @@ Hybrid captures both uncertain AND diverse examples
 <div class="callout note">
 <div class="callout-title">Note</div>
 <p>The low overlap between uncertainty and diversity sampling (3 out of 50) demonstrates that these strategies target fundamentally different types of informative examples. Uncertainty sampling finds examples near decision boundaries, while diversity sampling finds examples in unexplored regions of the input space. The hybrid approach captures value from both, making it the recommended default for most practical applications.</p>
+</div>
+<h3 id="15-4-1-2-acquisition-functions-and-stopping">15.4.1.2 The Acquisition Function and a Stopping Criterion</h3>
+<p>The code above selects examples by entropy, but to reproduce an active-learning loop you need the scoring rule stated precisely and a rule for when to stop. The problem is concrete: at every round you hold a pool of unlabeled examples and a fixed human-labeling budget, and you must decide <em>which</em> examples to send for annotation and <em>when</em> further annotation stops paying for itself. An <strong>acquisition function</strong> assigns each candidate a scalar informativeness score, and you label the top-k by that score.</p>
+<p>The acquisition function used here is <strong>predictive entropy</strong>. Given the model's class-probability vector $p = (p_1, \dots, p_C)$ for an example, the entropy is</p>
+<div class="math-block">$$H(p) \;=\; -\sum_{c=1}^{C} p_c \,\log p_c .$$</div>
+<p>Entropy peaks when the distribution is uniform ($p_c = 1/C$ for all $c$, giving $H = \log C$) and falls to $0$ when one class has all the mass. Maximizing $H(p)$ therefore selects the examples on which the current model is most undecided, which are exactly the examples sitting near its decision boundaries. Two cheaper alternatives target the same intuition: <strong>least-confidence</strong> scores $1 - \max_c p_c$, and <strong>margin</strong> scores $-(p_{(1)} - p_{(2)})$ using the gap between the top two class probabilities. We use entropy because it accounts for the full distribution rather than just the top one or two classes, which matters when $C$ is larger than a handful. The Bayesian upgrade, <strong>BALD</strong>, scores the mutual information between an example's prediction and the model posterior, $I(y; \theta \mid x)$, isolating <em>epistemic</em> uncertainty (what the model does not know) from <em>aleatoric</em> noise (genuine label ambiguity that no amount of labeling will resolve).</p>
+<p>The intuition is that a high-entropy example carries the most information per label because resolving it moves the decision boundary the most; labeling an example the model is already certain about teaches it almost nothing. Two failure modes follow directly. In the <strong>cold-start</strong> regime the model is untrained, so its probabilities are near-uniform everywhere and entropy ranks examples almost at random; seed the loop with a small random or diversity-sampled batch first. And pure uncertainty sampling is drawn to <strong>outliers and mislabeled noise</strong>, which are uncertain for the wrong reason, so pairing entropy with the diversity term from <strong>Code Fragment 15.4.2d</strong> guards against spending the budget on unrepresentative points.</p>
+<p>A loop that never stops wastes budget, so we need a quantitative halting rule. A simple and robust <strong>stopping criterion</strong> watches the acquisition scores themselves: stop when the mean entropy of the selected top-k batch falls below a threshold $\tau$,</p>
+<div class="math-block">$$\frac{1}{k}\sum_{i \in \text{top-}k} H(p_i) \;\lt\; \tau ,$$</div>
+<p>because once even the most uncertain remaining examples are confidently predicted, there is little left to learn. In practice $\tau$ is set as a fraction of the maximum possible entropy (for example $\tau = 0.25 \log C$). An alternative ties the stop to downstream value rather than to the pool: halt when the validation-accuracy gain per labeled batch drops below a tolerance $\epsilon$, since paying for labels that no longer move the metric is wasted effort.</p>
+<p><strong>Code Fragment 15.4.5</strong> below makes the rule reproducible. Given a matrix of class probabilities it computes per-example entropy, selects the top-k by score, and reports both the chosen indices and the stopping check against $\tau$. It uses only NumPy so the arithmetic of the formula above is visible end to end.</p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># Entropy acquisition for active learning: score each example by</span>
+<span class="c1"># predictive entropy, pick the top-k most uncertain, and apply a</span>
+<span class="c1"># mean-entropy stopping rule. Pure NumPy so the formula is explicit.</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">predictive_entropy</span><span class="p">(</span><span class="n">probs</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""H(p) = -sum_c p_c log p_c, computed per row (per example)."""</span>
+    <span class="c1"># 1e-12 floor avoids log(0); abstaining rows would be handled upstream</span>
+    <span class="k">return</span> <span class="o">-</span><span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">probs</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">probs</span> <span class="o">+</span> <span class="mf">1e-12</span><span class="p">),</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">select_to_label</span><span class="p">(</span><span class="n">probs</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">k</span><span class="p">:</span> <span class="nb">int</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">"""Return the indices of the k highest-entropy examples and the</span>
+<span class="sd">    mean entropy of that batch (the quantity the stop rule watches)."""</span>
+    <span class="n">scores</span> <span class="o">=</span> <span class="n">predictive_entropy</span><span class="p">(</span><span class="n">probs</span><span class="p">)</span>
+    <span class="c1"># argsort ascending, take the last k -> the most uncertain</span>
+    <span class="n">topk</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">argsort</span><span class="p">(</span><span class="n">scores</span><span class="p">)[</span><span class="o">-</span><span class="n">k</span><span class="p">:][::</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+    <span class="k">return</span> <span class="n">topk</span><span class="p">,</span> <span class="nb">float</span><span class="p">(</span><span class="n">scores</span><span class="p">[</span><span class="n">topk</span><span class="p">]</span><span class="o">.</span><span class="n">mean</span><span class="p">())</span>
+
+<span class="c1"># Five examples over three classes, from confident to maximally uncertain</span>
+<span class="n">probs</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span>
+    <span class="p">[</span><span class="mf">0.90</span><span class="p">,</span> <span class="mf">0.05</span><span class="p">,</span> <span class="mf">0.05</span><span class="p">],</span>  <span class="c1"># confident</span>
+    <span class="p">[</span><span class="mf">0.34</span><span class="p">,</span> <span class="mf">0.33</span><span class="p">,</span> <span class="mf">0.33</span><span class="p">],</span>  <span class="c1"># near-uniform, high entropy</span>
+    <span class="p">[</span><span class="mf">0.70</span><span class="p">,</span> <span class="mf">0.20</span><span class="p">,</span> <span class="mf">0.10</span><span class="p">],</span>
+    <span class="p">[</span><span class="mf">0.45</span><span class="p">,</span> <span class="mf">0.45</span><span class="p">,</span> <span class="mf">0.10</span><span class="p">],</span>  <span class="c1"># two-way tie, high entropy</span>
+    <span class="p">[</span><span class="mf">0.98</span><span class="p">,</span> <span class="mf">0.01</span><span class="p">,</span> <span class="mf">0.01</span><span class="p">],</span>  <span class="c1"># very confident</span>
+<span class="p">])</span>
+
+<span class="n">k</span> <span class="o">=</span> <span class="mi">2</span>
+<span class="n">selected</span><span class="p">,</span> <span class="n">batch_mean_H</span> <span class="o">=</span> <span class="n">select_to_label</span><span class="p">(</span><span class="n">probs</span><span class="p">,</span> <span class="n">k</span><span class="p">)</span>
+<span class="n">tau</span> <span class="o">=</span> <span class="mf">0.25</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">probs</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>  <span class="c1"># 0.25 * log(C)</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Per-example entropy: </span><span class="si">{</span><span class="n">np</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">predictive_entropy</span><span class="p">(</span><span class="n">probs</span><span class="p">),</span> <span class="mi">3</span><span class="p">)</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Selected to label (top-</span><span class="si">{</span><span class="n">k</span><span class="si">}</span><span class="s2">): </span><span class="si">{</span><span class="n">selected</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Batch mean entropy: </span><span class="si">{</span><span class="n">batch_mean_H</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">  threshold tau: </span><span class="si">{</span><span class="n">tau</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Stop? </span><span class="si">{</span><span class="n">batch_mean_H</span> <span class="o">&lt;</span> <span class="n">tau</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span>
+Per-example entropy: [0.394 1.099 0.802 0.949 0.112]
+Selected to label (top-2): [1, 3]
+Batch mean entropy: 1.024  threshold tau: 0.275
+Stop? False
+</div>
+<div class="code-caption"><strong>Code Fragment 15.4.5:</strong> Entropy acquisition with a stopping rule. <code>predictive_entropy</code> applies $H(p) = -\sum_c p_c \log p_c$ row-wise, <code>select_to_label</code> returns the top-k indices (here examples 1 and 3, the near-uniform and tied rows), and the batch mean entropy of 1.024 stays above the threshold $\tau = 0.25\log C \approx 0.275$, so the loop continues rather than stopping.</div>
 </div>
 <h2 id="15-4-2-annotation-tools">15.4.2 Annotation Tools</h2>
 <p>Production annotation workflows require purpose-built tools that support team management, quality control, pre-labeling integration, and export in standard formats compatible with <a href="../module-16-fine-tuning-fundamentals/section-16.2.html">fine-tuning data preparation pipelines</a>. The three leading tools for NLP annotation each serve different needs.</p>

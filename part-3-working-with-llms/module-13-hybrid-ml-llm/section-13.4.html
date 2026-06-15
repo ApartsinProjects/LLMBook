@@ -17,6 +17,15 @@ gtag('config', 'G-PWPHBQL2VL');
 <title>Section 13.4: Cost-Performance Optimization at Scale</title>
 <link href="../../styles/book.css" rel="stylesheet"/>
 <link href="../../styles/pygments.css" rel="stylesheet"/>
+<link href="../../vendor/katex/katex.min.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/katex/katex.min.js"></script>
+<script defer="" onload="renderMathInElement(document.body, {
+ delimiters: [
+ {left: '$$', right: '$$', display: true},
+ {left: '$', right: '$', display: false}
+ ],
+ throwOnError: false
+ });" src="../../vendor/katex/contrib/auto-render.min.js"></script>
 <link href="../../vendor/prism/prism-theme.css" rel="stylesheet"/>
 <script defer="" src="../../vendor/prism/prism-bundle.min.js"></script>
 <script defer="" src="../../scripts/book.js"></script>
@@ -258,10 +267,65 @@ Pareto-optimal configs: 6 / 10
 <p>Notice that the hybrid router (BERT + GPT-4o) appears on the Pareto frontier at <span>&#36;</span>0.002/query with 93% accuracy. It achieves the same accuracy as GPT-4o zero-shot at one-fifth the cost. This is precisely the kind of efficiency gain that hybrid architectures deliver (see <a href="section-13.3.html">Section 13.3</a>). Also notice that "Bad prompt (GPT-4o-mini)" is dominated: it costs more than DistilBERT but achieves lower accuracy.</p>
 </div>
 <p><strong>Why Pareto analysis matters for production decisions.</strong> Without a systematic framework, teams optimize in isolation: one person reduces prompt length, another switches to a cheaper model, and a third adds caching. These optimizations can conflict: a shorter prompt might degrade quality enough to make caching less effective, or switching to a cheaper model might increase error rates enough to require more expensive human review. Pareto analysis forces you to evaluate each configuration holistically across all dimensions (cost, quality, latency), so you can identify which changes actually improve the system and which merely trade one problem for another. This systematic approach connects directly to the ROI frameworks covered in Chapter 31.</p>
+<h3 id="13-4-2-2-a-worked-frontier-and-dominance-test">13.4.2.2 A Worked Frontier and the Dominance Test</h3>
+<p>The full benchmark above mixes ten configurations, which obscures the underlying logic. To see exactly why some tiers survive and others do not, reduce the problem to four candidate tiers evaluated on the <em>same</em> held-out classification set, where each tier reports an accuracy $a_i$ and a per-query cost $c_i$. Configuration $j$ <strong>dominates</strong> configuration $i$ when it is at least as good on every axis and strictly better on at least one:</p>
+<p>$$ j \succ i \iff a_j \ge a_i \;\text{ and }\; c_j \le c_i \;\text{ with at least one strict.} $$</p>
+<p>Here $a_j \ge a_i$ reads "tier $j$ is no less accurate" and $c_j \le c_i$ reads "tier $j$ costs no more". A configuration is Pareto-optimal precisely when no other configuration dominates it. Table 13.4.2g applies this test to four tiers.</p>
+<div class="comparison-table">
+<div class="comparison-table-title"><strong>Table 13.4.2g</strong>: <em>Four model tiers on one shared eval, with dominance verdict.</em></div>
+<table>
+<thead>
+<tr><th scope="col">Tier</th><th scope="col">Accuracy $a_i$</th><th scope="col">Cost/query $c_i$</th><th scope="col">Verdict</th></tr>
+</thead>
+<tr><td>Small (DistilBERT)</td><td>0.84</td><td><span>&#36;</span>0.0003</td><td>Pareto-optimal (cheapest)</td></tr>
+<tr><td>Mid (GPT-4o-mini)</td><td>0.88</td><td><span>&#36;</span>0.0030</td><td>Pareto-optimal</td></tr>
+<tr><td>Mid-verbose (bad prompt)</td><td>0.81</td><td><span>&#36;</span>0.0035</td><td>Dominated by Small and Mid</td></tr>
+<tr><td>Frontier (GPT-4o)</td><td>0.93</td><td><span>&#36;</span>0.0100</td><td>Pareto-optimal (most accurate)</td></tr>
+</table>
+</div>
+<p>Sweep the tiers in order of increasing cost and track the best accuracy seen so far. Small sets the bar at 0.84. Mid raises it to 0.88, so Mid survives. Mid-verbose costs more than Mid yet scores only 0.81, below the running maximum, so a strictly cheaper-and-better tier already exists and Mid-verbose is dominated; it never belongs in production. Frontier costs the most but pushes accuracy to 0.93, so it survives as the high-quality anchor. The frontier is therefore the staircase Small to Mid to Frontier; the dominated tier sits strictly inside it. This is the same monotone-staircase logic that <strong>Code Fragment 13.4.2d</strong> implements over the larger ten-tier benchmark.</p>
+<h3 id="13-4-2-3-the-two-tier-cascade-break-even">13.4.2.3 The Two-Tier Cascade Break-Even</h3>
+<p>Knowing the frontier tells you which single tier to pick, but a cascade can beat any single tier by combining them. Send every query to the cheap tier first; escalate only the fraction the cheap tier cannot handle confidently to the expensive tier. The question this section's TCO calculator left implicit is now sharp: at what escalation rate does the cascade stop being cheaper than simply always calling the expensive model? Let $c_{\text{cheap}}$ and $c_{\text{exp}}$ be the per-query costs of the two tiers and let $p$ be the escalation rate, the fraction of queries forwarded to the expensive tier. Because the cheap tier runs on every query and the expensive tier runs only on the escalated fraction, the blended cost per query is:</p>
+<p>$$ c_{\text{blended}}(p) = c_{\text{cheap}} + p \cdot c_{\text{exp}}. $$</p>
+<p>The first term $c_{\text{cheap}}$ is the unavoidable cost of screening every query; the second term $p \cdot c_{\text{exp}}$ is the expected expensive-tier cost, since only a fraction $p$ of queries reach it. The cascade beats the always-expensive baseline whenever $c_{\text{blended}}(p) < c_{\text{exp}}$. Solving for $p$:</p>
+<p>$$ c_{\text{cheap}} + p \cdot c_{\text{exp}} < c_{\text{exp}} \;\;\Longrightarrow\;\; p < p^{\star} = 1 - \frac{c_{\text{cheap}}}{c_{\text{exp}}}. $$</p>
+<p>The break-even escalation rate $p^{\star} = 1 - c_{\text{cheap}}/c_{\text{exp}}$ has a clean reading: it is one minus the cost ratio of the two tiers. The cheaper the screening tier relative to the expensive tier, the more queries you can afford to escalate before the cascade loses its edge. Plugging in the frontier numbers from Table 13.4.2g with the Mid tier as the cheap screen ($c_{\text{cheap}} = \$0.003$) and Frontier as the expensive tier ($c_{\text{exp}} = \$0.010$), the break-even rate is $p^{\star} = 1 - 0.003/0.010 = 0.70$. As long as fewer than 70% of queries escalate, the two-tier cascade is strictly cheaper than always calling the frontier model. At a realistic 30% escalation rate the blended cost is $0.003 + 0.30 \times 0.010 = \$0.006$ per query, a 40% saving against the <span>&#36;</span>0.010 frontier baseline, while the escalated 30% still receive frontier-quality answers. <strong>Code Fragment 13.4.2e</strong> computes both the blended cost and the break-even rate directly from the tier numbers.</p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># Two-tier cascade economics: blended cost and break-even escalation rate.</span>
+<span class="c1"># Every query pays the cheap tier; only an escalated fraction p pays the expensive tier.</span>
+<span class="c1"># The cascade beats always-expensive while p stays below p_star = 1 - c_cheap / c_exp.</span>
+<span class="n">c_cheap</span> <span class="o">=</span> <span class="mf">0.003</span>   <span class="c1"># Mid tier (GPT-4o-mini) per-query cost, runs on every query</span>
+<span class="n">c_exp</span> <span class="o">=</span> <span class="mf">0.010</span>     <span class="c1"># Frontier tier (GPT-4o) per-query cost, runs only when escalated</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">blended_cost</span><span class="p">(</span><span class="n">p</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+    <span class="k">return</span> <span class="n">c_cheap</span> <span class="o">+</span> <span class="n">p</span> <span class="o">*</span> <span class="n">c_exp</span>
+
+<span class="n">p_star</span> <span class="o">=</span> <span class="mi">1</span> <span class="o">-</span> <span class="n">c_cheap</span> <span class="o">/</span> <span class="n">c_exp</span>           <span class="c1"># escalation rate where cascade ties always-expensive</span>
+<span class="n">p_actual</span> <span class="o">=</span> <span class="mf">0.30</span>                       <span class="c1"># observed escalation rate from routing logs</span>
+<span class="n">saving</span> <span class="o">=</span> <span class="mi">1</span> <span class="o">-</span> <span class="n">blended_cost</span><span class="p">(</span><span class="n">p_actual</span><span class="p">)</span> <span class="o">/</span> <span class="n">c_exp</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Break-even escalation rate p*: </span><span class="si">{</span><span class="n">p_star</span><span class="si">:</span><span class="s2">.0%</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Blended cost at p=</span><span class="si">{</span><span class="n">p_actual</span><span class="si">:</span><span class="s2">.0%</span><span class="si">}</span><span class="s2">: $</span><span class="si">{</span><span class="n">blended_cost</span><span class="p">(</span><span class="n">p_actual</span><span class="p">)</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2"> per query"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Always-frontier cost: $</span><span class="si">{</span><span class="n">c_exp</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2"> per query"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Saving vs. always-frontier at p=</span><span class="si">{</span><span class="n">p_actual</span><span class="si">:</span><span class="s2">.0%</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">saving</span><span class="si">:</span><span class="s2">.0%</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span>
+Break-even escalation rate p*: 70%
+Blended cost at p=30%: <span>&#36;</span>0.0060 per query
+Always-frontier cost: <span>&#36;</span>0.0100 per query
+Saving vs. always-frontier at p=30%: 40%
+
+
+</div>
+<div class="code-caption"><strong>Code Fragment 13.4.2e:</strong> The <code>blended_cost</code> function encodes $c_{\text{cheap}} + p \cdot c_{\text{exp}}$, and <code>p_star</code> evaluates the break-even rate $1 - c_{\text{cheap}}/c_{\text{exp}}$ for the Mid and Frontier tiers of Table 13.4.2g. At the observed 30% escalation rate the cascade costs <span>&#36;</span>0.006/query, a 40% saving against the always-frontier baseline, and the cascade stays cheaper for any escalation rate below 70%.</div>
+</div>
+<div class="callout key-insight">
+<div class="callout-title">Key Insight</div>
+<p>The break-even rule $p^{\star} = 1 - c_{\text{cheap}}/c_{\text{exp}}$ is what makes routing worthwhile: a cascade is only a saving when the screening tier is much cheaper than the tier it gates and when the escalation rate stays well below $p^{\star}$. If the cheap tier escalates almost everything, you pay for it twice and would have been better off calling the expensive model directly. This is the quantitative backbone of the complexity-based router in Section 13.4.4.</p>
+</div>
 <h2 id="13-4-3-token-optimization-strategies">13.4.3 Token Optimization Strategies</h2>
 <p>Token costs scale linearly with usage, so every token saved across millions of queries adds up fast. The three main strategies are: reduce the tokens sent per request (prompt compression), avoid sending duplicate requests (caching), and amortize overhead across multiple items (batching).</p>
 <h3 id="13-4-3-1-prompt-compression">13.4.3.1 Prompt Compression</h3>
-<p>Many prompts carry redundant context, verbose instructions, or formatting that inflates token count without improving output quality. Systematic compression can cut input tokens by 30-60% with minimal quality loss. <strong>Code Fragment 13.4.2e</strong> shows this approach in practice.</p>
+<p>Many prompts carry redundant context, verbose instructions, or formatting that inflates token count without improving output quality. Systematic compression can cut input tokens by 30-60% with minimal quality loss. <strong>Code Fragment 13.4.3</strong> shows this approach in practice.</p>
 <div class="code-block-wrapper">
 <pre><code class="pygments-highlighted lang-python"><span class="c1"># Estimate token usage and API cost for different model configurations</span>
 <span class="c1"># Token counting enables accurate cost projections before running at scale</span>

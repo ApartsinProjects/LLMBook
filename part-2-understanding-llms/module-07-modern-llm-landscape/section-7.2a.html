@@ -83,6 +83,47 @@ gtag('config', 'G-PWPHBQL2VL');
 <li><strong>Context window implementation:</strong> The jump from 8K to 128K to 1M contexts suggests different underlying attention mechanisms, likely including some form of sparse attention, sliding window, or hierarchical attention for the longest contexts.</li>
 <li><strong>Post-training pipeline:</strong> Anthropic has published details about Constitutional AI. OpenAI has discussed RLHF. Google has described RLAIF (RL from AI Feedback). Each approach produces measurably different model behaviors in terms of safety, helpfulness, and stylistic tendencies.</li>
 </ul>
+<h3 id="a-worked-inference-moe-active-fraction">A Worked Inference: Estimating an MoE's Active Fraction from the Outside</h3>
+<p>The list above asserts what can be inferred; this subsection turns one of those assertions into a repeatable method, so that "architectural inference" becomes a skill you can apply to any newly released API rather than a claim you take on trust. The target is the most consequential hidden number in a mixture-of-experts model: the ratio of <em>active</em> parameters (the experts actually run per token) to <em>total</em> parameters (the full weight count that must be held in memory). Two observable signals pull in opposite directions and let us bracket it.</p>
+<p>The mechanism is this. Autoregressive decode is memory-bandwidth bound: each generated token must read the active weights from GPU memory once, so per-token decode latency scales with <em>active</em> parameters, not total. Price per token, by contrast, must amortize the full served system, including the HBM that holds <em>all</em> experts plus the operator's margin, so price tends to track <em>total</em> capacity. If we have a dense reference model whose active-equals-total parameter count and per-token economics we trust, we can use its latency-per-active-parameter as a yardstick and read the MoE's active count off its measured decode speed. Formally, let <span class="math">$t$</span> be steady-state decode latency per output token and <span class="math">$P_{\text{act}}$</span> the active parameter count. Memory-bound decode gives</p>
+<div class="math-block">
+$$t \;\approx\; \frac{2\,P_{\text{act}}\,b}{B_{\text{mem}}},$$
+</div>
+<p>where <span class="math">$b$</span> is bytes per parameter (1 for FP8, 2 for BF16), <span class="math">$B_{\text{mem}}$</span> is the effective memory bandwidth in bytes per second, and the factor 2 counts one multiply-add pair per weight. Bandwidth and precision are hard to know exactly, so rather than solve for <span class="math">$B_{\text{mem}}$</span> we calibrate it away with a dense reference model of known size: <span class="math">$P_{\text{act}}^{\text{MoE}} \approx P^{\text{ref}} \cdot (t_{\text{MoE}} / t_{\text{ref}})$</span>. The snippet below carries this through with plausible mid-2026 numbers.</p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-python"><span class="c1"># Estimate an MoE model's active-vs-total parameter ratio from the outside,</span>
+<span class="c1"># using only observable decode latency and price, calibrated against a dense</span>
+<span class="c1"># reference model whose size we trust. No vendor disclosures required.</span>
+
+<span class="c1"># --- Observable signals (illustrative mid-2026 numbers) ---</span>
+<span class="n">ref_active_B</span> <span class="o">=</span> <span class="mf">70.0</span>      <span class="c1"># dense reference: 70B params, all active</span>
+<span class="n">ref_latency_ms</span> <span class="o">=</span> <span class="mf">14.0</span>   <span class="c1"># measured per-output-token decode latency</span>
+<span class="n">moe_latency_ms</span> <span class="o">=</span> <span class="mf">7.0</span>    <span class="c1"># measured decode latency for the MoE under test</span>
+<span class="n">moe_price_ratio</span> <span class="o">=</span> <span class="mf">3.0</span>   <span class="c1"># MoE output-token price / reference price</span>
+
+<span class="c1"># --- Inference 1: active params scale with decode latency (memory-bound) ---</span>
+<span class="n">moe_active_B</span> <span class="o">=</span> <span class="n">ref_active_B</span> <span class="o">*</span> <span class="p">(</span><span class="n">moe_latency_ms</span> <span class="o">/</span> <span class="n">ref_latency_ms</span><span class="p">)</span>
+
+<span class="c1"># --- Inference 2: price tracks total served capacity (HBM + margin) ---</span>
+<span class="c1"># Treat price ratio as a proxy for total-param ratio vs the reference.</span>
+<span class="n">moe_total_B</span> <span class="o">=</span> <span class="n">ref_active_B</span> <span class="o">*</span> <span class="n">moe_price_ratio</span>
+
+<span class="n">active_fraction</span> <span class="o">=</span> <span class="n">moe_active_B</span> <span class="o">/</span> <span class="n">moe_total_B</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Estimated active params:  ~</span><span class="si">{</span><span class="n">moe_active_B</span><span class="si">:</span><span class="s2">.0f</span><span class="si">}</span><span class="s2">B"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Estimated total params:   ~</span><span class="si">{</span><span class="n">moe_total_B</span><span class="si">:</span><span class="s2">.0f</span><span class="si">}</span><span class="s2">B"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Active fraction:          ~</span><span class="si">{</span><span class="mi">100</span><span class="o">*</span><span class="n">active_fraction</span><span class="si">:</span><span class="s2">.0f</span><span class="si">}</span><span class="s2">%"</span><span class="p">)</span>
+
+<span class="c1"># --- Error bars: propagate +/-20% uncertainty on each measured ratio ---</span>
+<span class="n">lo</span> <span class="o">=</span> <span class="p">(</span><span class="n">moe_active_B</span> <span class="o">*</span> <span class="mf">0.8</span><span class="p">)</span> <span class="o">/</span> <span class="p">(</span><span class="n">moe_total_B</span> <span class="o">*</span> <span class="mf">1.2</span><span class="p">)</span>
+<span class="n">hi</span> <span class="o">=</span> <span class="p">(</span><span class="n">moe_active_B</span> <span class="o">*</span> <span class="mf">1.2</span><span class="p">)</span> <span class="o">/</span> <span class="p">(</span><span class="n">moe_total_B</span> <span class="o">*</span> <span class="mf">0.8</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Active fraction range:    ~</span><span class="si">{</span><span class="mi">100</span><span class="o">*</span><span class="n">lo</span><span class="si">:</span><span class="s2">.0f</span><span class="si">}</span><span class="s2">% to ~</span><span class="si">{</span><span class="mi">100</span><span class="o">*</span><span class="n">hi</span><span class="si">:</span><span class="s2">.0f</span><span class="si">}</span><span class="s2">%"</span><span class="p">)</span></code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span> Estimated active params:  ~35B
+Estimated total params:   ~210B
+Active fraction:          ~17%
+Active fraction range:    ~11% to ~25%</div>
+<div class="code-caption"><strong>Code Fragment 7.2a.2:</strong> Bracketing an MoE model's active-vs-total parameter ratio from observable decode latency and price alone. Inference 1 reads active params off decode speed (memory-bound, so latency scales with active weights); Inference 2 reads total capacity off price (which amortizes all experts in HBM). The result, roughly 35B active out of 210B total, lands in the 11 to 25 percent band typical of production MoE designs.</div>
+</div>
+<p>The assumptions are worth naming because they are where the estimate can break. We assume decode is memory-bound (true for single-stream generation, less so for large-batch serving where compute dominates), that the reference model runs on comparable hardware and precision (otherwise <span class="math">$B_{\text{mem}}$</span> does not cancel cleanly), and that price reflects cost rather than strategic discounting (a vendor subsidizing a launch breaks Inference 2). The +/-20 percent error bars on each measured ratio compound into a roughly 11 to 25 percent active-fraction band, wide enough that you should treat the point estimate as an order-of-magnitude read, not a spec sheet. The skill transfers: the same calibrate-against-a-known-reference move lets you infer KV-cache footprint from context-length pricing breaks, or quantization level from a latency drop that is too large to be a model change. Architectural inference is not guesswork; it is dimensional analysis against signals the provider cannot hide.</p>
 <div class="code-block-wrapper">
 <pre><code class="pygments-highlighted lang-python"><span class="c1"># Inspecting tokenizer behavior across providers</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">tiktoken</span>

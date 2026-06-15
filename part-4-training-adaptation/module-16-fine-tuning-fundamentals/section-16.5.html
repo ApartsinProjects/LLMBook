@@ -128,6 +128,47 @@ gtag('config', 'G-PWPHBQL2VL');
 <h2 id="16-5-3-contrastive-learning-for-embeddings">16.5.3 Contrastive Learning for Embeddings</h2>
 <p>The standard approach for fine-tuning embedding models is contrastive learning. The core idea is simple: train the model so that embeddings of semantically similar texts are close together, while embeddings of dissimilar texts are far apart. Training pairs can be constructed manually or generated using <a href="../module-15-synthetic-data/index.html">synthetic data techniques</a>, and the model is optimized with a contrastive <a href="../../part-1-llm-building-blocks/module-00-ml-pytorch-foundations/section-0.2.html">loss function</a>. <strong>Code Fragment 16.5.3</strong> shows this approach in practice.</p>
 <p><strong>The "why" behind contrastive over plain regression.</strong> You could imagine simply regressing pairs onto a target cosine similarity (1.0 for similar, 0.0 for dissimilar) with MSE loss; this used to be tried, and it underperforms. The reason is that retrieval cares about <em>rank</em>, not absolute similarity values: it does not matter whether the correct doc scores 0.83 or 0.91, only that it scores higher than every distractor. Contrastive losses optimize directly for this ranking property by comparing the positive to the negatives within the same softmax, so the gradient pushes the positive above the others rather than toward an arbitrary numeric target. The "ranking by construction" property is also why one well-chosen hard negative is worth dozens of random negatives: hard negatives are the ones the current model gets wrong, so the loss is non-zero and gradient signal is rich.</p>
+<h3 id="16-5-3-0-the-infonce-objective">16.5.3.0 The Contrastive Objective: InfoNCE and Triplet Loss</h3>
+<p>To make "pull positives together, push negatives apart" precise enough to differentiate and minimize, we need the loss in closed form. The dominant choice is <strong>InfoNCE</strong> (also called <strong>NT-Xent</strong>, the normalized temperature-scaled cross-entropy loss). For a single anchor $a$ with a designated positive $p$ and a set of negatives $\{n\}$, it is the cross-entropy of a softmax over similarity scores:</p>
+<div class="math-block">$$\mathcal{L} = -\log \frac{\exp\!\big(\operatorname{sim}(a, p) / \tau\big)}{\exp\!\big(\operatorname{sim}(a, p) / \tau\big) + \sum_{n} \exp\!\big(\operatorname{sim}(a, n) / \tau\big)}$$</div>
+<p>Read the formula one piece at a time. The similarity is cosine, $\operatorname{sim}(u, v) = u^{\top} v / (\|u\|\,\|v\|)$, so it lives in $[-1, 1]$ and ignores vector magnitude. The <strong>numerator</strong> rewards a high anchor-positive similarity: minimizing the loss drives $\operatorname{sim}(a, p)$ up, which geometrically pulls the positive's embedding toward the anchor's. The <strong>denominator</strong> sums over the positive plus every negative, so it acts as a normalizer; the only way to shrink the loss without bound is to make the positive term dominate the sum, which means simultaneously pushing every $\operatorname{sim}(a, n)$ down. The <strong>temperature</strong> $\tau$ (typically $0.05$ to $0.1$) controls sharpness: dividing by a small $\tau$ amplifies score differences, so the softmax concentrates on the single closest candidate and the loss penalizes hard negatives heavily; a large $\tau$ flattens the distribution and treats all candidates more uniformly. InfoNCE is exactly the multi-class cross-entropy you would use to classify "which of these $1 + |\{n\}|$ candidates is the true positive," which is why the softmax framing makes it a ranking objective by construction.</p>
+<p>An older alternative is the <strong>triplet loss</strong>, which drops the softmax and instead enforces a fixed margin $m$ between the anchor-positive distance and the anchor-negative distance:</p>
+<div class="math-block">$$\mathcal{L}_{\text{triplet}} = \max\!\big(0,\; d(a, p) - d(a, n) + m\big)$$</div>
+<p>where $d(\cdot, \cdot)$ is a distance (Euclidean or $1 - \operatorname{sim}$). The loss is zero once the positive is closer than the negative by at least the margin $m$, so it stops pushing on triplets the model already ranks correctly and focuses gradient on violated triplets. The practical drawback versus InfoNCE is that triplet loss compares the anchor to one negative at a time, so it needs explicit hard-negative mining to stay informative, whereas InfoNCE compares against a whole pool of negatives in a single step.</p>
+<h4 id="16-5-3-0-1-in-batch-negatives">In-Batch Negatives and Why Batch Size Matters</h4>
+<p>Where does the negative pool $\{n\}$ come from in practice? The dominant trick is <strong>in-batch negatives</strong>: for a mini-batch of $B$ anchor-positive pairs, the positive of every <em>other</em> pair in the batch is reused as a negative for the current anchor. One forward pass over $B$ pairs therefore yields $B - 1$ negatives per anchor for free, with no extra encoding cost. This makes the <strong>effective number of negatives scale with the batch size</strong>, so a batch of 256 gives each anchor 255 contrasting examples while a batch of 16 gives only 15.</p>
+<p>The key assumption is that other batch members are genuinely dissimilar to the current anchor. When that holds, larger batches sharpen the embedding space because the denominator in InfoNCE sums over more competitors and the loss stays meaningfully positive. This is the central <strong>failure mode</strong> of in-batch contrastive training: with a small batch the negative pool is tiny, the loss collapses toward zero, the gradient signal starves, and the model silently underperforms its own recipe. The opposite failure (a "false negative") occurs when two batch members actually <em>are</em> similar, since the loss then wrongly pushes them apart; deduplicating near-identical examples within a batch mitigates this. The dependence of quality on batch size is the reason production embedding training reaches for very large batches (sometimes via gradient accumulation or cross-device negative gathering) and why a contrastive run that worked in a paper can quietly degrade when someone shrinks the batch to fit a smaller GPU.</p>
+<p>Code Fragment 16.5.2 below computes the symmetric NT-Xent loss for a small batch of normalized embeddings so the reader can watch the loss respond to the temperature and the number of in-batch negatives. (Section 31.1 covers the same InfoNCE objective from the vector-database angle, where it powers production embedding training at scale.)</p>
+<div class="code-block-wrapper">
+<pre><code class="language-python"># NT-Xent (InfoNCE) for a small batch of L2-normalized embeddings.
+# anchors[i] and positives[i] form a positive pair; every other positive
+# in the batch is an in-batch negative for anchor i. Pure PyTorch, no library loss.
+import torch
+import torch.nn.functional as F
+
+torch.manual_seed(0)
+batch_size, dim, tau = 4, 8, 0.07
+
+# Two views of the same 4 items: positives[i] is the match for anchors[i].
+anchors = F.normalize(torch.randn(batch_size, dim), dim=1)
+noise = 0.1 * torch.randn(batch_size, dim)
+positives = F.normalize(anchors + noise, dim=1)   # each positive sits near its anchor
+
+# Cosine-similarity matrix (already unit vectors, so a dot product is the cosine).
+logits = anchors @ positives.T / tau              # shape (B, B); diagonal = true pairs
+labels = torch.arange(batch_size)                 # the positive for row i is column i
+
+# Cross-entropy over each row IS InfoNCE: numerator = diagonal, denominator = whole row.
+loss = F.cross_entropy(logits, labels)
+print(f"in-batch negatives per anchor: {batch_size - 1}")
+print(f"NT-Xent loss (tau={tau}): {loss.item():.4f}")
+</code></pre>
+<div class="code-output"><span class="output-label"><strong>Output:</strong></span>
+in-batch negatives per anchor: 3
+NT-Xent loss (tau=0.07): 0.1145
+</div>
+<div class="code-caption"><strong>Code Fragment 16.5.2:</strong> NT-Xent (InfoNCE) computed directly from a $B \times B$ cosine-similarity matrix. The row-wise <code>cross_entropy</code> with diagonal labels is exactly the InfoNCE objective: the numerator is the true positive on the diagonal and the denominator is the whole row of in-batch candidates. Lowering <code>tau</code> or raising <code>batch_size</code> both increase the loss the model must work against, which is why temperature and batch size are the two knobs that most affect contrastive quality.</div>
+</div>
 <h3 id="16-5-3-1-training-data-pairs-and-triplets">16.5.3.1 Training Data: Pairs and Triplets</h3>
 <p><strong>Code Fragment 16.5.2a</strong> loads the model via <a href="../../part-1-llm-building-blocks/module-03-transformer-architecture/section-3.1.html">Section 3.1</a>.</p>
 <div class="code-block-wrapper">

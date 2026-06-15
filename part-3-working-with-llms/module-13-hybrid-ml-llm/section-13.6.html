@@ -17,6 +17,15 @@ gtag('config', 'G-PWPHBQL2VL');
 <title>Section 13.6: Quality Filtering and Data Mixing Strategies</title>
 <link href="../../styles/book.css" rel="stylesheet"/>
 <link href="../../styles/pygments.css" rel="stylesheet"/>
+<link href="../../vendor/katex/katex.min.css" rel="stylesheet"/>
+<script defer="" src="../../vendor/katex/katex.min.js"></script>
+<script defer="" onload="renderMathInElement(document.body, {
+ delimiters: [
+ {left: '$$', right: '$$', display: true},
+ {left: '$', right: '$', display: false}
+ ],
+ throwOnError: false
+ });" src="../../vendor/katex/contrib/auto-render.min.js"></script>
 <link href="../../vendor/prism/prism-theme.css" rel="stylesheet"/>
 <script defer="" src="../../vendor/prism/prism-bundle.min.js"></script>
 <script defer="" src="../../scripts/book.js"></script>
@@ -36,8 +45,8 @@ gtag('config', 'G-PWPHBQL2VL');
 </div>
 
 <div class="page-breadcrumb" data-pagefind-meta="chapter"><a href="../index.html">Part III: Working with LLMs</a><span class="bc-sep">›</span><a href="index.html">Chapter 13: Hybrid ML+LLM Architectures &amp; Decision Frameworks</a></div>
-<h1>Dataset Engineering for LLM Applications</h1>
-<div class="page-current">Section 13.5</div>
+<h1>Quality Filtering and Data Mixing Strategies</h1>
+<div class="page-current">Section 13.6</div>
 
 </header>
 <main class="content" id="main-content"><span class="pagefind-meta-injected" data-pagefind-meta="part:Part III: Working with LLMs" hidden=""></span><span class="pagefind-meta-injected" data-pagefind-meta="chapter:Chapter 13: Hybrid ML+LLM Architectures &amp; Decision Frameworks" hidden=""></span>
@@ -65,6 +74,14 @@ gtag('config', 'G-PWPHBQL2VL');
 <h2 id="13-6-1-quality-filtering">13.6.1 Quality Filtering</h2>
 <p>Raw datasets extracted from production logs contain noise at every level: duplicate entries from retry logic, toxic content from adversarial users, trivially easy examples that waste training compute, and excessively long responses that skew length distributions. Quality filtering removes these problems through a multi-stage pipeline that applies deduplication, toxicity detection, difficulty calibration, and length balancing in sequence.</p>
 <p>The order of operations matters. Deduplication should come first because it reduces the volume of data that downstream filters must process. Toxicity filtering comes second because toxic examples should never enter the difficulty calibration stage where they might be scored as "hard" and preserved. Length balancing comes last because earlier stages may shift the length distribution.</p>
+<h3 id="13-6-1-1-the-difficulty-calibration-objective">13.6.1.1 The Difficulty-Calibration Objective</h3>
+<p>The word-count heuristic in <strong>Code Fragment 13.6.1</strong> is a proxy for the quantity we actually care about: how much learning signal an example carries. State the objective explicitly. For a candidate example with target response tokens $y_1, \dots, y_n$ under the base model $p_\theta$, compute the mean per-token log-probability of the target:</p>
+<p>$$ s = \frac{1}{n} \sum_{t=1}^{n} \log p_\theta(y_t \mid y_{<t}, x). $$</p>
+<p>Here $x$ is the prompt, $y_{<t}$ the response tokens before position $t$, and $s$ the calibration score; it is the negative of the per-token cross-entropy loss, so a high $s$ means low loss and an easy example. The retention rule keeps a middle band, $s_{\text{low}} \le s \le s_{\text{high}}$, and drops both tails. The reason is a gradient argument. The cross-entropy loss on one token is $-\log p_\theta(y_t \mid \cdot)$, and its gradient with respect to the logits is $\nabla \ell = \hat{p} - e_{y_t}$, the difference between the model's predicted distribution $\hat{p}$ and the one-hot target $e_{y_t}$. When the example is too easy, the model already places almost all mass on the correct token, so $\hat{p} \approx e_{y_t}$, the gradient is near zero, and the optimizer takes a vanishingly small step: the example teaches nothing while still consuming a forward and backward pass. When the example is too hard, or the label is wrong, $\hat{p}$ is far from $e_{y_t}$ for the wrong reason, producing a large gradient that points toward noise; the model is pulled to fit a mislabeled or unlearnable target, which degrades generalization. The most informative examples sit in the middle band where the model is uncertain but the target is genuinely correct, so the gradient is large and points in a useful direction. In practice the band is set by percentile, for instance keeping the 10th to 90th percentile of $s$, with the exact cutoffs tuned on a small held-out validation set rather than fixed in advance.</p>
+<div class="callout key-insight">
+<div class="callout-title">Key Insight</div>
+<p>Difficulty calibration is loss-band filtering, not length filtering. Keep examples whose base-model loss is neither near zero (already learned, zero gradient) nor near the maximum (unlearnable or mislabeled, noisy gradient). The same logprob score $s$ also flags likely-mislabeled data: an example the base model finds extremely improbable is more often a bad label than a hard-but-valid case, which is why the upper-loss tail is dropped rather than upweighted.</p>
+</div>
 <div class="code-block-wrapper">
 <pre><code class="pygments-highlighted lang-python"><span class="kn">import</span><span class="w"> </span><span class="nn">hashlib</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">collections</span><span class="w"> </span><span class="kn">import</span> <span class="n">Counter</span>
@@ -157,6 +174,10 @@ gtag('config', 'G-PWPHBQL2VL');
 <h2 id="13-6-2-data-mixing-strategies">13.6.2 Data Mixing Strategies</h2>
 <p>A fine-tuning dataset is rarely a single monolithic collection. In practice, it is a mixture of instruction types (coding, writing, analysis, conversation), difficulty levels (simple lookups through complex multi-step reasoning), and data sources (production logs, synthetic generation, human annotation). The proportions in this mixture directly affect model behavior: over-representing coding examples produces a model that tries to write code for every query, while under-representing refusal examples produces a model that attempts dangerous tasks.</p>
 <p>The mixing strategy defines the sampling weights for each category. Two approaches dominate the literature. <strong>Proportional mixing</strong> samples each category in proportion to its natural frequency in production traffic, producing a model that mirrors real usage patterns. <strong>Stratified mixing</strong> oversamples rare but important categories (safety refusals, multi-step tool use, complex reasoning) to ensure the model handles edge cases well, even if they represent a small fraction of production traffic.</p>
+<h3 id="13-6-2-1-temperature-based-domain-reweighting">13.6.2.1 A Principled Weight Rule: Temperature Reweighting</h3>
+<p>"Oversample the rare categories" is a direction, not a rule; it does not say by how much. The established choice, used in multilingual pretraining mixtures and formalized by the UniMax and DoReMi lines of work, is temperature-based reweighting. Given $D$ domains with example counts $n_d$, set the sampling weight of domain $d$ to:</p>
+<p>$$ w_d = \frac{n_d^{1/T}}{\sum_{d'=1}^{D} n_{d'}^{1/T}}, $$</p>
+<p>where the denominator simply renormalizes so the weights sum to one. The single knob is the temperature $T$. At $T = 1$ the exponent is $1$ and $w_d \propto n_d$, recovering proportional mixing: large domains keep their natural dominance. As $T \to \infty$ the exponent $1/T \to 0$, every $n_d^{1/T} \to 1$, and the weights flatten toward the uniform $1/D$, fully equalizing domains regardless of size. The interesting regime is $T < 1$ (sometimes written as raising counts to a power above one), which sharpens toward the head; the practical lever for upweighting small domains is the range $1 < T < \infty$, which compresses the gap between large and small domains without erasing it. Concretely, take two domains with $n_{\text{large}} = 1{,}000{,}000$ and $n_{\text{small}} = 10{,}000$, a 100-to-1 raw ratio. At $T = 1$ the small domain gets weight $10{,}000 / 1{,}010{,}000 \approx 0.99\%$. At $T = 2$ the counts become $\sqrt{1{,}000{,}000} = 1000$ and $\sqrt{10{,}000} = 100$, a 10-to-1 ratio, so the small domain's weight rises to $100 / 1100 \approx 9.1\%$, a roughly $9\times$ upweighting from a single temperature change. Raising $T$ further toward $4$ shrinks the ratio toward $3.2$-to-1 and pushes the small domain past 23%. The temperature thus gives a continuous, auditable dial from "mirror production frequency" to "treat every domain equally", replacing ad hoc per-domain multipliers with one interpretable parameter.</p>
 <div class="callout key-insight">
 <div class="callout-title">Key Insight: Mental Model: The Balanced Diet</div>
 <p>Data mixing is nutritional planning for your model. A diet of only desserts (easy, common queries) produces a model that is pleasant but incapable of anything demanding. A diet of only protein (hard reasoning tasks) produces a model that over-thinks simple questions. The goal is a balanced mix where every category is represented in proportion to its importance (not its frequency). Just as a nutritionist adjusts macros based on an athlete's goals, you adjust mixing ratios based on your model's intended use case. A customer support model needs heavier conversation and refusal ratios; a coding assistant needs heavier code and tool-use ratios.</p>
