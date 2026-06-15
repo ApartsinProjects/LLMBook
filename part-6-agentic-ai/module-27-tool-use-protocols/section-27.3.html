@@ -114,6 +114,106 @@ gtag('config', 'G-PWPHBQL2VL');
  </p>
 <p>A2A supports both synchronous and <a href="../../part-3-working-with-llms/module-11-llm-apis/section-11.2.html">streaming</a> task execution. For quick operations (a lookup, a simple check), the client sends a request and receives a complete response. For long-running operations (document analysis, multi-step processing), the server streams progress updates and partial results. The client can monitor task state, cancel tasks that are taking too long, and handle timeouts gracefully. This flexibility accommodates the wide range of latencies inherent in agentic systems.
  </p>
+<p>The six states form a finite state machine, and treating it as one (rather than as a loose set of status strings) is what makes A2A clients robust. Three of the states are <em>terminal</em> (<code>completed</code>, <code>failed</code>, <code>canceled</code>): once a task enters them no further transition is legal, so a client can safely release any resources it was holding. Two states are <em>active</em> (<code>working</code>, <code>input-required</code>): the task is alive and the client must keep listening. The one <em>initial</em> state (<code>submitted</code>) exists only briefly between the client posting the task and the server picking it up. Algorithm 27.3.1 below makes the legal transitions and their triggering events explicit; the client and server each maintain their own copy of this machine and the protocol's status-update messages are how they keep the two copies in sync.
+ </p>
+<div class="callout algorithm">
+<div class="callout-title">Algorithm 27.3.1</div>
+<p>The A2A task lifecycle as a state machine. The left column is the current state, the event is what the server observes or the client sends, and the right column is the resulting state. Only transitions listed here are legal; a status-update message announcing any other pair indicates a non-conforming peer and should be rejected. Terminal states (<code>completed</code>, <code>failed</code>, <code>canceled</code>) absorb: no event moves the task out of them.</p>
+<div class="code-block-wrapper">
+<pre class=""><code class="pygments-highlighted lang-text"><span class="algo-line-keyword">Input:</span> a task created by the client via tasks/send
+<span class="algo-line-keyword">Output:</span> a task that ends in exactly one terminal state
+<span class="algo-line-keyword">States:</span> submitted (initial), working, input-required (active),
+        completed, failed, canceled (terminal)
+
+1. start in submitted
+   <span class="algo-line-comment">// client has posted the task; server has not yet begun work</span>
+
+2. transitions (current_state --[event]--> next_state):
+   submitted      --[server dequeues and begins]--> working
+   working        --[server needs a clarification/file]--> input-required
+   input-required --[client supplies the requested input]--> working
+   working        --[server produces the final artifact]--> completed
+   working        --[unrecoverable error]--> failed
+   input-required --[input deadline exceeded]--> failed
+   any-active     --[client sends tasks/cancel]--> canceled
+
+3. on entering a terminal state:
+   a. server emits a final TaskStatusUpdateEvent with final=true
+   b. client stops polling/streaming and releases the task handle
+</code></pre>
+</div>
+</div>
+<p>Two pieces of structure in Algorithm 27.3.1 are worth dwelling on. First, the only way back into <code>working</code> from <code>input-required</code> is a client-supplied input: the server cannot un-stick itself, which is precisely the property that lets a human or a calling agent stay in the loop on consequential decisions. Second, <code>canceled</code> is reachable from any active state but never from a terminal one, so a late <code>tasks/cancel</code> arriving after <code>completed</code> is a no-op rather than an error. Encoding these rules in the client (rejecting illegal transitions, ignoring post-terminal events) is what separates a robust A2A integration from one that corrupts its own task table when a peer misbehaves.
+ </p>
+<h3 id="a2a-jsonrpc-trace">A Worked JSON-RPC Delegation Trace</h3>
+<p>To see the lifecycle in motion, consider an Intake Agent (the client) delegating a KYC check to the compliance agent whose Agent Card appears in <a href="#agent-cards">Code Fragment 27.3.1a</a>. <strong>Assumptions:</strong> the transport is HTTPS POST to the agent's <code>url</code> with each body a single JSON-RPC 2.0 object; authentication is a bearer token (from the card's <code>authentication.tokenUrl</code>) carried in the <code>Authorization</code> header on every request, so it is omitted from the bodies below for brevity; because the card advertises <code>"streaming": true</code>, the client opens the task with <code>tasks/sendSubscribe</code> and the server pushes status updates over Server-Sent Events rather than making the client poll. The following sequence of JSON-RPC messages walks the task through <code>submitted</code> to <code>working</code> to <code>input-required</code> to <code>working</code> to <code>completed</code>.
+ </p>
+<p>The client opens the task. The <code>method</code> is <code>tasks/sendSubscribe</code>; the <code>params</code> carry a client-chosen task <code>id</code> and the first <code>message</code> (role <code>user</code>, a text part naming the document to check):
+ </p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-json"><span class="cm">// 1. Client -&gt; Server: open the task and subscribe to updates</span>
+<span class="p">{</span>
+<span class="w"> </span><span class="nt">"jsonrpc"</span><span class="p">:</span> <span class="s2">"2.0"</span><span class="p">,</span>
+<span class="w"> </span><span class="nt">"id"</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span>
+<span class="w"> </span><span class="nt">"method"</span><span class="p">:</span> <span class="s2">"tasks/sendSubscribe"</span><span class="p">,</span>
+<span class="w"> </span><span class="nt">"params"</span><span class="p">:</span> <span class="p">{</span>
+<span class="w">  </span><span class="nt">"id"</span><span class="p">:</span> <span class="s2">"task-kyc-7f3a"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"message"</span><span class="p">:</span> <span class="p">{</span>
+<span class="w">   </span><span class="nt">"role"</span><span class="p">:</span> <span class="s2">"user"</span><span class="p">,</span>
+<span class="w">   </span><span class="nt">"parts"</span><span class="p">:</span> <span class="p">[{</span><span class="nt">"type"</span><span class="p">:</span> <span class="s2">"text"</span><span class="p">,</span> <span class="nt">"text"</span><span class="p">:</span> <span class="s2">"Run a KYC check on applicant 88412."</span><span class="p">}]</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="w"> </span><span class="p">}</span>
+<span class="p">}</span></code></pre>
+<div class="code-caption"><strong>Code Fragment 27.3.2a:</strong> The opening request. The client-assigned <code>params.id</code> (<code>task-kyc-7f3a</code>) names the task for the lifetime of the exchange, and <code>tasks/sendSubscribe</code> (rather than plain <code>tasks/send</code>) is what asks the server to stream subsequent status changes.</div>
+</div>
+<p>The server acknowledges by returning the task in <code>submitted</code> state, then immediately streams a <code>working</code> update as it dequeues the job. Each streamed event is a JSON-RPC <em>result</em> on the original request id, carrying a <code>status.state</code> field:
+ </p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-json"><span class="cm">// 2. Server -&gt; Client (initial result): task accepted</span>
+<span class="p">{</span><span class="nt">"jsonrpc"</span><span class="p">:</span> <span class="s2">"2.0"</span><span class="p">,</span> <span class="nt">"id"</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span>
+<span class="w"> </span><span class="nt">"result"</span><span class="p">:</span> <span class="p">{</span><span class="nt">"id"</span><span class="p">:</span> <span class="s2">"task-kyc-7f3a"</span><span class="p">,</span> <span class="nt">"status"</span><span class="p">:</span> <span class="p">{</span><span class="nt">"state"</span><span class="p">:</span> <span class="s2">"submitted"</span><span class="p">}}}</span>
+
+<span class="cm">// 3. Server -&gt; Client (streamed): work has begun</span>
+<span class="p">{</span><span class="nt">"jsonrpc"</span><span class="p">:</span> <span class="s2">"2.0"</span><span class="p">,</span> <span class="nt">"id"</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span>
+<span class="w"> </span><span class="nt">"result"</span><span class="p">:</span> <span class="p">{</span><span class="nt">"id"</span><span class="p">:</span> <span class="s2">"task-kyc-7f3a"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"status"</span><span class="p">:</span> <span class="p">{</span><span class="nt">"state"</span><span class="p">:</span> <span class="s2">"working"</span><span class="p">},</span> <span class="nt">"final"</span><span class="p">:</span> <span class="kc">false</span><span class="p">}}</span></code></pre>
+<div class="code-caption"><strong>Code Fragment 27.3.2b:</strong> The <code>submitted</code> to <code>working</code> transition observed by the client. Both messages are JSON-RPC results sharing <code>id: 1</code>; the <code>final: false</code> flag tells the client more updates are coming, matching step 1 of Algorithm 27.3.1.</div>
+</div>
+<p>Mid-task the server discovers the passport scan is missing, so it transitions to <code>input-required</code> and streams an <code>agent</code> message describing exactly what it needs. The client (or the human behind it) answers by sending a follow-up <code>tasks/send</code> on the same task id, which drives the machine back to <code>working</code>:
+ </p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-json"><span class="cm">// 4. Server -&gt; Client (streamed): more input is needed</span>
+<span class="p">{</span><span class="nt">"jsonrpc"</span><span class="p">:</span> <span class="s2">"2.0"</span><span class="p">,</span> <span class="nt">"id"</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span>
+<span class="w"> </span><span class="nt">"result"</span><span class="p">:</span> <span class="p">{</span><span class="nt">"id"</span><span class="p">:</span> <span class="s2">"task-kyc-7f3a"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"status"</span><span class="p">:</span> <span class="p">{</span><span class="nt">"state"</span><span class="p">:</span> <span class="s2">"input-required"</span><span class="p">,</span>
+<span class="w">   </span><span class="nt">"message"</span><span class="p">:</span> <span class="p">{</span><span class="nt">"role"</span><span class="p">:</span> <span class="s2">"agent"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"parts"</span><span class="p">:</span> <span class="p">[{</span><span class="nt">"type"</span><span class="p">:</span> <span class="s2">"text"</span><span class="p">,</span> <span class="nt">"text"</span><span class="p">:</span> <span class="s2">"Provide a passport scan for applicant 88412."</span><span class="p">}]}},</span>
+<span class="w">  </span><span class="nt">"final"</span><span class="p">:</span> <span class="kc">false</span><span class="p">}}</span>
+
+<span class="cm">// 5. Client -&gt; Server: supply the requested input on the same task id</span>
+<span class="p">{</span><span class="nt">"jsonrpc"</span><span class="p">:</span> <span class="s2">"2.0"</span><span class="p">,</span> <span class="nt">"id"</span><span class="p">:</span> <span class="mi">2</span><span class="p">,</span> <span class="nt">"method"</span><span class="p">:</span> <span class="s2">"tasks/send"</span><span class="p">,</span>
+<span class="w"> </span><span class="nt">"params"</span><span class="p">:</span> <span class="p">{</span><span class="nt">"id"</span><span class="p">:</span> <span class="s2">"task-kyc-7f3a"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"message"</span><span class="p">:</span> <span class="p">{</span><span class="nt">"role"</span><span class="p">:</span> <span class="s2">"user"</span><span class="p">,</span>
+<span class="w">   </span><span class="nt">"parts"</span><span class="p">:</span> <span class="p">[{</span><span class="nt">"type"</span><span class="p">:</span> <span class="s2">"file"</span><span class="p">,</span> <span class="nt">"file"</span><span class="p">:</span> <span class="p">{</span><span class="nt">"name"</span><span class="p">:</span> <span class="s2">"passport.png"</span><span class="p">,</span> <span class="nt">"uri"</span><span class="p">:</span> <span class="s2">"https://files.example.com/88412/passport.png"</span><span class="p">}}]}}}</span></code></pre>
+<div class="code-caption"><strong>Code Fragment 27.3.2c:</strong> The <code>input-required</code> round trip. The server's update carries an <code>agent</code>-role message stating precisely what is missing; the client's reply reuses <code>params.id: task-kyc-7f3a</code> so the server resumes the existing task rather than starting a new one, executing the <code>input-required</code> to <code>working</code> edge.</div>
+</div>
+<p>With the passport in hand the server finishes, transitioning <code>working</code> to <code>completed</code> and attaching the result as an <code>artifact</code>. The final event sets <code>final: true</code>, which (per step 3 of Algorithm 27.3.1) tells the client to stop listening and release the handle:
+ </p>
+<div class="code-block-wrapper">
+<pre><code class="pygments-highlighted lang-json"><span class="cm">// 6. Server -&gt; Client (streamed, terminal): task done, artifact attached</span>
+<span class="p">{</span><span class="nt">"jsonrpc"</span><span class="p">:</span> <span class="s2">"2.0"</span><span class="p">,</span> <span class="nt">"id"</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span>
+<span class="w"> </span><span class="nt">"result"</span><span class="p">:</span> <span class="p">{</span><span class="nt">"id"</span><span class="p">:</span> <span class="s2">"task-kyc-7f3a"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"status"</span><span class="p">:</span> <span class="p">{</span><span class="nt">"state"</span><span class="p">:</span> <span class="s2">"completed"</span><span class="p">},</span>
+<span class="w">  </span><span class="nt">"artifacts"</span><span class="p">:</span> <span class="p">[{</span><span class="nt">"name"</span><span class="p">:</span> <span class="s2">"kyc_result"</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">"parts"</span><span class="p">:</span> <span class="p">[{</span><span class="nt">"type"</span><span class="p">:</span> <span class="s2">"text"</span><span class="p">,</span> <span class="nt">"text"</span><span class="p">:</span> <span class="s2">"KYC PASS: identity verified, no sanctions match."</span><span class="p">}]}],</span>
+<span class="w">  </span><span class="nt">"final"</span><span class="p">:</span> <span class="kc">true</span><span class="p">}}</span></code></pre>
+<div class="code-caption"><strong>Code Fragment 27.3.2d:</strong> The terminal <code>completed</code> result. The verdict travels in <code>artifacts</code> (named, reusable outputs) rather than in a transient status message, and <code>final: true</code> closes the SSE stream, completing the <code>submitted -&gt; working -&gt; input-required -&gt; working -&gt; completed</code> path traced in Algorithm 27.3.1.</div>
+</div>
+<div class="callout warning">
+<div class="callout-title">Warning</div>
+<div class="callout-subtitle">Two failure modes the state machine does not fix for free</div>
+<p>The lifecycle is clean on paper but two failure modes survive into production. <strong>The lost update:</strong> A2A status changes stream over SSE, and SSE has no built-in redelivery, so a dropped connection during the <code>working</code> to <code>completed</code> transition leaves the client believing the task is still <code>working</code> while the server considers it done. The fix is to treat the stream as a hint and reconcile against authoritative state with a <code>tasks/get</code> poll on reconnect, using the client-assigned task id; never let a missed event be the only record of a terminal transition. <strong>Stuck in input-required:</strong> if the client agent that asked for the passport crashes before answering, the task sits in <code>input-required</code> forever, holding server resources, because nothing in the core machine forces progress. Production servers add a timeout edge (the <code>input-required</code> to <code>failed</code> transition shown in Algorithm 27.3.1) so an unanswered request eventually fails cleanly rather than leaking the task.</p>
+</div>
 <div class="callout practical-example">
 <div class="callout-title">Real-World Scenario: Multi-Agent Loan Processing with A2A</div>
 <p><strong>Who:</strong> An engineering director at a regional bank modernizing their mortgage application pipeline.</p>
